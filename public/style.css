@@ -349,3 +349,149 @@ body::before {
   animation: fadeUp 0.3s ease;
 }
 .clip-toast.hidden { display: none !important; }
+
+/* ── SETUP SCREEN ── */
+.setup-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  z-index: 5;
+  width: 100%;
+  max-width: 420px;
+  padding: 0 24px;
+}
+
+.setup-step {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+.setup-step.hidden { display: none !important; }
+
+.setup-label {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.22em;
+  color: var(--blue);
+  text-align: center;
+  margin-bottom: 4px;
+}
+.setup-hint {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  text-align: center;
+  line-height: 1.6;
+  letter-spacing: 0.05em;
+}
+
+input[type="text"],
+input[type="password"],
+select {
+  width: 100%;
+  background: rgba(0,200,255,0.05);
+  border: 1px solid var(--blue-dim);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  padding: 10px 14px;
+  border-radius: 3px;
+  outline: none;
+  letter-spacing: 0.08em;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+input[type="text"]:focus,
+input[type="password"]:focus,
+select:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 10px var(--blue-glow);
+}
+select option { background: var(--bg2); }
+
+.hud-btn {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--blue);
+  color: var(--blue);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  padding: 11px 20px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  margin-top: 4px;
+}
+.hud-btn:hover {
+  background: rgba(0,200,255,0.1);
+  box-shadow: 0 0 14px var(--blue-glow);
+}
+.hud-btn.secondary {
+  border-color: var(--text-dim);
+  color: var(--text-dim);
+  font-size: 0.65rem;
+}
+.hud-btn.secondary:hover {
+  background: rgba(255,255,255,0.04);
+  box-shadow: none;
+}
+
+.sample-status {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--blue);
+  letter-spacing: 0.15em;
+  text-align: center;
+}
+.sample-count {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  letter-spacing: 0.15em;
+}
+
+/* ── PASSWORD FALLBACK on auth screen ── */
+.password-fallback {
+  width: 100%;
+  max-width: 300px;
+  margin-top: 4px;
+}
+
+/* ── MIC DEBUG ── */
+.mic-debug {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+  margin-top: 8px;
+  text-align: center;
+  min-height: 18px;
+}
+
+/* ── HEARD TEXT in auth prompt ── */
+.heard-text {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--blue);
+  letter-spacing: 0.1em;
+  margin-top: 4px;
+  min-height: 20px;
+  text-align: center;
+}
+
+/* ── LIVE MIC in chat ── */
+.live-mic {
+  width: 100%;
+  max-width: 820px;
+  align-self: center;
+  padding: 4px 40px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+  min-height: 22px;
+}
+.live-mic.hidden { display: none !important; }
