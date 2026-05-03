@@ -11,21 +11,52 @@ const state = {
   clipChunks: [],
   clipTimestamps: [],
   screenStream: null,
-  // Voice samples: array of strings the user recorded
   voiceSamples: [],
   recordingSamples: false,
   sampleCount: 0,
 };
 
-// ── PROFILE (stored in localStorage) ──
-// { name, passwordHash, title, voiceAliases: [] }
+// ── PROFILE (localStorage is cache for speed; backend is the source of truth) ──
 function loadProfile() {
   try { return JSON.parse(localStorage.getItem("jarvis_profile")) || null; }
   catch { return null; }
 }
-function saveProfile(p) {
+function saveProfileLocal(p) {
   localStorage.setItem("jarvis_profile", JSON.stringify(p));
 }
+
+// Save profile to backend (persists across cache clears)
+async function saveProfileRemote(p) {
+  try {
+    await fetch("/api/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(p),
+    });
+  } catch (e) {
+    console.warn("[JARVIS] Could not save profile to backend:", e);
+  }
+}
+
+// Try to restore profile from backend by stored name hint
+async function restoreProfileFromBackend() {
+  // We store just the name hint in localStorage (not the full profile)
+  const nameHint = localStorage.getItem("jarvis_name_hint");
+  if (!nameHint) return null;
+  try {
+    const res = await fetch(`/api/profile/${encodeURIComponent(nameHint)}`);
+    const data = await res.json();
+    if (data.found) {
+      // Restore passwordHash from local storage (we keep it there for login)
+      const localHash = localStorage.getItem("jarvis_pw_hash");
+      return { ...data.profile, passwordHash: localHash || "" };
+    }
+  } catch (e) {
+    console.warn("[JARVIS] Backend restore failed:", e);
+  }
+  return null;
+}
+
 // Simple hash — not crypto-secure but fine for a personal app
 async function hashPassword(pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw));
@@ -124,26 +155,21 @@ function stopListening() {
 }
 
 // ── NAME MATCHING ──
-// Returns true if the spoken text matches the user's name or any saved alias
 function matchesUser(text, profile) {
   if (!profile) return false;
   const lower = text.toLowerCase().replace(/[^a-z\s]/g, "").trim();
   const name  = profile.name.toLowerCase();
 
-  // Direct match
   if (lower.includes(name)) return true;
 
-  // Check saved voice aliases (what they recorded)
   if (profile.voiceAliases) {
     for (const alias of profile.voiceAliases) {
       const a = alias.toLowerCase().replace(/[^a-z\s]/g, "").trim();
       if (a && lower.includes(a)) return true;
-      // Fuzzy: if first 3 chars match
       if (a.length >= 3 && lower.includes(a.slice(0,3))) return true;
     }
   }
 
-  // Phonetic: check if it starts similarly (first 3 chars of name)
   if (name.length >= 3) {
     const words = lower.split(" ");
     for (const w of words) {
@@ -219,37 +245,74 @@ function completeSetup() {
   $("setup-summary").textContent =
     `Profile created for ${p.name} (${p.title}). ${aliases}`;
 
-  $("btn-launch").addEventListener("click", () => {
-    saveProfile(p);
+  $("btn-launch").addEventListener("click", async () => {
+    // Save locally
+    saveProfileLocal(p);
+    // Save name hint and password hash separately for backend restore
+    localStorage.setItem("jarvis_name_hint", p.name.toLowerCase());
+    localStorage.setItem("jarvis_pw_hash", p.passwordHash);
+    // Save to backend (source of truth)
+    await saveProfileRemote(p);
     setupScreen.classList.remove("active");
     showAuthScreen();
   });
 }
 
 // ── AUTH SCREEN ──
-function showAuthScreen() {
+async function showAuthScreen() {
   authScreen.classList.add("active");
   setupScreen.classList.remove("active");
   mainScreen.classList.remove("active");
 
   // Password input — press Enter to auth
   const pwInput = $("auth-password-input");
-  pwInput.addEventListener("keydown", async (e) => {
-    if (e.key === "Enter") {
-      const profile = loadProfile();
-      const hash = await hashPassword(pwInput.value);
-      pwInput.value = "";
-      if (profile && hash === profile.passwordHash) {
-        state.user      = profile.name;
-        state.userTitle = profile.title;
-        speak(`Welcome back, ${profile.title}.`, launchMain);
-      } else {
-        authStatus.innerHTML = `<span style="color:var(--red)">Wrong password.</span>`;
-        setTimeout(() => {
-          authStatus.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> to begin`;
-        }, 2000);
+
+  // Remove any previous listener by cloning
+  const newPwInput = pwInput.cloneNode(true);
+  pwInput.parentNode.replaceChild(newPwInput, pwInput);
+
+  newPwInput.addEventListener("keydown", async (e) => {
+    if (e.key !== "Enter") return;
+    const profile = loadProfile();
+    const hash = await hashPassword(newPwInput.value);
+    newPwInput.value = "";
+
+    if (profile && hash === profile.passwordHash) {
+      state.user      = profile.name;
+      state.userTitle = profile.title;
+      speak(`Welcome back, ${profile.title}.`, launchMain);
+      return;
+    }
+
+    // Fallback: verify against backend (in case localStorage was cleared)
+    const nameHint = localStorage.getItem("jarvis_name_hint");
+    if (nameHint) {
+      try {
+        const res = await fetch("/api/verify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: nameHint, passwordHash: hash }),
+        });
+        const data = await res.json();
+        if (data.authorized) {
+          // Restore profile locally
+          const restored = { ...data.profile, passwordHash: hash };
+          saveProfileLocal(restored);
+          localStorage.setItem("jarvis_pw_hash", hash);
+          state.user      = data.profile.name;
+          state.userTitle = data.profile.title;
+          speak(`Welcome back, ${data.profile.title}. Profile restored from secure storage.`, launchMain);
+          return;
+        }
+      } catch (err) {
+        console.warn("[JARVIS] Backend verify failed:", err);
       }
     }
+
+    authStatus.innerHTML = `<span style="color:var(--red)">Wrong password.</span>`;
+    setTimeout(() => {
+      authStatus.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> to begin`;
+    }, 2000);
   });
 
   startIdleLoop();
@@ -263,7 +326,6 @@ function startIdleLoop() {
     micDebug.textContent = "Mic: " + text;
 
     if (state.phase === "idle") {
-      // Trigger login — be generous with "jarvis" detection
       const hasJarvis = lower.includes("jarvis") || lower.includes("travis") ||
                         lower.includes("jarvas") || lower.includes("jarvi");
       const hasLogin  = lower.includes("log") || lower.includes("login") ||
@@ -290,7 +352,6 @@ function startVoiceAuth() {
   heardText.textContent = "Listening…";
 
   speak("Identify yourself.", () => {
-    // Listen for name with interim updates so user sees what's being heard
     const r = new SR();
     r.continuous     = false;
     r.interimResults = true;
@@ -301,7 +362,7 @@ function startVoiceAuth() {
     r.onresult = (e) => {
       const result = e.results[0];
       const text   = result[0].transcript.trim();
-      heardText.textContent = text; // live feedback
+      heardText.textContent = text;
       if (result.isFinal) {
         state.isListening = false;
         authPrompt.classList.add("hidden");
@@ -327,32 +388,44 @@ async function checkVoiceAuth(spokenText) {
   authStatus.textContent = `Heard: "${spokenText}" — verifying…`;
   setOrb("thinking");
 
-  setTimeout(() => {
-    if (!profile) {
-      authStatus.innerHTML = `<span style="color:var(--red)">No profile found. Please set up first.</span>`;
-      setOrb("idle");
-      state.phase = "idle";
-      setTimeout(startIdleLoop, 2000);
-      return;
-    }
+  // Try local profile first
+  if (profile && matchesUser(spokenText, profile)) {
+    state.user      = profile.name;
+    state.userTitle = profile.title;
+    setOrb("idle");
+    speak(`Welcome back, ${profile.title}.`, launchMain);
+    return;
+  }
 
-    if (matchesUser(spokenText, profile)) {
-      state.user      = profile.name;
-      state.userTitle = profile.title;
-      setOrb("idle");
-      speak(`Welcome back, ${profile.title}.`, launchMain);
-    } else {
-      setOrb("idle");
-      authStatus.innerHTML = `<span style="color:var(--red)">Access denied. I heard "${spokenText}" — not recognized.</span>`;
-      speak("Access denied. Identity not recognized.", () => {
-        setTimeout(() => {
-          authStatus.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> to begin`;
-          state.phase = "idle";
-          startIdleLoop();
-        }, 1800);
-      });
+  // Fallback: check backend profiles list (works after cache clear)
+  try {
+    const res  = await fetch("/api/profiles");
+    const data = await res.json();
+    for (const p of (data.profiles || [])) {
+      if (matchesUser(spokenText, p)) {
+        // Found on backend — restore name hint so password login works
+        localStorage.setItem("jarvis_name_hint", p.name.toLowerCase());
+        state.user      = p.name;
+        state.userTitle = p.title;
+        setOrb("idle");
+        speak(`Welcome back, ${p.title}. Identity confirmed.`, launchMain);
+        return;
+      }
     }
-  }, 600);
+  } catch (e) {
+    console.warn("[JARVIS] Profile list fetch failed:", e);
+  }
+
+  // Not found anywhere
+  setOrb("idle");
+  authStatus.innerHTML = `<span style="color:var(--red)">Access denied. I heard "${spokenText}" — not recognized.</span>`;
+  speak("Access denied. Identity not recognized.", () => {
+    setTimeout(() => {
+      authStatus.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> to begin`;
+      state.phase = "idle";
+      startIdleLoop();
+    }, 1800);
+  });
 }
 
 // ── MAIN ──
@@ -367,10 +440,14 @@ function launchMain() {
 }
 
 // ── CHAT ──
+// Words that are ONLY wake-word triggers and should NOT be forwarded to AI alone
+const ONLY_TRIGGERS = /^(jarvis|travis|jarvas|jarvi)[,.]?\s*$/i;
+
 function handleChatCommand(text) {
   const lower = text.toLowerCase();
   const hasJarvis = lower.includes("jarvis") || lower.includes("travis") ||
                     lower.includes("jarvas") || lower.includes("jarvi");
+
   if (!hasJarvis) {
     liveMic.classList.remove("hidden");
     liveMic.textContent = "Heard: " + text + " (say 'Jarvis' first)";
@@ -386,8 +463,22 @@ function handleChatCommand(text) {
     saveClip(); return;
   }
 
+  // Strip the wake word
   const cleaned = text.replace(/\b(jarvis|travis|jarvas|jarvi)\b[,.]?\s*/gi, "").trim();
-  if (!cleaned) return;
+
+  // If nothing left after stripping (user just said "Jarvis"), give a short acknowledgement
+  if (!cleaned) {
+    const acks = [
+      `Yes, ${state.userTitle}?`,
+      `At your service, ${state.userTitle}.`,
+      `How can I help, ${state.userTitle}?`,
+    ];
+    const ack = acks[Math.floor(Math.random() * acks.length)];
+    addMsg("jarvis", ack);
+    speak(ack, () => startIdleLoop());
+    return;
+  }
+
   sendToAI(cleaned);
 }
 
@@ -496,15 +587,24 @@ function stopScreenRecord() {
 }
 
 // ── BOOT ──
-window.addEventListener("load", () => {
+window.addEventListener("load", async () => {
   setTimeout(() => {
     const w = new SpeechSynthesisUtterance(" ");
     w.volume = 0; speechSynthesis.speak(w);
   }, 500);
 
-  const profile = loadProfile();
+  let profile = loadProfile();
+
+  // If no local profile, try to restore from backend using name hint
   if (!profile) {
-    // First time — show setup
+    profile = await restoreProfileFromBackend();
+    if (profile) {
+      saveProfileLocal(profile);
+      console.log("[JARVIS] Profile restored from backend:", profile.name);
+    }
+  }
+
+  if (!profile) {
     showSetup();
   } else {
     showAuthScreen();
