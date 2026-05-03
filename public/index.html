@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>J.A.R.V.I.S</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+  <!-- AUTH SCREEN -->
+  <div id="auth-screen" class="screen active">
+    <div class="scanline"></div>
+    <div class="auth-container">
+      <div class="arc-reactor">
+        <div class="arc-ring ring1"></div>
+        <div class="arc-ring ring2"></div>
+        <div class="arc-ring ring3"></div>
+        <div class="arc-core"></div>
+      </div>
+      <h1 class="jarvis-title">J.A.R.V.I.S</h1>
+      <p class="jarvis-sub">Just A Rather Very Intelligent System</p>
+      <div id="auth-status" class="auth-status">
+        Say <span class="highlight">"Jarvis, log in"</span> to begin
+      </div>
+      <div id="auth-prompt" class="auth-prompt hidden">
+        <div class="prompt-text">IDENTIFY YOURSELF</div>
+        <div class="voice-bars">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+      <div id="auth-listening" class="listening-badge hidden">● LISTENING</div>
+    </div>
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+  </div>
+
+  <!-- MAIN SCREEN -->
+  <div id="main-screen" class="screen">
+    <div class="scanline"></div>
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+
+    <div class="hud-top">
+      <div class="hud-block">
+        <span class="hud-label">SYSTEM STATUS</span>
+        <span class="hud-val" id="status-text">STANDBY</span>
+      </div>
+      <div class="hud-center-col">
+        <div class="orb" id="orb">
+          <div class="orb-ring r1"></div>
+          <div class="orb-ring r2"></div>
+          <div class="orb-core"></div>
+        </div>
+      </div>
+      <div class="hud-block right">
+        <span class="hud-label">AUTHORIZED USER</span>
+        <span class="hud-val" id="user-display">—</span>
+      </div>
+    </div>
+
+    <div class="transcript-area" id="transcript"></div>
+
+    <div class="hud-bottom">
+      <div id="clip-indicator" class="clip-indicator hidden">
+        <span class="rec-dot"></span> BUFFER RECORDING
+      </div>
+      <div class="hints">
+        <span>"Jarvis, [anything]"</span>
+        <span class="sep">·</span>
+        <span>"Jarvis, clip that"</span>
+        <span class="sep">·</span>
+        <span>"Jarvis, log out"</span>
+      </div>
+    </div>
+
+    <div id="clip-toast" class="clip-toast hidden">✂ &nbsp;Clip saved — last 60 seconds</div>
+  </div>
+
+  <script src="jarvis.js"></script>
+</body>
+</html>
