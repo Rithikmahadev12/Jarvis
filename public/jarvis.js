@@ -318,6 +318,18 @@ async function showAuthScreen() {
   startIdleLoop();
 }
 
+// ── WAKE WORD ──
+// Strict match: only "jarvis" or "jarves" (common mishear). NO travis, jarvi, jarvas.
+// Uses word-boundary check so "travis" in the middle of a sentence can't sneak through.
+function hasWakeWord(lower) {
+  return /\bjarvi[sc]?\b/.test(lower);
+}
+
+// Strip wake word from a command string
+function stripWakeWord(text) {
+  return text.replace(/\bjarvi[sc]?\b[,.]?\s*/gi, "").trim();
+}
+
 // ── IDLE LOOP ──
 function startIdleLoop() {
   if (state.isListening) return;
@@ -326,11 +338,9 @@ function startIdleLoop() {
     micDebug.textContent = "Mic: " + text;
 
     if (state.phase === "idle") {
-      const hasJarvis = lower.includes("jarvis") || lower.includes("travis") ||
-                        lower.includes("jarvas") || lower.includes("jarvi");
-      const hasLogin  = lower.includes("log") || lower.includes("login") ||
-                        lower.includes("sign") || lower.includes("in");
-      if (hasJarvis && hasLogin) {
+      const hasLogin = lower.includes("log") || lower.includes("login") ||
+                       lower.includes("sign") || lower.includes("in");
+      if (hasWakeWord(lower) && hasLogin) {
         startVoiceAuth();
       }
     } else if (state.phase === "chatting") {
@@ -440,15 +450,10 @@ function launchMain() {
 }
 
 // ── CHAT ──
-// Words that are ONLY wake-word triggers and should NOT be forwarded to AI alone
-const ONLY_TRIGGERS = /^(jarvis|travis|jarvas|jarvi)[,.]?\s*$/i;
-
 function handleChatCommand(text) {
   const lower = text.toLowerCase();
-  const hasJarvis = lower.includes("jarvis") || lower.includes("travis") ||
-                    lower.includes("jarvas") || lower.includes("jarvi");
 
-  if (!hasJarvis) {
+  if (!hasWakeWord(lower)) {
     liveMic.classList.remove("hidden");
     liveMic.textContent = "Heard: " + text + " (say 'Jarvis' first)";
     return;
@@ -463,10 +468,9 @@ function handleChatCommand(text) {
     saveClip(); return;
   }
 
-  // Strip the wake word
-  const cleaned = text.replace(/\b(jarvis|travis|jarvas|jarvi)\b[,.]?\s*/gi, "").trim();
+  const cleaned = stripWakeWord(text);
 
-  // If nothing left after stripping (user just said "Jarvis"), give a short acknowledgement
+  // If nothing left after stripping (user just said "Jarvis"), acknowledge
   if (!cleaned) {
     const acks = [
       `Yes, ${state.userTitle}?`,
@@ -479,22 +483,103 @@ function handleChatCommand(text) {
     return;
   }
 
+  // ── MEMORY COMMANDS ──
+  const rememberMatch = cleaned.match(/^remember\s+(?:that\s+)?(.+)$/i);
+  const forgetMatch   = cleaned.match(/^forget\s+(?:about\s+)?(.+)$/i);
+  const recallMatch   = /^(what do you remember|recall everything|show.*memor|what.*remember)/i.test(cleaned);
+
+  if (rememberMatch) { saveMemory(rememberMatch[1].trim()); return; }
+  if (forgetMatch)   { forgetMemory(forgetMatch[1].trim()); return; }
+  if (recallMatch)   { recallMemories(); return; }
+
   sendToAI(cleaned);
+}
+
+// ── MEMORY ──
+async function saveMemory(fact) {
+  stopListening();
+  setOrb("thinking");
+  try {
+    await fetch("/api/memory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: state.user, fact }),
+    });
+    const reply = `Noted and filed, ${state.userTitle}. I'll remember that.`;
+    addMsg("jarvis", reply);
+    speak(reply, () => startIdleLoop());
+  } catch {
+    const reply = `I tried to remember that, ${state.userTitle}, but the memory banks seem unresponsive.`;
+    addMsg("jarvis", reply);
+    speak(reply, () => startIdleLoop());
+  }
+}
+
+async function forgetMemory(hint) {
+  stopListening();
+  setOrb("thinking");
+  try {
+    const res  = await fetch("/api/memory/forget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: state.user, hint }),
+    });
+    const data = await res.json();
+    const reply = data.removed > 0
+      ? `Done, ${state.userTitle}. ${data.removed} memory entry removed.`
+      : `I couldn't find anything matching that to forget, ${state.userTitle}.`;
+    addMsg("jarvis", reply);
+    speak(reply, () => startIdleLoop());
+  } catch {
+    addMsg("jarvis", `Memory deletion failed, ${state.userTitle}.`);
+    speak(`Memory deletion failed, ${state.userTitle}.`, () => startIdleLoop());
+  }
+}
+
+async function recallMemories() {
+  stopListening();
+  setOrb("thinking");
+  try {
+    const res   = await fetch(`/api/memory/${encodeURIComponent(state.user)}`);
+    const data  = await res.json();
+    const facts = data.memories || [];
+    if (!facts.length) {
+      const reply = `My memory banks are empty for you, ${state.userTitle}. Tell me something worth remembering.`;
+      addMsg("jarvis", reply); speak(reply, () => startIdleLoop()); return;
+    }
+    const list  = facts.map((f, i) => `${i+1}. ${f.fact}`).join("\n");
+    const reply = `I currently have ${facts.length} items on file, ${state.userTitle}:\n${list}`;
+    addMsg("jarvis", reply);
+    speak(`I have ${facts.length} items on file, ${state.userTitle}. Check the transcript for the full list.`, () => startIdleLoop());
+  } catch {
+    addMsg("jarvis", `Memory retrieval failed, ${state.userTitle}.`);
+    speak(`Memory retrieval failed, ${state.userTitle}.`, () => startIdleLoop());
+  }
+}
+
+async function loadMemoriesForPrompt() {
+  try {
+    const res  = await fetch(`/api/memory/${encodeURIComponent(state.user)}`);
+    const data = await res.json();
+    return (data.memories || []).map(m => m.fact);
+  } catch { return []; }
 }
 
 async function sendToAI(message) {
   stopListening();
   addMsg("user", message);
   setOrb("thinking");
+  const memories = await loadMemoriesForPrompt();
   try {
     const res  = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         message,
-        sessionId: state.sessionId,
-        userName:  state.user,
-        userTitle: state.userTitle,
+        sessionId:  state.sessionId,
+        userName:   state.user,
+        userTitle:  state.userTitle,
+        memories,
       }),
     });
     const data  = await res.json();
