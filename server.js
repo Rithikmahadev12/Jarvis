@@ -26,10 +26,12 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemi
 // Stored in data/profiles.json — survives cache clears, only lost if server resets (use a volume on Render)
 const DATA_DIR = path.join(__dirname, "data");
 const PROFILES_FILE = path.join(DATA_DIR, "profiles.json");
+const MEMORIES_FILE = path.join(DATA_DIR, "memories.json");
 
 function ensureDataDir() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(PROFILES_FILE)) fs.writeFileSync(PROFILES_FILE, JSON.stringify({}), "utf8");
+  if (!fs.existsSync(MEMORIES_FILE)) fs.writeFileSync(MEMORIES_FILE, JSON.stringify({}), "utf8");
 }
 
 function loadProfiles() {
@@ -41,6 +43,17 @@ function loadProfiles() {
 function saveProfiles(profiles) {
   ensureDataDir();
   fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf8");
+}
+
+function loadMemories() {
+  ensureDataDir();
+  try { return JSON.parse(fs.readFileSync(MEMORIES_FILE, "utf8")); }
+  catch { return {}; }
+}
+
+function saveMemories(mem) {
+  ensureDataDir();
+  fs.writeFileSync(MEMORIES_FILE, JSON.stringify(mem, null, 2), "utf8");
 }
 
 const sessions = {};
@@ -109,14 +122,57 @@ app.get("/api/profiles", (req, res) => {
   res.json({ profiles: list });
 });
 
+// ── MEMORY ──
+// GET /api/memory/:user  — fetch all memories for a user
+app.get("/api/memory/:user", (req, res) => {
+  const mem = loadMemories();
+  const key = req.params.user.toLowerCase().trim();
+  res.json({ memories: mem[key] || [] });
+});
+
+// POST /api/memory  — add a memory { user, fact }
+app.post("/api/memory", (req, res) => {
+  const { user, fact } = req.body;
+  if (!user || !fact) return res.status(400).json({ error: "Missing fields" });
+  const mem = loadMemories();
+  const key = user.toLowerCase().trim();
+  if (!mem[key]) mem[key] = [];
+  mem[key].push({ fact: fact.trim(), savedAt: new Date().toISOString() });
+  // Cap at 50 memories per user — drop oldest
+  if (mem[key].length > 50) mem[key] = mem[key].slice(-50);
+  saveMemories(mem);
+  console.log(`[JARVIS] Memory saved for ${key}: "${fact}"`);
+  res.json({ success: true });
+});
+
+// POST /api/memory/forget  — fuzzy-remove memories matching a hint { user, hint }
+app.post("/api/memory/forget", (req, res) => {
+  const { user, hint } = req.body;
+  if (!user || !hint) return res.status(400).json({ error: "Missing fields" });
+  const mem = loadMemories();
+  const key = user.toLowerCase().trim();
+  if (!mem[key]) return res.json({ removed: 0 });
+  const before = mem[key].length;
+  const hintLower = hint.toLowerCase();
+  mem[key] = mem[key].filter(m => !m.fact.toLowerCase().includes(hintLower));
+  const removed = before - mem[key].length;
+  saveMemories(mem);
+  res.json({ removed });
+});
+
 // ── CHAT ──
 app.post("/api/chat", async (req, res) => {
-  const { message, sessionId, userName, userTitle } = req.body;
+  const { message, sessionId, userName, userTitle, memories } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
 
   if (!sessions[sessionId]) sessions[sessionId] = [];
   sessions[sessionId].push({ role: "user", parts: [{ text: message }] });
   if (sessions[sessionId].length > 20) sessions[sessionId] = sessions[sessionId].slice(-20);
+
+  // Build memory context block
+  const memoryBlock = (memories && memories.length)
+    ? `\n\nLONG-TERM MEMORY (things ${userName} has told you to remember — reference naturally when relevant):\n${memories.map((m, i) => `${i+1}. ${m}`).join("\n")}`
+    : "";
 
   const systemInstruction = `You are J.A.R.V.I.S — Just A Rather Very Intelligent System — the AI assistant of ${userName}. You always address them as "${userTitle}".
 Your personality:
@@ -126,7 +182,7 @@ Your personality:
 - Always address the user as "${userTitle}" somewhere in your reply
 - Occasionally make clever observations
 - Never break character, never mention being an AI language model
-- If someone just says hello or hi or greets you, respond with a short witty greeting. Do NOT say you are having technical difficulties.`;
+- If someone just says hello or hi or greets you, respond with a short witty greeting. Do NOT say you are having technical difficulties.${memoryBlock}`;
 
   try {
     const response = await fetch(GEMINI_URL, {
