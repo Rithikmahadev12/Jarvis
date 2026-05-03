@@ -492,6 +492,13 @@ function handleChatCommand(text) {
   if (forgetMatch)   { forgetMemory(forgetMatch[1].trim()); return; }
   if (recallMatch)   { recallMemories(); return; }
 
+  // ── SCREEN READ COMMANDS ──
+  // Triggers: "what's on my screen", "read my screen", "analyse this", "what do you see", etc.
+  const screenMatch = /\b(what(?:'s| is) on (my )?screen|read (my )?screen|analyse (my )?screen|analyze (my )?screen|what do you see|describe (my )?screen|look at (my )?screen|scan (my )?screen)\b/i.test(cleaned)
+    || /\bscreen\b/i.test(cleaned) && /\b(what|read|show|tell|describe|analyse|analyze|look|see)\b/i.test(cleaned);
+
+  if (screenMatch) { readScreen(cleaned); return; }
+
   sendToAI(cleaned);
 }
 
@@ -565,6 +572,53 @@ async function loadMemoriesForPrompt() {
   } catch { return []; }
 }
 
+// ── SCREEN READ ──
+async function readScreen(question) {
+  stopListening();
+  setOrb("thinking");
+  addMsg("user", question || "What's on my screen?");
+
+  if (!state.screenStream) {
+    const reply = `I don't have screen access, ${state.userTitle}. Screen sharing must be active first.`;
+    addMsg("jarvis", reply); speak(reply, () => startIdleLoop()); return;
+  }
+
+  let frameB64;
+  try {
+    frameB64 = await captureScreenFrame();
+  } catch (e) {
+    console.error("[JARVIS] Frame capture failed:", e);
+  }
+
+  if (!frameB64) {
+    const reply = `The visual sensors are unresponsive, ${state.userTitle}. Try refreshing the screen share.`;
+    addMsg("jarvis", reply); speak(reply, () => startIdleLoop()); return;
+  }
+
+  const memories = await loadMemoriesForPrompt();
+  try {
+    const res  = await fetch("/api/screen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        frameB64,
+        question: question || "What is on the screen?",
+        userName:  state.user,
+        userTitle: state.userTitle,
+        memories,
+      }),
+    });
+    const data  = await res.json();
+    const reply = data.reply || `I couldn't interpret the screen, ${state.userTitle}.`;
+    addMsg("jarvis", reply);
+    speak(reply, () => startIdleLoop());
+  } catch {
+    const reply = `Screen analysis failed, ${state.userTitle}. The optical link dropped.`;
+    addMsg("jarvis", reply);
+    speak(reply, () => startIdleLoop());
+  }
+}
+
 async function sendToAI(message) {
   stopListening();
   addMsg("user", message);
@@ -627,7 +681,41 @@ async function requestScreenRecord() {
     startRollingBuffer(stream);
     clipIndicator.classList.remove("hidden");
   } catch {
-    addMsg("system", "Screen recording declined — 'clip that' unavailable.");
+    addMsg("system", "Screen recording declined — 'clip that' and 'read screen' unavailable.");
+  }
+}
+
+// Grab a single frame from the screen stream as a base64 JPEG
+function captureScreenFrame() {
+  if (!state.screenStream) return null;
+  const track = state.screenStream.getVideoTracks()[0];
+  if (!track) return null;
+  try {
+    // ImageCapture API — available in Chrome
+    const capture = new ImageCapture(track);
+    return capture.grabFrame().then(bitmap => {
+      const canvas = document.createElement("canvas");
+      canvas.width  = bitmap.width;
+      canvas.height = bitmap.height;
+      canvas.getContext("2d").drawImage(bitmap, 0, 0);
+      // Return base64 jpeg (quality 0.85 keeps size manageable)
+      return canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+    });
+  } catch {
+    // Fallback: draw current video frame via a hidden <video>
+    return new Promise(resolve => {
+      const video = document.createElement("video");
+      video.srcObject = new MediaStream([track]);
+      video.onloadedmetadata = () => {
+        video.play();
+        const canvas = document.createElement("canvas");
+        canvas.width  = video.videoWidth  || 1280;
+        canvas.height = video.videoHeight || 720;
+        canvas.getContext("2d").drawImage(video, 0, 0);
+        video.pause();
+        resolve(canvas.toDataURL("image/jpeg", 0.85).split(",")[1]);
+      };
+    });
   }
 }
 function startRollingBuffer(stream) {
