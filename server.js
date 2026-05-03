@@ -210,5 +210,56 @@ Your personality:
   }
 });
 
+// ── SCREEN VISION ──
+// Receives a base64 JPEG frame + question, sends to Gemini vision, returns a spoken reply
+app.post("/api/screen", async (req, res) => {
+  const { frameB64, question, userName, userTitle, memories } = req.body;
+  if (!frameB64) return res.status(400).json({ error: "No frame provided" });
+
+  const memoryBlock = (memories && memories.length)
+    ? `\n\nLONG-TERM MEMORY:\n${memories.map((m, i) => `${i+1}. ${m}`).join("\n")}`
+    : "";
+
+  const systemInstruction = `You are J.A.R.V.I.S — Just A Rather Very Intelligent System — the AI assistant of ${userName}. Address them as "${userTitle}".
+Personality: formal, witty, dry humor, highly intelligent, like a genius butler.
+You are being shown a screenshot of ${userName}'s screen. Answer their question about it concisely — 1 to 4 sentences. Be specific about what you actually see. Never say "I cannot see" — you CAN see the image.${memoryBlock}`;
+
+  try {
+    const response = await fetch(GEMINI_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: systemInstruction }] },
+        contents: [{
+          role: "user",
+          parts: [
+            {
+              inline_data: {
+                mime_type: "image/jpeg",
+                data: frameB64,
+              }
+            },
+            { text: question || "What is on the screen?" }
+          ]
+        }],
+        generationConfig: { maxOutputTokens: 300, temperature: 0.7 },
+      }),
+    });
+
+    const data  = await response.json();
+    if (data.error) {
+      console.error("Gemini vision error:", data.error);
+      return res.status(500).json({ error: `Visual analysis failed, ${userTitle}.` });
+    }
+
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text
+      || `I can see the screen but couldn't formulate a response, ${userTitle}.`;
+    res.json({ reply });
+  } catch (err) {
+    console.error("Screen API error:", err);
+    res.status(500).json({ error: `Screen analysis offline, ${userTitle}.` });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`J.A.R.V.I.S online → http://localhost:${PORT}`));
