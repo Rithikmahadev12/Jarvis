@@ -10,9 +10,59 @@
 </head>
 <body>
 
-  <!-- AUTH SCREEN -->
-  <div id="auth-screen" class="screen active">
+  <!-- SETUP SCREEN (first time only) -->
+  <div id="setup-screen" class="screen">
     <div class="scanline"></div>
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+    <div class="setup-container">
+      <div class="arc-reactor">
+        <div class="arc-ring ring1"></div>
+        <div class="arc-ring ring2"></div>
+        <div class="arc-ring ring3"></div>
+        <div class="arc-core"></div>
+      </div>
+      <h1 class="jarvis-title">J.A.R.V.I.S</h1>
+      <p class="jarvis-sub">Initial Configuration</p>
+
+      <div class="setup-step" id="step-profile">
+        <p class="setup-label">STEP 1 — CREATE YOUR PROFILE</p>
+        <input type="text" id="setup-name" placeholder="Your name (e.g. Rithik)" maxlength="30" autocomplete="off"/>
+        <input type="password" id="setup-password" placeholder="Create a password" maxlength="50" autocomplete="off"/>
+        <select id="setup-title">
+          <option value="Sir">Sir</option>
+          <option value="Ma'am">Ma'am</option>
+          <option value="Boss">Boss</option>
+          <option value="Chief">Chief</option>
+        </select>
+        <button id="btn-next-profile" class="hud-btn">NEXT →</button>
+      </div>
+
+      <div class="setup-step hidden" id="step-voice">
+        <p class="setup-label">STEP 2 — TRAIN YOUR VOICE</p>
+        <p class="setup-hint">Say your name out loud 3 times when recording. This helps Jarvis recognize you.</p>
+        <div id="voice-sample-status" class="sample-status">Ready to record</div>
+        <div class="voice-bars hidden" id="record-bars">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+        <div class="sample-count" id="sample-count">0 / 3 samples recorded</div>
+        <button id="btn-record-sample" class="hud-btn">🎙 RECORD SAMPLE</button>
+        <button id="btn-skip-voice" class="hud-btn secondary">SKIP (use exact name only)</button>
+      </div>
+
+      <div class="setup-step hidden" id="step-done">
+        <p class="setup-label">CONFIGURATION COMPLETE</p>
+        <p class="setup-hint" id="setup-summary"></p>
+        <button id="btn-launch" class="hud-btn">INITIALIZE JARVIS →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AUTH SCREEN -->
+  <div id="auth-screen" class="screen">
+    <div class="scanline"></div>
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
     <div class="auth-container">
       <div class="arc-reactor">
         <div class="arc-ring ring1"></div>
@@ -25,28 +75,28 @@
       <div id="auth-status" class="auth-status">
         Say <span class="highlight">"Jarvis, log in"</span> to begin
       </div>
+      <!-- Password fallback always visible -->
+      <div class="password-fallback">
+        <input type="password" id="auth-password-input" placeholder="Or type password + Enter" autocomplete="off"/>
+      </div>
       <div id="auth-prompt" class="auth-prompt hidden">
         <div class="prompt-text">IDENTIFY YOURSELF</div>
         <div class="voice-bars">
           <span></span><span></span><span></span><span></span><span></span>
         </div>
+        <div class="heard-text" id="heard-text">Listening…</div>
       </div>
       <div id="auth-listening" class="listening-badge hidden">● LISTENING</div>
+      <!-- Live transcript of what mic hears (debug helper) -->
+      <div id="mic-debug" class="mic-debug">Mic: waiting…</div>
     </div>
-    <div class="corner tl"></div>
-    <div class="corner tr"></div>
-    <div class="corner bl"></div>
-    <div class="corner br"></div>
   </div>
 
   <!-- MAIN SCREEN -->
   <div id="main-screen" class="screen">
     <div class="scanline"></div>
-    <div class="corner tl"></div>
-    <div class="corner tr"></div>
-    <div class="corner bl"></div>
-    <div class="corner br"></div>
-
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
     <div class="hud-top">
       <div class="hud-block">
         <span class="hud-label">SYSTEM STATUS</span>
@@ -64,9 +114,9 @@
         <span class="hud-val" id="user-display">—</span>
       </div>
     </div>
-
     <div class="transcript-area" id="transcript"></div>
-
+    <!-- Live mic feed shown during chat -->
+    <div id="live-mic" class="live-mic hidden"></div>
     <div class="hud-bottom">
       <div id="clip-indicator" class="clip-indicator hidden">
         <span class="rec-dot"></span> BUFFER RECORDING
@@ -79,7 +129,6 @@
         <span>"Jarvis, log out"</span>
       </div>
     </div>
-
     <div id="clip-toast" class="clip-toast hidden">✂ &nbsp;Clip saved — last 60 seconds</div>
   </div>
 
