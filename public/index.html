@@ -75,7 +75,6 @@
       <div id="auth-status" class="auth-status">
         Say <span class="highlight">"Jarvis, log in"</span> to begin
       </div>
-      <!-- Password fallback always visible -->
       <div class="password-fallback">
         <input type="password" id="auth-password-input" placeholder="Or type password + Enter" autocomplete="off"/>
       </div>
@@ -87,7 +86,6 @@
         <div class="heard-text" id="heard-text">Listening…</div>
       </div>
       <div id="auth-listening" class="listening-badge hidden">● LISTENING</div>
-      <!-- Live transcript of what mic hears (debug helper) -->
       <div id="mic-debug" class="mic-debug">Mic: waiting…</div>
     </div>
   </div>
@@ -115,7 +113,6 @@
       </div>
     </div>
     <div class="transcript-area" id="transcript"></div>
-    <!-- Live mic feed shown during chat -->
     <div id="live-mic" class="live-mic hidden"></div>
     <div class="hud-bottom">
       <div id="clip-indicator" class="clip-indicator hidden">
@@ -123,6 +120,10 @@
       </div>
       <div class="hints">
         <span>"Jarvis, [anything]"</span>
+        <span class="sep">·</span>
+        <span>"Jarvis, what's on my screen"</span>
+        <span class="sep">·</span>
+        <span>"Jarvis, remember that…"</span>
         <span class="sep">·</span>
         <span>"Jarvis, clip that"</span>
         <span class="sep">·</span>
