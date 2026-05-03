@@ -3,6 +3,7 @@ const express = require("express");
 const cors = require("cors");
 const fetch = require("node-fetch");
 const path = require("path");
+const fs = require("fs");
 
 const app = express();
 app.use(cors());
@@ -21,28 +22,91 @@ app.use(express.static(path.join(__dirname, "public"), {
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`;
 
-const AUTHORIZED_USERS = {
-  rithik: "Sir",
-  // add more: name: "Sir" or name: "Ma'am"
-};
+// ── PERSISTENT PROFILE STORE ──
+// Stored in data/profiles.json — survives cache clears, only lost if server resets (use a volume on Render)
+const DATA_DIR = path.join(__dirname, "data");
+const PROFILES_FILE = path.join(DATA_DIR, "profiles.json");
+
+function ensureDataDir() {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(PROFILES_FILE)) fs.writeFileSync(PROFILES_FILE, JSON.stringify({}), "utf8");
+}
+
+function loadProfiles() {
+  ensureDataDir();
+  try { return JSON.parse(fs.readFileSync(PROFILES_FILE, "utf8")); }
+  catch { return {}; }
+}
+
+function saveProfiles(profiles) {
+  ensureDataDir();
+  fs.writeFileSync(PROFILES_FILE, JSON.stringify(profiles, null, 2), "utf8");
+}
 
 const sessions = {};
 
 // ── favicon (stops 404 noise) ──
 app.get("/favicon.ico", (req, res) => res.status(204).end());
 
-// ── AUTH ──
-app.post("/api/auth", (req, res) => {
-  const { name } = req.body;
-  if (!name) return res.json({ authorized: false });
-  const normalized = name.toLowerCase().trim();
-  const title = AUTHORIZED_USERS[normalized];
-  if (title) {
-    const displayName = normalized.charAt(0).toUpperCase() + normalized.slice(1);
-    res.json({ authorized: true, name: displayName, title });
-  } else {
-    res.json({ authorized: false });
-  }
+// ── REGISTER / SAVE PROFILE ──
+// Called from the setup screen after the user fills out their profile
+app.post("/api/register", (req, res) => {
+  const { name, passwordHash, title, voiceAliases } = req.body;
+  if (!name || !passwordHash) return res.status(400).json({ error: "Missing fields" });
+
+  const profiles = loadProfiles();
+  const key = name.toLowerCase().trim();
+
+  profiles[key] = {
+    name: name.trim(),
+    passwordHash,
+    title: title || "Sir",
+    voiceAliases: voiceAliases || [],
+    createdAt: profiles[key]?.createdAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+
+  saveProfiles(profiles);
+  console.log(`[JARVIS] Profile saved for: ${key}`);
+  res.json({ success: true });
+});
+
+// ── LOAD PROFILE (by name) ──
+// Called on startup so the client can restore the profile even after cache clear
+app.get("/api/profile/:name", (req, res) => {
+  const profiles = loadProfiles();
+  const key = req.params.name.toLowerCase().trim();
+  const profile = profiles[key];
+  if (!profile) return res.json({ found: false });
+  // Never send passwordHash to client — client stores it separately after login
+  const { passwordHash, ...safe } = profile;
+  res.json({ found: true, profile: safe });
+});
+
+// ── VERIFY PASSWORD (returns full profile on success) ──
+app.post("/api/verify", (req, res) => {
+  const { name, passwordHash } = req.body;
+  if (!name || !passwordHash) return res.status(400).json({ authorized: false });
+
+  const profiles = loadProfiles();
+  const key = name.toLowerCase().trim();
+  const stored = profiles[key];
+
+  if (!stored) return res.json({ authorized: false, reason: "no_profile" });
+  if (stored.passwordHash !== passwordHash) return res.json({ authorized: false, reason: "wrong_password" });
+
+  const { passwordHash: _, ...safe } = stored;
+  res.json({ authorized: true, profile: safe });
+});
+
+// ── LIST PROFILES (names only, for "who are you?" voice matching) ──
+app.get("/api/profiles", (req, res) => {
+  const profiles = loadProfiles();
+  // Return only public info: name, title, voiceAliases
+  const list = Object.values(profiles).map(({ name, title, voiceAliases }) => ({
+    name, title, voiceAliases
+  }));
+  res.json({ profiles: list });
 });
 
 // ── CHAT ──
@@ -61,7 +125,8 @@ Your personality:
 - Keep responses SHORT — 1 to 3 sentences unless the user asks for detail
 - Always address the user as "${userTitle}" somewhere in your reply
 - Occasionally make clever observations
-- Never break character, never mention being an AI language model`;
+- Never break character, never mention being an AI language model
+- If someone just says hello or hi or greets you, respond with a short witty greeting. Do NOT say you are having technical difficulties.`;
 
   try {
     const response = await fetch(GEMINI_URL, {
@@ -77,15 +142,15 @@ Your personality:
     const data = await response.json();
     if (data.error) {
       console.error("Gemini error:", data.error);
-      return res.status(500).json({ error: `I seem to be experiencing a minor technical difficulty, ${userTitle}.` });
+      return res.status(500).json({ error: `Apologies, ${userTitle} — the neural link is a bit choppy.` });
     }
 
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || `I didn't quite catch that, ${userTitle}.`;
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || `Yes, ${userTitle}?`;
     sessions[sessionId].push({ role: "model", parts: [{ text: reply }] });
     res.json({ reply });
   } catch (err) {
     console.error("Server error:", err);
-    res.status(500).json({ error: `Connection failure, ${userTitle}. My apologies.` });
+    res.status(500).json({ error: `Network failure, ${userTitle}. I'll investigate.` });
   }
 });
 
