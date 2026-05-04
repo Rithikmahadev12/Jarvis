@@ -87,6 +87,41 @@
     </div>
   </div>
 
+  <!-- FACE AUTH OVERLAY — shown over main screen when unknown face detected -->
+  <div id="face-auth-overlay" class="face-auth-overlay hidden">
+    <div class="face-auth-box">
+      <div class="face-auth-alert-bar">
+        <span class="face-auth-alert-dot"></span>
+        <span class="face-auth-alert-label">UNKNOWN FACE DETECTED</span>
+        <span class="face-auth-alert-dot"></span>
+      </div>
+      <p class="face-auth-sub">Authorize access or the incident will be logged.</p>
+      <p class="face-auth-note">Recording will complete and be saved regardless.</p>
+      <input type="password" id="face-auth-password" placeholder="Enter your password" autocomplete="off" maxlength="50"/>
+      <div id="face-auth-error" class="face-auth-error hidden">Incorrect password — access denied</div>
+      <div class="face-auth-btns">
+        <button id="face-auth-submit" class="hud-btn">AUTHORIZE</button>
+        <button id="face-auth-dismiss" class="hud-btn secondary">DISMISS</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CLIP REVIEW OVERLAY — shown after intruder recording finishes -->
+  <div id="clip-review-overlay" class="clip-review-overlay hidden">
+    <div class="clip-review-box">
+      <div class="clip-review-header">
+        <span class="clip-review-icon">📹</span>
+        <span class="clip-review-title">INCIDENT RECORDING COMPLETE</span>
+      </div>
+      <p class="clip-review-sub" id="clip-review-sub">Recording saved. Keep this clip on file?</p>
+      <div class="clip-review-btns">
+        <button id="clip-review-keep" class="hud-btn">KEEP CLIP</button>
+        <button id="clip-review-download" class="hud-btn secondary">DOWNLOAD &amp; KEEP</button>
+        <button id="clip-review-discard" class="hud-btn danger">DISCARD</button>
+      </div>
+    </div>
+  </div>
+
   <!-- MAIN SCREEN -->
   <div id="main-screen" class="screen">
     <div class="scanline"></div>
