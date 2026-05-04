@@ -1151,3 +1151,104 @@ select option { background: var(--bg2); }
   border-color: var(--blue);
   color: var(--blue);
 }
+/* ══════════════════════════════════════════════════════════════
+   ── LINK BANK DISPLAY ──
+   Add these to the bottom of style.css
+   ══════════════════════════════════════════════════════════════ */
+
+/* Link bank container */
+.link-bank-display {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0;
+}
+
+/* Individual link group */
+.link-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 14px;
+  background: rgba(0,200,255,0.04);
+  border: 1px solid rgba(0,200,255,0.12);
+  border-radius: 3px;
+}
+
+.link-group-name {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.22em;
+  color: var(--blue);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+
+.link-count {
+  color: var(--text-dim);
+  font-size: 0.6rem;
+}
+
+.link-item {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--blue);
+  text-decoration: none;
+  padding: 3px 0;
+  word-break: break-all;
+  transition: color 0.15s, text-shadow 0.15s;
+  border-bottom: 1px solid rgba(0,200,255,0.06);
+}
+.link-item:last-of-type { border-bottom: none; }
+.link-item:hover {
+  color: #fff;
+  text-shadow: 0 0 8px var(--blue-glow);
+}
+
+.link-more {
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  font-style: italic;
+  margin-top: 3px;
+  letter-spacing: 0.06em;
+}
+
+/* ── TIMER ACTIVE INDICATOR ── */
+.timer-badge {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(255,170,0,0.1);
+  border: 1px solid var(--amber);
+  color: var(--amber);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.16em;
+  padding: 7px 18px;
+  border-radius: 3px;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 0 16px rgba(255,170,0,0.2);
+  animation: fadeUp 0.25s ease;
+  pointer-events: none;
+}
+.timer-badge-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+  animation: blink 1s step-end infinite;
+}
+.timer-badge.hidden { display: none !important; }
+
+/* ── INTRUDER CLIP BLOCK update ── */
+.intruder-clip-block {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
