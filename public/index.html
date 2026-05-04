@@ -10,7 +10,7 @@
 </head>
 <body>
 
-  <!-- SETUP SCREEN (first time only) -->
+  <!-- SETUP SCREEN -->
   <div id="setup-screen" class="screen">
     <div class="scanline"></div>
     <div class="corner tl"></div><div class="corner tr"></div>
@@ -40,7 +40,7 @@
 
       <div class="setup-step hidden" id="step-voice">
         <p class="setup-label">STEP 2 — TRAIN YOUR VOICE</p>
-        <p class="setup-hint">Say your name out loud 3 times when recording. This helps Jarvis recognize you.</p>
+        <p class="setup-hint">Say your name out loud 3 times when recording.</p>
         <div id="voice-sample-status" class="sample-status">Ready to record</div>
         <div class="voice-bars hidden" id="record-bars">
           <span></span><span></span><span></span><span></span><span></span>
@@ -73,10 +73,10 @@
       <h1 class="jarvis-title">J.A.R.V.I.S</h1>
       <p class="jarvis-sub">Just A Rather Very Intelligent System</p>
       <div id="auth-status" class="auth-status">
-        Say <span class="highlight">"Jarvis, log in"</span> to begin
+        Say <span class="highlight">"Jarvis, log in"</span> or type password
       </div>
       <div class="password-fallback">
-        <input type="password" id="auth-password-input" placeholder="Or type password + Enter" autocomplete="off"/>
+        <input type="password" id="auth-password-input" placeholder="Password + Enter" autocomplete="off"/>
       </div>
       <div id="auth-prompt" class="auth-prompt hidden">
         <div class="prompt-text">IDENTIFY YOURSELF</div>
@@ -95,10 +95,20 @@
     <div class="scanline"></div>
     <div class="corner tl"></div><div class="corner tr"></div>
     <div class="corner bl"></div><div class="corner br"></div>
+
+    <!-- Camera feed (top-right corner) -->
+    <div class="camera-panel" id="camera-panel">
+      <div class="camera-label">VISUAL SENSORS</div>
+      <video id="camera-feed" class="camera-feed" autoplay muted playsinline></video>
+      <div class="camera-status" id="camera-status">● OFFLINE</div>
+    </div>
+
     <div class="hud-top">
       <div class="hud-block">
         <span class="hud-label">SYSTEM STATUS</span>
         <span class="hud-val" id="status-text">STANDBY</span>
+        <span class="hud-label" style="margin-top:6px">EMOTIONAL STATE</span>
+        <span class="hud-val mood-val" id="mood-display">● NEUTRAL</span>
       </div>
       <div class="hud-center-col">
         <div class="orb" id="orb">
@@ -112,8 +122,10 @@
         <span class="hud-val" id="user-display">—</span>
       </div>
     </div>
+
     <div class="transcript-area" id="transcript"></div>
     <div id="live-mic" class="live-mic hidden"></div>
+
     <div class="hud-bottom">
       <div id="clip-indicator" class="clip-indicator hidden">
         <span class="rec-dot"></span> BUFFER RECORDING
@@ -121,11 +133,11 @@
       <div class="hints">
         <span>"Jarvis, [anything]"</span>
         <span class="sep">·</span>
-        <span>"Jarvis, what's on my screen"</span>
+        <span>"clip that" / "save that"</span>
         <span class="sep">·</span>
-        <span>"Jarvis, remember that…"</span>
+        <span>"how are you feeling"</span>
         <span class="sep">·</span>
-        <span>"Jarvis, clip that"</span>
+        <span>"what's on my screen"</span>
         <span class="sep">·</span>
         <span>"Jarvis, log out"</span>
       </div>
