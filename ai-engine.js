@@ -234,48 +234,123 @@ const KNOWLEDGE = {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// MATH ENGINE
+// MATH ENGINE — handles digits AND spoken word numbers
 // ═══════════════════════════════════════════════════════════════
+
+// Word → digit map (covers zero through ninety-nine + powers)
+const WORD_NUMS = {
+  zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,
+  ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,
+  sixteen:16,seventeen:17,eighteen:18,nineteen:19,
+  twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90,
+  hundred:100,thousand:1000,million:1000000,
+  half:0.5,quarter:0.25,dozen:12,score:20,gross:144,
+};
+
+function wordsToNumber(str) {
+  // Replace written numbers with digits, handling combos like "twenty five" → 25
+  let s = str.toLowerCase();
+  // Handle "a hundred", "a thousand"
+  s = s.replace(/\ba\s+hundred\b/g, "100").replace(/\ba\s+thousand\b/g, "1000");
+  // Multi-word numbers: "twenty five" → handle iteratively
+  const tokens = s.split(/\s+/);
+  const out = [];
+  let acc = null; // accumulator for compound numbers
+  for (const tok of tokens) {
+    const n = WORD_NUMS[tok];
+    if (n !== undefined) {
+      if (acc === null) {
+        acc = n;
+      } else if (n === 100) {
+        acc = acc * 100;
+      } else if (n >= 1000) {
+        acc = (acc || 1) * n;
+      } else if (n < acc && n < 100) {
+        // "twenty five" → 25
+        acc += n;
+      } else {
+        out.push(acc);
+        acc = n;
+      }
+    } else {
+      if (acc !== null) { out.push(acc); acc = null; }
+      out.push(tok);
+    }
+  }
+  if (acc !== null) out.push(acc);
+  return out.join(" ");
+}
+
 function solveMath(input) {
   try {
-    // Extract and normalise the expression
-    let expr = input
-      .replace(/\bsquare root of\b|\bsqrt\s*/gi, "Math.sqrt(")
-      .replace(/\bfactorial of\b/gi, "factorial(")
-      .replace(/\bpower of\b/gi, "**")
-      .replace(/\bpercent of\b/gi, "/100*")
-      .replace(/\btimes\b|\bmultiplied by\b/gi, "*")
-      .replace(/\bdivided by\b|\bover\b/gi, "/")
-      .replace(/\bplus\b|\band\b/gi, "+")
-      .replace(/\bminus\b/gi, "-")
-      .replace(/\^/g, "**")
-      .replace(/\bpi\b/gi, "Math.PI")
-      .replace(/\be\b/gi, "Math.E");
+    let s = input.toLowerCase().trim();
 
-    // Find numeric expression in the string
-    const numMatch = expr.match(/(Math\.\w+\()?[\d\s\+\-\*\/\.\(\)\^%]+\)?/);
-    if (!numMatch) return null;
+    // Strip question wrappers
+    s = s.replace(/^(what(\'?s| is)|can you|please|jarvis|calculate|compute|solve|tell me|give me)\s+/gi, "");
+    s = s.replace(/[?!\.]+$/, "").trim();
 
-    let raw = numMatch[0].trim();
+    // Convert word numbers to digits first
+    s = wordsToNumber(s);
 
-    // Handle sqrt missing closing paren
-    if (raw.includes("Math.sqrt(") && !raw.endsWith(")")) raw += ")";
+    // Handle "X% of Y" and "X percent of Y"
+    s = s.replace(/(\d+\.?\d*)\s*%\s*of\s*(\d+\.?\d*)/gi, "($1/100*$2)");
+    s = s.replace(/(\d+\.?\d*)\s*percent\s+of\s*(\d+\.?\d*)/gi, "($1/100*$2)");
 
-    // Factorial helper
+    // Word operators → symbols (order matters)
+    s = s.replace(/\bsquared\b/gi,           "**2");
+    s = s.replace(/\bcubed\b/gi,             "**3");
+    s = s.replace(/\bto the power of\b|\bto the\b|\braised to\b/gi, "**");
+    s = s.replace(/\bsquare root of\b|\bsqrt of\b|\broot of\b/gi,   "Math.sqrt(PLACEHOLDER)");
+    s = s.replace(/\bfactorial of\b|\bfactorial\b/gi,               "factorial(PLACEHOLDER)");
+    s = s.replace(/\bsine? of\b|\bsin\b/gi,  "Math.sin(");
+    s = s.replace(/\bcosine? of\b|\bcos\b/gi,"Math.cos(");
+    s = s.replace(/\btangent of\b|\btan\b/gi,"Math.tan(");
+    s = s.replace(/\blog of\b|\blogarithm of\b/gi, "Math.log10(");
+    s = s.replace(/\bnatural log of\b|\bln of\b/gi,"Math.log(");
+    s = s.replace(/\babs(olute)? (value )?of\b/gi, "Math.abs(");
+    s = s.replace(/\btimes\b|\bmultiplied by\b|\bx\b(?=\s*\d)/gi, "*");
+    s = s.replace(/\bdivided by\b|\bover\b|\bdiv\b/gi, "/");
+    s = s.replace(/\bplus\b|\badded to\b/gi,  "+");
+    s = s.replace(/\bminus\b|\bsubtracted from\b|\bless\b/gi, "-");
+    s = s.replace(/\bmod(ulo)?\b/gi,          "%");
+    s = s.replace(/\^/g,                      "**");
+    s = s.replace(/\bpi\b/gi,                 "Math.PI");
+    s = s.replace(/\beuler'?s number\b|\b(?<!\w)e(?!\w)\b/gi, "Math.E");
+
+    // Fill in PLACEHOLDER for functions that need a closing paren
+    // e.g. "sqrt of 144" → "Math.sqrt(144)" 
+    s = s.replace(/Math\.sqrt\(PLACEHOLDER\)\s*(\d+\.?\d*)/g, "Math.sqrt($1)");
+    s = s.replace(/Math\.sqrt\(PLACEHOLDER\)/g, "Math.sqrt(");
+    s = s.replace(/factorial\(PLACEHOLDER\)\s*(\d+)/g, "factorial($1)");
+    s = s.replace(/factorial\(PLACEHOLDER\)/g, "factorial(");
+
+    // Auto-close open function parens at end
+    ["Math.sqrt(","Math.sin(","Math.cos(","Math.tan(","Math.log10(","Math.log(","Math.abs(","factorial("].forEach(fn => {
+      const opens  = (s.match(new RegExp(fn.replace(".","\\.").replace("(","\\("), "g")) || []).length;
+      const closes = (s.match(/\)/g) || []).length;
+      if (opens > closes) s += ")".repeat(opens - closes);
+    });
+
+    // Extract evaluable expression: numbers, operators, parens, dots
+    const exprMatch = s.match(/[Math\.PI\w\(\)\d\s\+\-\*\/\.\%\*]+/);
+    if (!exprMatch) return null;
+    let raw = exprMatch[0].trim();
+    if (!raw || !/\d/.test(raw)) return null;  // must contain at least one digit
+
+    // Safety: only allow safe tokens
+    if (/[^0-9\s\+\-\*\/\.\(\)\%MathsqrlogPIEabsinfactorial]/.test(raw)) return null;
+
     function factorial(n) {
-      n = Math.floor(n);
-      if (n < 0 || n > 20) return NaN;
-      let r = 1;
-      for (let i = 2; i <= n; i++) r *= i;
-      return r;
+      n = Math.floor(Math.abs(n));
+      if (n > 20) return NaN;
+      let r = 1; for (let i = 2; i <= n; i++) r *= i; return r;
     }
 
     // eslint-disable-next-line no-new-func
-    const result = Function("factorial", `"use strict"; return (${raw})`)(factorial);
+    const result = Function("factorial","Math", `"use strict"; return (${raw})`)(factorial, Math);
     if (typeof result !== "number" || !isFinite(result)) return null;
 
-    // Format nicely
-    const formatted = Number.isInteger(result) ? result : parseFloat(result.toFixed(8));
+    const formatted = Number.isInteger(result) ? result : parseFloat(result.toFixed(6));
     return formatted;
   } catch {
     return null;
