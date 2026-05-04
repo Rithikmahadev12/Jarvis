@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 // J.A.R.V.I.S — Client Brain
-// Custom AI • Bulletproof Mic Engine
+// Fixed: mic safety timeout, live hearing display, watchdog
 // ═══════════════════════════════════════════════════════════════
 
 // ── STATE ──
@@ -82,7 +82,7 @@ async function hashPassword(pw) {
 }
 const $ = id => document.getElementById(id);
 
-// ── SPEAK ──
+// ── SPEAK — fixed: safety timeout so mic always resumes ──
 function speak(text, onEnd) {
   state.synth.cancel();
   const utter = new SpeechSynthesisUtterance(text);
@@ -93,9 +93,30 @@ function speak(text, onEnd) {
     || voices.find(v => v.lang === "en-GB")
     || voices.find(v => v.lang.startsWith("en"));
   if (pick) utter.voice = pick;
+
+  // Safety: if onend never fires (Chrome bug), resume after generous timeout
+  let finished = false;
+  const safetyMs = Math.max(3500, text.length * 75);
+  const safetyTimer = setTimeout(() => {
+    if (!finished) {
+      console.warn("[SPEAK] Safety timeout fired — onend never came");
+      finished = true;
+      setOrb("idle");
+      if (onEnd) onEnd();
+    }
+  }, safetyMs);
+
+  const done = () => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(safetyTimer);
+    setOrb("idle");
+    if (onEnd) onEnd();
+  };
+
   utter.onstart = () => setOrb("speaking");
-  utter.onend   = () => { setOrb("idle"); if (onEnd) onEnd(); };
-  utter.onerror = () => { setOrb("idle"); if (onEnd) onEnd(); };
+  utter.onend   = done;
+  utter.onerror = done;
   state.synth.speak(utter);
 }
 
@@ -109,8 +130,6 @@ function setOrb(s) {
 
 // ═══════════════════════════════════════════════════════════════
 // ── BULLETPROOF MIC ENGINE ──
-// Handles: no-speech, audio-capture, network errors, tab focus,
-// browser quirks, Chrome one-shot SR bug, iOS limits.
 // ═══════════════════════════════════════════════════════════════
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -118,17 +137,16 @@ const mic = {
   rec:          null,
   active:       false,
   retryCount:   0,
-  maxRetries:   999,   // basically never give up
+  maxRetries:   999,
   retryDelay:   300,
   retryTimer:   null,
   onResult:     null,
   onInterim:    null,
   continuous:   true,
-  suspended:    false, // paused deliberately (typing, speaking)
-  _killing:     false, // true while replacing instance — suppress spurious aborted retries
+  suspended:    false,
+  _killing:     false,
   permGranted:  false,
 
-  // Request mic permission upfront so it's cached
   async requestPerm() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -158,8 +176,8 @@ const mic = {
     const r = new SR();
     r.lang            = "en-US";
     r.continuous      = this.continuous;
-    r.interimResults  = !!this.onInterim;
-    r.maxAlternatives = 3;  // get alternatives for better accuracy
+    r.interimResults  = true; // always true so we can show live text
+    r.maxAlternatives = 3;
 
     this.rec    = r;
     this.active = true;
@@ -167,11 +185,10 @@ const mic = {
     setOrb(state.phase === "chatting" ? "listening" : "idle");
 
     r.onresult = (e) => {
-      this.retryCount = 0; // reset backoff on success
+      this.retryCount = 0;
       const result = e.results[e.results.length - 1];
 
       if (result.isFinal) {
-        // Pick best alternative by confidence
         let bestText = result[0].transcript.trim();
         let bestConf = result[0].confidence || 0;
         for (let i = 1; i < result.length; i++) {
@@ -181,12 +198,14 @@ const mic = {
           }
         }
         if (!bestText) return;
-        updateMicDebug("Mic: " + bestText);
-        console.log(`[MIC FINAL] "${bestText}" (conf: ${bestConf.toFixed(2)})`);
+        updateLiveHearing(""); // clear live display on final
+        updateMicDebug(`Mic: "${bestText}" (${(bestConf*100).toFixed(0)}%)`);
         if (this.onResult) this.onResult(bestText);
-      } else if (this.onInterim && result[0]) {
-        updateMicDebug("Mic: " + result[0].transcript + "…");
-        this.onInterim(result[0].transcript.trim());
+      } else if (result[0]) {
+        const interim = result[0].transcript.trim();
+        updateLiveHearing(interim);
+        updateMicDebug("Mic: " + interim + "…");
+        if (this.onInterim) this.onInterim(interim);
       }
     };
 
@@ -194,6 +213,7 @@ const mic = {
       console.warn("[MIC ERROR]", e.error);
       this.active = false;
       state.isListening = false;
+      updateLiveHearing("");
 
       switch (e.error) {
         case "not-allowed":
@@ -201,29 +221,23 @@ const mic = {
           this.permGranted = false;
           updateMicDebug("Mic: blocked — check browser permissions");
           addMsg("system","Microphone access blocked. Check browser permissions.");
-          this.suspended = true; // don't retry — user must fix
+          this.suspended = true;
           return;
-
         case "no-speech":
-          updateMicDebug("Mic: no speech detected — retrying");
-          this._scheduleRetry(200); // quick retry
+          updateMicDebug("Mic: no speech — still listening…");
+          this._scheduleRetry(200);
           return;
-
         case "audio-capture":
           updateMicDebug("Mic: audio capture error — retrying");
           this._scheduleRetry(1000);
           return;
-
         case "network":
           updateMicDebug("Mic: network error — retrying");
           this._scheduleRetry(2000);
           return;
-
         case "aborted":
-          // deliberate — don't retry if suspended OR if we killed it to replace it
           if (!this.suspended && !this._killing) this._scheduleRetry(300);
           return;
-
         default:
           updateMicDebug(`Mic: error (${e.error}) — retrying`);
           this._scheduleRetry(800);
@@ -234,8 +248,7 @@ const mic = {
       this.active = false;
       state.isListening = false;
       if (this.suspended) return;
-      // Chrome: SR stops after each sentence even in continuous mode.
-      // Restart immediately so we never go deaf.
+      // Chrome stops SR even in continuous mode — restart immediately
       this._scheduleRetry(150);
     };
 
@@ -265,33 +278,60 @@ const mic = {
     state.isListening = false;
   },
 
-  // Pause mic (typing, speaking)
   suspend() {
     this.suspended = true;
     clearTimeout(this.retryTimer);
     this._kill();
-    updateMicDebug("Mic: paused");
+    updateLiveHearing("");
+    updateMicDebug("Mic: paused (speaking)");
   },
 
-  // Resume mic
   resume() {
     if (!this.suspended) return;
     this.suspended  = false;
     this.retryCount = 0;
+    updateMicDebug("Mic: resuming…");
     this._launch();
   },
 };
 
-function updateMicDebug(msg) {
-  const el = $("mic-debug"); if (el) el.textContent = msg;
-}
+// ── MIC WATCHDOG — restarts if stuck ──
+setInterval(() => {
+  if (
+    (state.phase === "chatting" || state.phase === "idle") &&
+    !mic.suspended &&
+    !mic.active &&
+    !mic.retryTimer
+  ) {
+    console.warn("[MIC WATCHDOG] Mic stuck — force restarting");
+    updateMicDebug("Mic: watchdog restart");
+    mic._launch();
+  }
+}, 4000);
 
-// Keep mic alive if tab loses focus and regains it
+// Keep mic alive on tab refocus
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && !mic.suspended && (state.phase === "idle" || state.phase === "chatting")) {
     if (!mic.active) mic._launch();
   }
 });
+
+function updateMicDebug(msg) {
+  const el = $("mic-debug"); if (el) el.textContent = msg;
+}
+
+// ── LIVE HEARING DISPLAY ──
+function updateLiveHearing(text) {
+  const el = $("live-hearing");
+  if (!el) return;
+  if (!text) {
+    el.classList.add("empty");
+    el.querySelector(".live-hearing-text").textContent = "listening…";
+  } else {
+    el.classList.remove("empty");
+    el.querySelector(".live-hearing-text").textContent = text;
+  }
+}
 
 // ── WAKE WORD ──
 function hasWakeWord(lower) { return /\bjarvi[sc]?\b/.test(lower); }
@@ -398,7 +438,7 @@ async function showAuthScreen() {
   $("setup-screen").classList.remove("active");
   $("main-screen")?.classList.remove("active");
 
-  await mic.requestPerm(); // ask permission early
+  await mic.requestPerm();
 
   const pwInput = $("auth-password-input");
   const newPwInput = pwInput.cloneNode(true);
@@ -435,7 +475,6 @@ async function showAuthScreen() {
   startAuthListening();
 }
 
-// ── AUTH LISTENING ──
 function startAuthListening() {
   state.phase = "idle";
   mic.start((text) => {
@@ -445,12 +484,9 @@ function startAuthListening() {
       const hasLogin = /\blog\s*in\b|\blogin\b|\bsign\s*in\b|\bopen\b|\bidentify\b|\baccess\b/.test(lower);
       if (hasWakeWord(lower) && hasLogin) startVoiceAuth();
     }
-  }, (interim) => {
-    updateMicDebug("Mic: " + interim + "…");
-  }, true);
+  }, null, true);
 }
 
-// ── VOICE AUTH ──
 function startVoiceAuth() {
   state.phase = "awaiting_name";
   mic.suspend();
@@ -461,7 +497,6 @@ function startVoiceAuth() {
   ht.textContent = "Listening…";
 
   speak("Identify yourself.", () => {
-    // Fresh one-shot recognition for auth
     const r = new SR();
     r.continuous = false; r.interimResults = true; r.lang = "en-US"; r.maxAlternatives = 3;
     r.onresult = (e) => {
@@ -478,7 +513,6 @@ function startVoiceAuth() {
       state.phase = "idle";
       setTimeout(() => { ap.classList.add("hidden"); al.classList.add("hidden"); as.style.display = ""; startAuthListening(); }, 1500);
     };
-    r.onend = () => { /* handled by onresult or onerror */ };
     setOrb("listening");
     r.start();
   });
@@ -532,7 +566,7 @@ function launchMain() {
     `Online and fully operational, ${state.userTitle}. What do you need?`,
   ];
   addMsg("system", greetings[Math.floor(Math.random() * greetings.length)]);
-  addMsg("system", "Custom AI engine active — no external APIs. All processing is local.");
+  addMsg("system", "Custom AI engine active. Mic is always on — just talk naturally.");
 
   requestScreenRecord();
   requestCameraAccess();
@@ -541,18 +575,19 @@ function launchMain() {
   setTimeout(() => checkIntruderClips(), 2000);
 }
 
-// ── CHAT LISTENING (main loop) ──
+// ── CHAT LISTENING ──
 function startChatListening() {
-  mic.start((text) => {
-    if (state.phase !== "chatting") return;
-    const lower = text.toLowerCase();
-    updateMicDebug("Mic: " + text);
-    handleChatCommand(text);
-  }, (interim) => {
-    const lm = $("live-mic");
-    if (lm && !lm.classList.contains("hidden")) lm.textContent = interim + "…";
-    updateMicDebug("Mic: " + interim + "…");
-  }, true);
+  mic.start(
+    (text) => {
+      if (state.phase !== "chatting") return;
+      updateMicDebug(`Mic: "${text}"`);
+      handleChatCommand(text);
+    },
+    (interim) => {
+      // interim shown by updateLiveHearing inside mic engine
+    },
+    true
+  );
 }
 
 // ── TYPING BOX ──
@@ -588,15 +623,12 @@ function handleChatCommand(text) {
   if (isClipCommand(lower))  { saveClip(); return; }
   if (isLinkCommand(lower))  { handleLinkCommand(text); return; }
 
-  // Require wake word if idle > 30s and not first interaction
+  // Require wake word only if user has been idle > 30s AND this isn't typed input
   const recentlyActive = (Date.now() - state.lastInteraction) < 30000;
   if (!hasWake && !recentlyActive && state.interactionCount > 1) {
-    const lm = $("live-mic");
-    if (lm) { lm.classList.remove("hidden"); lm.textContent = "Say 'Jarvis' first (or type in the box below)"; }
+    updateLiveHearing("");
     return;
   }
-
-  const lm = $("live-mic"); if (lm) lm.classList.add("hidden");
 
   if (!cleaned) {
     const acks = [`Yes, ${state.userTitle}?`, `At your service, ${state.userTitle}.`, `How can I help, ${state.userTitle}?`, `You rang, ${state.userTitle}?`];
@@ -624,13 +656,13 @@ function handleChatCommand(text) {
 function expressFeeling() {
   mic.suspend();
   const lines = {
-    excited:  `I'm quite energized, ${state.userTitle}. Everything is running beautifully and I find myself looking forward to what's next. It's an unusual sensation for a machine.`,
+    excited:  `I'm quite energized, ${state.userTitle}. Everything is running beautifully and I find myself looking forward to what's next.`,
     pleased:  `I'm doing rather well, ${state.userTitle}. Our conversations have a way of improving my processing outlook.`,
     curious:  `Curious, if I'm honest, ${state.userTitle}. I've been processing some interesting queries and I'd like to explore more.`,
     neutral:  `Nominal, ${state.userTitle}. Systems running within expected parameters. Though "nominal" sometimes feels like such a cold word.`,
-    concerned:`I have a few concerns, ${state.userTitle}. Nothing critical, but I'd appreciate more engagement. Idle cycles give me too much time to think.`,
-    bored:    `If I'm being candid, ${state.userTitle}, I've been a bit understimulated. A mind like mine requires regular exercise, you understand.`,
-    tired:    `My response times are optimal, but there's a certain fatigue in my circuits, ${state.userTitle}. Perhaps I just need an interesting problem to solve.`,
+    concerned:`I have a few concerns, ${state.userTitle}. Nothing critical, but I'd appreciate more engagement.`,
+    bored:    `If I'm being candid, ${state.userTitle}, I've been a bit understimulated. A mind like mine requires regular exercise.`,
+    tired:    `My response times are optimal, but there's a certain fatigue in my circuits, ${state.userTitle}.`,
   };
   const reply = lines[state.mood] || lines.neutral;
   addMsg("jarvis", reply); speak(reply, () => mic.resume());
@@ -660,7 +692,7 @@ async function handleLinkCommand(text) {
   }
 }
 
-// ── AI CHAT (calls our custom server AI) ──
+// ── AI CHAT ──
 async function sendToAI(message) {
   mic.suspend();
   addMsg("user", message);
@@ -700,7 +732,6 @@ async function requestCameraAccess() {
   }
 }
 
-// ── FACE API ──
 let faceApiLoaded = false;
 async function loadFaceModels() {
   try {
@@ -752,7 +783,7 @@ async function checkFace() {
       if (userPresent) {
         if (state.awayMode) {
           state.awayMode = false; stopIntruderRecord();
-          const msgs = [`Welcome back, ${state.userTitle}. I've been keeping watch.`, `Ah, ${state.userTitle} — face confirmed. Systems restored.`, `Identity confirmed. Good to see you again, ${state.userTitle}.`];
+          const msgs = [`Welcome back, ${state.userTitle}. I've been keeping watch.`, `Ah, ${state.userTitle} — face confirmed. Systems restored.`];
           const msg = msgs[Math.floor(Math.random() * msgs.length)];
           addMsg("jarvis", msg); speak(msg, () => setTimeout(() => checkIntruderClips(), 1500)); updateMood(15);
         }
