@@ -121,6 +121,13 @@
     </div>
 
     <div class="transcript-area" id="transcript"></div>
+
+    <!-- LIVE HEARING STRIP — always visible, shows what mic is picking up -->
+    <div id="live-hearing" class="live-hearing empty">
+      <span class="live-hearing-icon">🎙</span>
+      <span class="live-hearing-text">listening…</span>
+    </div>
+
     <div id="live-mic" class="live-mic hidden"></div>
 
     <!-- TYPING BOX -->
@@ -136,14 +143,15 @@
       <div class="hints">
         <span>"Jarvis, [anything]"</span>
         <span class="sep">·</span>
+        <span>"am I smart?"</span>
+        <span class="sep">·</span>
         <span>"clip that"</span>
         <span class="sep">·</span>
         <span>"vapor link"</span>
         <span class="sep">·</span>
-        <span>"how are you feeling"</span>
-        <span class="sep">·</span>
         <span>"Jarvis, log out"</span>
       </div>
+      <div id="mic-debug" class="mic-debug">Mic: waiting…</div>
     </div>
     <div id="clip-toast" class="clip-toast hidden">✂ &nbsp;Clip saved — last 60 seconds</div>
   </div>
