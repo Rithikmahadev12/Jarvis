@@ -93,11 +93,12 @@
     <div class="corner tl"></div><div class="corner tr"></div>
     <div class="corner bl"></div><div class="corner br"></div>
 
-    <!-- Camera feed -->
+    <!-- Camera feed — selector injected here by JS after enumeration -->
     <div class="camera-panel" id="camera-panel">
       <div class="camera-label">VISUAL SENSORS</div>
       <video id="camera-feed" class="camera-feed" autoplay muted playsinline></video>
       <div class="camera-status" id="camera-status">● OFFLINE</div>
+      <!-- camera-selector-wrap injected here dynamically -->
     </div>
 
     <div class="hud-top">
@@ -122,7 +123,7 @@
 
     <div class="transcript-area" id="transcript"></div>
 
-    <!-- LIVE HEARING STRIP — always visible, shows what mic is picking up -->
+    <!-- LIVE HEARING STRIP -->
     <div id="live-hearing" class="live-hearing empty">
       <span class="live-hearing-icon">🎙</span>
       <span class="live-hearing-text">listening…</span>
@@ -143,7 +144,7 @@
       <div class="hints">
         <span>"Jarvis, [anything]"</span>
         <span class="sep">·</span>
-        <span>"am I smart?"</span>
+        <span>"switch to camera 2"</span>
         <span class="sep">·</span>
         <span>"clip that"</span>
         <span class="sep">·</span>
