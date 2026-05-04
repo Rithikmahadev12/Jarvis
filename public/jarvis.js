@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Client Brain v3.0
-// Screen reading via Tesseract.js OCR (fully local, no API)
-// Smarter command routing, link meta queries, context awareness
+// J.A.R.V.I.S — Client Brain v3.1
+// + Notification System: browser push + Web Audio tones
+//   notif.intruder() / notif.away() / notif.userReturn() / notif.system()
 // ═══════════════════════════════════════════════════════════════
 
 // ── STATE ──
@@ -27,7 +27,6 @@ const state = {
   intruderChunks: [],
   intruderRecorder: null,
   intruderClips: [],
-  // NEW: track whether current intruder was authorized mid-recording
   intruderAuthorized: false,
   faceCheckInterval: null,
   lastSeenUser: Date.now(),
@@ -41,6 +40,186 @@ const state = {
   tesseractWorker: null,
   tesseractReady: false,
 };
+
+// ═══════════════════════════════════════════════════════════════
+// ── NOTIFICATION SYSTEM ──
+// Push notifications (fires even when tab is minimised/inactive)
+// + Web Audio tones — distinct sound per event type
+// ═══════════════════════════════════════════════════════════════
+const notif = {
+  perms: "default",
+  // Per-channel config — toggled by the Settings overlay
+  cfg: {
+    intruder: true,
+    away: true,
+    return: true,
+    system: false,
+  },
+  _ctx: null,
+
+  // Call once on launch — resumes AudioContext (needs user gesture chain)
+  async init() {
+    this.perms = Notification.permission;
+    try {
+      this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+    } catch (e) {
+      console.warn("[NOTIF] AudioContext unavailable:", e);
+    }
+    // Auto-request if not yet decided
+    if (this.perms === "default") {
+      this.perms = await Notification.requestPermission();
+    }
+    updateNotifPermDisplay();
+  },
+
+  async requestPerm() {
+    this.perms = await Notification.requestPermission();
+    updateNotifPermDisplay();
+    return this.perms === "granted";
+  },
+
+  // Low-level push
+  push(title, body, tag, requireInteraction = false) {
+    if (this.perms !== "granted") return null;
+    const n = new Notification(title, {
+      body,
+      tag,
+      icon: "/favicon.ico",
+      requireInteraction,
+    });
+    n.onclick = () => {
+      window.focus();
+      n.close();
+    };
+    return n;
+  },
+
+  // ── Web Audio tone engine ──
+  // Generates tones entirely in JS — no audio files needed
+  tone(type) {
+    if (!this._ctx) return;
+    const ac = this._ctx;
+    // Resume suspended context (browser autoplay policy)
+    if (ac.state === "suspended") ac.resume();
+    const now = ac.currentTime;
+    const g = ac.createGain();
+    g.connect(ac.destination);
+    const o = ac.createOscillator();
+    o.connect(g);
+
+    switch (type) {
+      case "intruder":
+        // Urgent square-wave alarm — three pulses
+        o.type = "square";
+        o.frequency.setValueAtTime(880, now);
+        o.frequency.setValueAtTime(440, now + 0.15);
+        o.frequency.setValueAtTime(880, now + 0.30);
+        o.frequency.setValueAtTime(440, now + 0.45);
+        g.gain.setValueAtTime(0.35, now);
+        g.gain.linearRampToValueAtTime(0, now + 0.65);
+        o.start(now);
+        o.stop(now + 0.65);
+        break;
+
+      case "away":
+        // Descending sine — going quiet
+        o.type = "sine";
+        o.frequency.setValueAtTime(523, now);           // C5
+        o.frequency.linearRampToValueAtTime(392, now + 0.45); // G4
+        g.gain.setValueAtTime(0.15, now);
+        g.gain.linearRampToValueAtTime(0, now + 0.55);
+        o.start(now);
+        o.stop(now + 0.55);
+        break;
+
+      case "return":
+        // Ascending three-note welcome
+        o.type = "sine";
+        o.frequency.setValueAtTime(392, now);           // G4
+        o.frequency.linearRampToValueAtTime(523, now + 0.18); // C5
+        o.frequency.linearRampToValueAtTime(659, now + 0.38); // E5
+        g.gain.setValueAtTime(0.15, now);
+        g.gain.linearRampToValueAtTime(0, now + 0.55);
+        o.start(now);
+        o.stop(now + 0.55);
+        break;
+
+      case "system":
+        // Brief soft ping
+        o.type = "sine";
+        o.frequency.setValueAtTime(880, now);
+        g.gain.setValueAtTime(0.07, now);
+        g.gain.linearRampToValueAtTime(0, now + 0.12);
+        o.start(now);
+        o.stop(now + 0.15);
+        break;
+
+      default:
+        o.start(now);
+        o.stop(now + 0.01);
+    }
+  },
+
+  // ── High-level event helpers ──
+
+  intruder(T = "Sir") {
+    if (!this.cfg.intruder) return;
+    this.push(
+      "⚠ J.A.R.V.I.S — INTRUDER ALERT",
+      `Unknown face detected, ${T}. Recording has started.`,
+      "intruder",
+      true  // requireInteraction — stays until dismissed
+    );
+    this.tone("intruder");
+  },
+
+  away(T = "Sir") {
+    if (!this.cfg.away) return;
+    this.push(
+      "J.A.R.V.I.S — Away mode active",
+      `No face detected. Monitoring active, ${T}.`,
+      "away"
+    );
+    this.tone("away");
+  },
+
+  userReturn(T = "Sir") {
+    if (!this.cfg.return) return;
+    this.push(
+      "J.A.R.V.I.S — Welcome back",
+      `${T} detected. Away mode deactivated.`,
+      "user-return"
+    );
+    this.tone("return");
+  },
+
+  system(msg) {
+    if (!this.cfg.system) return;
+    this.push("J.A.R.V.I.S", msg, "system-event");
+    this.tone("system");
+  },
+};
+
+// Syncs the permission badge in the Settings overlay (if open)
+function updateNotifPermDisplay() {
+  const el = document.getElementById("notif-perm-status");
+  const btn = document.getElementById("notif-perm-btn");
+  if (!el) return;
+  const p = notif.perms;
+  if (p === "granted") {
+    el.textContent = "● GRANTED";
+    el.className = "notif-perm-status granted";
+    if (btn) btn.style.display = "none";
+  } else if (p === "denied") {
+    el.textContent = "● DENIED — enable in browser settings";
+    el.className = "notif-perm-status denied";
+    if (btn) btn.style.display = "none";
+  } else {
+    el.textContent = "● PERMISSION NOT YET GRANTED";
+    el.className = "notif-perm-status pending";
+    if (btn) btn.style.display = "";
+  }
+}
 
 // ── MOOD ENGINE ──
 function updateMood(delta) {
@@ -59,7 +238,7 @@ function updateMoodDisplay() {
   const el = $("mood-display");
   if (!el) return;
   const icons = { pleased:"😊", excited:"⚡", curious:"🔍", concerned:"⚠️", bored:"💤", tired:"🔋", neutral:"●" };
-  el.textContent = `${icons[state.mood]||"●"} ${state.mood.toUpperCase()}`;
+  el.textContent = `${icons[state.mood] || "●"} ${state.mood.toUpperCase()}`;
 }
 setInterval(() => {
   if (state.moodScore > 0) updateMood(-1); else if (state.moodScore < 0) updateMood(1);
@@ -70,8 +249,8 @@ setInterval(() => {
 function loadProfile() { try { return JSON.parse(localStorage.getItem("jarvis_profile")) || null; } catch { return null; } }
 function saveProfileLocal(p) { localStorage.setItem("jarvis_profile", JSON.stringify(p)); }
 async function saveProfileRemote(p) {
-  try { await fetch("/api/register", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(p) }); }
-  catch(e) { console.warn("[JARVIS] Could not save profile:", e); }
+  try { await fetch("/api/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) }); }
+  catch (e) { console.warn("[JARVIS] Could not save profile:", e); }
 }
 async function restoreProfileFromBackend() {
   const nameHint = localStorage.getItem("jarvis_name_hint");
@@ -80,12 +259,12 @@ async function restoreProfileFromBackend() {
     const res = await fetch(`/api/profile/${encodeURIComponent(nameHint)}`);
     const data = await res.json();
     if (data.found) return { ...data.profile, passwordHash: localStorage.getItem("jarvis_pw_hash") || "" };
-  } catch(e) { console.warn("[JARVIS] Backend restore failed:", e); }
+  } catch (e) { console.warn("[JARVIS] Backend restore failed:", e); }
   return null;
 }
 async function hashPassword(pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 const $ = id => document.getElementById(id);
 
@@ -100,7 +279,7 @@ async function initTesseract() {
     state.tesseractWorker = await Tesseract.createWorker("eng", 1, { logger: () => {} });
     state.tesseractReady = true;
     addMsg("system", "OCR engine loaded — screen reading available.");
-  } catch(e) {
+  } catch (e) {
     console.warn("[TESSERACT] Failed to load:", e);
     addMsg("system", "OCR engine unavailable — screen reading limited.");
   }
@@ -139,7 +318,7 @@ async function ocrScreenFrame() {
     const result = await state.tesseractWorker.recognize(imageDataUrl);
     const text   = result.data.text.trim();
     return { ocrText: text, imageB64: null };
-  } catch(e) {
+  } catch (e) {
     console.warn("[OCR] Recognition failed:", e);
     return { ocrText: null, imageB64: null };
   }
@@ -208,7 +387,7 @@ function speak(text, onEnd) {
 function setOrb(s) {
   const orb = $("orb"); if (!orb) return;
   orb.className = "orb" + (s !== "idle" ? " " + s : "");
-  const labels = { idle:"STANDBY", listening:"LISTENING", thinking:"PROCESSING", speaking:"SPEAKING" };
+  const labels = { idle: "STANDBY", listening: "LISTENING", thinking: "PROCESSING", speaking: "SPEAKING" };
   const st = $("status-text"); if (st) st.textContent = labels[s] || "STANDBY";
 }
 
@@ -220,7 +399,7 @@ async function enumerateCameras() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     state.availableCameras = devices.filter(d => d.kind === "videoinput");
     buildCameraSelector();
-  } catch(e) { console.warn("[CAMERAS]", e); }
+  } catch (e) { console.warn("[CAMERAS]", e); }
 }
 function buildCameraSelector() {
   const existing = $("camera-selector-wrap"); if (existing) existing.remove();
@@ -247,10 +426,10 @@ async function switchCamera(deviceId) {
   if (state.cameraStream) { state.cameraStream.getTracks().forEach(t => t.stop()); state.cameraStream = null; }
   if (state.cameraRecorder && state.cameraRecorder.state !== "inactive") { state.cameraRecorder.stop(); state.cameraRecorder = null; }
   state.cameraClipChunks = []; state.cameraClipTimestamps = [];
-  addMsg("system","Switching camera…");
+  addMsg("system", "Switching camera…");
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: deviceId }, width:640, height:480, frameRate:15 }, audio:false
+      video: { deviceId: { exact: deviceId }, width: 640, height: 480, frameRate: 15 }, audio: false
     });
     state.cameraStream = stream; state.selectedCameraId = deviceId;
     const vid = $("camera-feed"); if (vid) { vid.srcObject = stream; vid.play(); }
@@ -258,7 +437,7 @@ async function switchCamera(deviceId) {
     state.faceDescriptors = null; await enrollUserFace();
     const reply = `Camera switched, ${state.userTitle}. Visual sensors updated.`;
     addMsg("jarvis", reply); speak(reply); updateMood(2);
-  } catch(e) {
+  } catch (e) {
     const reply = `Camera switch failed, ${state.userTitle}. The device may be in use.`;
     addMsg("jarvis", reply); speak(reply);
   }
@@ -269,22 +448,22 @@ async function switchCamera(deviceId) {
 // ═══════════════════════════════════════════════════════════════
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const mic = {
-  rec:null, active:false, retryCount:0, maxRetries:999, retryDelay:150,
-  retryTimer:null, onResult:null, onInterim:null, continuous:true,
-  suspended:false, _killing:false, permGranted:false,
+  rec: null, active: false, retryCount: 0, maxRetries: 999, retryDelay: 150,
+  retryTimer: null, onResult: null, onInterim: null, continuous: true,
+  suspended: false, _killing: false, permGranted: false,
 
   async requestPerm() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:true, channelCount:1, sampleRate:16000 }
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1, sampleRate: 16000 }
       });
       stream.getTracks().forEach(t => t.stop());
       this.permGranted = true; updateMicDebug("Mic: permission granted ✓");
-    } catch(e) { updateMicDebug("Mic: permission denied ✗"); }
+    } catch (e) { updateMicDebug("Mic: permission denied ✗"); }
   },
 
   start(onResult, onInterim, continuous) {
-    if (!SR) { addMsg("system","Speech recognition requires Chrome/Edge."); return; }
+    if (!SR) { addMsg("system", "Speech recognition requires Chrome/Edge."); return; }
     this.onResult = onResult; this.onInterim = onInterim;
     this.continuous = continuous !== false; this.suspended = false; this.retryCount = 0; this._launch();
   },
@@ -303,10 +482,10 @@ const mic = {
       if (result.isFinal) {
         let bestText = result[0].transcript.trim(), bestConf = result[0].confidence || 0;
         for (let i = 1; i < result.length; i++) {
-          if ((result[i].confidence||0) > bestConf) { bestConf = result[i].confidence; bestText = result[i].transcript.trim(); }
+          if ((result[i].confidence || 0) > bestConf) { bestConf = result[i].confidence; bestText = result[i].transcript.trim(); }
         }
         if (!bestText) return;
-        updateLiveHearing(""); updateMicDebug(`Mic: "${bestText}" (${(bestConf*100).toFixed(0)}%)`);
+        updateLiveHearing(""); updateMicDebug(`Mic: "${bestText}" (${(bestConf * 100).toFixed(0)}%)`);
         if (this.onResult) this.onResult(bestText);
       } else if (result[0]) {
         const interim = result[0].transcript.trim();
@@ -317,7 +496,7 @@ const mic = {
 
     r.onerror = (e) => {
       console.warn("[MIC ERROR]", e.error); this.active = false; state.isListening = false; updateLiveHearing("");
-      switch(e.error) {
+      switch (e.error) {
         case "not-allowed": case "service-not-allowed":
           this.permGranted = false; updateMicDebug("Mic: blocked — check permissions"); this.suspended = true; return;
         case "no-speech": updateMicDebug("Mic: silence…"); this._scheduleRetry(100); return;
@@ -334,16 +513,16 @@ const mic = {
     };
 
     try { r.start(); updateMicDebug("Mic: listening…"); }
-    catch(e) { this.active = false; state.isListening = false; this._scheduleRetry(300); }
+    catch (e) { this.active = false; state.isListening = false; this._scheduleRetry(300); }
   },
 
   _scheduleRetry(ms) {
     clearTimeout(this.retryTimer); if (this.suspended) return;
-    const delay = Math.min(ms * Math.pow(1.2, Math.min(this.retryCount, 6)), 3000);
+    const d = Math.min(ms * Math.pow(1.2, Math.min(this.retryCount, 6)), 3000);
     this.retryCount++;
-    this.retryTimer = setTimeout(() => this._launch(), delay);
+    this.retryTimer = setTimeout(() => this._launch(), d);
   },
-  _kill() { try { if (this.rec) this.rec.abort(); } catch(_) {} this.rec = null; this.active = false; state.isListening = false; },
+  _kill() { try { if (this.rec) this.rec.abort(); } catch (_) {} this.rec = null; this.active = false; state.isListening = false; },
   suspend() { this.suspended = true; clearTimeout(this.retryTimer); this._kill(); updateLiveHearing(""); updateMicDebug("Mic: paused"); },
   resume()  { if (!this.suspended) return; this.suspended = false; this.retryCount = 0; updateMicDebug("Mic: resuming…"); this._launch(); },
 };
@@ -387,21 +566,24 @@ function isScreenCommand(lower) {
 function isLinkMetaCommand(lower) {
   return /\b(how many links|count.*links|total.*links|list.*links|what links|your links|link groups)\b/i.test(lower);
 }
+function isNotifCommand(lower) {
+  return /\b(notification|alert|settings?|configure alerts?|sound alerts?|push notif)\b/i.test(lower);
+}
 
 // ── NAME MATCHING ──
 function matchesUser(text, profile) {
   if (!profile) return false;
-  const lower = text.toLowerCase().replace(/[^a-z\s]/g,"").trim();
+  const lower = text.toLowerCase().replace(/[^a-z\s]/g, "").trim();
   const name  = profile.name.toLowerCase();
   if (lower.includes(name)) return true;
   if (profile.voiceAliases) {
     for (const alias of profile.voiceAliases) {
-      const a = alias.toLowerCase().replace(/[^a-z\s]/g,"").trim();
+      const a = alias.toLowerCase().replace(/[^a-z\s]/g, "").trim();
       if (a && lower.includes(a)) return true;
-      if (a.length >= 3 && lower.includes(a.slice(0,3))) return true;
+      if (a.length >= 3 && lower.includes(a.slice(0, 3))) return true;
     }
   }
-  if (name.length >= 3) for (const w of lower.split(" ")) if (w.startsWith(name.slice(0,3))) return true;
+  if (name.length >= 3) for (const w of lower.split(" ")) if (w.startsWith(name.slice(0, 3))) return true;
   return false;
 }
 
@@ -419,7 +601,7 @@ function showSetup() {
     const title = $("setup-title").value;
     if (!name || !pw) { alert("Please enter your name and a password."); return; }
     const hash  = await hashPassword(pw);
-    window._pendingProfile = { name, passwordHash:hash, title, voiceAliases:[] };
+    window._pendingProfile = { name, passwordHash: hash, title, voiceAliases: [] };
     $("step-profile").classList.add("hidden");
     $("step-voice").classList.remove("hidden");
   });
@@ -471,7 +653,7 @@ async function showAuthScreen() {
   $("main-screen")?.classList.remove("active");
   await mic.requestPerm();
 
-  const pwInput   = $("auth-password-input");
+  const pwInput    = $("auth-password-input");
   const newPwInput = pwInput.cloneNode(true);
   pwInput.parentNode.replaceChild(newPwInput, pwInput);
 
@@ -487,7 +669,7 @@ async function showAuthScreen() {
     const nameHint = localStorage.getItem("jarvis_name_hint");
     if (nameHint) {
       try {
-        const res  = await fetch("/api/verify", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ name:nameHint, passwordHash:hash }) });
+        const res  = await fetch("/api/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nameHint, passwordHash: hash }) });
         const data = await res.json();
         if (data.authorized) {
           const restored = { ...data.profile, passwordHash: hash };
@@ -495,7 +677,7 @@ async function showAuthScreen() {
           state.user = data.profile.name; state.userTitle = data.profile.title;
           speak(`Welcome back, ${data.profile.title}. Profile restored.`, launchMain); return;
         }
-      } catch(err) { console.warn("[JARVIS] Backend verify failed:", err); }
+      } catch (err) { console.warn("[JARVIS] Backend verify failed:", err); }
     }
     const as = $("auth-status");
     as.innerHTML = `<span style="color:var(--red)">Wrong password.</span>`;
@@ -543,14 +725,14 @@ async function checkVoiceAuth(spokenText) {
   }
   try {
     const res  = await fetch("/api/profiles"); const data = await res.json();
-    for (const p of (data.profiles||[])) {
+    for (const p of (data.profiles || [])) {
       if (matchesUser(spokenText, p)) {
         localStorage.setItem("jarvis_name_hint", p.name.toLowerCase());
         state.user = p.name; state.userTitle = p.title;
         setOrb("idle"); speak(`Welcome back, ${p.title}. Identity confirmed.`, launchMain); return;
       }
     }
-  } catch(e) { console.warn("[JARVIS] Profile fetch failed:", e); }
+  } catch (e) { console.warn("[JARVIS] Profile fetch failed:", e); }
   setOrb("idle");
   as.innerHTML = `<span style="color:var(--red)">Access denied.</span>`;
   speak("Access denied. Identity not recognised.", () => {
@@ -571,13 +753,20 @@ function launchMain() {
   $("user-display").textContent = `${state.user} / ${state.userTitle}`;
   state.lastInteraction = Date.now(); updateMood(20);
 
+  // Init notification system (requires user gesture — launchMain is called from speak onEnd)
+  notif.init().then(() => {
+    addMsg("system", notif.perms === "granted"
+      ? "Push notifications active — alerts will reach you even when this tab is minimised."
+      : "Push notifications not granted. Say \"notification settings\" to enable them.");
+  });
+
   const greetings = [
     `All systems online, ${state.userTitle}. Cognitive engine active. What are we solving today?`,
     `Good to have you back, ${state.userTitle}. I'm running full semantic reasoning — ask me anything.`,
     `Online and operational, ${state.userTitle}. No preset commands — just talk to me naturally.`,
   ];
   addMsg("system", greetings[Math.floor(Math.random() * greetings.length)]);
-  addMsg("system","Ask me anything — science, history, philosophy, maths, advice, or just chat. No limits.");
+  addMsg("system", "Ask me anything — science, history, philosophy, maths, advice, or just chat. No limits.");
 
   requestScreenRecord();
   requestCameraAccess();
@@ -610,10 +799,135 @@ function setupTypingBox() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ── NOTIFICATION SETTINGS OVERLAY ──
+// Triggered by voice ("notification settings") or typing
+// ═══════════════════════════════════════════════════════════════
+function showNotifSettings() {
+  mic.suspend();
+  let overlay = $("notif-settings-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "notif-settings-overlay";
+    overlay.className = "notif-settings-overlay";
+    overlay.innerHTML = `
+      <div class="notif-settings-box">
+        <div class="notif-settings-header">
+          <span class="notif-settings-title">NOTIFICATION SETTINGS</span>
+          <button class="notif-close-btn" id="notif-close-btn">✕</button>
+        </div>
+
+        <div class="notif-section">
+          <div class="notif-section-label">PUSH PERMISSION</div>
+          <div class="notif-perm-bar">
+            <span class="notif-perm-status pending" id="notif-perm-status">● CHECKING…</span>
+            <button class="hud-btn" id="notif-perm-btn" style="width:auto;padding:6px 14px;font-size:0.65rem;">REQUEST</button>
+          </div>
+        </div>
+
+        <div class="notif-section">
+          <div class="notif-section-label">ALERT CHANNELS</div>
+
+          <div class="notif-row">
+            <div class="notif-row-info">
+              <span class="notif-row-dot red"></span>
+              <div>
+                <div class="notif-row-title">Intruder detection</div>
+                <div class="notif-row-sub">Push (stays until dismissed) + alarm tone</div>
+              </div>
+            </div>
+            <label class="notif-toggle">
+              <input type="checkbox" id="nt-intruder" ${notif.cfg.intruder ? "checked" : ""}>
+              <span class="notif-slider"></span>
+            </label>
+          </div>
+
+          <div class="notif-row">
+            <div class="notif-row-info">
+              <span class="notif-row-dot amber"></span>
+              <div>
+                <div class="notif-row-title">Away mode</div>
+                <div class="notif-row-sub">Push + descending chime when you leave</div>
+              </div>
+            </div>
+            <label class="notif-toggle">
+              <input type="checkbox" id="nt-away" ${notif.cfg.away ? "checked" : ""}>
+              <span class="notif-slider"></span>
+            </label>
+          </div>
+
+          <div class="notif-row">
+            <div class="notif-row-info">
+              <span class="notif-row-dot blue"></span>
+              <div>
+                <div class="notif-row-title">User return</div>
+                <div class="notif-row-sub">Push + ascending welcome tone</div>
+              </div>
+            </div>
+            <label class="notif-toggle">
+              <input type="checkbox" id="nt-return" ${notif.cfg.return ? "checked" : ""}>
+              <span class="notif-slider"></span>
+            </label>
+          </div>
+
+          <div class="notif-row">
+            <div class="notif-row-info">
+              <span class="notif-row-dot green"></span>
+              <div>
+                <div class="notif-row-title">System events</div>
+                <div class="notif-row-sub">Subtle ping for general system messages</div>
+              </div>
+            </div>
+            <label class="notif-toggle">
+              <input type="checkbox" id="nt-system" ${notif.cfg.system ? "checked" : ""}>
+              <span class="notif-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="notif-section">
+          <div class="notif-section-label">TEST ALERTS</div>
+          <div class="notif-test-grid">
+            <button class="notif-test-btn" id="ntest-intruder">Intruder alarm</button>
+            <button class="notif-test-btn" id="ntest-away">Away mode</button>
+            <button class="notif-test-btn" id="ntest-return">User return</button>
+            <button class="notif-test-btn" id="ntest-system">System ping</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    // Wire up controls
+    $("notif-close-btn").addEventListener("click", hideNotifSettings);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) hideNotifSettings(); });
+
+    $("notif-perm-btn")?.addEventListener("click", () => notif.requestPerm());
+
+    const toggleMap = { "nt-intruder": "intruder", "nt-away": "away", "nt-return": "return", "nt-system": "system" };
+    for (const [id, key] of Object.entries(toggleMap)) {
+      $(id)?.addEventListener("change", (e) => { notif.cfg[key] = e.target.checked; });
+    }
+
+    const testT = state.userTitle || "Sir";
+    $("ntest-intruder").addEventListener("click", () => { notif.tone("intruder"); notif.push("⚠ J.A.R.V.I.S — TEST ALERT", `Test: Unknown face detected, ${testT}.`, "test-intruder"); });
+    $("ntest-away").addEventListener("click",     () => { notif.tone("away");     notif.push("J.A.R.V.I.S — TEST", `Test: Away mode activated, ${testT}.`, "test-away"); });
+    $("ntest-return").addEventListener("click",   () => { notif.tone("return");   notif.push("J.A.R.V.I.S — TEST", `Test: Welcome back, ${testT}.`, "test-return"); });
+    $("ntest-system").addEventListener("click",   () => { notif.tone("system");   notif.push("J.A.R.V.I.S — TEST", "Test: system ping.", "test-system"); });
+  }
+
+  overlay.classList.remove("hidden");
+  updateNotifPermDisplay();
+  addMsg("system", "Notification settings open. Configure alert channels, test sounds, and manage push permissions.");
+}
+
+function hideNotifSettings() {
+  const overlay = $("notif-settings-overlay");
+  if (overlay) overlay.classList.add("hidden");
+  if (state.phase === "chatting") mic.resume();
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ── FACE AUTH OVERLAY ──
-// Shows when an unknown face is detected. Password authorizes the
-// person — but recording ALWAYS completes regardless. After the
-// recorder stops, showClipReviewPrompt() fires unconditionally.
 // ═══════════════════════════════════════════════════════════════
 function showFaceAuthOverlay() {
   const overlay = $("face-auth-overlay");
@@ -627,7 +941,6 @@ function showFaceAuthOverlay() {
   errMsg.classList.add("hidden");
   pwInput.focus();
 
-  // Remove old listeners by cloning buttons
   const newSubmit  = submit.cloneNode(true);
   const newDismiss = dismiss.cloneNode(true);
   submit.parentNode.replaceChild(newSubmit, submit);
@@ -643,11 +956,10 @@ function showFaceAuthOverlay() {
     if (profile && hash === profile.passwordHash) {
       authorized = true;
     } else {
-      // Try backend verify
       const nameHint = localStorage.getItem("jarvis_name_hint");
       if (nameHint) {
         try {
-          const res  = await fetch("/api/verify", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ name:nameHint, passwordHash:hash }) });
+          const res  = await fetch("/api/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nameHint, passwordHash: hash }) });
           const data = await res.json();
           if (data.authorized) authorized = true;
         } catch {}
@@ -655,14 +967,10 @@ function showFaceAuthOverlay() {
     }
 
     if (authorized) {
-      // Mark as authorized so clip review can note this
       state.intruderAuthorized = true;
       hideFaceAuthOverlay();
-
-      // Clear the camera alert styling
       const panel = $("camera-panel");
       if (panel) panel.classList.remove("alert");
-
       const reply = `Access authorized, ${state.userTitle}. Recording is still completing — you'll be asked about the clip when it finishes.`;
       addMsg("jarvis", reply);
       speak(reply);
@@ -691,17 +999,14 @@ function hideFaceAuthOverlay() {
 
 // ═══════════════════════════════════════════════════════════════
 // ── CLIP REVIEW PROMPT ──
-// Always fires after an intruder recording stops — regardless of
-// whether the person authorized themselves with their password.
 // ═══════════════════════════════════════════════════════════════
 function showClipReviewPrompt(clip) {
-  const overlay  = $("clip-review-overlay");
-  const subText  = $("clip-review-sub");
-  const keepBtn  = $("clip-review-keep");
-  const dlBtn    = $("clip-review-download");
+  const overlay    = $("clip-review-overlay");
+  const subText    = $("clip-review-sub");
+  const keepBtn    = $("clip-review-keep");
+  const dlBtn      = $("clip-review-download");
   const discardBtn = $("clip-review-discard");
 
-  // Contextual message depending on whether they authorized
   if (state.intruderAuthorized) {
     subText.textContent = "You authorized this visit — but the recording completed. Keep the clip on file?";
   } else {
@@ -710,7 +1015,6 @@ function showClipReviewPrompt(clip) {
 
   overlay.classList.remove("hidden");
 
-  // Clone buttons to clear old listeners
   const newKeep    = keepBtn.cloneNode(true);
   const newDl      = dlBtn.cloneNode(true);
   const newDiscard = discardBtn.cloneNode(true);
@@ -720,7 +1024,6 @@ function showClipReviewPrompt(clip) {
 
   const close = () => overlay.classList.add("hidden");
 
-  // KEEP — store on file, don't download
   $("clip-review-keep").addEventListener("click", () => {
     state.intruderClips.push(clip);
     close();
@@ -728,7 +1031,6 @@ function showClipReviewPrompt(clip) {
     addMsg("jarvis", reply); speak(reply);
   });
 
-  // DOWNLOAD & KEEP — save to disk AND keep in log
   $("clip-review-download").addEventListener("click", () => {
     state.intruderClips.push(clip);
     downloadClipBlob(clip.videoBlob, `jarvis-incident-${Date.now()}.webm`);
@@ -737,7 +1039,6 @@ function showClipReviewPrompt(clip) {
     addMsg("jarvis", reply); speak(reply);
   });
 
-  // DISCARD — don't add to log
   $("clip-review-discard").addEventListener("click", () => {
     close();
     const reply = state.intruderAuthorized
@@ -769,6 +1070,7 @@ function handleChatCommand(text) {
   if (isLinkCommand(lower))  { handleLinkCommand(text); return; }
   if (isLinkMetaCommand(lower)) { handleLinkMeta(text); return; }
   if (isScreenCommand(lower)) { readScreen(cleaned || text); return; }
+  if (isNotifCommand(lower)) { showNotifSettings(); return; }
 
   const camMatch = cleaned.match(/\b(?:switch|use|change|select)\b.*?\bcamera\s*(\d+)\b/i);
   if (camMatch) {
@@ -849,7 +1151,7 @@ async function handleLinkMeta(text) {
 async function handleLinkCommand(text) {
   mic.suspend(); setOrb("thinking");
   try {
-    const res  = await fetch("/api/link", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ query:text }) });
+    const res  = await fetch("/api/link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: text }) });
     const data = await res.json();
     if (data.found) {
       const reply = `Right away, ${state.userTitle}. Opening your ${data.name} link now.`;
@@ -857,7 +1159,7 @@ async function handleLinkCommand(text) {
       const wrap = document.createElement("div"); wrap.className = "msg jarvis";
       wrap.innerHTML = `<div class="msg-label">J.A.R.V.I.S — LINK</div><div class="msg-text"><a href="${data.url}" target="_blank" rel="noopener" class="jarvis-link">${data.url}</a></div>`;
       $("transcript").appendChild(wrap); $("transcript").scrollTop = $("transcript").scrollHeight;
-      speak(reply, () => { window.open(data.url,"_blank","noopener"); mic.resume(); }); updateMood(3);
+      speak(reply, () => { window.open(data.url, "_blank", "noopener"); mic.resume(); }); updateMood(3);
     } else {
       const reply = `I don't have a link group matching that, ${state.userTitle}.`;
       addMsg("jarvis", reply); speak(reply, () => mic.resume());
@@ -873,18 +1175,18 @@ async function sendToAI(message) {
   mic.suspend();
   addMsg("user", message);
   setOrb("thinking");
-  const memories   = await loadMemoriesForPrompt();
-  const moodCtx    = `mood: ${state.mood} (score: ${state.moodScore})`;
+  const memories  = await loadMemoriesForPrompt();
+  const moodCtx   = `mood: ${state.mood} (score: ${state.moodScore})`;
   try {
     const res  = await fetch("/api/chat", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ message, sessionId:state.sessionId, userName:state.user, userTitle:state.userTitle, memories, moodContext:moodCtx }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, sessionId: state.sessionId, userName: state.user, userTitle: state.userTitle, memories, moodContext: moodCtx }),
     });
     const data  = await res.json();
     const reply = data.reply || `Yes, ${state.userTitle}?`;
     addMsg("jarvis", reply);
     speak(reply, () => mic.resume()); updateMood(5);
-  } catch(err) {
+  } catch (err) {
     console.error("[JARVIS] AI error:", err);
     const fb = `Something went sideways, ${state.userTitle}. Give it another go.`;
     addMsg("jarvis", fb); speak(fb, () => mic.resume()); updateMood(-5);
@@ -919,14 +1221,14 @@ async function readScreen(question) {
   const memories = await loadMemoriesForPrompt();
   try {
     const res = await fetch("/api/screen", {
-      method:"POST", headers:{"Content-Type":"application/json"},
+      method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ocrText: ocr.ocrText, question: question || "What is on the screen?", userName: state.user, userTitle: state.userTitle, memories }),
     });
     const data  = await res.json();
-    const reply = data.reply || `Your screen contains: ${ocr.ocrText.slice(0,200)}`;
+    const reply = data.reply || `Your screen contains: ${ocr.ocrText.slice(0, 200)}`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume()); updateMood(5);
-  } catch(err) {
-    const lines = ocr.ocrText.split("\n").filter(l => l.trim().length > 2).slice(0,4).join(". ");
+  } catch (err) {
+    const lines = ocr.ocrText.split("\n").filter(l => l.trim().length > 2).slice(0, 4).join(". ");
     const reply = `Here's what I can read on your screen, ${state.userTitle}: ${lines}`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume());
   }
@@ -939,9 +1241,9 @@ async function requestCameraAccess() {
   try {
     await enumerateCameras();
     const videoConstraints = state.selectedCameraId
-      ? { deviceId:{ exact:state.selectedCameraId }, width:640, height:480, frameRate:15 }
-      : { width:640, height:480, frameRate:15 };
-    const stream = await navigator.mediaDevices.getUserMedia({ video:videoConstraints, audio:false });
+      ? { deviceId: { exact: state.selectedCameraId }, width: 640, height: 480, frameRate: 15 }
+      : { width: 640, height: 480, frameRate: 15 };
+    const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
     state.cameraStream = stream;
     const track = stream.getVideoTracks()[0];
     if (track) { const s = track.getSettings(); state.selectedCameraId = s.deviceId || state.selectedCameraId; }
@@ -952,7 +1254,7 @@ async function requestCameraAccess() {
     await enumerateCameras();
     await loadFaceModels();
     addMsg("system", `Camera online. ${state.availableCameras.length} camera(s) detected.`); updateMood(5);
-  } catch(e) { addMsg("system","Camera declined — face recognition unavailable."); }
+  } catch (e) { addMsg("system", "Camera declined — face recognition unavailable."); }
 }
 
 let faceApiLoaded = false;
@@ -966,7 +1268,7 @@ async function loadFaceModels() {
       faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
     ]);
     faceApiLoaded = true; await enrollUserFace(); startFaceWatch();
-  } catch(e) { console.warn("[JARVIS] Face-api failed:", e); }
+  } catch (e) { console.warn("[JARVIS] Face-api failed:", e); }
 }
 
 function loadScript(src) {
@@ -984,7 +1286,7 @@ async function enrollUserFace() {
     await delay(1000);
     try {
       const d = await faceapi.detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
-      if (d) { state.faceDescriptors = d.descriptor; addMsg("system","Your face enrolled for recognition."); return; }
+      if (d) { state.faceDescriptors = d.descriptor; addMsg("system", "Your face enrolled for recognition."); return; }
     } catch {}
   }
 }
@@ -1007,8 +1309,14 @@ async function checkFace() {
       }
       if (userPresent) {
         if (state.awayMode) {
-          state.awayMode = false; stopIntruderRecord();
-          const msgs = [`Welcome back, ${state.userTitle}. I've been keeping watch.`, `${state.userTitle} — face confirmed. Systems restored.`];
+          state.awayMode = false;
+          stopIntruderRecord();
+          // ── NOTIFICATION: user returned ──
+          notif.userReturn(state.userTitle);
+          const msgs = [
+            `Welcome back, ${state.userTitle}. I've been keeping watch.`,
+            `${state.userTitle} — face confirmed. Systems restored.`,
+          ];
           const msg = msgs[Math.floor(Math.random() * msgs.length)];
           addMsg("jarvis", msg); speak(msg, () => setTimeout(() => checkIntruderClips(), 1500)); updateMood(15);
         }
@@ -1016,20 +1324,25 @@ async function checkFace() {
     }
     if (Date.now() - state.lastSeenUser > 60000 && !state.awayMode && state.phase === "chatting") {
       state.awayMode = true;
-      addMsg("system","User not detected — away mode active. Monitoring.");
+      // ── NOTIFICATION: away mode activated ──
+      notif.away(state.userTitle);
+      addMsg("system", "User not detected — away mode active. Monitoring.");
     }
   } catch {}
 }
 
 function handleUnknownFace() {
   if (state.intruderActive) return;
-  state.intruderActive    = true;
-  state.intruderAuthorized = false; // reset for this incident
+  state.intruderActive     = true;
+  state.intruderAuthorized = false;
 
   const panel = $("camera-panel");
   if (panel) panel.classList.add("alert");
 
-  addMsg("system","⚠ UNKNOWN FACE DETECTED — recording started");
+  // ── NOTIFICATION: intruder detected ──
+  notif.intruder(state.userTitle);
+
+  addMsg("system", "⚠ UNKNOWN FACE DETECTED — recording started");
   speak("I don't recognise you. Identify yourself.", () => {
     setTimeout(() => {
       if (state.intruderActive && !state.intruderAuthorized) {
@@ -1038,55 +1351,47 @@ function handleUnknownFace() {
     }, 10000);
   });
 
-  // Show the password overlay so the authorized user can dismiss the alert
   showFaceAuthOverlay();
-
-  // Start recording — always runs for 30s regardless of overlay action
   startIntruderRecord();
-  captureAndStoreIntruderPhoto(); // capture snapshot immediately
+  captureAndStoreIntruderPhoto();
   updateMood(-30);
 }
 
 function captureAndStoreIntruderPhoto() {
   const vid = $("camera-feed"); if (!vid) return null;
-  const c = document.createElement("canvas"); c.width = vid.videoWidth||640; c.height = vid.videoHeight||480;
-  c.getContext("2d").drawImage(vid,0,0); return c.toDataURL("image/jpeg",0.85).split(",")[1];
+  const c = document.createElement("canvas"); c.width = vid.videoWidth || 640; c.height = vid.videoHeight || 480;
+  c.getContext("2d").drawImage(vid, 0, 0); return c.toDataURL("image/jpeg", 0.85).split(",")[1];
 }
 
 function startIntruderRecord() {
   if (!state.cameraStream) return;
   state.intruderChunks = [];
-  const mime = getSupportedMime();
-  const photo = captureAndStoreIntruderPhoto(); // snapshot at start
+  const mime  = getSupportedMime();
+  const photo = captureAndStoreIntruderPhoto();
 
   try {
-    const rec = new MediaRecorder(state.cameraStream, mime ? { mimeType:mime } : {});
+    const rec = new MediaRecorder(state.cameraStream, mime ? { mimeType: mime } : {});
     state.intruderRecorder = rec;
 
     rec.ondataavailable = (e) => { if (e.data?.size > 0) state.intruderChunks.push(e.data); };
 
     rec.onstop = () => {
-      // Recording finished — always prompt user regardless of auth status
       if (state.intruderChunks.length > 0) {
         const videoBlob = new Blob(state.intruderChunks, { type: getSupportedMime() || "video/webm" });
         const clip = {
           videoBlob,
-          photoB64: photo,
-          timestamp: new Date().toISOString(),
+          photoB64:   photo,
+          timestamp:  new Date().toISOString(),
           authorized: state.intruderAuthorized,
         };
 
-        // Hide the face auth overlay if still open (recording done)
         hideFaceAuthOverlay();
-
-        // Clear camera alert
         const panel = $("camera-panel");
         if (panel) panel.classList.remove("alert");
 
         state.intruderActive = false;
         state.intruderChunks = [];
 
-        // Always show the clip review prompt
         showClipReviewPrompt(clip);
       } else {
         state.intruderActive = false;
@@ -1095,15 +1400,13 @@ function startIntruderRecord() {
     };
 
     rec.start(1000);
-
-    // Stop after 30s — onstop will handle everything
     setTimeout(() => {
       if (state.intruderRecorder && state.intruderRecorder.state !== "inactive") {
         state.intruderRecorder.stop();
       }
     }, 30000);
 
-  } catch(e) {
+  } catch (e) {
     console.warn("[JARVIS] Intruder record failed:", e);
     state.intruderActive = false;
   }
@@ -1111,13 +1414,15 @@ function startIntruderRecord() {
 
 function stopIntruderRecord() {
   if (!state.intruderRecorder || state.intruderRecorder.state === "inactive") return;
-  state.intruderRecorder.stop(); // onstop handles the rest
+  state.intruderRecorder.stop();
 }
 
 function checkIntruderClips() {
   if (!state.intruderClips.length) return;
-  const count = state.intruderClips.length;
-  const report = `${state.userTitle}, I have ${count} intruder ${count===1?"incident":"incidents"} on file. Say "show me the intruder clips" to review.`;
+  const count  = state.intruderClips.length;
+  const report = `${state.userTitle}, I have ${count} intruder ${count === 1 ? "incident" : "incidents"} on file. Say "show me the intruder clips" to review.`;
+  // ── NOTIFICATION: unreviewed clips ──
+  notif.system(`${count} intruder clip(s) on file.`);
   addMsg("jarvis", report); speak(report); updateMood(-10);
 }
 
@@ -1132,7 +1437,7 @@ function showIntruderClips() {
     const time = new Date(clip.timestamp).toLocaleTimeString();
     const tag  = clip.authorized ? " (AUTHORIZED)" : "";
     const wrap = document.createElement("div"); wrap.className = "msg system";
-    wrap.innerHTML = `<div class="msg-label">INTRUDER #${i+1} — ${time}${tag}</div><div class="msg-text intruder-clip-block"></div>`;
+    wrap.innerHTML = `<div class="msg-label">INTRUDER #${i + 1} — ${time}${tag}</div><div class="msg-text intruder-clip-block"></div>`;
     const block = wrap.querySelector(".intruder-clip-block");
     if (clip.photoB64) {
       const img = document.createElement("img"); img.src = `data:image/jpeg;base64,${clip.photoB64}`;
@@ -1151,7 +1456,7 @@ function showIntruderClips() {
 function startCameraBuffer(stream) {
   const mime = getSupportedMime();
   try {
-    const rec = new MediaRecorder(stream, mime ? { mimeType:mime } : {});
+    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
     state.cameraRecorder = rec;
     rec.ondataavailable = (e) => {
       if (!e.data || e.data.size === 0) return;
@@ -1167,7 +1472,7 @@ function startCameraBuffer(stream) {
 async function saveMemory(fact) {
   mic.suspend(); setOrb("thinking");
   try {
-    await fetch("/api/memory", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ user:state.user, fact }) });
+    await fetch("/api/memory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user: state.user, fact }) });
     const reply = `Noted and filed, ${state.userTitle}. I'll remember that.`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume()); updateMood(5);
   } catch {
@@ -1179,7 +1484,7 @@ async function saveMemory(fact) {
 async function forgetMemory(hint) {
   mic.suspend(); setOrb("thinking");
   try {
-    const res  = await fetch("/api/memory/forget", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ user:state.user, hint }) });
+    const res  = await fetch("/api/memory/forget", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user: state.user, hint }) });
     const data = await res.json();
     const reply = data.removed > 0 ? `Done, ${state.userTitle}. ${data.removed} memory entry removed.` : `Nothing matching that on file, ${state.userTitle}.`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume());
@@ -1196,7 +1501,7 @@ async function recallMemories() {
       const reply = `Memory banks are empty for you, ${state.userTitle}. Tell me something worth keeping.`;
       addMsg("jarvis", reply); speak(reply, () => mic.resume()); return;
     }
-    const list = facts.map((f,i) => `${i+1}. ${f.fact}`).join("\n");
+    const list = facts.map((f, i) => `${i + 1}. ${f.fact}`).join("\n");
     addMsg("jarvis", `I have ${facts.length} items on file, ${state.userTitle}:\n${list}`);
     speak(`I have ${facts.length} items on file, ${state.userTitle}. Check the transcript.`, () => mic.resume());
   } catch { speak(`Memory retrieval failed, ${state.userTitle}.`, () => mic.resume()); }
@@ -1206,25 +1511,25 @@ async function loadMemoriesForPrompt() {
   try {
     const res  = await fetch(`/api/memory/${encodeURIComponent(state.user)}`);
     const data = await res.json();
-    return (data.memories||[]).map(m => m.fact);
+    return (data.memories || []).map(m => m.fact);
   } catch { return []; }
 }
 
 // ── SCREEN RECORD ──
 async function requestScreenRecord() {
   try {
-    const stream = await navigator.mediaDevices.getDisplayMedia({ video:{ frameRate:30 }, audio:true });
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: true });
     state.screenStream = stream; startRollingBuffer(stream);
     $("clip-indicator")?.classList.remove("hidden");
-    addMsg("system","Screen sharing active — I can now read your screen.");
+    addMsg("system", "Screen sharing active — I can now read your screen.");
   } catch {
-    addMsg("system","Screen sharing declined — screen reading unavailable.");
+    addMsg("system", "Screen sharing declined — screen reading unavailable.");
   }
 }
 
 function startRollingBuffer(stream) {
   const mime = getSupportedMime();
-  const rec  = new MediaRecorder(stream, mime ? { mimeType:mime } : {});
+  const rec  = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
   state.mediaRecorder = rec;
   rec.ondataavailable = (e) => {
     if (!e.data || e.data.size === 0) return;
@@ -1236,17 +1541,18 @@ function startRollingBuffer(stream) {
 }
 
 function getSupportedMime() {
-  return ["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm","video/mp4"].find(t => MediaRecorder.isTypeSupported(t)) || "";
+  return ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm", "video/mp4"]
+    .find(t => MediaRecorder.isTypeSupported(t)) || "";
 }
 
 function saveClip() {
   let saved = 0;
   if (state.clipChunks.length) {
-    const blob = new Blob(state.clipChunks, { type:getSupportedMime()||"video/webm" });
+    const blob = new Blob(state.clipChunks, { type: getSupportedMime() || "video/webm" });
     downloadClipBlob(blob, `jarvis-screen-${Date.now()}.webm`); saved++;
   }
   if (state.cameraClipChunks.length) {
-    const blob = new Blob(state.cameraClipChunks, { type:getSupportedMime()||"video/webm" });
+    const blob = new Blob(state.cameraClipChunks, { type: getSupportedMime() || "video/webm" });
     downloadClipBlob(blob, `jarvis-camera-${Date.now()}.webm`); saved++;
   }
   if (!saved) { speak(`No buffer yet, ${state.userTitle}. Give it a moment.`, () => mic.resume()); return; }
@@ -1282,9 +1588,9 @@ function handleLogout() {
 
 // ── TRANSCRIPT ──
 function addMsg(type, text) {
-  const labels = { user:"YOU", jarvis:"J.A.R.V.I.S", system:"SYSTEM" };
+  const labels = { user: "YOU", jarvis: "J.A.R.V.I.S", system: "SYSTEM" };
   const wrap   = document.createElement("div"); wrap.className = `msg ${type}`;
-  wrap.innerHTML = `<div class="msg-label">${labels[type]||type}</div><div class="msg-text">${text}</div>`;
+  wrap.innerHTML = `<div class="msg-label">${labels[type] || type}</div><div class="msg-text">${text}</div>`;
   $("transcript").appendChild(wrap); $("transcript").scrollTop = $("transcript").scrollHeight;
 }
 
