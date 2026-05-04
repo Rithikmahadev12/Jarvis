@@ -232,7 +232,7 @@ body::before {
 .camera-status.online { color: var(--green); }
 .camera-status.alert  { color: var(--red); animation: blink 0.8s step-end infinite; }
 
-/* ── CAMERA SELECTOR (injected by JS after enumeration) ── */
+/* ── CAMERA SELECTOR ── */
 #camera-selector-wrap {
   display: flex;
   align-items: center;
@@ -702,7 +702,7 @@ select option { background: var(--bg2); }
   text-align: center;
 }
 
-/* ── LIVE MIC (hidden strip) ── */
+/* ── LIVE MIC ── */
 .live-mic {
   width: 100%;
   max-width: 820px;
@@ -731,8 +731,6 @@ select option { background: var(--bg2); }
 
 /* ══════════════════════════════════════════════════════════════
    ── FACE AUTH OVERLAY ──
-   Fixed over everything when an unknown face is detected.
-   Red-themed to signal danger / alert state.
    ══════════════════════════════════════════════════════════════ */
 .face-auth-overlay {
   position: fixed;
@@ -761,8 +759,6 @@ select option { background: var(--bg2); }
   position: relative;
   overflow: hidden;
 }
-
-/* Animated red corner accent */
 .face-auth-box::before {
   content: '';
   position: absolute;
@@ -798,7 +794,6 @@ select option { background: var(--bg2); }
   flex-shrink: 0;
   animation: blink 0.9s step-end infinite;
 }
-
 .face-auth-sub {
   font-family: var(--mono);
   font-size: 0.7rem;
@@ -807,7 +802,6 @@ select option { background: var(--bg2); }
   text-align: center;
   line-height: 1.55;
 }
-
 .face-auth-note {
   font-family: var(--mono);
   font-size: 0.62rem;
@@ -817,8 +811,6 @@ select option { background: var(--bg2); }
   border-top: 1px solid rgba(255,51,51,0.2);
   padding-top: 10px;
 }
-
-/* Override the shared input style inside this overlay to use red accent */
 .face-auth-box input[type="password"] {
   border-color: rgba(255,51,51,0.4);
   background: rgba(255,51,51,0.04);
@@ -827,7 +819,6 @@ select option { background: var(--bg2); }
   border-color: var(--red);
   box-shadow: 0 0 10px rgba(255,51,51,0.3);
 }
-
 .face-auth-error {
   font-family: var(--mono);
   font-size: 0.65rem;
@@ -837,15 +828,12 @@ select option { background: var(--bg2); }
   animation: fadeUp 0.2s ease;
 }
 .face-auth-error.hidden { display: none !important; }
-
 .face-auth-btns {
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin-top: 4px;
 }
-
-/* AUTHORIZE button uses red theme */
 .face-auth-btns .hud-btn:first-child {
   border-color: var(--red);
   color: var(--red);
@@ -857,8 +845,6 @@ select option { background: var(--bg2); }
 
 /* ══════════════════════════════════════════════════════════════
    ── CLIP REVIEW OVERLAY ──
-   Appears after intruder recording completes. Amber-themed —
-   not as alarming as the face-auth overlay, just a decision prompt.
    ══════════════════════════════════════════════════════════════ */
 .clip-review-overlay {
   position: fixed;
@@ -899,16 +885,13 @@ select option { background: var(--bg2); }
   0%   { opacity: 1; transform: translateX(-100%); }
   100% { opacity: 1; transform: translateX(100%); }
 }
-
 .clip-review-header {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
 }
-.clip-review-icon {
-  font-size: 1.1rem;
-}
+.clip-review-icon { font-size: 1.1rem; }
 .clip-review-title {
   font-family: var(--mono);
   font-size: 0.75rem;
@@ -916,7 +899,6 @@ select option { background: var(--bg2); }
   color: var(--amber);
   text-shadow: 0 0 10px rgba(255,170,0,0.5);
 }
-
 .clip-review-sub {
   font-family: var(--mono);
   font-size: 0.7rem;
@@ -925,15 +907,12 @@ select option { background: var(--bg2); }
   text-align: center;
   line-height: 1.6;
 }
-
 .clip-review-btns {
   display: flex;
   flex-direction: column;
   gap: 8px;
   margin-top: 4px;
 }
-
-/* KEEP CLIP — amber */
 .clip-review-btns .hud-btn:nth-child(1) {
   border-color: var(--amber);
   color: var(--amber);
@@ -942,8 +921,6 @@ select option { background: var(--bg2); }
   background: rgba(255,170,0,0.1);
   box-shadow: 0 0 14px rgba(255,170,0,0.3);
 }
-
-/* DOWNLOAD & KEEP — blue secondary */
 .clip-review-btns .hud-btn:nth-child(2) {
   border-color: var(--blue-dim);
   color: var(--blue);
@@ -952,4 +929,225 @@ select option { background: var(--bg2); }
 .clip-review-btns .hud-btn:nth-child(2):hover {
   background: rgba(0,200,255,0.07);
   box-shadow: 0 0 10px var(--blue-glow);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ── NOTIFICATION SETTINGS OVERLAY ──
+   Blue-themed. Triggered by voice ("notification settings")
+   or typing. Injected into DOM dynamically by jarvis.js.
+   ══════════════════════════════════════════════════════════════ */
+.notif-settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(1, 8, 14, 0.85);
+  backdrop-filter: blur(6px);
+  animation: fadeUp 0.2s ease;
+}
+.notif-settings-overlay.hidden { display: none !important; }
+
+.notif-settings-box {
+  width: 100%;
+  max-width: 440px;
+  background: rgba(3, 12, 22, 0.98);
+  border: 1px solid var(--blue-dim);
+  box-shadow: 0 0 40px rgba(0,200,255,0.15), inset 0 0 60px rgba(0,200,255,0.03);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Animated top bar */
+.notif-settings-box::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--blue), transparent);
+  animation: scanBlue 3s linear infinite;
+}
+@keyframes scanBlue {
+  0%   { opacity: 1; transform: translateX(-100%); }
+  100% { opacity: 1; transform: translateX(100%); }
+}
+
+.notif-settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px 13px;
+  border-bottom: 1px solid rgba(0,200,255,0.12);
+}
+.notif-settings-title {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.26em;
+  color: var(--blue);
+}
+.notif-close-btn {
+  background: transparent;
+  border: 1px solid rgba(0,200,255,0.25);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  width: 26px; height: 26px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s, color 0.2s;
+}
+.notif-close-btn:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
+.notif-section {
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(0,200,255,0.08);
+}
+.notif-section:last-child { border-bottom: none; }
+
+.notif-section-label {
+  font-family: var(--mono);
+  font-size: 0.55rem;
+  letter-spacing: 0.24em;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+
+/* Permission bar */
+.notif-perm-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: rgba(0,200,255,0.04);
+  border: 1px solid rgba(0,200,255,0.12);
+  border-radius: 3px;
+  padding: 9px 12px;
+}
+.notif-perm-status {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  flex: 1;
+}
+.notif-perm-status.granted { color: var(--green); }
+.notif-perm-status.denied  { color: var(--red); }
+.notif-perm-status.pending { color: var(--amber); }
+
+/* Channel rows */
+.notif-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  gap: 12px;
+  border-bottom: 1px solid rgba(0,200,255,0.06);
+}
+.notif-row:last-child { border-bottom: none; }
+
+.notif-row-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+/* Colored status dot per channel */
+.notif-row-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.notif-row-dot.red   { background: var(--red);   box-shadow: 0 0 6px rgba(255,51,51,0.5); }
+.notif-row-dot.amber { background: var(--amber);  box-shadow: 0 0 6px rgba(255,170,0,0.5); }
+.notif-row-dot.blue  { background: var(--blue);   box-shadow: 0 0 6px var(--blue-glow); }
+.notif-row-dot.green { background: var(--green);  box-shadow: 0 0 6px rgba(0,255,136,0.4); }
+
+.notif-row-title {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--text);
+  letter-spacing: 0.08em;
+}
+.notif-row-sub {
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  color: var(--text-dim);
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+
+/* Toggle switch */
+.notif-toggle {
+  position: relative;
+  width: 36px; height: 20px;
+  flex-shrink: 0;
+}
+.notif-toggle input {
+  opacity: 0;
+  width: 0; height: 0;
+  position: absolute;
+}
+.notif-slider {
+  position: absolute;
+  inset: 0;
+  background: rgba(0,200,255,0.12);
+  border: 1px solid var(--blue-dim);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.notif-slider::before {
+  content: '';
+  position: absolute;
+  height: 12px; width: 12px;
+  left: 3px; top: 3px;
+  background: var(--text-dim);
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+.notif-toggle input:checked + .notif-slider {
+  background: rgba(0,200,255,0.2);
+  border-color: var(--blue);
+}
+.notif-toggle input:checked + .notif-slider::before {
+  transform: translateX(16px);
+  background: var(--blue);
+}
+
+/* Test grid */
+.notif-test-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.notif-test-btn {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid rgba(0,200,255,0.18);
+  color: var(--text-dim);
+  border-radius: 3px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.notif-test-btn:hover {
+  background: rgba(0,200,255,0.07);
+  border-color: var(--blue-dim);
+  color: var(--blue);
+}
+.notif-test-btn:active {
+  background: rgba(0,200,255,0.14);
+  border-color: var(--blue);
+  color: var(--blue);
 }
