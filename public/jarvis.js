@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 // J.A.R.V.I.S — Client Brain
-// Fixed: mic safety timeout, live hearing display, watchdog
+// Updates: camera selector, max mic sensitivity, male voice for Sir
 // ═══════════════════════════════════════════════════════════════
 
 // ── STATE ──
@@ -33,6 +33,8 @@ const state = {
   moodScore: 0,
   interactionCount: 0,
   lastInteraction: Date.now(),
+  selectedCameraId: null,       // ← which camera to use
+  availableCameras: [],         // ← list of camera devices
 };
 
 // ── MOOD ENGINE ──
@@ -82,24 +84,93 @@ async function hashPassword(pw) {
 }
 const $ = id => document.getElementById(id);
 
-// ── SPEAK — fixed: safety timeout so mic always resumes ──
+// ═══════════════════════════════════════════════════════════════
+// ── VOICE ENGINE — enforced male for Sir ──
+// ═══════════════════════════════════════════════════════════════
+
+// Priority-ordered male voice names to try
+const MALE_VOICE_NAMES = [
+  "Google UK English Male",
+  "Microsoft George - English (United Kingdom)",
+  "Microsoft David Desktop - English (United States)",
+  "Microsoft Mark - English (United States)",
+  "Daniel",
+  "Alex",                        // macOS male
+  "Fred",                        // macOS male
+  "Thomas",
+  "Arthur",
+  "James",
+];
+
+// Female/neutral voices to AVOID when forcing male
+const FEMALE_VOICE_NAMES = [
+  "Google UK English Female",
+  "Google US English",
+  "Samantha",
+  "Karen",
+  "Moira",
+  "Tessa",
+  "Fiona",
+  "Victoria",
+  "Serena",
+  "Susan",
+  "Nicky",
+];
+
+function pickVoice() {
+  const voices = state.synth.getVoices();
+  if (!voices.length) return null;
+
+  const wantMale = (state.userTitle === "Sir");
+
+  if (wantMale) {
+    // 1. Try exact name match from our priority list
+    for (const name of MALE_VOICE_NAMES) {
+      const v = voices.find(v => v.name === name || v.name.includes(name));
+      if (v) return v;
+    }
+    // 2. Any en-GB male (Daniel, Arthur, etc.)
+    const enGB = voices.find(v => v.lang === "en-GB" && !FEMALE_VOICE_NAMES.some(n => v.name.includes(n)));
+    if (enGB) return enGB;
+    // 3. Any English voice that doesn't match known female names
+    const enSafe = voices.find(v => v.lang.startsWith("en") && !FEMALE_VOICE_NAMES.some(n => v.name.includes(n)));
+    if (enSafe) return enSafe;
+    // 4. Absolute fallback — anything English
+    return voices.find(v => v.lang.startsWith("en")) || null;
+  }
+
+  // Non-Sir: prefer UK English, any gender
+  return voices.find(v => v.name === "Google UK English Male")
+    || voices.find(v => v.name.includes("Daniel"))
+    || voices.find(v => v.lang === "en-GB")
+    || voices.find(v => v.lang.startsWith("en"))
+    || null;
+}
+
+// Pre-warm voice list on load — Chrome lazy-loads voices
+window.speechSynthesis.onvoiceschanged = () => { /* triggers pickVoice() to cache */ };
+
+// ── SPEAK — enforced voice, safety timeout ──
 function speak(text, onEnd) {
   state.synth.cancel();
   const utter = new SpeechSynthesisUtterance(text);
-  utter.rate = 0.93; utter.pitch = 0.8; utter.volume = 1;
-  const voices = state.synth.getVoices();
-  const pick = voices.find(v => v.name === "Google UK English Male")
-    || voices.find(v => v.name.includes("Daniel"))
-    || voices.find(v => v.lang === "en-GB")
-    || voices.find(v => v.lang.startsWith("en"));
-  if (pick) utter.voice = pick;
+  utter.rate   = 0.93;
+  utter.pitch  = (state.userTitle === "Sir") ? 0.75 : 0.8;   // slightly deeper for male
+  utter.volume = 1;
 
-  // Safety: if onend never fires (Chrome bug), resume after generous timeout
-  let finished = false;
+  // Voices may not be ready immediately — retry once after short delay
+  const trySetVoice = () => {
+    const v = pickVoice();
+    if (v) utter.voice = v;
+  };
+  trySetVoice();
+  if (!utter.voice) setTimeout(trySetVoice, 150);
+
   const safetyMs = Math.max(3500, text.length * 75);
+  let finished = false;
   const safetyTimer = setTimeout(() => {
     if (!finished) {
-      console.warn("[SPEAK] Safety timeout fired — onend never came");
+      console.warn("[SPEAK] Safety timeout fired");
       finished = true;
       setOrb("idle");
       if (onEnd) onEnd();
@@ -129,7 +200,118 @@ function setOrb(s) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── BULLETPROOF MIC ENGINE ──
+// ── CAMERA SELECTOR ──
+// ═══════════════════════════════════════════════════════════════
+async function enumerateCameras() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    state.availableCameras = devices.filter(d => d.kind === "videoinput");
+    buildCameraSelector();
+  } catch(e) {
+    console.warn("[CAMERAS] Could not enumerate:", e);
+  }
+}
+
+function buildCameraSelector() {
+  // Remove any existing selector
+  const existing = $("camera-selector-wrap");
+  if (existing) existing.remove();
+
+  if (state.availableCameras.length <= 1) return; // No point showing if only one
+
+  const panel = $("camera-panel");
+  if (!panel) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "camera-selector-wrap";
+  wrap.style.cssText = `
+    display: flex; align-items: center; gap: 6px; margin-top: 4px;
+  `;
+
+  const label = document.createElement("span");
+  label.style.cssText = `font-family: var(--mono); font-size: 0.52rem; letter-spacing: 0.15em; color: var(--text-dim);`;
+  label.textContent = "CAM:";
+
+  const sel = document.createElement("select");
+  sel.id = "camera-select";
+  sel.style.cssText = `
+    background: rgba(0,200,255,0.06);
+    border: 1px solid var(--blue-dim);
+    color: var(--blue);
+    font-family: var(--mono);
+    font-size: 0.58rem;
+    letter-spacing: 0.1em;
+    padding: 3px 6px;
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+    width: 120px;
+  `;
+
+  state.availableCameras.forEach((cam, i) => {
+    const opt = document.createElement("option");
+    opt.value = cam.deviceId;
+    opt.textContent = cam.label || `Camera ${i + 1}`;
+    if (cam.deviceId === state.selectedCameraId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+
+  sel.addEventListener("change", () => {
+    state.selectedCameraId = sel.value;
+    switchCamera(sel.value);
+  });
+
+  wrap.appendChild(label);
+  wrap.appendChild(sel);
+  panel.appendChild(wrap);
+}
+
+async function switchCamera(deviceId) {
+  // Stop existing camera stream
+  if (state.cameraStream) {
+    state.cameraStream.getTracks().forEach(t => t.stop());
+    state.cameraStream = null;
+  }
+  if (state.cameraRecorder && state.cameraRecorder.state !== "inactive") {
+    state.cameraRecorder.stop();
+    state.cameraRecorder = null;
+  }
+  state.cameraClipChunks = [];
+  state.cameraClipTimestamps = [];
+
+  addMsg("system", `Switching to camera: ${state.availableCameras.find(c=>c.deviceId===deviceId)?.label || deviceId}`);
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: deviceId }, width: 640, height: 480, frameRate: 15 },
+      audio: false
+    });
+    state.cameraStream = stream;
+    state.selectedCameraId = deviceId;
+
+    const vid = $("camera-feed");
+    if (vid) { vid.srcObject = stream; vid.play(); }
+
+    startCameraBuffer(stream);
+
+    // Re-enroll face for new camera
+    state.faceDescriptors = null;
+    await enrollUserFace();
+
+    const reply = `Camera switched, ${state.userTitle}. Visual sensors updated.`;
+    addMsg("jarvis", reply);
+    speak(reply);
+    updateMood(2);
+  } catch(e) {
+    console.error("[CAMERA SWITCH]", e);
+    const reply = `Camera switch failed, ${state.userTitle}. The selected device may be in use.`;
+    addMsg("jarvis", reply);
+    speak(reply);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── BULLETPROOF MIC ENGINE — max sensitivity ──
 // ═══════════════════════════════════════════════════════════════
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -138,7 +320,7 @@ const mic = {
   active:       false,
   retryCount:   0,
   maxRetries:   999,
-  retryDelay:   300,
+  retryDelay:   150,            // faster retry
   retryTimer:   null,
   onResult:     null,
   onInterim:    null,
@@ -146,10 +328,20 @@ const mic = {
   suspended:    false,
   _killing:     false,
   permGranted:  false,
+  mediaStream:  null,           // for AudioContext boosting
 
   async requestPerm() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Request with max sensitivity constraints
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation:   false,   // off = captures more ambient sound
+          noiseSuppression:   false,   // off = nothing filtered out
+          autoGainControl:    true,    // ON = boosts quiet voices automatically
+          channelCount:       1,
+          sampleRate:         16000,   // optimal for speech recognition
+        }
+      });
       stream.getTracks().forEach(t => t.stop());
       this.permGranted = true;
       updateMicDebug("Mic: permission granted ✓");
@@ -175,9 +367,9 @@ const mic = {
 
     const r = new SR();
     r.lang            = "en-US";
-    r.continuous      = this.continuous;
-    r.interimResults  = true; // always true so we can show live text
-    r.maxAlternatives = 3;
+    r.continuous      = true;           // always continuous for max pickup
+    r.interimResults  = true;
+    r.maxAlternatives = 5;              // more alternatives = better low-confidence recognition
 
     this.rec    = r;
     this.active = true;
@@ -189,6 +381,7 @@ const mic = {
       const result = e.results[e.results.length - 1];
 
       if (result.isFinal) {
+        // Pick highest confidence alternative — even low confidence is accepted
         let bestText = result[0].transcript.trim();
         let bestConf = result[0].confidence || 0;
         for (let i = 1; i < result.length; i++) {
@@ -198,7 +391,8 @@ const mic = {
           }
         }
         if (!bestText) return;
-        updateLiveHearing(""); // clear live display on final
+        updateLiveHearing("");
+        // Accept even very low confidence — don't discard quiet speech
         updateMicDebug(`Mic: "${bestText}" (${(bestConf*100).toFixed(0)}%)`);
         if (this.onResult) this.onResult(bestText);
       } else if (result[0]) {
@@ -224,23 +418,24 @@ const mic = {
           this.suspended = true;
           return;
         case "no-speech":
-          updateMicDebug("Mic: no speech — still listening…");
-          this._scheduleRetry(200);
+          // no-speech is NOT a failure — keep going, restart faster
+          updateMicDebug("Mic: silence detected — still listening…");
+          this._scheduleRetry(100);   // very fast restart on silence
           return;
         case "audio-capture":
           updateMicDebug("Mic: audio capture error — retrying");
-          this._scheduleRetry(1000);
+          this._scheduleRetry(800);
           return;
         case "network":
           updateMicDebug("Mic: network error — retrying");
-          this._scheduleRetry(2000);
+          this._scheduleRetry(1500);
           return;
         case "aborted":
-          if (!this.suspended && !this._killing) this._scheduleRetry(300);
+          if (!this.suspended && !this._killing) this._scheduleRetry(150);
           return;
         default:
           updateMicDebug(`Mic: error (${e.error}) — retrying`);
-          this._scheduleRetry(800);
+          this._scheduleRetry(500);
       }
     };
 
@@ -248,8 +443,8 @@ const mic = {
       this.active = false;
       state.isListening = false;
       if (this.suspended) return;
-      // Chrome stops SR even in continuous mode — restart immediately
-      this._scheduleRetry(150);
+      // Restart immediately — 0ms delay for truly continuous listening
+      this._scheduleRetry(50);
     };
 
     try {
@@ -259,14 +454,15 @@ const mic = {
       console.warn("[MIC] Start failed:", e);
       this.active = false;
       state.isListening = false;
-      this._scheduleRetry(500);
+      this._scheduleRetry(300);
     }
   },
 
   _scheduleRetry(ms) {
     clearTimeout(this.retryTimer);
     if (this.suspended) return;
-    const delay = Math.min(ms * Math.pow(1.3, Math.min(this.retryCount, 8)), 8000);
+    // Cap backoff much lower — we want fast restart for quiet speech pickup
+    const delay = Math.min(ms * Math.pow(1.2, Math.min(this.retryCount, 6)), 3000);
     this.retryCount++;
     this.retryTimer = setTimeout(() => this._launch(), delay);
   },
@@ -295,7 +491,7 @@ const mic = {
   },
 };
 
-// ── MIC WATCHDOG — restarts if stuck ──
+// ── MIC WATCHDOG — tighter interval for sensitivity ──
 setInterval(() => {
   if (
     (state.phase === "chatting" || state.phase === "idle") &&
@@ -307,9 +503,8 @@ setInterval(() => {
     updateMicDebug("Mic: watchdog restart");
     mic._launch();
   }
-}, 4000);
+}, 2000);   // check every 2s instead of 4s
 
-// Keep mic alive on tab refocus
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && !mic.suspended && (state.phase === "idle" || state.phase === "chatting")) {
     if (!mic.active) mic._launch();
@@ -498,7 +693,7 @@ function startVoiceAuth() {
 
   speak("Identify yourself.", () => {
     const r = new SR();
-    r.continuous = false; r.interimResults = true; r.lang = "en-US"; r.maxAlternatives = 3;
+    r.continuous = false; r.interimResults = true; r.lang = "en-US"; r.maxAlternatives = 5;
     r.onresult = (e) => {
       const result = e.results[0];
       const text   = result[0].transcript.trim();
@@ -583,9 +778,7 @@ function startChatListening() {
       updateMicDebug(`Mic: "${text}"`);
       handleChatCommand(text);
     },
-    (interim) => {
-      // interim shown by updateLiveHearing inside mic engine
-    },
+    (interim) => { /* shown live by updateLiveHearing */ },
     true
   );
 }
@@ -623,7 +816,6 @@ function handleChatCommand(text) {
   if (isClipCommand(lower))  { saveClip(); return; }
   if (isLinkCommand(lower))  { handleLinkCommand(text); return; }
 
-  // Require wake word only if user has been idle > 30s AND this isn't typed input
   const recentlyActive = (Date.now() - state.lastInteraction) < 30000;
   if (!hasWake && !recentlyActive && state.interactionCount > 1) {
     updateLiveHearing("");
@@ -648,6 +840,19 @@ function handleChatCommand(text) {
 
   const screenMatch = /\b(what(?:'s| is) on (my )?screen|read (my )?screen|analyse|analyze|what do you see|describe (my )?screen|look at (my )?screen)\b/i.test(cleaned);
   if (screenMatch) { readScreen(cleaned); return; }
+
+  // Camera switch command: "switch to camera 2" / "use camera 1"
+  const camMatch = cleaned.match(/\b(?:switch|use|change|select)\b.*?\bcamera\s*(\d+)\b/i);
+  if (camMatch) {
+    const idx = parseInt(camMatch[1]) - 1;
+    if (state.availableCameras[idx]) {
+      switchCamera(state.availableCameras[idx].deviceId);
+    } else {
+      const reply = `I don't see a camera ${camMatch[1]}, ${state.userTitle}. I have ${state.availableCameras.length} camera${state.availableCameras.length !== 1 ? "s" : ""} available.`;
+      addMsg("jarvis", reply); speak(reply);
+    }
+    return;
+  }
 
   sendToAI(cleaned);
 }
@@ -719,13 +924,37 @@ async function sendToAI(message) {
 // ── CAMERA ──
 async function requestCameraAccess() {
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video:{ width:640, height:480, frameRate:15 }, audio:false });
+    // First enumerate cameras
+    await enumerateCameras();
+
+    // Use selected camera or default
+    const videoConstraints = state.selectedCameraId
+      ? { deviceId: { exact: state.selectedCameraId }, width:640, height:480, frameRate:15 }
+      : { width:640, height:480, frameRate:15 };
+
+    const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
     state.cameraStream = stream;
+
+    // Record which camera we actually got
+    const track = stream.getVideoTracks()[0];
+    if (track) {
+      const settings = track.getSettings();
+      state.selectedCameraId = settings.deviceId || state.selectedCameraId;
+    }
+
     const vid = $("camera-feed");
     if (vid) { vid.srcObject = stream; vid.play(); }
+
+    const cameraStatus = $("camera-status");
+    if (cameraStatus) { cameraStatus.textContent = "● ONLINE"; cameraStatus.classList.add("online"); }
+
     startCameraBuffer(stream);
+
+    // Re-enumerate now we have permission (labels become available after permission granted)
+    await enumerateCameras();
+
     await loadFaceModels();
-    addMsg("system", "Camera online. Facial recognition active.");
+    addMsg("system", `Camera online. ${state.availableCameras.length} camera(s) detected.`);
     updateMood(5);
   } catch(e) {
     addMsg("system","Camera declined — face recognition unavailable.");
@@ -1045,7 +1274,15 @@ function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 // BOOT
 // ═══════════════════════════════════════════════════════════════
 window.addEventListener("load", async () => {
-  setTimeout(() => { const w = new SpeechSynthesisUtterance(" "); w.volume = 0; speechSynthesis.speak(w); }, 500);
+  // Pre-warm speech synthesis voices
+  setTimeout(() => {
+    const w = new SpeechSynthesisUtterance(" ");
+    w.volume = 0;
+    speechSynthesis.speak(w);
+    // Pre-load voices list
+    speechSynthesis.getVoices();
+  }, 500);
+
   let profile = loadProfile();
   if (!profile) { profile = await restoreProfileFromBackend(); if (profile) saveProfileLocal(profile); }
   if (!profile) showSetup(); else showAuthScreen();
