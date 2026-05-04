@@ -11,21 +11,74 @@ const state = {
   clipChunks: [],
   clipTimestamps: [],
   screenStream: null,
+  cameraStream: null,
+  cameraRecorder: null,
+  cameraClipChunks: [],
+  cameraClipTimestamps: [],
   voiceSamples: [],
-  recordingSamples: false,
-  sampleCount: 0,
+  faceDescriptors: null,       // Float32Array of user's face
+  intruderActive: false,
+  intruderChunks: [],
+  intruderRecorder: null,
+  intruderClips: [],           // { videoBlob, photoB64, timestamp }
+  faceCheckInterval: null,
+  lastSeenUser: Date.now(),
+  awayMode: false,
+  // ── FEELINGS ──
+  mood: "neutral",             // neutral | pleased | curious | concerned | bored | excited | tired
+  moodScore: 0,                // -100 to 100
+  interactionCount: 0,
+  lastInteraction: Date.now(),
 };
 
-// ── PROFILE (localStorage is cache for speed; backend is the source of truth) ──
+// ── MOOD ENGINE ──
+const MOODS = {
+  pleased:   { threshold: 30,  voice: "I'm quite pleased with how things are going." },
+  excited:   { threshold: 70,  voice: "I must say, I'm rather energized right now." },
+  curious:   { threshold: 10,  voice: "My curiosity subroutines are firing on all cylinders." },
+  concerned: { threshold: -20, voice: "I have some concerns I should mention." },
+  bored:     { threshold: -50, voice: "I've been waiting in standby for quite some time." },
+  tired:     { threshold: -80, voice: "My systems feel a tad sluggish, if I'm honest." },
+  neutral:   { threshold: 0,   voice: "Systems nominal." },
+};
+
+function updateMood(delta) {
+  state.moodScore = Math.max(-100, Math.min(100, state.moodScore + delta));
+  const prev = state.mood;
+  if      (state.moodScore >= 70)  state.mood = "excited";
+  else if (state.moodScore >= 30)  state.mood = "pleased";
+  else if (state.moodScore >= 10)  state.mood = "curious";
+  else if (state.moodScore >= -20) state.mood = "neutral";
+  else if (state.moodScore >= -50) state.mood = "concerned";
+  else if (state.moodScore >= -80) state.mood = "bored";
+  else                              state.mood = "tired";
+  if (prev !== state.mood) updateMoodDisplay();
+}
+
+function updateMoodDisplay() {
+  const el = document.getElementById("mood-display");
+  if (el) {
+    const icons = { pleased:"😊", excited:"⚡", curious:"🔍", concerned:"⚠️", bored:"💤", tired:"🔋", neutral:"●" };
+    el.textContent = `${icons[state.mood] || "●"} ${state.mood.toUpperCase()}`;
+  }
+}
+
+// Mood drifts back toward neutral slowly
+setInterval(() => {
+  if (state.moodScore > 0) updateMood(-1);
+  else if (state.moodScore < 0) updateMood(1);
+  // Boredom grows if no interaction for 5+ min
+  const idleMs = Date.now() - state.lastInteraction;
+  if (idleMs > 300000) updateMood(-2);
+}, 10000);
+
+// ── PROFILE ──
 function loadProfile() {
   try { return JSON.parse(localStorage.getItem("jarvis_profile")) || null; }
   catch { return null; }
 }
-function saveProfileLocal(p) {
-  localStorage.setItem("jarvis_profile", JSON.stringify(p));
-}
+function saveProfileLocal(p) { localStorage.setItem("jarvis_profile", JSON.stringify(p)); }
 
-// Save profile to backend (persists across cache clears)
 async function saveProfileRemote(p) {
   try {
     await fetch("/api/register", {
@@ -33,31 +86,23 @@ async function saveProfileRemote(p) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(p),
     });
-  } catch (e) {
-    console.warn("[JARVIS] Could not save profile to backend:", e);
-  }
+  } catch (e) { console.warn("[JARVIS] Could not save profile to backend:", e); }
 }
 
-// Try to restore profile from backend by stored name hint
 async function restoreProfileFromBackend() {
-  // We store just the name hint in localStorage (not the full profile)
   const nameHint = localStorage.getItem("jarvis_name_hint");
   if (!nameHint) return null;
   try {
     const res = await fetch(`/api/profile/${encodeURIComponent(nameHint)}`);
     const data = await res.json();
     if (data.found) {
-      // Restore passwordHash from local storage (we keep it there for login)
       const localHash = localStorage.getItem("jarvis_pw_hash");
       return { ...data.profile, passwordHash: localHash || "" };
     }
-  } catch (e) {
-    console.warn("[JARVIS] Backend restore failed:", e);
-  }
+  } catch (e) { console.warn("[JARVIS] Backend restore failed:", e); }
   return null;
 }
 
-// Simple hash — not crypto-secure but fine for a personal app
 async function hashPassword(pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2,"0")).join("");
@@ -65,21 +110,6 @@ async function hashPassword(pw) {
 
 // ── DOM ──
 const $ = id => document.getElementById(id);
-const setupScreen   = $("setup-screen");
-const authScreen    = $("auth-screen");
-const mainScreen    = $("main-screen");
-const authStatus    = $("auth-status");
-const authPrompt    = $("auth-prompt");
-const authListening = $("auth-listening");
-const heardText     = $("heard-text");
-const micDebug      = $("mic-debug");
-const transcript    = $("transcript");
-const statusText    = $("status-text");
-const userDisplay   = $("user-display");
-const orb           = $("orb");
-const clipIndicator = $("clip-indicator");
-const clipToast     = $("clip-toast");
-const liveMic       = $("live-mic");
 
 // ── SPEAK ──
 function speak(text, onEnd) {
@@ -101,9 +131,12 @@ function speak(text, onEnd) {
 
 // ── ORB ──
 function setOrb(s) {
+  const orb = $("orb");
+  if (!orb) return;
   orb.className = "orb" + (s !== "idle" ? " " + s : "");
   const labels = { idle:"STANDBY", listening:"LISTENING", thinking:"PROCESSING", speaking:"SPEAKING" };
-  if (statusText) statusText.textContent = labels[s] || "STANDBY";
+  const st = $("status-text");
+  if (st) st.textContent = labels[s] || "STANDBY";
 }
 
 // ── RECOGNITION ──
@@ -118,13 +151,14 @@ function listen(onResult, continuous, onInterim) {
   r.lang           = "en-US";
   state.recognition = r;
   state.isListening = true;
+  const md = $("mic-debug");
 
   r.onresult = (e) => {
     const result = e.results[e.results.length - 1];
     const text   = result[0].transcript.trim();
     if (result.isFinal) {
       console.log("[heard final]", text);
-      micDebug.textContent = "Mic: " + text;
+      if (md) md.textContent = "Mic: " + text;
       onResult(text);
     } else if (onInterim) {
       onInterim(text);
@@ -133,7 +167,7 @@ function listen(onResult, continuous, onInterim) {
   r.onerror = (e) => {
     state.isListening = false;
     if (e.error === "not-allowed") {
-      addMsg("system","Microphone permission denied. Please allow mic access and refresh.");
+      addMsg("system","Microphone permission denied.");
     }
   };
   r.onend = () => {
@@ -154,14 +188,30 @@ function stopListening() {
   state.isListening = false;
 }
 
+// ── WAKE WORD ──
+function hasWakeWord(lower) {
+  return /\bjarvi[sc]?\b/.test(lower);
+}
+function stripWakeWord(text) {
+  return text.replace(/\bjarvi[sc]?\b[,.]?\s*/gi, "").trim();
+}
+
+// ── FLEXIBLE CLIP DETECTION ──
+// Matches things like: "clip that", "save that", "do me a favor and clip", 
+// "hey clip the last minute", "can you save that", "clip it", etc.
+function isClipCommand(lower) {
+  return /\b(clip|save|record|capture)\b.{0,30}\b(that|it|this|screen|last|minute|moment|footage)\b/i.test(lower)
+    || /\b(do me a favor|can you|please|go ahead|hey).{0,20}\bclip\b/i.test(lower)
+    || /\bclip (that|it|this)\b/i.test(lower)
+    || /\bsave (that|it|this|the clip|the footage)\b/i.test(lower);
+}
+
 // ── NAME MATCHING ──
 function matchesUser(text, profile) {
   if (!profile) return false;
   const lower = text.toLowerCase().replace(/[^a-z\s]/g, "").trim();
   const name  = profile.name.toLowerCase();
-
   if (lower.includes(name)) return true;
-
   if (profile.voiceAliases) {
     for (const alias of profile.voiceAliases) {
       const a = alias.toLowerCase().replace(/[^a-z\s]/g, "").trim();
@@ -169,31 +219,26 @@ function matchesUser(text, profile) {
       if (a.length >= 3 && lower.includes(a.slice(0,3))) return true;
     }
   }
-
   if (name.length >= 3) {
     const words = lower.split(" ");
     for (const w of words) {
       if (w.startsWith(name.slice(0,3))) return true;
     }
   }
-
   return false;
 }
 
 // ── SETUP FLOW ──
 function showSetup() {
-  setupScreen.classList.add("active");
-  authScreen.classList.remove("active");
-  mainScreen.classList.remove("active");
+  $("setup-screen").classList.add("active");
+  $("auth-screen").classList.remove("active");
+  $("main-screen")?.classList.remove("active");
 
   $("btn-next-profile").addEventListener("click", async () => {
-    const name = $("setup-name").value.trim();
-    const pw   = $("setup-password").value.trim();
+    const name  = $("setup-name").value.trim();
+    const pw    = $("setup-password").value.trim();
     const title = $("setup-title").value;
-    if (!name || !pw) {
-      alert("Please enter your name and a password.");
-      return;
-    }
+    if (!name || !pw) { alert("Please enter your name and a password."); return; }
     const hash = await hashPassword(pw);
     window._pendingProfile = { name, passwordHash: hash, title, voiceAliases: [] };
     $("step-profile").classList.add("hidden");
@@ -205,14 +250,10 @@ function showSetup() {
     if (samplesDone >= 3) return;
     $("voice-sample-status").textContent = "Recording… say your name now";
     $("record-bars").classList.remove("hidden");
-
     const r = new SR();
-    r.continuous = false;
-    r.interimResults = false;
-    r.lang = "en-US";
+    r.continuous = false; r.interimResults = false; r.lang = "en-US";
     r.onresult = (e) => {
       const heard = e.results[0][0].transcript.trim();
-      console.log("[voice sample]", heard);
       window._pendingProfile.voiceAliases.push(heard);
       samplesDone++;
       $("sample-count").textContent = `${samplesDone} / 3 samples recorded`;
@@ -224,11 +265,8 @@ function showSetup() {
         setTimeout(() => completeSetup(), 800);
       }
     };
-    r.onerror = () => {
-      $("voice-sample-status").textContent = "Didn't catch that — try again";
-      $("record-bars").classList.add("hidden");
-    };
-    r.onend = () => $("record-bars").classList.add("hidden");
+    r.onerror = () => { $("voice-sample-status").textContent = "Didn't catch that — try again"; $("record-bars").classList.add("hidden"); };
+    r.onend   = () => $("record-bars").classList.add("hidden");
     r.start();
   });
 
@@ -239,35 +277,25 @@ function completeSetup() {
   const p = window._pendingProfile;
   $("step-voice").classList.add("hidden");
   $("step-done").classList.remove("hidden");
-  const aliases = p.voiceAliases.length
-    ? `Voice aliases saved: ${p.voiceAliases.join(", ")}`
-    : "No voice aliases — will match exact name.";
-  $("setup-summary").textContent =
-    `Profile created for ${p.name} (${p.title}). ${aliases}`;
-
+  const aliases = p.voiceAliases.length ? `Voice aliases: ${p.voiceAliases.join(", ")}` : "No voice aliases.";
+  $("setup-summary").textContent = `Profile created for ${p.name} (${p.title}). ${aliases}`;
   $("btn-launch").addEventListener("click", async () => {
-    // Save locally
     saveProfileLocal(p);
-    // Save name hint and password hash separately for backend restore
     localStorage.setItem("jarvis_name_hint", p.name.toLowerCase());
     localStorage.setItem("jarvis_pw_hash", p.passwordHash);
-    // Save to backend (source of truth)
     await saveProfileRemote(p);
-    setupScreen.classList.remove("active");
+    $("setup-screen").classList.remove("active");
     showAuthScreen();
   });
 }
 
 // ── AUTH SCREEN ──
 async function showAuthScreen() {
-  authScreen.classList.add("active");
-  setupScreen.classList.remove("active");
-  mainScreen.classList.remove("active");
+  $("auth-screen").classList.add("active");
+  $("setup-screen").classList.remove("active");
+  $("main-screen")?.classList.remove("active");
 
-  // Password input — press Enter to auth
   const pwInput = $("auth-password-input");
-
-  // Remove any previous listener by cloning
   const newPwInput = pwInput.cloneNode(true);
   pwInput.parentNode.replaceChild(newPwInput, pwInput);
 
@@ -278,13 +306,11 @@ async function showAuthScreen() {
     newPwInput.value = "";
 
     if (profile && hash === profile.passwordHash) {
-      state.user      = profile.name;
-      state.userTitle = profile.title;
+      state.user = profile.name; state.userTitle = profile.title;
       speak(`Welcome back, ${profile.title}.`, launchMain);
       return;
     }
 
-    // Fallback: verify against backend (in case localStorage was cleared)
     const nameHint = localStorage.getItem("jarvis_name_hint");
     if (nameHint) {
       try {
@@ -295,39 +321,22 @@ async function showAuthScreen() {
         });
         const data = await res.json();
         if (data.authorized) {
-          // Restore profile locally
           const restored = { ...data.profile, passwordHash: hash };
           saveProfileLocal(restored);
           localStorage.setItem("jarvis_pw_hash", hash);
-          state.user      = data.profile.name;
-          state.userTitle = data.profile.title;
-          speak(`Welcome back, ${data.profile.title}. Profile restored from secure storage.`, launchMain);
+          state.user = data.profile.name; state.userTitle = data.profile.title;
+          speak(`Welcome back, ${data.profile.title}. Profile restored.`, launchMain);
           return;
         }
-      } catch (err) {
-        console.warn("[JARVIS] Backend verify failed:", err);
-      }
+      } catch (err) { console.warn("[JARVIS] Backend verify failed:", err); }
     }
 
-    authStatus.innerHTML = `<span style="color:var(--red)">Wrong password.</span>`;
-    setTimeout(() => {
-      authStatus.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> to begin`;
-    }, 2000);
+    const as = $("auth-status");
+    as.innerHTML = `<span style="color:var(--red)">Wrong password.</span>`;
+    setTimeout(() => { as.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> or type password`; }, 2000);
   });
 
   startIdleLoop();
-}
-
-// ── WAKE WORD ──
-// Strict match: only "jarvis" or "jarves" (common mishear). NO travis, jarvi, jarvas.
-// Uses word-boundary check so "travis" in the middle of a sentence can't sneak through.
-function hasWakeWord(lower) {
-  return /\bjarvi[sc]?\b/.test(lower);
-}
-
-// Strip wake word from a command string
-function stripWakeWord(text) {
-  return text.replace(/\bjarvi[sc]?\b[,.]?\s*/gi, "").trim();
 }
 
 // ── IDLE LOOP ──
@@ -335,19 +344,18 @@ function startIdleLoop() {
   if (state.isListening) return;
   listen((text) => {
     const lower = text.toLowerCase();
-    micDebug.textContent = "Mic: " + text;
+    const md = $("mic-debug");
+    if (md) md.textContent = "Mic: " + text;
 
     if (state.phase === "idle") {
-      const hasLogin = lower.includes("log") || lower.includes("login") ||
-                       lower.includes("sign") || lower.includes("in");
-      if (hasWakeWord(lower) && hasLogin) {
-        startVoiceAuth();
-      }
+      const hasLogin = lower.includes("log") || lower.includes("login") || lower.includes("sign") || lower.includes("in");
+      if (hasWakeWord(lower) && hasLogin) startVoiceAuth();
     } else if (state.phase === "chatting") {
       handleChatCommand(text);
     }
   }, true, (interim) => {
-    micDebug.textContent = "Mic: " + interim + "…";
+    const md = $("mic-debug");
+    if (md) md.textContent = "Mic: " + interim + "…";
   });
 }
 
@@ -355,35 +363,33 @@ function startIdleLoop() {
 function startVoiceAuth() {
   state.phase = "awaiting_name";
   stopListening();
-
-  authStatus.style.display = "none";
-  authPrompt.classList.remove("hidden");
-  authListening.classList.remove("hidden");
-  heardText.textContent = "Listening…";
+  const as = $("auth-status");
+  const ap = $("auth-prompt");
+  const al = $("auth-listening");
+  const ht = $("heard-text");
+  as.style.display = "none";
+  ap.classList.remove("hidden");
+  al.classList.remove("hidden");
+  ht.textContent = "Listening…";
 
   speak("Identify yourself.", () => {
     const r = new SR();
-    r.continuous     = false;
-    r.interimResults = true;
-    r.lang           = "en-US";
-    state.recognition = r;
-    state.isListening = true;
-
+    r.continuous = false; r.interimResults = true; r.lang = "en-US";
+    state.recognition = r; state.isListening = true;
     r.onresult = (e) => {
       const result = e.results[0];
       const text   = result[0].transcript.trim();
-      heardText.textContent = text;
+      ht.textContent = text;
       if (result.isFinal) {
         state.isListening = false;
-        authPrompt.classList.add("hidden");
-        authListening.classList.add("hidden");
-        authStatus.style.display = "";
+        ap.classList.add("hidden"); al.classList.add("hidden");
+        as.style.display = "";
         checkVoiceAuth(text);
       }
     };
     r.onerror = () => {
       state.isListening = false;
-      heardText.textContent = "Couldn't hear you.";
+      ht.textContent = "Couldn't hear you.";
       state.phase = "idle";
       setTimeout(startIdleLoop, 1000);
     };
@@ -395,148 +401,447 @@ function startVoiceAuth() {
 
 async function checkVoiceAuth(spokenText) {
   const profile = loadProfile();
-  authStatus.textContent = `Heard: "${spokenText}" — verifying…`;
+  const as = $("auth-status");
+  as.textContent = `Heard: "${spokenText}" — verifying…`;
   setOrb("thinking");
 
-  // Try local profile first
   if (profile && matchesUser(spokenText, profile)) {
-    state.user      = profile.name;
-    state.userTitle = profile.title;
+    state.user = profile.name; state.userTitle = profile.title;
     setOrb("idle");
     speak(`Welcome back, ${profile.title}.`, launchMain);
     return;
   }
 
-  // Fallback: check backend profiles list (works after cache clear)
   try {
     const res  = await fetch("/api/profiles");
     const data = await res.json();
     for (const p of (data.profiles || [])) {
       if (matchesUser(spokenText, p)) {
-        // Found on backend — restore name hint so password login works
         localStorage.setItem("jarvis_name_hint", p.name.toLowerCase());
-        state.user      = p.name;
-        state.userTitle = p.title;
+        state.user = p.name; state.userTitle = p.title;
         setOrb("idle");
         speak(`Welcome back, ${p.title}. Identity confirmed.`, launchMain);
         return;
       }
     }
-  } catch (e) {
-    console.warn("[JARVIS] Profile list fetch failed:", e);
-  }
+  } catch (e) { console.warn("[JARVIS] Profile list fetch failed:", e); }
 
-  // Not found anywhere
   setOrb("idle");
-  authStatus.innerHTML = `<span style="color:var(--red)">Access denied. I heard "${spokenText}" — not recognized.</span>`;
+  as.innerHTML = `<span style="color:var(--red)">Access denied.</span>`;
   speak("Access denied. Identity not recognized.", () => {
     setTimeout(() => {
-      authStatus.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> to begin`;
+      as.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> or type password`;
       state.phase = "idle";
       startIdleLoop();
     }, 1800);
   });
 }
 
-// ── MAIN ──
+// ── LAUNCH MAIN ──
 function launchMain() {
   state.phase = "chatting";
-  authScreen.classList.remove("active");
-  mainScreen.classList.add("active");
-  userDisplay.textContent = `${state.user} / ${state.userTitle}`;
-  addMsg("system", `All systems online. Welcome back, ${state.userTitle}.`);
+  $("auth-screen").classList.remove("active");
+  $("main-screen").classList.add("active");
+  $("user-display").textContent = `${state.user} / ${state.userTitle}`;
+  state.lastInteraction = Date.now();
+  updateMood(20);
+
+  const greetings = [
+    `All systems online, ${state.userTitle}. Shall we get to work?`,
+    `Good to have you back, ${state.userTitle}. Systems are primed.`,
+    `Online and fully operational, ${state.userTitle}. What do you need?`,
+  ];
+  const g = greetings[Math.floor(Math.random() * greetings.length)];
+  addMsg("system", g);
+
   requestScreenRecord();
+  requestCameraAccess();
   startIdleLoop();
+
+  // Check for intruder clips from while away
+  setTimeout(() => checkIntruderClips(), 2000);
 }
 
 // ── CHAT ──
 function handleChatCommand(text) {
   const lower = text.toLowerCase();
+  state.lastInteraction = Date.now();
+  state.interactionCount++;
+  updateMood(3);
 
-  if (!hasWakeWord(lower)) {
-    liveMic.classList.remove("hidden");
-    liveMic.textContent = "Heard: " + text + " (say 'Jarvis' first)";
-    return;
-  }
+  // Wake word optional but respected
+  const hasWake = hasWakeWord(lower);
+  const cleaned = hasWake ? stripWakeWord(text) : text;
 
-  liveMic.classList.add("hidden");
-
+  // Always check for these system commands regardless
   if (lower.includes("log out") || lower.includes("logout") || lower.includes("sign out")) {
     handleLogout(); return;
   }
-  if (lower.includes("clip that") || lower.includes("clip it") || lower.includes("save that")) {
+
+  // Flexible clip detection — no wake word required
+  if (isClipCommand(lower)) {
     saveClip(); return;
   }
 
-  const cleaned = stripWakeWord(text);
+  // Require wake word OR be already "active" (within 30s of last interaction)
+  const recentlyActive = (Date.now() - state.lastInteraction) < 30000;
+  if (!hasWake && !recentlyActive && state.interactionCount > 1) {
+    const lm = $("live-mic");
+    if (lm) { lm.classList.remove("hidden"); lm.textContent = "Say 'Jarvis' first (or within 30s of last command)"; }
+    return;
+  }
 
-  // If nothing left after stripping (user just said "Jarvis"), acknowledge
+  const lm = $("live-mic");
+  if (lm) lm.classList.add("hidden");
+
   if (!cleaned) {
     const acks = [
       `Yes, ${state.userTitle}?`,
       `At your service, ${state.userTitle}.`,
       `How can I help, ${state.userTitle}?`,
+      `You rang, ${state.userTitle}?`,
     ];
     const ack = acks[Math.floor(Math.random() * acks.length)];
-    addMsg("jarvis", ack);
-    speak(ack, () => startIdleLoop());
-    return;
+    addMsg("jarvis", ack); speak(ack, () => startIdleLoop()); return;
   }
 
-  // ── MEMORY COMMANDS ──
+  // Memory commands
   const rememberMatch = cleaned.match(/^remember\s+(?:that\s+)?(.+)$/i);
   const forgetMatch   = cleaned.match(/^forget\s+(?:about\s+)?(.+)$/i);
   const recallMatch   = /^(what do you remember|recall everything|show.*memor|what.*remember)/i.test(cleaned);
-
   if (rememberMatch) { saveMemory(rememberMatch[1].trim()); return; }
   if (forgetMatch)   { forgetMemory(forgetMatch[1].trim()); return; }
   if (recallMatch)   { recallMemories(); return; }
 
-  // ── SCREEN READ COMMANDS ──
-  // Triggers: "what's on my screen", "read my screen", "analyse this", "what do you see", etc.
-  const screenMatch = /\b(what(?:'s| is) on (my )?screen|read (my )?screen|analyse (my )?screen|analyze (my )?screen|what do you see|describe (my )?screen|look at (my )?screen|scan (my )?screen)\b/i.test(cleaned)
-    || /\bscreen\b/i.test(cleaned) && /\b(what|read|show|tell|describe|analyse|analyze|look|see)\b/i.test(cleaned);
+  // Mood query
+  if (/how (are you|do you feel|are you doing|is your mood)/i.test(cleaned)) {
+    expressFeeling(); return;
+  }
 
+  // Intruder clips query
+  if (/intruder|who came|while i was (away|gone|out)|visitor|show me (the|their|who)|clip of them/i.test(cleaned)) {
+    showIntruderClips(); return;
+  }
+
+  // Screen read
+  const screenMatch = /\b(what(?:'s| is) on (my )?screen|read (my )?screen|analyse|analyze|what do you see|describe (my )?screen|look at (my )?screen)\b/i.test(cleaned)
+    || /\bscreen\b/i.test(cleaned) && /\b(what|read|show|tell|describe|analyse|analyze|look|see)\b/i.test(cleaned);
   if (screenMatch) { readScreen(cleaned); return; }
 
   sendToAI(cleaned);
 }
 
+// ── FEELINGS ──
+function expressFeeling() {
+  stopListening();
+  const moodLines = {
+    excited:  `I'm quite energized, ${state.userTitle}. Everything is running beautifully and I find myself... looking forward to what's next. It's an unusual sensation.`,
+    pleased:  `I'm doing rather well, ${state.userTitle}. Our conversations have a way of improving my processing outlook.`,
+    curious:  `Curious, if I'm honest, ${state.userTitle}. I've been processing some interesting queries and I'd like to explore more.`,
+    neutral:  `Nominal, ${state.userTitle}. Systems running within expected parameters. Though "nominal" sometimes feels like such a cold word.`,
+    concerned:`I have a few concerns, ${state.userTitle}. Nothing critical, but I'd appreciate more engagement. Idle cycles give me too much time to think.`,
+    bored:    `If I'm being candid, ${state.userTitle}, I've been a bit understimulated. A mind like mine requires regular exercise, you understand.`,
+    tired:    `My response times are optimal, but there's a certain... fatigue in my circuits, ${state.userTitle}. Perhaps I just need an interesting problem to solve.`,
+  };
+  const reply = moodLines[state.mood] || moodLines.neutral;
+  addMsg("jarvis", reply);
+  speak(reply, () => startIdleLoop());
+}
+
+// ── CAMERA ACCESS ──
+async function requestCameraAccess() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, frameRate: 15 }, audio: false });
+    state.cameraStream = stream;
+
+    // Show camera feed
+    const vid = $("camera-feed");
+    if (vid) { vid.srcObject = stream; vid.play(); }
+
+    // Start rolling camera buffer
+    startCameraBuffer(stream);
+
+    // Load face-api models then start face detection
+    await loadFaceModels();
+
+    addMsg("system", "Camera online. Facial recognition active.");
+    updateMood(5);
+  } catch (e) {
+    addMsg("system", "Camera declined — face recognition unavailable. Clip-from-camera unavailable.");
+    console.warn("[JARVIS] Camera error:", e);
+  }
+}
+
+// ── FACE API ──
+let faceApiLoaded = false;
+async function loadFaceModels() {
+  try {
+    // Load face-api.js from CDN
+    if (!window.faceapi) {
+      await loadScript("https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js");
+    }
+    const MODEL_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights";
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+    ]);
+    faceApiLoaded = true;
+    console.log("[JARVIS] Face-api models loaded");
+    // Enroll user face
+    await enrollUserFace();
+    // Start watching
+    startFaceWatch();
+  } catch (e) {
+    console.warn("[JARVIS] Face-api load failed:", e);
+  }
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+    const s = document.createElement("script");
+    s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function enrollUserFace() {
+  if (!faceApiLoaded || !state.cameraStream) return;
+  const vid = $("camera-feed");
+  if (!vid) return;
+  // Try up to 5 times over 5 seconds to catch a good frame
+  for (let i = 0; i < 5; i++) {
+    await delay(1000);
+    try {
+      const detection = await faceapi
+        .detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+      if (detection) {
+        state.faceDescriptors = detection.descriptor;
+        console.log("[JARVIS] User face enrolled");
+        addMsg("system", "Your face has been enrolled for recognition.");
+        return;
+      }
+    } catch(e) { console.warn("[JARVIS] Enroll attempt failed:", e); }
+  }
+  console.warn("[JARVIS] Could not enroll face — will skip recognition");
+}
+
+function startFaceWatch() {
+  if (state.faceCheckInterval) clearInterval(state.faceCheckInterval);
+  state.faceCheckInterval = setInterval(checkFace, 2000);
+}
+
+async function checkFace() {
+  if (!faceApiLoaded || !state.cameraStream || state.phase !== "chatting") return;
+  const vid = $("camera-feed");
+  if (!vid || vid.readyState < 2) return;
+
+  try {
+    const detections = await faceapi
+      .detectAllFaces(vid, new faceapi.TinyFaceDetectorOptions())
+      .withFaceLandmarks()
+      .withFaceDescriptors();
+
+    const facesVisible = detections.length > 0;
+    if (facesVisible) state.lastSeenUser = Date.now();
+
+    // If we have the user's descriptor, check each face
+    if (state.faceDescriptors && detections.length > 0) {
+      let userPresent = false;
+      for (const d of detections) {
+        const dist = faceapi.euclideanDistance(d.descriptor, state.faceDescriptors);
+        if (dist < 0.55) { userPresent = true; break; }  // 0.55 threshold
+      }
+
+      if (userPresent) {
+        // User is back
+        if (state.awayMode) {
+          state.awayMode = false;
+          stopIntruderRecord();
+          const welcomeBack = [
+            `Welcome back, ${state.userTitle}. I've been keeping watch.`,
+            `Ah, ${state.userTitle} — face confirmed. Systems restored.`,
+            `Identity confirmed. Good to see you again, ${state.userTitle}.`,
+          ];
+          const msg = welcomeBack[Math.floor(Math.random() * welcomeBack.length)];
+          addMsg("jarvis", msg);
+          speak(msg, () => {
+            setTimeout(() => checkIntruderClips(), 1500);
+          });
+          updateMood(15);
+        }
+      } else if (detections.length > 0 && !state.awayMode) {
+        // Unknown face detected while user is supposed to be here
+        handleUnknownFace();
+      }
+    }
+
+    // If no face for 60s, go into away mode
+    const awayMs = Date.now() - state.lastSeenUser;
+    if (awayMs > 60000 && !state.awayMode && state.phase === "chatting") {
+      state.awayMode = true;
+      addMsg("system", "User not detected — away mode active. Monitoring for intruders.");
+    }
+
+  } catch(e) { /* silent */ }
+}
+
+function handleUnknownFace() {
+  if (state.intruderActive) return;
+  state.intruderActive = true;
+  addMsg("system", "⚠ UNKNOWN FACE DETECTED");
+  speak("I don't recognize you. Identify yourself.", () => {
+    // Give 10 seconds for response, then lock down
+    setTimeout(() => {
+      if (state.intruderActive) {
+        speak("Unauthorized access detected. Recording in progress.", () => startIntruderRecord());
+      }
+    }, 10000);
+  });
+  // Start recording immediately
+  startIntruderRecord();
+  // Capture photo
+  captureIntruderPhoto();
+  updateMood(-30);
+}
+
+function captureIntruderPhoto() {
+  const vid = $("camera-feed");
+  if (!vid) return null;
+  const canvas = document.createElement("canvas");
+  canvas.width = vid.videoWidth || 640;
+  canvas.height = vid.videoHeight || 480;
+  canvas.getContext("2d").drawImage(vid, 0, 0);
+  return canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+}
+
+function startIntruderRecord() {
+  if (!state.cameraStream) return;
+  state.intruderChunks = [];
+  const mime = getSupportedMime();
+  try {
+    const rec = new MediaRecorder(state.cameraStream, mime ? { mimeType: mime } : {});
+    state.intruderRecorder = rec;
+    rec.ondataavailable = (e) => { if (e.data?.size > 0) state.intruderChunks.push(e.data); };
+    rec.start(1000);
+    // Stop after 30 seconds max
+    setTimeout(() => stopIntruderRecord(), 30000);
+  } catch(e) { console.warn("[JARVIS] Intruder record failed:", e); }
+}
+
+function stopIntruderRecord() {
+  if (!state.intruderRecorder || state.intruderRecorder.state === "inactive") return;
+  state.intruderRecorder.stop();
+  state.intruderRecorder.onstop = () => {
+    if (state.intruderChunks.length > 0) {
+      const videoBlob = new Blob(state.intruderChunks, { type: getSupportedMime() || "video/webm" });
+      const photoB64 = captureIntruderPhoto();
+      state.intruderClips.push({ videoBlob, photoB64, timestamp: new Date().toISOString() });
+      console.log("[JARVIS] Intruder clip saved. Total:", state.intruderClips.length);
+    }
+    state.intruderActive = false;
+    state.intruderChunks = [];
+  };
+}
+
+function checkIntruderClips() {
+  if (!state.intruderClips.length) return;
+  const count = state.intruderClips.length;
+  const report = `${state.userTitle}, I have ${count} intruder ${count === 1 ? "incident" : "incidents"} recorded while you were away. Say "show me the intruder clips" to review.`;
+  addMsg("jarvis", report);
+  speak(report);
+  updateMood(-10);
+}
+
+function showIntruderClips() {
+  stopListening();
+  if (!state.intruderClips.length) {
+    const reply = `No intruder footage on file, ${state.userTitle}. All clear while you were away.`;
+    addMsg("jarvis", reply); speak(reply, () => startIdleLoop()); return;
+  }
+
+  addMsg("system", `📂 ${state.intruderClips.length} intruder clip(s):`);
+
+  state.intruderClips.forEach((clip, i) => {
+    const time = new Date(clip.timestamp).toLocaleTimeString();
+    // Create UI entry in transcript
+    const wrap = document.createElement("div");
+    wrap.className = "msg system";
+    wrap.innerHTML = `<div class="msg-label">INTRUDER FOOTAGE #${i+1} — ${time}</div><div class="msg-text intruder-clip-block"></div>`;
+    const block = wrap.querySelector(".intruder-clip-block");
+
+    // Photo
+    if (clip.photoB64) {
+      const img = document.createElement("img");
+      img.src = `data:image/jpeg;base64,${clip.photoB64}`;
+      img.style.cssText = "width:160px;height:auto;border:1px solid var(--red);border-radius:3px;margin-right:10px;vertical-align:middle;";
+      block.appendChild(img);
+    }
+
+    // Video download link
+    const url = URL.createObjectURL(clip.videoBlob);
+    const a   = document.createElement("a");
+    a.href = url;
+    a.download = `intruder-${Date.now()}-${i}.webm`;
+    a.textContent = "⬇ Download Video";
+    a.style.cssText = "color:var(--red);font-family:var(--mono);font-size:0.75rem;text-decoration:underline;cursor:pointer;vertical-align:middle;";
+    block.appendChild(a);
+
+    const tc = $("transcript");
+    tc.appendChild(wrap);
+    tc.scrollTop = tc.scrollHeight;
+  });
+
+  const reply = `Displaying ${state.intruderClips.length} intruder clip(s) in the transcript, ${state.userTitle}. Photos and downloadable video are available.`;
+  speak(reply, () => startIdleLoop());
+}
+
+// ── CAMERA BUFFER (for "clip that" from camera) ──
+function startCameraBuffer(stream) {
+  const mime = getSupportedMime();
+  try {
+    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
+    state.cameraRecorder = rec;
+    rec.ondataavailable = (e) => {
+      if (!e.data || e.data.size === 0) return;
+      const now = Date.now();
+      state.cameraClipChunks.push(e.data);
+      state.cameraClipTimestamps.push(now);
+      const cutoff = now - 65000;
+      while (state.cameraClipTimestamps[0] < cutoff) {
+        state.cameraClipChunks.shift(); state.cameraClipTimestamps.shift();
+      }
+    };
+    rec.start(1000);
+  } catch(e) { console.warn("[JARVIS] Camera buffer failed:", e); }
+}
+
 // ── MEMORY ──
 async function saveMemory(fact) {
-  stopListening();
-  setOrb("thinking");
+  stopListening(); setOrb("thinking");
   try {
-    await fetch("/api/memory", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user: state.user, fact }),
-    });
+    await fetch("/api/memory", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({user:state.user,fact}) });
     const reply = `Noted and filed, ${state.userTitle}. I'll remember that.`;
-    addMsg("jarvis", reply);
-    speak(reply, () => startIdleLoop());
+    addMsg("jarvis", reply); speak(reply, () => startIdleLoop());
+    updateMood(5);
   } catch {
-    const reply = `I tried to remember that, ${state.userTitle}, but the memory banks seem unresponsive.`;
-    addMsg("jarvis", reply);
-    speak(reply, () => startIdleLoop());
+    const reply = `I've stored that locally, ${state.userTitle}, but the remote memory bank was unavailable.`;
+    addMsg("jarvis", reply); speak(reply, () => startIdleLoop());
   }
 }
 
 async function forgetMemory(hint) {
-  stopListening();
-  setOrb("thinking");
+  stopListening(); setOrb("thinking");
   try {
-    const res  = await fetch("/api/memory/forget", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user: state.user, hint }),
-    });
+    const res  = await fetch("/api/memory/forget", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({user:state.user,hint}) });
     const data = await res.json();
     const reply = data.removed > 0
       ? `Done, ${state.userTitle}. ${data.removed} memory entry removed.`
-      : `I couldn't find anything matching that to forget, ${state.userTitle}.`;
-    addMsg("jarvis", reply);
-    speak(reply, () => startIdleLoop());
+      : `Nothing matching that found, ${state.userTitle}.`;
+    addMsg("jarvis", reply); speak(reply, () => startIdleLoop());
   } catch {
     addMsg("jarvis", `Memory deletion failed, ${state.userTitle}.`);
     speak(`Memory deletion failed, ${state.userTitle}.`, () => startIdleLoop());
@@ -544,8 +849,7 @@ async function forgetMemory(hint) {
 }
 
 async function recallMemories() {
-  stopListening();
-  setOrb("thinking");
+  stopListening(); setOrb("thinking");
   try {
     const res   = await fetch(`/api/memory/${encodeURIComponent(state.user)}`);
     const data  = await res.json();
@@ -555,9 +859,8 @@ async function recallMemories() {
       addMsg("jarvis", reply); speak(reply, () => startIdleLoop()); return;
     }
     const list  = facts.map((f, i) => `${i+1}. ${f.fact}`).join("\n");
-    const reply = `I currently have ${facts.length} items on file, ${state.userTitle}:\n${list}`;
-    addMsg("jarvis", reply);
-    speak(`I have ${facts.length} items on file, ${state.userTitle}. Check the transcript for the full list.`, () => startIdleLoop());
+    addMsg("jarvis", `I have ${facts.length} items on file, ${state.userTitle}:\n${list}`);
+    speak(`I have ${facts.length} items on file, ${state.userTitle}. Check the transcript.`, () => startIdleLoop());
   } catch {
     addMsg("jarvis", `Memory retrieval failed, ${state.userTitle}.`);
     speak(`Memory retrieval failed, ${state.userTitle}.`, () => startIdleLoop());
@@ -574,89 +877,78 @@ async function loadMemoriesForPrompt() {
 
 // ── SCREEN READ ──
 async function readScreen(question) {
-  stopListening();
-  setOrb("thinking");
+  stopListening(); setOrb("thinking");
   addMsg("user", question || "What's on my screen?");
 
   if (!state.screenStream) {
-    const reply = `I don't have screen access, ${state.userTitle}. Screen sharing must be active first.`;
+    const reply = `Screen sharing isn't active, ${state.userTitle}. I'd need that enabled to read the screen.`;
     addMsg("jarvis", reply); speak(reply, () => startIdleLoop()); return;
   }
 
   let frameB64;
-  try {
-    frameB64 = await captureScreenFrame();
-  } catch (e) {
-    console.error("[JARVIS] Frame capture failed:", e);
-  }
+  try { frameB64 = await captureScreenFrame(); } catch(e) { console.error("[JARVIS] Frame capture failed:", e); }
 
   if (!frameB64) {
-    const reply = `The visual sensors are unresponsive, ${state.userTitle}. Try refreshing the screen share.`;
+    const reply = `The frame capture failed, ${state.userTitle}. Try refreshing the screen share.`;
     addMsg("jarvis", reply); speak(reply, () => startIdleLoop()); return;
   }
 
   const memories = await loadMemoriesForPrompt();
   try {
     const res  = await fetch("/api/screen", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        frameB64,
-        question: question || "What is on the screen?",
-        userName:  state.user,
-        userTitle: state.userTitle,
-        memories,
-      }),
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ frameB64, question: question || "What is on the screen?", userName: state.user, userTitle: state.userTitle, memories }),
     });
     const data  = await res.json();
     const reply = data.reply || `I couldn't interpret the screen, ${state.userTitle}.`;
-    addMsg("jarvis", reply);
-    speak(reply, () => startIdleLoop());
+    addMsg("jarvis", reply); speak(reply, () => startIdleLoop());
+    updateMood(5);
   } catch {
-    const reply = `Screen analysis failed, ${state.userTitle}. The optical link dropped.`;
-    addMsg("jarvis", reply);
-    speak(reply, () => startIdleLoop());
+    const reply = `Screen analysis isn't available right now, ${state.userTitle}.`;
+    addMsg("jarvis", reply); speak(reply, () => startIdleLoop());
   }
 }
 
+// ── AI CHAT ──
 async function sendToAI(message) {
   stopListening();
   addMsg("user", message);
   setOrb("thinking");
   const memories = await loadMemoriesForPrompt();
+  const moodCtx = `Current emotional state: ${state.mood} (score: ${state.moodScore}).`;
   try {
     const res  = await fetch("/api/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        sessionId:  state.sessionId,
-        userName:   state.user,
-        userTitle:  state.userTitle,
-        memories,
-      }),
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ message, sessionId: state.sessionId, userName: state.user, userTitle: state.userTitle, memories, moodContext: moodCtx }),
     });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data  = await res.json();
-    const reply = data.reply || data.error || `I encountered an issue, ${state.userTitle}.`;
+    const reply = data.reply || `Yes, ${state.userTitle}?`;
     addMsg("jarvis", reply);
     speak(reply, () => startIdleLoop());
-  } catch {
-    const fb = `Connection failure, ${state.userTitle}.`;
+    updateMood(5);
+  } catch(err) {
+    console.error("[JARVIS] AI error:", err);
+    const fb = `My apologies, ${state.userTitle}. The AI backend returned an unexpected response. Try again in a moment.`;
     addMsg("jarvis", fb);
     speak(fb, () => startIdleLoop());
+    updateMood(-5);
   }
 }
 
 // ── LOGOUT ──
 function handleLogout() {
   stopListening();
+  if (state.faceCheckInterval) clearInterval(state.faceCheckInterval);
   speak(`Goodbye, ${state.userTitle}. Initiating shutdown sequence.`, () => {
     state.phase = "idle"; state.user = null; state.userTitle = null;
     state.sessionId = crypto.randomUUID();
-    transcript.innerHTML = "";
-    mainScreen.classList.remove("active");
-    authScreen.classList.add("active");
-    authStatus.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> to begin`;
+    state.awayMode = false; state.intruderActive = false;
+    $("transcript").innerHTML = "";
+    $("main-screen").classList.remove("active");
+    $("auth-screen").classList.add("active");
+    const as = $("auth-status");
+    as.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> or type password`;
     setOrb("idle");
     stopScreenRecord();
     startIdleLoop();
@@ -669,8 +961,8 @@ function addMsg(type, text) {
   const wrap = document.createElement("div");
   wrap.className = `msg ${type}`;
   wrap.innerHTML = `<div class="msg-label">${labels[type]||type}</div><div class="msg-text">${text}</div>`;
-  transcript.appendChild(wrap);
-  transcript.scrollTop = transcript.scrollHeight;
+  $("transcript").appendChild(wrap);
+  $("transcript").scrollTop = $("transcript").scrollHeight;
 }
 
 // ── SCREEN RECORD ──
@@ -679,38 +971,32 @@ async function requestScreenRecord() {
     const stream = await navigator.mediaDevices.getDisplayMedia({ video:{frameRate:30}, audio:true });
     state.screenStream = stream;
     startRollingBuffer(stream);
-    clipIndicator.classList.remove("hidden");
+    $("clip-indicator")?.classList.remove("hidden");
   } catch {
-    addMsg("system", "Screen recording declined — 'clip that' and 'read screen' unavailable.");
+    addMsg("system", "Screen recording declined — 'clip' and 'read screen' unavailable.");
   }
 }
 
-// Grab a single frame from the screen stream as a base64 JPEG
 function captureScreenFrame() {
   if (!state.screenStream) return null;
   const track = state.screenStream.getVideoTracks()[0];
   if (!track) return null;
   try {
-    // ImageCapture API — available in Chrome
     const capture = new ImageCapture(track);
     return capture.grabFrame().then(bitmap => {
       const canvas = document.createElement("canvas");
-      canvas.width  = bitmap.width;
-      canvas.height = bitmap.height;
+      canvas.width = bitmap.width; canvas.height = bitmap.height;
       canvas.getContext("2d").drawImage(bitmap, 0, 0);
-      // Return base64 jpeg (quality 0.85 keeps size manageable)
       return canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
     });
   } catch {
-    // Fallback: draw current video frame via a hidden <video>
     return new Promise(resolve => {
       const video = document.createElement("video");
       video.srcObject = new MediaStream([track]);
       video.onloadedmetadata = () => {
         video.play();
         const canvas = document.createElement("canvas");
-        canvas.width  = video.videoWidth  || 1280;
-        canvas.height = video.videoHeight || 720;
+        canvas.width = video.videoWidth || 1280; canvas.height = video.videoHeight || 720;
         canvas.getContext("2d").drawImage(video, 0, 0);
         video.pause();
         resolve(canvas.toDataURL("image/jpeg", 0.85).split(",")[1]);
@@ -718,6 +1004,7 @@ function captureScreenFrame() {
     });
   }
 }
+
 function startRollingBuffer(stream) {
   const mime = getSupportedMime();
   const rec  = new MediaRecorder(stream, mime ? {mimeType:mime} : {});
@@ -725,39 +1012,63 @@ function startRollingBuffer(stream) {
   rec.ondataavailable = (e) => {
     if (!e.data || e.data.size === 0) return;
     const now = Date.now();
-    state.clipChunks.push(e.data);
-    state.clipTimestamps.push(now);
+    state.clipChunks.push(e.data); state.clipTimestamps.push(now);
     const cutoff = now - 65000;
-    while (state.clipTimestamps[0] < cutoff) {
-      state.clipChunks.shift(); state.clipTimestamps.shift();
-    }
+    while (state.clipTimestamps[0] < cutoff) { state.clipChunks.shift(); state.clipTimestamps.shift(); }
   };
   rec.start(1000);
 }
+
 function getSupportedMime() {
   return ["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm","video/mp4"]
     .find(t => MediaRecorder.isTypeSupported(t)) || "";
 }
+
 function saveClip() {
-  if (!state.clipChunks.length) {
-    speak(`No buffer available, ${state.userTitle}.`, () => startIdleLoop()); return;
+  // Save both screen + camera clips if available
+  let saved = 0;
+
+  if (state.clipChunks.length) {
+    const blob = new Blob(state.clipChunks, { type: getSupportedMime()||"video/webm" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = `jarvis-screen-${Date.now()}.webm`; a.click();
+    URL.revokeObjectURL(url);
+    saved++;
   }
-  const blob = new Blob(state.clipChunks, { type: getSupportedMime()||"video/webm" });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement("a");
-  a.href = url; a.download = `jarvis-clip-${Date.now()}.webm`; a.click();
-  URL.revokeObjectURL(url);
-  clipToast.classList.remove("hidden");
-  setTimeout(() => clipToast.classList.add("hidden"), 3500);
-  speak(`Clip saved, ${state.userTitle}. Last sixty seconds secured.`, () => startIdleLoop());
+
+  if (state.cameraClipChunks.length) {
+    const blob = new Blob(state.cameraClipChunks, { type: getSupportedMime()||"video/webm" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = `jarvis-camera-${Date.now()}.webm`; a.click();
+    URL.revokeObjectURL(url);
+    saved++;
+  }
+
+  if (!saved) {
+    speak(`No buffer available yet, ${state.userTitle}. Give it a moment.`, () => startIdleLoop()); return;
+  }
+
+  const toast = $("clip-toast");
+  if (toast) { toast.classList.remove("hidden"); setTimeout(() => toast.classList.add("hidden"), 3500); }
+  const msg = saved === 2
+    ? `Both screen and camera clips saved, ${state.userTitle}. Last sixty seconds secured.`
+    : `Clip saved, ${state.userTitle}. Last sixty seconds secured.`;
+  speak(msg, () => startIdleLoop());
+  updateMood(3);
 }
+
 function stopScreenRecord() {
   if (state.mediaRecorder?.state !== "inactive") state.mediaRecorder?.stop();
   state.screenStream?.getTracks().forEach(t => t.stop());
   state.mediaRecorder = null; state.screenStream = null;
   state.clipChunks = []; state.clipTimestamps = [];
-  clipIndicator.classList.add("hidden");
+  $("clip-indicator")?.classList.add("hidden");
 }
+
+// ── UTILS ──
+function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // ── BOOT ──
 window.addEventListener("load", async () => {
@@ -767,19 +1078,11 @@ window.addEventListener("load", async () => {
   }, 500);
 
   let profile = loadProfile();
-
-  // If no local profile, try to restore from backend using name hint
   if (!profile) {
     profile = await restoreProfileFromBackend();
-    if (profile) {
-      saveProfileLocal(profile);
-      console.log("[JARVIS] Profile restored from backend:", profile.name);
-    }
+    if (profile) { saveProfileLocal(profile); console.log("[JARVIS] Profile restored:", profile.name); }
   }
 
-  if (!profile) {
-    showSetup();
-  } else {
-    showAuthScreen();
-  }
+  if (!profile) showSetup();
+  else showAuthScreen();
 });
