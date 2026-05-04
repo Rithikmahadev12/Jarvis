@@ -125,6 +125,7 @@ const mic = {
   onInterim:    null,
   continuous:   true,
   suspended:    false, // paused deliberately (typing, speaking)
+  _killing:     false, // true while replacing instance — suppress spurious aborted retries
   permGranted:  false,
 
   // Request mic permission upfront so it's cached
@@ -152,7 +153,7 @@ const mic = {
 
   _launch() {
     if (this.suspended) return;
-    if (this.active) this._kill();
+    if (this.active) { this._killing = true; this._kill(); this._killing = false; }
 
     const r = new SR();
     r.lang            = "en-US";
@@ -219,8 +220,8 @@ const mic = {
           return;
 
         case "aborted":
-          // deliberate — don't retry unless not suspended
-          if (!this.suspended) this._scheduleRetry(300);
+          // deliberate — don't retry if suspended OR if we killed it to replace it
+          if (!this.suspended && !this._killing) this._scheduleRetry(300);
           return;
 
         default:
@@ -703,8 +704,8 @@ async function requestCameraAccess() {
 let faceApiLoaded = false;
 async function loadFaceModels() {
   try {
-    if (!window.faceapi) await loadScript("https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js");
-    const MODEL_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights";
+    if (!window.faceapi) await loadScript("https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/dist/face-api.min.js");
+    const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights";
     await Promise.all([
       faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
