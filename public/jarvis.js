@@ -187,131 +187,143 @@ function updateLLMStatus(status) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── VOICE ENGINE — ResponsiveVoice + Native fallback ──
-// ResponsiveVoice has a genuine "UK English Male" that sounds
-// much closer to JARVIS than native browser TTS.
+// ── VOICE ENGINE — Native Web Speech API ──
+// Works on localhost with no CDN. Picks the best UK/deep male
+// voice available in the browser. Tuned to sound like JARVIS.
 // ═══════════════════════════════════════════════════════════════
 const VOICE = {
-  rvLoaded: false,
-  rvTrying: false,
+  _voice: null,
+  _ready: false,
 
-  async init() {
-    if (this.rvLoaded || this.rvTrying) return;
-    this.rvTrying = true;
-    try {
-      await loadScript("https://code.responsivevoice.org/responsivevoice.js#key=FREE");
-      // Wait for RV to be ready
-      await new Promise((resolve) => {
-        let tries = 0;
-        const check = setInterval(() => {
-          tries++;
-          if (window.responsiveVoice && window.responsiveVoice.voiceSupport()) {
-            clearInterval(check);
-            this.rvLoaded = true;
-            resolve();
-          }
-          if (tries > 20) { clearInterval(check); resolve(); }
-        }, 300);
-      });
-      if (this.rvLoaded) addMsg("system", "JARVIS voice engine loaded — UK English Male active.");
-    } catch (e) {
-      console.warn("[VOICE] ResponsiveVoice failed:", e);
-    }
-    this.rvTrying = false;
+  // Priority list — first match wins
+  PREFERRED: [
+    "Google UK English Male",
+    "Microsoft George - English (United Kingdom)",
+    "Microsoft George",
+    "Microsoft James - English (United Kingdom)",
+    "Microsoft Arthur - English (United Kingdom)",
+    "Daniel (Enhanced)",
+    "Daniel",
+    "Arthur",
+    "James",
+    "Thomas",
+    "Aaron",        // macOS deep voice
+    "Fred",         // macOS classic deep voice
+  ],
+
+  init() {
+    // Voices load async in Chrome — wait for them
+    const load = () => {
+      const voices = window.speechSynthesis.getVoices();
+      if (!voices.length) return; // not ready yet
+
+      // Try preferred list first
+      for (const name of this.PREFERRED) {
+        const v = voices.find(v => v.name === name || v.name.startsWith(name));
+        if (v) { this._voice = v; break; }
+      }
+
+      // Fallback: any en-GB male-sounding voice
+      if (!this._voice) {
+        this._voice = voices.find(v => v.lang === "en-GB") ||
+                      voices.find(v => v.lang.startsWith("en")) ||
+                      voices[0];
+      }
+
+      this._ready = true;
+      const name = this._voice ? this._voice.name : "default";
+      console.log(`[VOICE] Using: ${name}`);
+      addMsg("system", `Voice engine ready — ${name}.`);
+    };
+
+    // Chrome fires onvoiceschanged, Firefox has them immediately
+    window.speechSynthesis.onvoiceschanged = load;
+    load(); // try immediately in case already loaded
   },
 
   speak(text, onEnd) {
     if (!text || !text.trim()) { if (onEnd) onEnd(); return; }
 
-    setOrb("speaking");
+    // Cancel anything currently playing
+    window.speechSynthesis.cancel();
     state.currentSpeaking = true;
-
-    // Cancel any ongoing speech
-    if (window.responsiveVoice && this.rvLoaded) {
-      window.responsiveVoice.cancel();
-    }
-    state.synth.cancel();
-
-    if (window.responsiveVoice && this.rvLoaded) {
-      // ResponsiveVoice — closest to JARVIS
-      window.responsiveVoice.speak(text, "UK English Male", {
-        pitch: 0.4,      // Lower = more authoritative
-        rate: 0.92,      // Slightly measured pace
-        volume: 1,
-        onstart: () => { setOrb("speaking"); state.currentSpeaking = true; },
-        onend: () => {
-          state.currentSpeaking = false;
-          setOrb("idle");
-          if (onEnd) onEnd();
-        },
-        onerror: () => {
-          state.currentSpeaking = false;
-          setOrb("idle");
-          this._nativeFallback(text, onEnd);
-        },
-      });
-
-      // Safety timeout
-      const safetyMs = Math.max(4000, text.length * 80);
-      setTimeout(() => {
-        if (state.currentSpeaking) {
-          state.currentSpeaking = false;
-          setOrb("idle");
-          if (onEnd) onEnd();
-        }
-      }, safetyMs);
-
-    } else {
-      this._nativeFallback(text, onEnd);
-    }
-  },
-
-  _nativeFallback(text, onEnd) {
-    // Best native voice selection — prioritise UK English Male
-    const PREFERRED = [
-      "Google UK English Male",
-      "Microsoft George - English (United Kingdom)",
-      "Microsoft George",
-      "Daniel",
-      "Arthur",
-      "James",
-      "Thomas",
-    ];
+    setOrb("speaking");
 
     const utter = new SpeechSynthesisUtterance(text);
-    utter.rate = 0.9;
-    utter.pitch = 0.6;
+
+    // If voices weren't loaded yet when init() ran, try again now
+    if (!this._voice) {
+      const voices = window.speechSynthesis.getVoices();
+      for (const name of this.PREFERRED) {
+        const v = voices.find(v => v.name === name || v.name.startsWith(name));
+        if (v) { this._voice = v; break; }
+      }
+      if (!this._voice) this._voice = voices.find(v => v.lang === "en-GB") || voices[0];
+    }
+
+    if (this._voice) utter.voice = this._voice;
+
+    // JARVIS voice tuning — low pitch, measured pace
+    utter.rate   = 0.88;   // slightly slower = more deliberate
+    utter.pitch  = 0.5;    // low = authoritative, not robotic
     utter.volume = 1;
 
-    const voices = state.synth.getVoices();
-    for (const name of PREFERRED) {
-      const v = voices.find(v => v.name === name || v.name.includes(name));
-      if (v) { utter.voice = v; break; }
-    }
-    if (!utter.voice) {
-      const enGB = voices.find(v => v.lang === "en-GB");
-      const enUS = voices.find(v => v.lang.startsWith("en"));
-      utter.voice = enGB || enUS || null;
-    }
-
-    const safetyMs = Math.max(4000, text.length * 80);
     let done = false;
     const finish = () => {
-      if (done) return; done = true;
+      if (done) return;
+      done = true;
       state.currentSpeaking = false;
       setOrb("idle");
       if (onEnd) onEnd();
     };
-    setTimeout(finish, safetyMs);
-    utter.onend = finish;
-    utter.onerror = finish;
+
     utter.onstart = () => { setOrb("speaking"); state.currentSpeaking = true; };
-    state.synth.speak(utter);
+    utter.onend   = finish;
+    utter.onerror = (e) => {
+      console.warn("[VOICE] Speech error:", e.error);
+      finish();
+    };
+
+    // Chrome has a bug where long utterances cut off — chunk if needed
+    if (text.length > 200) {
+      this._speakChunked(text, onEnd);
+      return;
+    }
+
+    // Safety timeout in case onend never fires
+    setTimeout(finish, Math.max(4000, text.length * 90));
+    window.speechSynthesis.speak(utter);
+  },
+
+  // Split long text at sentence boundaries so Chrome doesn't cut off
+  _speakChunked(text, onEnd) {
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+    let i = 0;
+
+    const next = () => {
+      if (i >= sentences.length) { state.currentSpeaking = false; setOrb("idle"); if (onEnd) onEnd(); return; }
+      const chunk = sentences[i++].trim();
+      if (!chunk) { next(); return; }
+
+      const utter = new SpeechSynthesisUtterance(chunk);
+      if (this._voice) utter.voice = this._voice;
+      utter.rate   = 0.88;
+      utter.pitch  = 0.5;
+      utter.volume = 1;
+
+      let done = false;
+      const finish = () => { if (done) return; done = true; next(); };
+      utter.onend   = finish;
+      utter.onerror = finish;
+      setTimeout(finish, Math.max(3000, chunk.length * 90));
+      window.speechSynthesis.speak(utter);
+    };
+
+    next();
   },
 
   cancel() {
-    if (window.responsiveVoice && this.rvLoaded) window.responsiveVoice.cancel();
-    state.synth.cancel();
+    window.speechSynthesis.cancel();
     state.currentSpeaking = false;
   },
 };
@@ -804,10 +816,8 @@ function launchMain() {
   ];
   addMsg("system", greetings[Math.floor(Math.random() * greetings.length)]);
 
-  // Init voice engine first, then LLM in background
-  VOICE.init().then(() => {
-    speak(greetings[0], () => {});
-  });
+  // Voice is already initialised from boot — just speak the greeting
+  speak(greetings[0], () => {});
 
   requestScreenRecord();
   requestCameraAccess();
@@ -1673,7 +1683,7 @@ window.addEventListener("load", async () => {
     w.volume = 0; speechSynthesis.speak(w); speechSynthesis.getVoices();
   }, 500);
 
-  // Load ResponsiveVoice early so it's ready when needed
+  // Init voice engine — picks best available native voice
   VOICE.init();
 
   let profile = loadProfile();
