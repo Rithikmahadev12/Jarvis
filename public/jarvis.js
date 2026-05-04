@@ -462,6 +462,49 @@ function launchMain() {
   setTimeout(() => checkIntruderClips(), 2000);
 }
 
+// ── LINK COMMANDS ──
+// Matches: "give me a vapor link", "infamous link", "pull up galaxy", "open notorious", etc.
+function isLinkCommand(lower) {
+  return /\b(give me|pull up|open|get|load|launch|bring up|show me).{0,20}\blink\b/i.test(lower)
+    || /\b(vapor|infamous|galaxy|nova)\b.{0,15}\b(link|site|url|page)\b/i.test(lower)
+    || /\b(link|site|url).{0,15}\b(vapor|infamous|galaxy|nova)\b/i.test(lower);
+}
+
+async function handleLinkCommand(text) {
+  stopListening();
+  setOrb("thinking");
+  try {
+    const res  = await fetch("/api/link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: text }),
+    });
+    const data = await res.json();
+    if (data.found) {
+      const reply = `Right away, ${state.userTitle}. Opening your ${data.name} link now.`;
+      addMsg("jarvis", reply);
+      // Show clickable link in transcript too
+      const wrap = document.createElement("div");
+      wrap.className = "msg jarvis";
+      wrap.innerHTML = `<div class="msg-label">J.A.R.V.I.S — LINK</div><div class="msg-text"><a href="${data.url}" target="_blank" rel="noopener" class="jarvis-link">${data.url}</a></div>`;
+      $("transcript").appendChild(wrap);
+      $("transcript").scrollTop = $("transcript").scrollHeight;
+      speak(reply, () => {
+        window.open(data.url, "_blank", "noopener");
+        startIdleLoop();
+      });
+    } else {
+      const reply = `I don't have a link group matching that, ${state.userTitle}. Try vapor or infamous.`;
+      addMsg("jarvis", reply);
+      speak(reply, () => startIdleLoop());
+    }
+  } catch {
+    const reply = `Link lookup failed, ${state.userTitle}.`;
+    addMsg("jarvis", reply);
+    speak(reply, () => startIdleLoop());
+  }
+}
+
 // ── CHAT ──
 function handleChatCommand(text) {
   const lower = text.toLowerCase();
@@ -481,6 +524,11 @@ function handleChatCommand(text) {
   // Flexible clip detection — no wake word required
   if (isClipCommand(lower)) {
     saveClip(); return;
+  }
+
+  // Link commands — "give me a vapor link", "infamous link", "pull up galaxy", etc.
+  if (isLinkCommand(lower)) {
+    handleLinkCommand(text); return;
   }
 
   // Require wake word OR be already "active" (within 30s of last interaction)
