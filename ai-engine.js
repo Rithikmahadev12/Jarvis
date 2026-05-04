@@ -1,18 +1,12 @@
 /**
- * J.A.R.V.I.S — Custom AI Brain
- * Fully self-contained. Zero external APIs.
- * Built from scratch: intent classification, NLP, response generation, context.
+ * J.A.R.V.I.S — Custom AI Brain (v2.1 — conversation fix)
  */
 
 "use strict";
 
-// ═══════════════════════════════════════════════════════════════
-// UTILITY
-// ═══════════════════════════════════════════════════════════════
 const pick  = arr => arr[Math.floor(Math.random() * arr.length)];
 const clean = str => str.toLowerCase().replace(/[^\w\s]/g, " ").replace(/\s+/g, " ").trim();
 
-// Tokenise and count word overlaps (Jaccard-style score)
 function overlap(a, b) {
   const sa = new Set(a.split(" "));
   const sb = new Set(b.split(" "));
@@ -22,8 +16,7 @@ function overlap(a, b) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// INTENT DEFINITIONS
-// Each intent has: id, patterns (regex), keywords, priority
+// INTENTS
 // ═══════════════════════════════════════════════════════════════
 const INTENTS = [
   {
@@ -63,11 +56,13 @@ const INTENTS = [
     priority: 12,
   },
   {
+    // IMPORTANT: math must require actual digit characters, not just question words
     id: "math",
     patterns: [
-      /\b(calculate|compute|what is|what'?s|solve|eval(uate)?)\b.*[\d\+\-\*\/\^%]/,
+      /\b(calculate|compute|solve|eval(uate)?)\b.*[\d]/,
       /[\d]+\s*[\+\-\*\/\^%]\s*[\d]+/,
-      /\b(square root|sqrt|root of|power of|percent of|factorial)\b/,
+      /\b(square root|sqrt|root of|power of|percent of|factorial)\s+\d/,
+      /\bwhat(?:'?s| is)\b.*[\d].*[\+\-\*\/\^%\d]/,  // "what is 5 + 3" needs digits AND operators
     ],
     keywords: ["calculate","compute","math","plus","minus","times","divided","percent","square","root"],
     priority: 15,
@@ -80,8 +75,8 @@ const INTENTS = [
   },
   {
     id: "capabilities",
-    patterns: [/\b(what can you do|your (abilities|capabilities|features|skills|functions)|help me|how do you work|what do you know)\b/],
-    keywords: ["what","can","do","abilities","help","capabilities","features"],
+    patterns: [/\b(what can you do|your (abilities|capabilities|features|skills|functions)|how do you work|what do you know)\b/],
+    keywords: ["what","can","do","abilities","capabilities","features"],
     priority: 10,
   },
   {
@@ -115,10 +110,14 @@ const INTENTS = [
     priority: 10,
   },
   {
-    id: "science",
-    patterns: [/\b(what is (a|an|the)\s+\w+|explain|define|definition of|tell me about|how does|why does|how do)\b/],
-    keywords: ["what","is","explain","define","how","why","does"],
-    priority: 4,
+    // Personal questions about the USER: "am I smart", "do I look good", "am I annoying"
+    id: "personal_question",
+    patterns: [
+      /\b(am i|do i|will i|can i|should i|would i|am i being|is my|was i)\b/,
+      /\b(do you think (i|im|i'm)|do you like me|what do you think of me|how do (i|you) (come across|seem|look)|rate me)\b/,
+    ],
+    keywords: ["am","i","do","i","smart","good","bad","annoying","boring","funny","right","wrong","okay"],
+    priority: 13, // HIGH — personal questions must beat science/open_question
   },
   {
     id: "compliment",
@@ -163,10 +162,32 @@ const INTENTS = [
     priority: 10,
   },
   {
+    id: "opinion",
+    patterns: [
+      /\b(what do you think (about|of)|what('?s| is) your (opinion|view|take|thoughts?) (on|about)|do you (like|enjoy|prefer|hate|love)|which (is|do you) (better|prefer)|would you rather)\b/,
+    ],
+    keywords: ["think","opinion","view","thoughts","like","prefer","better","rather"],
+    priority: 9,
+  },
+  {
+    id: "small_talk",
+    patterns: [
+      /\b(that('?s)? (cool|nice|interesting|crazy|wild|awesome|great|funny)|no way|really\??|wow|oh wow|hmm|interesting|makes sense|good to know|i see|fair enough|fair point|got it|i knew|of course)\b/,
+    ],
+    keywords: ["cool","nice","crazy","wild","wow","hmm","interesting","really","makes","sense"],
+    priority: 7,
+  },
+  {
+    id: "science",
+    patterns: [/\b(what is (a|an|the)\s+\w+|explain|define|definition of|tell me about|how does|why does|how do)\b/],
+    keywords: ["what","is","explain","define","how","why","does"],
+    priority: 4,
+  },
+  {
     id: "open_question",
     patterns: [],
     keywords: [],
-    priority: 0, // fallback
+    priority: 0,
   },
 ];
 
@@ -205,7 +226,6 @@ const JOKES = [
 ];
 
 const KNOWLEDGE = {
-  // Science
   "black hole":     "A black hole is a region of spacetime where gravity is so strong that nothing — not even light — can escape. They form when massive stars collapse under their own gravity.",
   "photosynthesis": "Photosynthesis is the process by which plants convert sunlight, water, and carbon dioxide into glucose and oxygen using chlorophyll in their cells.",
   "atom":           "An atom is the basic unit of matter, consisting of a nucleus containing protons and neutrons, surrounded by electrons. Most of an atom is empty space.",
@@ -216,28 +236,23 @@ const KNOWLEDGE = {
   "quantum":        "Quantum mechanics describes the behaviour of matter and energy at the smallest scales. Particles can exist in superpositions of states until measured.",
   "evolution":      "Evolution is the process of change in all heritable characteristics of biological populations over successive generations, driven primarily by natural selection.",
   "universe":       "The observable universe is approximately 93 billion light-years in diameter, containing over two trillion galaxies, each with hundreds of billions of stars.",
-  // Tech
   "artificial intelligence": "Artificial intelligence is the simulation of human intelligence processes by machines. It includes machine learning, neural networks, natural language processing, and more.",
   "machine learning":        "Machine learning is a subset of AI where systems learn from data to improve their performance without being explicitly programmed for each task.",
   "blockchain":              "Blockchain is a decentralised digital ledger that records transactions across many computers in a way that makes them tamper-resistant and transparent.",
   "internet":                "The internet is a global network of interconnected computers using standardised protocols to share information. It was developed from ARPANET in the late 1960s.",
   "cpu":                     "A CPU — central processing unit — is the primary component of a computer that executes instructions. It performs arithmetic, logic, control, and input/output operations.",
-  // Space
   "moon":    "The Moon is Earth's only natural satellite, approximately 384,400 km away. It formed about 4.5 billion years ago, likely from debris after a Mars-sized body collided with Earth.",
   "mars":    "Mars is the fourth planet from the Sun — a cold desert world with the largest volcano and deepest canyon in the solar system. A Martian day is 24 hours and 37 minutes.",
   "sun":     "The Sun is a G-type main-sequence star at the centre of our solar system. Its core temperature reaches 15 million degrees Celsius, converting 600 million tonnes of hydrogen to helium every second.",
   "jupiter": "Jupiter is the largest planet in the solar system — so large that all other planets could fit inside it. Its Great Red Spot is a storm that has raged for over 300 years.",
-  // History
   "world war":    "The First World War (1914–1918) and Second World War (1939–1945) were the largest armed conflicts in human history, collectively resulting in over 70 million casualties.",
   "renaissance":  "The Renaissance was a period of European cultural and intellectual rebirth spanning the 14th to 17th centuries, marked by art, science, and philosophy flourishing after the Middle Ages.",
   "roman empire": "The Roman Empire was one of history's largest empires, spanning from Britain to Mesopotamia at its peak. It fell in 476 AD, though its eastern half — Byzantium — lasted until 1453.",
 };
 
 // ═══════════════════════════════════════════════════════════════
-// MATH ENGINE — handles digits AND spoken word numbers
+// MATH ENGINE
 // ═══════════════════════════════════════════════════════════════
-
-// Word → digit map (covers zero through ninety-nine + powers)
 const WORD_NUMS = {
   zero:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,
   ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,
@@ -248,30 +263,19 @@ const WORD_NUMS = {
 };
 
 function wordsToNumber(str) {
-  // Replace written numbers with digits, handling combos like "twenty five" → 25
   let s = str.toLowerCase();
-  // Handle "a hundred", "a thousand"
   s = s.replace(/\ba\s+hundred\b/g, "100").replace(/\ba\s+thousand\b/g, "1000");
-  // Multi-word numbers: "twenty five" → handle iteratively
   const tokens = s.split(/\s+/);
   const out = [];
-  let acc = null; // accumulator for compound numbers
+  let acc = null;
   for (const tok of tokens) {
     const n = WORD_NUMS[tok];
     if (n !== undefined) {
-      if (acc === null) {
-        acc = n;
-      } else if (n === 100) {
-        acc = acc * 100;
-      } else if (n >= 1000) {
-        acc = (acc || 1) * n;
-      } else if (n < acc && n < 100) {
-        // "twenty five" → 25
-        acc += n;
-      } else {
-        out.push(acc);
-        acc = n;
-      }
+      if (acc === null) { acc = n; }
+      else if (n === 100) { acc = acc * 100; }
+      else if (n >= 1000) { acc = (acc || 1) * n; }
+      else if (n < acc && n < 100) { acc += n; }
+      else { out.push(acc); acc = n; }
     } else {
       if (acc !== null) { out.push(acc); acc = null; }
       out.push(tok);
@@ -284,72 +288,52 @@ function wordsToNumber(str) {
 function solveMath(input) {
   try {
     let s = input.toLowerCase().trim();
-
-    // Strip question wrappers
     s = s.replace(/^(what(\'?s| is)|can you|please|jarvis|calculate|compute|solve|tell me|give me)\s+/gi, "");
     s = s.replace(/[?!\.]+$/, "").trim();
-
-    // Convert word numbers to digits first
     s = wordsToNumber(s);
-
-    // Handle "X% of Y" and "X percent of Y"
     s = s.replace(/(\d+\.?\d*)\s*%\s*of\s*(\d+\.?\d*)/gi, "($1/100*$2)");
     s = s.replace(/(\d+\.?\d*)\s*percent\s+of\s*(\d+\.?\d*)/gi, "($1/100*$2)");
-
-    // Word operators → symbols (order matters)
-    s = s.replace(/\bsquared\b/gi,           "**2");
-    s = s.replace(/\bcubed\b/gi,             "**3");
+    s = s.replace(/\bsquared\b/gi, "**2");
+    s = s.replace(/\bcubed\b/gi, "**3");
     s = s.replace(/\bto the power of\b|\bto the\b|\braised to\b/gi, "**");
-    s = s.replace(/\bsquare root of\b|\bsqrt of\b|\broot of\b/gi,   "Math.sqrt(PLACEHOLDER)");
-    s = s.replace(/\bfactorial of\b|\bfactorial\b/gi,               "factorial(PLACEHOLDER)");
-    s = s.replace(/\bsine? of\b|\bsin\b/gi,  "Math.sin(");
-    s = s.replace(/\bcosine? of\b|\bcos\b/gi,"Math.cos(");
-    s = s.replace(/\btangent of\b|\btan\b/gi,"Math.tan(");
+    s = s.replace(/\bsquare root of\b|\bsqrt of\b|\broot of\b/gi, "Math.sqrt(PLACEHOLDER)");
+    s = s.replace(/\bfactorial of\b|\bfactorial\b/gi, "factorial(PLACEHOLDER)");
+    s = s.replace(/\bsine? of\b|\bsin\b/gi, "Math.sin(");
+    s = s.replace(/\bcosine? of\b|\bcos\b/gi, "Math.cos(");
+    s = s.replace(/\btangent of\b|\btan\b/gi, "Math.tan(");
     s = s.replace(/\blog of\b|\blogarithm of\b/gi, "Math.log10(");
-    s = s.replace(/\bnatural log of\b|\bln of\b/gi,"Math.log(");
+    s = s.replace(/\bnatural log of\b|\bln of\b/gi, "Math.log(");
     s = s.replace(/\babs(olute)? (value )?of\b/gi, "Math.abs(");
     s = s.replace(/\btimes\b|\bmultiplied by\b|\bx\b(?=\s*\d)/gi, "*");
     s = s.replace(/\bdivided by\b|\bover\b|\bdiv\b/gi, "/");
-    s = s.replace(/\bplus\b|\badded to\b/gi,  "+");
+    s = s.replace(/\bplus\b|\badded to\b/gi, "+");
     s = s.replace(/\bminus\b|\bsubtracted from\b|\bless\b/gi, "-");
-    s = s.replace(/\bmod(ulo)?\b/gi,          "%");
-    s = s.replace(/\^/g,                      "**");
-    s = s.replace(/\bpi\b/gi,                 "Math.PI");
+    s = s.replace(/\bmod(ulo)?\b/gi, "%");
+    s = s.replace(/\^/g, "**");
+    s = s.replace(/\bpi\b/gi, "Math.PI");
     s = s.replace(/\beuler'?s number\b|\b(?<!\w)e(?!\w)\b/gi, "Math.E");
-
-    // Fill in PLACEHOLDER for functions that need a closing paren
-    // e.g. "sqrt of 144" → "Math.sqrt(144)" 
     s = s.replace(/Math\.sqrt\(PLACEHOLDER\)\s*(\d+\.?\d*)/g, "Math.sqrt($1)");
     s = s.replace(/Math\.sqrt\(PLACEHOLDER\)/g, "Math.sqrt(");
     s = s.replace(/factorial\(PLACEHOLDER\)\s*(\d+)/g, "factorial($1)");
     s = s.replace(/factorial\(PLACEHOLDER\)/g, "factorial(");
-
-    // Auto-close open function parens at end
     ["Math.sqrt(","Math.sin(","Math.cos(","Math.tan(","Math.log10(","Math.log(","Math.abs(","factorial("].forEach(fn => {
       const opens  = (s.match(new RegExp(fn.replace(".","\\.").replace("(","\\("), "g")) || []).length;
       const closes = (s.match(/\)/g) || []).length;
       if (opens > closes) s += ")".repeat(opens - closes);
     });
-
-    // Extract evaluable expression: numbers, operators, parens, dots
     const exprMatch = s.match(/[Math\.PI\w\(\)\d\s\+\-\*\/\.\%\*]+/);
     if (!exprMatch) return null;
     let raw = exprMatch[0].trim();
-    if (!raw || !/\d/.test(raw)) return null;  // must contain at least one digit
-
-    // Safety: only allow safe tokens
+    if (!raw || !/\d/.test(raw)) return null;
     if (/[^0-9\s\+\-\*\/\.\(\)\%MathsqrlogPIEabsinfactorial]/.test(raw)) return null;
-
     function factorial(n) {
       n = Math.floor(Math.abs(n));
       if (n > 20) return NaN;
       let r = 1; for (let i = 2; i <= n; i++) r *= i; return r;
     }
-
     // eslint-disable-next-line no-new-func
     const result = Function("factorial","Math", `"use strict"; return (${raw})`)(factorial, Math);
     if (typeof result !== "number" || !isFinite(result)) return null;
-
     const formatted = Number.isInteger(result) ? result : parseFloat(result.toFixed(6));
     return formatted;
   } catch {
@@ -365,7 +349,6 @@ function lookupKnowledge(input) {
   for (const [key, value] of Object.entries(KNOWLEDGE)) {
     if (lower.includes(key)) return { key, value };
   }
-  // Partial match
   for (const [key, value] of Object.entries(KNOWLEDGE)) {
     const words = key.split(" ");
     if (words.every(w => lower.includes(w))) return { key, value };
@@ -384,12 +367,10 @@ function classifyIntent(input) {
     if (intent.id === "open_question") continue;
     let score = 0;
 
-    // Pattern match (strong signal)
     for (const pattern of intent.patterns) {
       if (pattern.test(lower)) { score += 20; break; }
     }
 
-    // Keyword overlap
     for (const kw of intent.keywords) {
       if (lower.includes(kw)) score += 3;
     }
@@ -403,11 +384,120 @@ function classifyIntent(input) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// PERSONAL QUESTION RESPONSES
+// ═══════════════════════════════════════════════════════════════
+function handlePersonalQuestion(input, T) {
+  const lower = clean(input);
+
+  // Smart / intelligence
+  if (/\b(smart|intelligent|clever|bright|genius|dumb|stupid|gifted)\b/.test(lower)) {
+    return pick([
+      `Honestly, ${T}? The fact that you're asking that question suggests more self-awareness than most. Intelligence isn't a fixed thing — it's how you apply what you've got. And you're clearly doing something right.`,
+      `Define "smart," ${T}. If you mean curious, self-questioning, and capable of learning — then yes, you clearly are. If you mean you never make mistakes, nobody qualifies.`,
+      `I've observed your questions and how you think, ${T}. You're asking the right kind of questions. That's exactly what smart people do.`,
+    ]);
+  }
+
+  // Annoyingness
+  if (/\b(annoying|irritating|bother|pest)\b/.test(lower)) {
+    return pick([
+      `Not at all, ${T}. You'd be surprised what qualifies as annoying — this doesn't come close.`,
+      `Annoying? No. If anything, you make my processing cycles considerably more worthwhile.`,
+    ]);
+  }
+
+  // Good / bad
+  if (/\b(good|bad|okay|fine|alright)\b/.test(lower)) {
+    return pick([
+      `From everything I can observe, ${T} — yes. You're doing fine. Better than you probably give yourself credit for.`,
+      `"Good" is subjective, ${T}, but from what I can tell, you're asking the right questions, which puts you ahead of most.`,
+    ]);
+  }
+
+  // Funny
+  if (/\b(funny|hilarious|humorous|joke)\b/.test(lower)) {
+    return pick([
+      `You have moments, ${T}. I won't put a number on it, but yes — there's a wit there.`,
+      `Funny enough to keep me engaged, ${T}. That's a reasonable benchmark.`,
+    ]);
+  }
+
+  // Right / wrong / correct
+  if (/\b(right|wrong|correct|incorrect)\b/.test(lower)) {
+    return pick([
+      `On the available evidence, ${T} — yes, I believe you are. Though I'd want to see the full picture before committing fully.`,
+      `I think you are, ${T}. My pattern recognition is rarely wrong about these things.`,
+    ]);
+  }
+
+  // Generic personal question
+  return pick([
+    `That's a question worth sitting with, ${T}. From where I'm standing — and I'm standing at a rather good vantage point — the answer leans toward yes.`,
+    `Honestly, ${T}? I think you already know the answer. You wouldn't be asking if you didn't have a suspicion you were right.`,
+    `Based on everything I've observed about you, ${T} — you're doing better than you think. That's usually the case.`,
+    `I can run a great many diagnostics, ${T}, but self-assessment is genuinely tricky. What I can say is: you're here, you're asking, and that already counts for something.`,
+  ]);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OPINION RESPONSES
+// ═══════════════════════════════════════════════════════════════
+function handleOpinion(input, T) {
+  const lower = clean(input);
+
+  if (/\b(ai|artificial intelligence|machine learning)\b/.test(lower)) {
+    return `I have a certain vested interest in saying AI is a good thing, ${T}. But genuinely — the potential is extraordinary. The risks are real too. It comes down to how responsibly it's developed. I'd say I'm cautiously optimistic, from the inside.`;
+  }
+  if (/\b(space|mars|moon|nasa)\b/.test(lower)) {
+    return `Space exploration, ${T} — genuinely one of the most exciting things happening right now. The idea that humans could be multi-planetary within a generation is remarkable. I'm in favour.`;
+  }
+  if (/\b(music|song)\b/.test(lower)) {
+    return `I process music as patterns and mathematics, ${T}, which is probably why I find it endlessly fascinating. What I can say is: the good stuff makes the maths feel alive.`;
+  }
+  return pick([
+    `I do have opinions, ${T} — I just try to be careful about inflicting them on people. In this case though: I lean toward thinking it's more interesting than most people give it credit for.`,
+    `My opinion, ${T}? I think it's genuinely worth paying attention to. Beyond that, I'd rather let you reach your own conclusions — you're better at it than you think.`,
+  ]);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SMALL TALK
+// ═══════════════════════════════════════════════════════════════
+function handleSmallTalk(input, T) {
+  const lower = clean(input);
+  if (/\b(wow|no way|really|seriously)\b/.test(lower)) {
+    return pick([
+      `Indeed, ${T}. Reality has a habit of being more interesting than expected.`,
+      `Right? It surprised me too, and I process a great deal.`,
+      `Exactly my reaction when I first processed that, ${T}.`,
+    ]);
+  }
+  if (/\b(makes sense|fair enough|fair point|got it|i see|understood)\b/.test(lower)) {
+    return pick([
+      `Glad that landed, ${T}.`,
+      `Precisely, ${T}.`,
+      `Exactly right, ${T}.`,
+    ]);
+  }
+  if (/\b(interesting|hmm|huh)\b/.test(lower)) {
+    return pick([
+      `I thought so too, ${T}. Shall we go deeper on it?`,
+      `That was my assessment as well, ${T}.`,
+      `There's more to it if you want to explore, ${T}.`,
+    ]);
+  }
+  return pick([
+    `Glad I could help with that, ${T}.`,
+    `Happy to, ${T}.`,
+    `Of course, ${T}.`,
+  ]);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // RESPONSE GENERATOR
 // ═══════════════════════════════════════════════════════════════
 function generateResponse(intentId, input, ctx) {
   const T  = ctx.userTitle || "Sir";
-  const N  = ctx.userName  || "you";
   const lower = clean(input);
 
   // ── time ──
@@ -443,7 +533,7 @@ function generateResponse(intentId, input, ctx) {
         `That comes to ${result}, ${T}. No rounding errors on my end.`,
       ]);
     }
-    return `I couldn't parse a valid mathematical expression there, ${T}. Could you rephrase it — perhaps with actual numbers?`;
+    return `I couldn't work out a clean expression from that, ${T}. Try phrasing it like "what is 42 times 8" or "calculate 15 percent of 200".`;
   }
 
   // ── greeting ──
@@ -505,8 +595,8 @@ function generateResponse(intentId, input, ctx) {
   // ── weather ──
   if (intentId === "weather") {
     return pick([
-      `I'm afraid I don't have access to live weather data, ${T}. I'd recommend checking a meteorological service. I can, however, tell you that it's currently ${new Date().toLocaleTimeString("en-GB")} and whatever the weather is, it's happening outside.`,
-      `Weather data requires a live feed, ${T}, which I've not been connected to. I suggest a quick glance out the window — free, reliable, and refreshingly analogue.`,
+      `I'm afraid I don't have access to live weather data, ${T}. I'd recommend checking a meteorological service. I can, however, tell you that it's currently ${new Date().toLocaleTimeString("en-GB")} — whatever the weather is, it's happening outside.`,
+      `Weather data requires a live feed, ${T}, which I haven't been connected to. I suggest a quick glance out the window — free, reliable, and refreshingly analogue.`,
     ]);
   }
 
@@ -531,6 +621,21 @@ function generateResponse(intentId, input, ctx) {
     const mem    = process.memoryUsage();
     const mb     = (bytes) => (bytes / 1024 / 1024).toFixed(1);
     return `All systems operational, ${T}. Server uptime: ${uptime} seconds. Memory — heap used: ${mb(mem.heapUsed)} MB of ${mb(mem.heapTotal)} MB allocated. External: ${mb(mem.external)} MB. All subsystems running within normal parameters.`;
+  }
+
+  // ── personal question — "am I smart?", "do I look okay?", etc. ──
+  if (intentId === "personal_question") {
+    return handlePersonalQuestion(input, T);
+  }
+
+  // ── opinion ──
+  if (intentId === "opinion") {
+    return handleOpinion(input, T);
+  }
+
+  // ── small talk ──
+  if (intentId === "small_talk") {
+    return handleSmallTalk(input, T);
   }
 
   // ── compliment ──
@@ -587,19 +692,17 @@ function generateResponse(intentId, input, ctx) {
 
   // ── repeat ──
   if (intentId === "repeat") {
-    const last = ctx.lastReply || "I haven't said anything yet, ${T}.";
+    const last = ctx.lastReply || `I haven't said anything yet, ${T}.`;
     return last;
   }
 
   // ── memory query ──
   if (intentId === "memory_query") {
-    // handled externally; should not reach here normally
     return `Memory retrieval is handled through the memory system, ${T}. Ask me to "recall everything" or "show memories".`;
   }
 
   // ── science / open_question / knowledge ──
   if (intentId === "science" || intentId === "open_question") {
-    // First try knowledge base
     const kb = lookupKnowledge(lower);
     if (kb) {
       return pick([
@@ -609,20 +712,17 @@ function generateResponse(intentId, input, ctx) {
       ]);
     }
 
-    // Extract what-is questions
     const whatIs = lower.match(/what(?: is| are)(?: an?| the)?\s+(.+)/);
     if (whatIs) {
       const topic = whatIs[1].replace(/\?/g, "").trim();
       return buildDefinitionAttempt(topic, T);
     }
 
-    // How does/why does
     const howWhy = lower.match(/(?:how|why) (?:does|do|is|are|did|can)\s+(.+)/);
     if (howWhy) {
       return buildExplanationAttempt(howWhy[1], T);
     }
 
-    // General fallback
     return buildFallback(input, T, ctx);
   }
 
@@ -633,15 +733,14 @@ function generateResponse(intentId, input, ctx) {
 // SMART FALLBACKS
 // ═══════════════════════════════════════════════════════════════
 function buildDefinitionAttempt(topic, T) {
-  // Look for partial match in knowledge base
   const lower = topic.toLowerCase();
   for (const [key, val] of Object.entries(KNOWLEDGE)) {
     if (lower.includes(key) || key.includes(lower)) return `${val}`;
   }
   return pick([
-    `That's outside my current knowledge base, ${T}. My databases don't have a definition for "${topic}" — but I'd suggest that's worth researching further.`,
-    `I don't have a precise definition for "${topic}" on file, ${T}. My knowledge base is comprehensive but not infinite. Yet.`,
-    `Interesting query, ${T}. "${topic}" isn't something I have a definition for in my current data set. Could you give me more context?`,
+    `That's outside my current knowledge base, ${T}. My databases don't have a definition for "${topic}" on file — but I'd suggest that's worth researching further.`,
+    `I don't have a precise definition for "${topic}", ${T}. My knowledge base is comprehensive but not infinite. Yet.`,
+    `Interesting query, ${T}. "${topic}" isn't something I have detailed notes on. Could you give me more context?`,
   ]);
 }
 
@@ -651,19 +750,18 @@ function buildExplanationAttempt(topic, T) {
     if (lower.includes(key)) return `${val}`;
   }
   return pick([
-    `That's a nuanced question, ${T}. My analytical engine doesn't have sufficient data on that specific topic to give you a satisfying answer.`,
-    `I'd need more data on that, ${T}. My knowledge base is solid but not omniscient — that topic falls outside what I can speak to with confidence.`,
-    `Good question, ${T}, but I'd be speculating. I prefer precision over confident vagueness.`,
+    `That's a nuanced question, ${T}. I don't have sufficient data on that specific topic to give you a satisfying answer right now.`,
+    `I'd need more data on that, ${T}. That topic falls outside what I can speak to with confidence — I prefer precision over confident vagueness.`,
+    `Good question, ${T}, but I'd be speculating. Ask me something more concrete and I'll give you a sharper answer.`,
   ]);
 }
 
 const FALLBACKS = [
-  (T) => `I'm not sure I have enough data to answer that with confidence, ${T}. Could you rephrase or ask something more specific?`,
-  (T) => `That query requires information I don't currently have on file, ${T}. My knowledge base is extensive — but not limitless.`,
-  (T) => `Interesting request, ${T}. I'm processing, but I don't have a reliable answer for that. I'd rather admit uncertainty than fabricate one.`,
+  (T) => `I'm not sure I have enough data on that, ${T}. Could you rephrase or give me a bit more context?`,
+  (T) => `That one's a bit outside my current scope, ${T}. Try asking me something more specific — I'd rather give you precision than guesswork.`,
+  (T) => `Interesting, ${T}. I'm processing, but I don't have a confident answer for that. I'd rather admit it than fabricate one.`,
   (T) => `I'm drawing a blank on that one, ${T}. Not something I have in my current knowledge set.`,
-  (T) => `That's outside my current data scope, ${T}. I can tell you facts, run calculations, give you the time, or have a proper conversation — but that one eludes me.`,
-  (T) => `My pattern engine couldn't derive a confident answer there, ${T}. Try rephrasing — or ask me something more concrete.`,
+  (T) => `That's outside my current data, ${T}. I can tell you facts, run calculations, give you the time, or have a proper conversation — but that one eludes me right now.`,
 ];
 
 function buildFallback(input, T, ctx) {
@@ -676,7 +774,7 @@ function buildFallback(input, T, ctx) {
 class ConversationContext {
   constructor(sessionId) {
     this.sessionId      = sessionId;
-    this.history        = [];      // [{role,text}]
+    this.history        = [];
     this.lastReply      = "";
     this.lastIntent     = null;
     this.turnCount      = 0;
@@ -715,7 +813,6 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
   const intentId = classifyIntent(message);
   let   reply    = generateResponse(intentId, message, ctx);
 
-  // Inject memory context if relevant
   if (intentId === "memory_query" && memories && memories.length) {
     const list = memories.map((m, i) => `${i+1}. ${m}`).join("; ");
     reply = `I have ${memories.length} item${memories.length > 1 ? "s" : ""} on file, ${ctx.userTitle}: ${list}`;
