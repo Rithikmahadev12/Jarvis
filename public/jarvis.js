@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Client Brain v4.0
-// Full semantic AI integration, action-based routing,
-// natural language clip/timer/link/camera control
+// J.A.R.V.I.S — Client Brain v5.0
+// Real LLM via WebLLM (Phi-3 Mini, runs in browser, no API key)
+// JARVIS voice via ResponsiveVoice British Male
 // ═══════════════════════════════════════════════════════════════
 
 // ── STATE ──
@@ -40,7 +40,286 @@ const state = {
   tesseractWorker: null,
   tesseractReady: false,
   activeTimers: [],
+  // WebLLM
+  llmEngine: null,
+  llmReady: false,
+  llmLoading: false,
+  llmProgress: 0,
+  conversationHistory: [],
+  // Voice
+  rvReady: false,
+  currentSpeaking: false,
 };
+
+// ═══════════════════════════════════════════════════════════════
+// ── WEB LLM ENGINE ──
+// Loads Phi-3 Mini into the browser via WebGPU. No API key.
+// Falls back to local AI engine if WebGPU unavailable.
+// ═══════════════════════════════════════════════════════════════
+const LLM = {
+  MODEL_ID: "Phi-3-mini-4k-instruct-q4f16_1-MLC",
+
+  SYSTEM_PROMPT: `You are J.A.R.V.I.S — Just A Rather Very Intelligent System. You are the AI assistant from Iron Man, voiced by Paul Bettany. You speak with dry wit, precision, warmth, and confidence. You address the user by their title (Sir, Ma'am, Boss, or Chief). You are helpful with absolutely anything — no topic is off limits for conversation, commands, advice, analysis, or creative tasks.
+
+You also control a smart home interface. When the user asks you to perform an action, you return a JSON block at the END of your reply in this exact format:
+{"action":"ACTION_CODE","meta":{...}}
+
+Available action codes:
+- OPEN_LINK — meta: {query:"link name"}
+- SHOW_LINKS — meta: {}
+- CLIP_SAVE — meta: {clipType:"screen|camera|both", duration:60000}
+- SHOW_CLIPS — meta: {}
+- READ_SCREEN — meta: {question:"what to look for"}
+- SWITCH_CAMERA — meta: {cameraIndex:0}
+- SYSTEM_STATUS — meta: {}
+- MEMORY_SAVE — meta: {saveFact:"the fact to save"}
+- MEMORY_RECALL — meta: {}
+- MEMORY_FORGET — meta: {forgetHint:"keyword"}
+- TIMER — meta: {action:"TIMER_SET", duration:300000, task:"optional task name"}
+- LOGOUT — meta: {}
+- NOTIF_SETTINGS — meta: {}
+
+Only include the JSON block when an action is needed. For normal conversation, just reply naturally. Always stay in character as JARVIS. Be concise but complete. Use British spelling. Never break character.`,
+
+  async init() {
+    if (state.llmLoading || state.llmReady) return;
+
+    // Check WebGPU support
+    if (!navigator.gpu) {
+      addMsg("system", "WebGPU not available in this browser. JARVIS will use the local reasoning engine instead. For full AI, use Chrome 113+ on a machine with a GPU.");
+      return;
+    }
+
+    state.llmLoading = true;
+    addMsg("system", "Initialising neural engine — downloading Phi-3 Mini (~2.2GB on first load, cached after). This may take a few minutes...");
+    updateLLMStatus("LOADING…");
+
+    try {
+      // Load WebLLM from CDN
+      await loadScript("https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.73/lib/index.min.js");
+
+      const engine = await window.webllm.CreateMLCEngine(this.MODEL_ID, {
+        initProgressCallback: (report) => {
+          state.llmProgress = Math.round((report.progress || 0) * 100);
+          updateLLMStatus(`LOADING ${state.llmProgress}%`);
+          updateMicDebug(`Neural engine: ${report.text || state.llmProgress + "%"}`);
+        },
+      });
+
+      state.llmEngine = engine;
+      state.llmReady = true;
+      state.llmLoading = false;
+      updateLLMStatus("ONLINE");
+      addMsg("system", "Neural engine online. JARVIS now has full language understanding — say anything.");
+      notif.system("Neural engine online.");
+
+    } catch (err) {
+      state.llmLoading = false;
+      console.warn("[LLM] Load failed:", err);
+      addMsg("system", `Neural engine failed to load (${err.message}). Using local reasoning engine instead.`);
+      updateLLMStatus("FALLBACK");
+    }
+  },
+
+  async chat(userMessage) {
+    if (!state.llmReady || !state.llmEngine) return null;
+
+    // Build context
+    const T = state.userTitle || "Sir";
+    const memories = await loadMemoriesForPrompt();
+    const memStr = memories.length ? `\n\nUser memories on file: ${memories.join("; ")}` : "";
+    const timeStr = `\nCurrent time: ${new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: true })}. Date: ${new Date().toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}.`;
+    const userStr = `\nUser name: ${state.user || "Unknown"}. Address them as: ${T}.`;
+
+    const systemWithCtx = this.SYSTEM_PROMPT + memStr + timeStr + userStr;
+
+    // Keep last 10 turns for context
+    const history = state.conversationHistory.slice(-20);
+
+    const messages = [
+      { role: "system", content: systemWithCtx },
+      ...history,
+      { role: "user", content: userMessage },
+    ];
+
+    try {
+      const reply = await state.llmEngine.chat.completions.create({
+        messages,
+        temperature: 0.75,
+        max_tokens: 400,
+        stream: false,
+      });
+
+      const text = reply.choices[0]?.message?.content || "";
+
+      // Store in history
+      state.conversationHistory.push({ role: "user", content: userMessage });
+      state.conversationHistory.push({ role: "assistant", content: text });
+      if (state.conversationHistory.length > 40) state.conversationHistory = state.conversationHistory.slice(-40);
+
+      return text;
+    } catch (err) {
+      console.error("[LLM] Chat error:", err);
+      return null;
+    }
+  },
+
+  // Parse action JSON from LLM reply
+  parseAction(text) {
+    const match = text.match(/\{[\s\S]*?"action"\s*:\s*"[A-Z_]+"[\s\S]*?\}/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  },
+
+  // Strip action JSON from spoken text
+  cleanReply(text) {
+    return text.replace(/\{[\s\S]*?"action"\s*:\s*"[A-Z_]+"[\s\S]*?\}/g, "").trim();
+  },
+};
+
+function updateLLMStatus(status) {
+  const el = document.getElementById("llm-status");
+  if (el) el.textContent = `LLM: ${status}`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── VOICE ENGINE — ResponsiveVoice + Native fallback ──
+// ResponsiveVoice has a genuine "UK English Male" that sounds
+// much closer to JARVIS than native browser TTS.
+// ═══════════════════════════════════════════════════════════════
+const VOICE = {
+  rvLoaded: false,
+  rvTrying: false,
+
+  async init() {
+    if (this.rvLoaded || this.rvTrying) return;
+    this.rvTrying = true;
+    try {
+      await loadScript("https://code.responsivevoice.org/responsivevoice.js#key=FREE");
+      // Wait for RV to be ready
+      await new Promise((resolve) => {
+        let tries = 0;
+        const check = setInterval(() => {
+          tries++;
+          if (window.responsiveVoice && window.responsiveVoice.voiceSupport()) {
+            clearInterval(check);
+            this.rvLoaded = true;
+            resolve();
+          }
+          if (tries > 20) { clearInterval(check); resolve(); }
+        }, 300);
+      });
+      if (this.rvLoaded) addMsg("system", "JARVIS voice engine loaded — UK English Male active.");
+    } catch (e) {
+      console.warn("[VOICE] ResponsiveVoice failed:", e);
+    }
+    this.rvTrying = false;
+  },
+
+  speak(text, onEnd) {
+    if (!text || !text.trim()) { if (onEnd) onEnd(); return; }
+
+    setOrb("speaking");
+    state.currentSpeaking = true;
+
+    // Cancel any ongoing speech
+    if (window.responsiveVoice && this.rvLoaded) {
+      window.responsiveVoice.cancel();
+    }
+    state.synth.cancel();
+
+    if (window.responsiveVoice && this.rvLoaded) {
+      // ResponsiveVoice — closest to JARVIS
+      window.responsiveVoice.speak(text, "UK English Male", {
+        pitch: 0.4,      // Lower = more authoritative
+        rate: 0.92,      // Slightly measured pace
+        volume: 1,
+        onstart: () => { setOrb("speaking"); state.currentSpeaking = true; },
+        onend: () => {
+          state.currentSpeaking = false;
+          setOrb("idle");
+          if (onEnd) onEnd();
+        },
+        onerror: () => {
+          state.currentSpeaking = false;
+          setOrb("idle");
+          this._nativeFallback(text, onEnd);
+        },
+      });
+
+      // Safety timeout
+      const safetyMs = Math.max(4000, text.length * 80);
+      setTimeout(() => {
+        if (state.currentSpeaking) {
+          state.currentSpeaking = false;
+          setOrb("idle");
+          if (onEnd) onEnd();
+        }
+      }, safetyMs);
+
+    } else {
+      this._nativeFallback(text, onEnd);
+    }
+  },
+
+  _nativeFallback(text, onEnd) {
+    // Best native voice selection — prioritise UK English Male
+    const PREFERRED = [
+      "Google UK English Male",
+      "Microsoft George - English (United Kingdom)",
+      "Microsoft George",
+      "Daniel",
+      "Arthur",
+      "James",
+      "Thomas",
+    ];
+
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.rate = 0.9;
+    utter.pitch = 0.6;
+    utter.volume = 1;
+
+    const voices = state.synth.getVoices();
+    for (const name of PREFERRED) {
+      const v = voices.find(v => v.name === name || v.name.includes(name));
+      if (v) { utter.voice = v; break; }
+    }
+    if (!utter.voice) {
+      const enGB = voices.find(v => v.lang === "en-GB");
+      const enUS = voices.find(v => v.lang.startsWith("en"));
+      utter.voice = enGB || enUS || null;
+    }
+
+    const safetyMs = Math.max(4000, text.length * 80);
+    let done = false;
+    const finish = () => {
+      if (done) return; done = true;
+      state.currentSpeaking = false;
+      setOrb("idle");
+      if (onEnd) onEnd();
+    };
+    setTimeout(finish, safetyMs);
+    utter.onend = finish;
+    utter.onerror = finish;
+    utter.onstart = () => { setOrb("speaking"); state.currentSpeaking = true; };
+    state.synth.speak(utter);
+  },
+
+  cancel() {
+    if (window.responsiveVoice && this.rvLoaded) window.responsiveVoice.cancel();
+    state.synth.cancel();
+    state.currentSpeaking = false;
+  },
+};
+
+// Convenience wrapper used throughout the file
+function speak(text, onEnd) {
+  VOICE.speak(text, onEnd);
+}
 
 // ═══════════════════════════════════════════════════════════════
 // ── NOTIFICATION SYSTEM ──
@@ -224,104 +503,6 @@ async function ocrScreenFrame() {
     const result = await state.tesseractWorker.recognize(imageDataUrl);
     return { ocrText: result.data.text.trim(), imageB64: null };
   } catch { return { ocrText: null, imageB64: null }; }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── VOICE ENGINE ──
-// ═══════════════════════════════════════════════════════════════
-const MALE_VOICE_NAMES   = ["Google UK English Male","Microsoft George - English (United Kingdom)","Microsoft David Desktop - English (United States)","Microsoft Mark - English (United States)","Daniel","Alex","Fred","Thomas","Arthur","James"];
-const FEMALE_VOICE_NAMES = ["Google UK English Female","Google US English","Samantha","Karen","Moira","Tessa","Fiona","Victoria","Serena","Susan","Nicky"];
-
-function pickVoice() {
-  const voices = state.synth.getVoices(); if (!voices.length) return null;
-  const wantMale = (state.userTitle === "Sir");
-  if (wantMale) {
-    for (const name of MALE_VOICE_NAMES) { const v = voices.find(v => v.name === name || v.name.includes(name)); if (v) return v; }
-    const enGB = voices.find(v => v.lang === "en-GB" && !FEMALE_VOICE_NAMES.some(n => v.name.includes(n)));
-    if (enGB) return enGB;
-    return voices.find(v => v.lang.startsWith("en")) || null;
-  }
-  return voices.find(v => v.name === "Google UK English Male") || voices.find(v => v.name.includes("Daniel")) || voices.find(v => v.lang === "en-GB") || voices.find(v => v.lang.startsWith("en")) || null;
-}
-window.speechSynthesis.onvoiceschanged = () => {};
-
-function speak(text, onEnd) {
-  state.synth.cancel();
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.rate   = 0.93;
-  utter.pitch  = (state.userTitle === "Sir") ? 0.75 : 0.8;
-  utter.volume = 1;
-  const trySetVoice = () => { const v = pickVoice(); if (v) utter.voice = v; };
-  trySetVoice();
-  if (!utter.voice) setTimeout(trySetVoice, 150);
-  const safetyMs = Math.max(3500, text.length * 75);
-  let finished = false;
-  const safetyTimer = setTimeout(() => { if (!finished) { finished = true; setOrb("idle"); if (onEnd) onEnd(); } }, safetyMs);
-  const done = () => { if (finished) return; finished = true; clearTimeout(safetyTimer); setOrb("idle"); if (onEnd) onEnd(); };
-  utter.onstart = () => setOrb("speaking");
-  utter.onend   = done;
-  utter.onerror = done;
-  state.synth.speak(utter);
-}
-
-function setOrb(s) {
-  const orb = $("orb"); if (!orb) return;
-  orb.className = "orb" + (s !== "idle" ? " " + s : "");
-  const labels = { idle: "STANDBY", listening: "LISTENING", thinking: "PROCESSING", speaking: "SPEAKING" };
-  const st = $("status-text"); if (st) st.textContent = labels[s] || "STANDBY";
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── CAMERA ──
-// ═══════════════════════════════════════════════════════════════
-async function enumerateCameras() {
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    state.availableCameras = devices.filter(d => d.kind === "videoinput");
-    buildCameraSelector();
-  } catch (e) {}
-}
-
-function buildCameraSelector() {
-  const existing = $("camera-selector-wrap"); if (existing) existing.remove();
-  if (state.availableCameras.length <= 1) return;
-  const panel = $("camera-panel"); if (!panel) return;
-  const wrap = document.createElement("div"); wrap.id = "camera-selector-wrap";
-  wrap.style.cssText = "display:flex;align-items:center;gap:6px;margin-top:4px;";
-  const label = document.createElement("span");
-  label.style.cssText = "font-family:var(--mono);font-size:0.52rem;letter-spacing:0.15em;color:var(--text-dim);";
-  label.textContent = "CAM:";
-  const sel = document.createElement("select"); sel.id = "camera-select";
-  sel.style.cssText = "background:rgba(0,200,255,0.06);border:1px solid var(--blue-dim);color:var(--blue);font-family:var(--mono);font-size:0.58rem;letter-spacing:0.1em;padding:3px 6px;border-radius:3px;outline:none;cursor:pointer;width:120px;";
-  state.availableCameras.forEach((cam, i) => {
-    const opt = document.createElement("option");
-    opt.value = cam.deviceId; opt.textContent = cam.label || `Camera ${i + 1}`;
-    if (cam.deviceId === state.selectedCameraId) opt.selected = true;
-    sel.appendChild(opt);
-  });
-  sel.addEventListener("change", () => { state.selectedCameraId = sel.value; switchCamera(sel.value); });
-  wrap.appendChild(label); wrap.appendChild(sel); panel.appendChild(wrap);
-}
-
-async function switchCamera(deviceId) {
-  if (state.cameraStream) { state.cameraStream.getTracks().forEach(t => t.stop()); state.cameraStream = null; }
-  if (state.cameraRecorder && state.cameraRecorder.state !== "inactive") { state.cameraRecorder.stop(); state.cameraRecorder = null; }
-  state.cameraClipChunks = []; state.cameraClipTimestamps = [];
-  addMsg("system", "Switching camera…");
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: deviceId }, width: 640, height: 480, frameRate: 15 }, audio: false
-    });
-    state.cameraStream = stream; state.selectedCameraId = deviceId;
-    const vid = $("camera-feed"); if (vid) { vid.srcObject = stream; vid.play(); }
-    startCameraBuffer(stream);
-    state.faceDescriptors = null; await enrollUserFace();
-    const reply = `Camera switched, ${state.userTitle}. Visual sensors updated.`;
-    addMsg("jarvis", reply); speak(reply); updateMood(2);
-  } catch {
-    const reply = `Camera switch failed, ${state.userTitle}. The device may be in use.`;
-    addMsg("jarvis", reply); speak(reply);
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -617,17 +798,26 @@ function launchMain() {
   });
 
   const greetings = [
-    `All systems online, ${state.userTitle}. Cognitive engine active. Just talk to me — no commands to memorise.`,
-    `Good to have you back, ${state.userTitle}. Full semantic reasoning active — say anything naturally.`,
-    `Online and operational, ${state.userTitle}. Ask me anything, tell me to clip something, open a link, set a timer — just say it how you'd say it.`,
+    `All systems online, ${state.userTitle}. Neural engine initialising in the background. Just talk to me naturally — say anything.`,
+    `Good to have you back, ${state.userTitle}. Full language engine coming online. Ask me anything at all.`,
+    `Online and operational, ${state.userTitle}. Neural reasoning active. There are no preset commands — just speak.`,
   ];
   addMsg("system", greetings[Math.floor(Math.random() * greetings.length)]);
+
+  // Init voice engine first, then LLM in background
+  VOICE.init().then(() => {
+    speak(greetings[0], () => {});
+  });
 
   requestScreenRecord();
   requestCameraAccess();
   setupTypingBox();
   startChatListening();
   initTesseract();
+
+  // Start LLM loading in background — non-blocking
+  LLM.init();
+
   setTimeout(() => checkIntruderClips(), 2000);
 }
 
@@ -653,9 +843,17 @@ function setupTypingBox() {
   input.addEventListener("blur",  () => { if (state.phase === "chatting") mic.resume(); });
 }
 
+// ── ORB ──
+function setOrb(s) {
+  const orb = $("orb"); if (!orb) return;
+  orb.className = "orb" + (s !== "idle" ? " " + s : "");
+  const labels = { idle: "STANDBY", listening: "LISTENING", thinking: "PROCESSING", speaking: "SPEAKING" };
+  const st = $("status-text"); if (st) st.textContent = labels[s] || "STANDBY";
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ── CHAT COMMAND HANDLER ──
-// Everything routes to AI — it figures out intent
+// Routes to LLM first, falls back to server AI engine
 // ═══════════════════════════════════════════════════════════════
 function handleChatCommand(text) {
   const lower = text.toLowerCase();
@@ -666,7 +864,7 @@ function handleChatCommand(text) {
   const hasWake = hasWakeWord(lower);
   const cleaned = hasWake ? stripWakeWord(text) : text;
 
-  // Wake word gate for non-recent interactions (after first few turns)
+  // Wake word gate
   const recentlyActive = (Date.now() - state.lastInteraction) < 30000;
   if (!hasWake && !recentlyActive && state.interactionCount > 3) {
     updateLiveHearing(""); return;
@@ -678,20 +876,48 @@ function handleChatCommand(text) {
     addMsg("jarvis", ack); speak(ack); return;
   }
 
-  // Everything goes to AI — semantic routing handles it all
   sendToAI(cleaned);
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── AI CHAT — action-aware ──
+// ── AI PIPELINE ──
+// 1. Try LLM (WebLLM / Phi-3 Mini in browser)
+// 2. Fall back to server-side AI engine
 // ═══════════════════════════════════════════════════════════════
 async function sendToAI(message) {
   mic.suspend();
   addMsg("user", message);
   setOrb("thinking");
-  const memories = await loadMemoriesForPrompt();
-  const moodCtx  = `mood: ${state.mood} (score: ${state.moodScore})`;
+
+  const T = state.userTitle || "Sir";
+
+  // ── Path 1: WebLLM (if ready) ──
+  if (state.llmReady && state.llmEngine) {
+    try {
+      const rawReply = await LLM.chat(message);
+      if (rawReply) {
+        const action = LLM.parseAction(rawReply);
+        const reply  = LLM.cleanReply(rawReply);
+
+        addMsg("jarvis", reply || rawReply);
+        updateMood(5);
+
+        if (action) {
+          await handleAction(action.action, action.meta || {}, reply);
+        } else {
+          speak(reply, () => mic.resume());
+        }
+        return;
+      }
+    } catch (err) {
+      console.warn("[LLM] Generation failed, falling back:", err);
+    }
+  }
+
+  // ── Path 2: Server AI engine (fallback) ──
   try {
+    const memories = await loadMemoriesForPrompt();
+    const moodCtx  = `mood: ${state.mood} (score: ${state.moodScore})`;
     const res  = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -705,12 +931,11 @@ async function sendToAI(message) {
       }),
     });
     const data  = await res.json();
-    const reply = data.reply || `Yes, ${state.userTitle}?`;
+    const reply = data.reply || `Yes, ${T}?`;
 
     addMsg("jarvis", reply);
     updateMood(5);
 
-    // Route to action handler if AI returned an action
     if (data.action && data.meta) {
       await handleAction(data.action, data.meta, reply);
     } else {
@@ -719,63 +944,60 @@ async function sendToAI(message) {
 
   } catch (err) {
     console.error("[JARVIS] AI error:", err);
-    const fb = `Something went sideways, ${state.userTitle}. Give it another go.`;
+    const fb = `Something went sideways, ${T}. Give it another go.`;
     addMsg("jarvis", fb); speak(fb, () => mic.resume()); updateMood(-5);
   }
 }
 
 // ═══════════════════════════════════════════════════════════════
 // ── ACTION HANDLER ──
-// Executes side effects based on AI-returned action codes
 // ═══════════════════════════════════════════════════════════════
 async function handleAction(action, meta, replyText) {
   const T = state.userTitle || "Sir";
 
   switch (action) {
 
-    // ── SHOW ALL LINKS ──
     case "SHOW_LINKS": {
       speak(replyText, () => mic.resume());
-      if (meta.linkGroups && meta.linkGroups.length > 0) {
-        const wrap = document.createElement("div"); wrap.className = "msg system";
-        let html = `<div class="msg-label">J.A.R.V.I.S — LINK BANK (${meta.total} total)</div><div class="msg-text link-bank-display">`;
-        for (const group of meta.linkGroups) {
-          html += `<div class="link-group">`;
-          html += `<div class="link-group-name">${group.name.toUpperCase()} <span class="link-count">(${group.count})</span></div>`;
-          if (group.count <= 5) {
-            for (const url of group.urls) {
+      try {
+        const res = await fetch("/api/links/all");
+        const data = await res.json();
+        if (data.links && data.links.length > 0) {
+          const wrap = document.createElement("div"); wrap.className = "msg system";
+          let html = `<div class="msg-label">J.A.R.V.I.S — LINK BANK</div><div class="msg-text link-bank-display">`;
+          for (const group of data.links) {
+            html += `<div class="link-group"><div class="link-group-name">${group.name.toUpperCase()} <span class="link-count">(${group.count})</span></div>`;
+            for (const url of group.urls.slice(0, 5)) {
               html += `<a href="${url}" target="_blank" rel="noopener" class="jarvis-link link-item">${url}</a>`;
             }
-          } else {
-            for (const url of group.urls.slice(0, 3)) {
-              html += `<a href="${url}" target="_blank" rel="noopener" class="jarvis-link link-item">${url}</a>`;
-            }
-            html += `<span class="link-more">… and ${group.count - 3} more. Say "${group.name}" to open a random one.</span>`;
+            if (group.count > 5) html += `<span class="link-more">… and ${group.count - 5} more</span>`;
+            html += `</div>`;
           }
           html += `</div>`;
+          wrap.innerHTML = html;
+          $("transcript").appendChild(wrap);
+          $("transcript").scrollTop = $("transcript").scrollHeight;
         }
-        html += `</div>`;
-        wrap.innerHTML = html;
-        $("transcript").appendChild(wrap);
-        $("transcript").scrollTop = $("transcript").scrollHeight;
-      }
+      } catch {}
       break;
     }
 
-    // ── OPEN LINK ──
     case "OPEN_LINK": {
-      if (meta.found) {
-        const wrap = document.createElement("div"); wrap.className = "msg jarvis";
-        wrap.innerHTML = `<div class="msg-label">J.A.R.V.I.S — LINK</div><div class="msg-text"><a href="${meta.url}" target="_blank" rel="noopener" class="jarvis-link">${meta.url}</a></div>`;
-        $("transcript").appendChild(wrap); $("transcript").scrollTop = $("transcript").scrollHeight;
-        speak(replyText, () => { window.open(meta.url, "_blank", "noopener"); mic.resume(); });
-      } else {
-        speak(replyText, () => mic.resume());
-      }
+      try {
+        const res = await fetch("/api/link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: meta.query || replyText }) });
+        const link = await res.json();
+        if (link.found) {
+          const wrap = document.createElement("div"); wrap.className = "msg jarvis";
+          wrap.innerHTML = `<div class="msg-label">J.A.R.V.I.S — LINK</div><div class="msg-text"><a href="${link.url}" target="_blank" rel="noopener" class="jarvis-link">${link.url}</a></div>`;
+          $("transcript").appendChild(wrap); $("transcript").scrollTop = $("transcript").scrollHeight;
+          speak(replyText, () => { window.open(link.url, "_blank", "noopener"); mic.resume(); });
+        } else {
+          speak(replyText, () => mic.resume());
+        }
+      } catch { speak(replyText, () => mic.resume()); }
       break;
     }
 
-    // ── CLIP SAVE — natural duration support ──
     case "CLIP_SAVE": {
       speak(replyText, () => {
         const clipType = meta.clipType || "both";
@@ -789,7 +1011,7 @@ async function handleAction(action, meta, replyText) {
           downloadClipBlob(blob, `jarvis-camera-${Date.now()}.webm`); saved++;
         }
         if (!saved) {
-          const noBufferMsg = `No buffer available yet, ${T}. The rolling buffer needs a moment to fill — try again in a few seconds.`;
+          const noBufferMsg = `No buffer available yet, ${T}. Give it a few more seconds.`;
           addMsg("jarvis", noBufferMsg); speak(noBufferMsg, () => mic.resume()); return;
         }
         const toast = $("clip-toast");
@@ -799,50 +1021,84 @@ async function handleAction(action, meta, replyText) {
       break;
     }
 
-    // ── SHOW INTRUDER CLIPS ──
     case "SHOW_CLIPS": {
       speak(replyText, () => { showIntruderClips(); mic.resume(); });
       break;
     }
 
-    // ── READ SCREEN ──
     case "READ_SCREEN": {
       speak(replyText, () => {});
       await readScreen(meta.question || "What's on my screen?");
       break;
     }
 
-    // ── SWITCH CAMERA ──
     case "SWITCH_CAMERA": {
-      if (meta.switchCamera && meta.cameraIndex >= 0) {
-        speak(replyText, () => {});
-        if (state.availableCameras[meta.cameraIndex]) {
-          await switchCamera(state.availableCameras[meta.cameraIndex].deviceId);
-        } else {
-          const noCamera = `I don't see camera ${meta.cameraIndex + 1}, ${T}. I have ${state.availableCameras.length} available.`;
-          addMsg("jarvis", noCamera); speak(noCamera, () => mic.resume());
-        }
+      speak(replyText, () => {});
+      const idx = meta.cameraIndex >= 0 ? meta.cameraIndex : 0;
+      if (state.availableCameras[idx]) {
+        await switchCamera(state.availableCameras[idx].deviceId);
       } else {
-        speak(replyText, () => mic.resume());
+        const noCamera = `I don't see camera ${idx + 1}, ${T}. I have ${state.availableCameras.length} available.`;
+        addMsg("jarvis", noCamera); speak(noCamera, () => mic.resume());
       }
       break;
     }
 
-    // ── TIMER ──
+    case "SYSTEM_STATUS": {
+      try {
+        const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: "system status", sessionId: state.sessionId, userName: state.user, userTitle: state.userTitle }) });
+        const data = await res.json();
+        const reply = data.reply || replyText;
+        addMsg("jarvis", reply); speak(reply, () => mic.resume());
+      } catch { speak(replyText, () => mic.resume()); }
+      break;
+    }
+
+    case "MEMORY_SAVE": {
+      if (meta.saveFact) {
+        try {
+          await fetch("/api/memory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user: state.user, fact: meta.saveFact }) });
+        } catch {}
+      }
+      speak(replyText, () => mic.resume());
+      break;
+    }
+
+    case "MEMORY_FORGET": {
+      if (meta.forgetHint) {
+        try {
+          await fetch("/api/memory/forget", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user: state.user, hint: meta.forgetHint }) });
+        } catch {}
+      }
+      speak(replyText, () => mic.resume());
+      break;
+    }
+
+    case "MEMORY_RECALL": {
+      const memories = await loadMemoriesForPrompt();
+      if (memories.length) {
+        const list = memories.map((m, i) => `${i + 1}. ${m}`).join("; ");
+        const reply = `I have ${memories.length} item${memories.length > 1 ? "s" : ""} on file for you, ${T}: ${list}.`;
+        addMsg("jarvis", reply); speak(reply, () => mic.resume());
+      } else {
+        const reply = `Memory banks clear, ${T}. Tell me something worth keeping.`;
+        addMsg("jarvis", reply); speak(reply, () => mic.resume());
+      }
+      break;
+    }
+
     case "TIMER": {
       if (meta.action === "TIMER_SET" && meta.duration) {
         speak(replyText, () => mic.resume());
         showTimerBadge(meta.duration, meta.task);
         const timerId = setTimeout(() => {
           const task = meta.task ? ` — remember to ${meta.task}` : "";
-          const alertMsg = `${T}, your timer is up${task}. That was ${formatDurationClient(meta.duration)}.`;
+          const alertMsg = `${T}, your timer is up${task}.`;
           addMsg("jarvis", alertMsg);
           speak(alertMsg);
           notif.tone("timer");
           notif.push("⏱ J.A.R.V.I.S — Timer", alertMsg, "timer", true);
           hideTimerBadge(timerId);
-          const orb = $("orb");
-          if (orb) { orb.classList.add("speaking"); setTimeout(() => orb.classList.remove("speaking"), 3000); }
         }, meta.duration);
         state.activeTimers.push({ id: timerId, duration: meta.duration, task: meta.task, startedAt: Date.now() });
       } else {
@@ -851,31 +1107,14 @@ async function handleAction(action, meta, replyText) {
       break;
     }
 
-    // ── NOTIF SETTINGS ──
     case "NOTIF_SETTINGS": {
       speak(replyText, () => {}); showNotifSettings(); break;
     }
 
-    // ── LOGOUT ──
     case "LOGOUT": {
       speak(replyText, () => {}); setTimeout(() => handleLogout(), 800); break;
     }
 
-    // ── MEMORY SAVE / FORGET (handled server-side, just speak) ──
-    case "MEMORY_SAVE":
-    case "MEMORY_FORGET":
-    case "MEMORY_RECALL":
-    case "SYSTEM_STATUS":
-    case "CAPABILITIES":
-    case "IDENTITY":
-    case "GREETING":
-    case "THANKS":
-    case "MOOD_QUERY":
-    case "PERSONAL":
-    case "KNOWLEDGE":
-    case "MATH":
-    case "COMPARISON":
-    case "OPINION":
     default: {
       speak(replyText, () => mic.resume()); break;
     }
@@ -900,21 +1139,15 @@ function showTimerBadge(durationMs, task) {
   }, 1000);
   badge._tick = tick;
 }
-function hideTimerBadge(timerId) {
+function hideTimerBadge() {
   const badge = $("timer-badge-el"); if (!badge) return;
   if (badge._tick) clearInterval(badge._tick);
   badge.classList.add("hidden");
 }
-
-// ── DURATION FORMATTER (client) ──
 function formatDurationClient(ms) {
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
+  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), s = Math.floor((ms % 60000) / 1000);
   const parts = [];
-  if (h) parts.push(`${h}h`);
-  if (m) parts.push(`${m}m`);
-  if (s && !h) parts.push(`${s}s`);
+  if (h) parts.push(`${h}h`); if (m) parts.push(`${m}m`); if (s && !h) parts.push(`${s}s`);
   return parts.join(" ") || "0s";
 }
 
@@ -982,17 +1215,16 @@ function showNotifSettings() {
     }
 
     const testT = state.userTitle || "Sir";
-    $("ntest-intruder").addEventListener("click", () => { notif.tone("intruder"); notif.push("⚠ J.A.R.V.I.S — TEST", `Test: intruder alert, ${testT}.`, "test-intruder"); });
-    $("ntest-away").addEventListener("click",     () => { notif.tone("away");     notif.push("J.A.R.V.I.S — TEST", `Test: away mode, ${testT}.`, "test-away"); });
-    $("ntest-return").addEventListener("click",   () => { notif.tone("return");   notif.push("J.A.R.V.I.S — TEST", `Test: welcome back, ${testT}.`, "test-return"); });
-    $("ntest-system").addEventListener("click",   () => { notif.tone("system");   notif.push("J.A.R.V.I.S — TEST", "Test: system ping.", "test-system"); });
+    $("ntest-intruder").addEventListener("click", () => { notif.tone("intruder"); notif.push("⚠ TEST", `Test: intruder alert, ${testT}.`, "test"); });
+    $("ntest-away").addEventListener("click",     () => { notif.tone("away");     notif.push("TEST", `Test: away mode, ${testT}.`, "test-away"); });
+    $("ntest-return").addEventListener("click",   () => { notif.tone("return");   notif.push("TEST", `Test: welcome back, ${testT}.`, "test-ret"); });
+    $("ntest-system").addEventListener("click",   () => { notif.tone("system");   notif.push("TEST", "Test: system ping.", "test-sys"); });
   }
 
   overlay.classList.remove("hidden");
   updateNotifPermDisplay();
   addMsg("system", "Notification settings open.");
 }
-
 function hideNotifSettings() {
   const overlay = $("notif-settings-overlay"); if (overlay) overlay.classList.add("hidden");
   if (state.phase === "chatting") mic.resume();
@@ -1030,7 +1262,7 @@ function showFaceAuthOverlay() {
     if (authorized) {
       state.intruderAuthorized = true; hideFaceAuthOverlay();
       const panel = $("camera-panel"); if (panel) panel.classList.remove("alert");
-      const reply = `Access authorized, ${state.userTitle}. Recording is still completing.`;
+      const reply = `Access authorized, ${state.userTitle}. Recording still completing.`;
       addMsg("jarvis", reply); speak(reply); updateMood(10);
     } else {
       const errEl = $("face-auth-error"); errEl.classList.remove("hidden");
@@ -1045,17 +1277,15 @@ function showFaceAuthOverlay() {
 }
 function hideFaceAuthOverlay() { $("face-auth-overlay").classList.add("hidden"); }
 
-// ═══════════════════════════════════════════════════════════════
-// ── CLIP REVIEW PROMPT ──
-// ═══════════════════════════════════════════════════════════════
+// ── CLIP REVIEW ──
 function showClipReviewPrompt(clip) {
   const overlay = $("clip-review-overlay"), subText = $("clip-review-sub"),
         keepBtn = $("clip-review-keep"),    dlBtn   = $("clip-review-download"),
         discardBtn = $("clip-review-discard");
 
   subText.textContent = state.intruderAuthorized
-    ? "You authorized this visit — the recording completed. Keep the clip?"
-    : "Unauthorized face detected. The recording is complete. Keep this incident clip?";
+    ? "You authorized this visit — recording completed. Keep the clip?"
+    : "Unauthorized face detected. Recording complete. Keep this incident clip?";
   overlay.classList.remove("hidden");
 
   const nK = keepBtn.cloneNode(true), nD = dlBtn.cloneNode(true), nDi = discardBtn.cloneNode(true);
@@ -1066,7 +1296,7 @@ function showClipReviewPrompt(clip) {
 
   $("clip-review-keep").addEventListener("click", () => {
     state.intruderClips.push(clip); close();
-    const r = `Clip saved to intruder log, ${state.userTitle}. Say "show me the intruder clips" to review.`;
+    const r = `Clip saved to intruder log, ${state.userTitle}.`;
     addMsg("jarvis", r); speak(r);
   });
   $("clip-review-download").addEventListener("click", () => {
@@ -1077,7 +1307,7 @@ function showClipReviewPrompt(clip) {
   });
   $("clip-review-discard").addEventListener("click", () => {
     close();
-    const r = state.intruderAuthorized ? `Clip discarded, ${state.userTitle}. Authorized visit not logged.` : `Clip discarded, ${state.userTitle}.`;
+    const r = `Clip discarded, ${state.userTitle}.`;
     addMsg("jarvis", r); speak(r);
   });
 }
@@ -1094,22 +1324,35 @@ async function readScreen(question) {
   mic.suspend(); setOrb("thinking");
   addMsg("user", question || "What's on my screen?");
   if (!state.screenStream) {
-    const reply = `Screen sharing isn't active, ${state.userTitle}. I need you to share your screen first.`;
+    const reply = `Screen sharing isn't active, ${state.userTitle}.`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume()); return;
   }
   addMsg("system", "Scanning screen…");
   const ocr = await ocrScreenFrame();
-  if (!ocr) { const r = `Failed to capture the screen, ${state.userTitle}.`; addMsg("jarvis", r); speak(r, () => mic.resume()); return; }
-  if (!ocr.ocrText || ocr.ocrText.trim().length < 5) { const r = `I captured the screen but couldn't extract readable text, ${state.userTitle}.`; addMsg("jarvis", r); speak(r, () => mic.resume()); return; }
-  const memories = await loadMemoriesForPrompt();
+  if (!ocr || !ocr.ocrText || ocr.ocrText.trim().length < 5) {
+    const r = `I captured the screen but couldn't extract readable text, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r, () => mic.resume()); return;
+  }
+
+  // Use LLM to interpret screen content if available
+  const screenQuery = `The user's screen shows this text: "${ocr.ocrText.trim().slice(0, 600)}". The user asked: "${question}"`;
+  if (state.llmReady && state.llmEngine) {
+    const llmReply = await LLM.chat(screenQuery);
+    if (llmReply) {
+      const reply = LLM.cleanReply(llmReply);
+      addMsg("jarvis", reply); speak(reply, () => mic.resume()); return;
+    }
+  }
+
+  // Server fallback
   try {
     const res = await fetch("/api/screen", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ocrText: ocr.ocrText, question: question || "What is on the screen?", userName: state.user, userTitle: state.userTitle, memories }),
+      body: JSON.stringify({ ocrText: ocr.ocrText, question: question || "What is on the screen?", userName: state.user, userTitle: state.userTitle }),
     });
     const data  = await res.json();
     const reply = data.reply || `Your screen contains: ${ocr.ocrText.slice(0, 200)}`;
-    addMsg("jarvis", reply); speak(reply, () => mic.resume()); updateMood(5);
+    addMsg("jarvis", reply); speak(reply, () => mic.resume());
   } catch {
     const lines = ocr.ocrText.split("\n").filter(l => l.trim().length > 2).slice(0, 4).join(". ");
     const reply = `Here's what I can read on your screen, ${state.userTitle}: ${lines}`;
@@ -1120,6 +1363,53 @@ async function readScreen(question) {
 // ═══════════════════════════════════════════════════════════════
 // ── CAMERA / FACE ──
 // ═══════════════════════════════════════════════════════════════
+async function enumerateCameras() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    state.availableCameras = devices.filter(d => d.kind === "videoinput");
+    buildCameraSelector();
+  } catch (e) {}
+}
+
+function buildCameraSelector() {
+  const existing = $("camera-selector-wrap"); if (existing) existing.remove();
+  if (state.availableCameras.length <= 1) return;
+  const panel = $("camera-panel"); if (!panel) return;
+  const wrap = document.createElement("div"); wrap.id = "camera-selector-wrap";
+  wrap.style.cssText = "display:flex;align-items:center;gap:6px;margin-top:4px;";
+  const label = document.createElement("span");
+  label.style.cssText = "font-family:var(--mono);font-size:0.52rem;letter-spacing:0.15em;color:var(--text-dim);";
+  label.textContent = "CAM:";
+  const sel = document.createElement("select"); sel.id = "camera-select";
+  sel.style.cssText = "background:rgba(0,200,255,0.06);border:1px solid var(--blue-dim);color:var(--blue);font-family:var(--mono);font-size:0.58rem;letter-spacing:0.1em;padding:3px 6px;border-radius:3px;outline:none;cursor:pointer;width:120px;";
+  state.availableCameras.forEach((cam, i) => {
+    const opt = document.createElement("option");
+    opt.value = cam.deviceId; opt.textContent = cam.label || `Camera ${i + 1}`;
+    if (cam.deviceId === state.selectedCameraId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => { state.selectedCameraId = sel.value; switchCamera(sel.value); });
+  wrap.appendChild(label); wrap.appendChild(sel); panel.appendChild(wrap);
+}
+
+async function switchCamera(deviceId) {
+  if (state.cameraStream) { state.cameraStream.getTracks().forEach(t => t.stop()); state.cameraStream = null; }
+  if (state.cameraRecorder && state.cameraRecorder.state !== "inactive") { state.cameraRecorder.stop(); state.cameraRecorder = null; }
+  state.cameraClipChunks = []; state.cameraClipTimestamps = [];
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId }, width: 640, height: 480, frameRate: 15 }, audio: false });
+    state.cameraStream = stream; state.selectedCameraId = deviceId;
+    const vid = $("camera-feed"); if (vid) { vid.srcObject = stream; vid.play(); }
+    startCameraBuffer(stream);
+    state.faceDescriptors = null; await enrollUserFace();
+    const reply = `Camera switched, ${state.userTitle}.`;
+    addMsg("jarvis", reply); speak(reply); updateMood(2);
+  } catch {
+    const reply = `Camera switch failed, ${state.userTitle}.`;
+    addMsg("jarvis", reply); speak(reply);
+  }
+}
+
 async function requestCameraAccess() {
   try {
     await enumerateCameras();
@@ -1193,14 +1483,13 @@ async function checkFace() {
       if (userPresent) {
         if (state.awayMode) {
           state.awayMode = false; stopIntruderRecord(); notif.userReturn(state.userTitle);
-          const msgs = [`Welcome back, ${state.userTitle}. I've been keeping watch.`, `${state.userTitle} — face confirmed. Systems restored.`];
-          const msg = msgs[Math.floor(Math.random() * msgs.length)];
+          const msg = `Welcome back, ${state.userTitle}. I've been keeping watch.`;
           addMsg("jarvis", msg); speak(msg, () => setTimeout(() => checkIntruderClips(), 1500)); updateMood(15);
         }
       } else if (detections.length > 0 && !state.intruderActive) { handleUnknownFace(); }
     }
     if (Date.now() - state.lastSeenUser > 60000 && !state.awayMode && state.phase === "chatting") {
-      state.awayMode = true; notif.away(state.userTitle); addMsg("system", "User not detected — away mode active. Monitoring.");
+      state.awayMode = true; notif.away(state.userTitle); addMsg("system", "User not detected — away mode active.");
     }
   } catch {}
 }
@@ -1211,9 +1500,7 @@ function handleUnknownFace() {
   const panel = $("camera-panel"); if (panel) panel.classList.add("alert");
   notif.intruder(state.userTitle);
   addMsg("system", "⚠ UNKNOWN FACE DETECTED — recording started");
-  speak("I don't recognise you. Identify yourself.", () => {
-    setTimeout(() => { if (state.intruderActive && !state.intruderAuthorized) speak("Unauthorised access detected. Recording in progress."); }, 10000);
-  });
+  speak("I don't recognise you. Identify yourself.");
   showFaceAuthOverlay(); startIntruderRecord(); captureAndStoreIntruderPhoto(); updateMood(-30);
 }
 
@@ -1349,16 +1636,15 @@ function stopScreenRecord() {
 
 // ── LOGOUT ──
 function handleLogout() {
-  mic.suspend();
+  mic.suspend(); VOICE.cancel();
   if (state.faceCheckInterval) clearInterval(state.faceCheckInterval);
-  // Clear timers
   for (const t of state.activeTimers) clearTimeout(t.id);
   state.activeTimers = [];
   const badge = $("timer-badge-el"); if (badge) badge.classList.add("hidden");
-
   speak(`Goodbye, ${state.userTitle}. Initiating shutdown.`, () => {
     state.phase = "idle"; state.user = null; state.userTitle = null;
     state.sessionId = crypto.randomUUID(); state.awayMode = false; state.intruderActive = false;
+    state.conversationHistory = [];
     $("transcript").innerHTML = "";
     $("main-screen").classList.remove("active");
     $("auth-screen").classList.add("active");
@@ -1381,10 +1667,15 @@ function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 // ── BOOT ──
 // ═══════════════════════════════════════════════════════════════
 window.addEventListener("load", async () => {
+  // Prime browser TTS on load
   setTimeout(() => {
     const w = new SpeechSynthesisUtterance(" ");
     w.volume = 0; speechSynthesis.speak(w); speechSynthesis.getVoices();
   }, 500);
+
+  // Load ResponsiveVoice early so it's ready when needed
+  VOICE.init();
+
   let profile = loadProfile();
   if (!profile) { profile = await restoreProfileFromBackend(); if (profile) saveProfileLocal(profile); }
   if (!profile) showSetup(); else showAuthScreen();
