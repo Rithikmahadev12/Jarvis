@@ -4,6 +4,9 @@ const cors     = require("cors");
 const path     = require("path");
 const fs       = require("fs");
 const AI       = require("./ai-engine");
+const Spotify  = require("./integrations/spotify");
+const Weather  = require("./integrations/weather");
+const Google   = require("./integrations/google");
 
 const app = express();
 app.use(cors());
@@ -82,26 +85,19 @@ function lookupLink(text) {
   }
   return { found: false };
 }
-
 function getLinksSummary() {
-  const groups = Object.entries(LINKS).map(([name, urls]) => `${name} (${urls.length} link${urls.length > 1 ? "s" : ""})`);
+  const groups = Object.entries(LINKS).map(([name, urls]) => `${name} (${urls.length} link${urls.length>1?"s":""})`);
   const total  = Object.values(LINKS).reduce((s, arr) => s + arr.length, 0);
   return { groups, total, names: Object.keys(LINKS) };
 }
-
 function getAllLinksFormatted() {
-  const out = [];
-  for (const [name, urls] of Object.entries(LINKS)) {
-    out.push({ name, count: urls.length, urls });
-  }
-  return out;
+  return Object.entries(LINKS).map(([name, urls]) => ({ name, count: urls.length, urls }));
 }
 
 // ── LINKS API ──
-app.get("/api/links",         (req, res) => res.json({ groups: Object.keys(LINKS), summary: getLinksSummary(), all: getAllLinksFormatted() }));
-app.get("/api/links/summary", (req, res) => res.json(getLinksSummary()));
-app.get("/api/links/all",     (req, res) => res.json({ links: getAllLinksFormatted() }));
-
+app.get("/api/links",         (_req, res) => res.json({ groups: Object.keys(LINKS), summary: getLinksSummary(), all: getAllLinksFormatted() }));
+app.get("/api/links/summary", (_req, res) => res.json(getLinksSummary()));
+app.get("/api/links/all",     (_req, res) => res.json({ links: getAllLinksFormatted() }));
 app.post("/api/link", (req, res) => {
   const { query } = req.body;
   if (!query) return res.status(400).json({ found: false });
@@ -118,12 +114,12 @@ function ensureDataDir() {
   if (!fs.existsSync(PROFILES_FILE)) fs.writeFileSync(PROFILES_FILE, JSON.stringify({}), "utf8");
   if (!fs.existsSync(MEMORIES_FILE)) fs.writeFileSync(MEMORIES_FILE, JSON.stringify({}), "utf8");
 }
-function loadProfiles() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(PROFILES_FILE, "utf8")); } catch { return {}; } }
+function loadProfiles() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(PROFILES_FILE,"utf8")); } catch { return {}; } }
 function saveProfiles(p) { ensureDataDir(); fs.writeFileSync(PROFILES_FILE, JSON.stringify(p, null, 2), "utf8"); }
-function loadMemories() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(MEMORIES_FILE, "utf8")); } catch { return {}; } }
+function loadMemories() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(MEMORIES_FILE,"utf8")); } catch { return {}; } }
 function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON.stringify(m, null, 2), "utf8"); }
 
-app.get("/favicon.ico", (req, res) => res.status(204).end());
+app.get("/favicon.ico", (_req, res) => res.status(204).end());
 
 // ── PROFILE ROUTES ──
 app.post("/api/register", (req, res) => {
@@ -131,38 +127,28 @@ app.post("/api/register", (req, res) => {
   if (!name || !passwordHash) return res.status(400).json({ error: "Missing fields" });
   const profiles = loadProfiles();
   const key = name.toLowerCase().trim();
-  profiles[key] = {
-    name: name.trim(), passwordHash, title: title || "Sir",
-    voiceAliases: voiceAliases || [],
-    createdAt: profiles[key]?.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
+  profiles[key] = { name: name.trim(), passwordHash, title: title||"Sir", voiceAliases: voiceAliases||[], createdAt: profiles[key]?.createdAt||new Date().toISOString(), updatedAt: new Date().toISOString() };
   saveProfiles(profiles);
   res.json({ success: true });
 });
-
 app.get("/api/profile/:name", (req, res) => {
   const profiles = loadProfiles();
-  const key = req.params.name.toLowerCase().trim();
-  const profile = profiles[key];
+  const profile  = profiles[req.params.name.toLowerCase().trim()];
   if (!profile) return res.json({ found: false });
   const { passwordHash, ...safe } = profile;
   res.json({ found: true, profile: safe });
 });
-
 app.post("/api/verify", (req, res) => {
   const { name, passwordHash } = req.body;
   if (!name || !passwordHash) return res.status(400).json({ authorized: false });
   const profiles = loadProfiles();
-  const key = name.toLowerCase().trim();
-  const stored = profiles[key];
+  const stored   = profiles[name.toLowerCase().trim()];
   if (!stored) return res.json({ authorized: false, reason: "no_profile" });
   if (stored.passwordHash !== passwordHash) return res.json({ authorized: false, reason: "wrong_password" });
   const { passwordHash: _, ...safe } = stored;
   res.json({ authorized: true, profile: safe });
 });
-
-app.get("/api/profiles", (req, res) => {
+app.get("/api/profiles", (_req, res) => {
   const profiles = loadProfiles();
   const list = Object.values(profiles).map(({ name, title, voiceAliases }) => ({ name, title, voiceAliases }));
   res.json({ profiles: list });
@@ -173,7 +159,6 @@ app.get("/api/memory/:user", (req, res) => {
   const mem = loadMemories();
   res.json({ memories: mem[req.params.user.toLowerCase().trim()] || [] });
 });
-
 app.post("/api/memory", (req, res) => {
   const { user, fact } = req.body;
   if (!user || !fact) return res.status(400).json({ error: "Missing fields" });
@@ -185,7 +170,6 @@ app.post("/api/memory", (req, res) => {
   saveMemories(mem);
   res.json({ success: true });
 });
-
 app.post("/api/memory/forget", (req, res) => {
   const { user, hint } = req.body;
   if (!user || !hint) return res.status(400).json({ error: "Missing fields" });
@@ -198,62 +182,149 @@ app.post("/api/memory/forget", (req, res) => {
   res.json({ removed: before - mem[key].length });
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── CHAT — semantic AI engine, action-based routing ──
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── INTEGRATION OAUTH ROUTES ─────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+// ── SPOTIFY AUTH ──
+app.get("/api/spotify/auth", (_req, res) => {
+  if (!Spotify.isConfigured()) return res.json({ error: "Spotify not configured. Add SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to .env" });
+  res.redirect(Spotify.getAuthUrl());
+});
+app.get("/api/spotify/callback", async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.send("<h2>No code received</h2>");
+  const result = await Spotify.exchangeCode(code);
+  if (result.error) return res.send(`<h2>Spotify auth failed: ${result.error}</h2>`);
+  res.send(`<h2>✓ Spotify connected!</h2><p>You can close this tab. J.A.R.V.I.S now has Spotify access.</p><script>setTimeout(()=>window.close(),2000)</script>`);
+});
+app.get("/api/spotify/status", (_req, res) => {
+  res.json({ configured: Spotify.isConfigured(), connected: Spotify.hasToken() });
+});
+
+// ── GOOGLE AUTH ──
+app.get("/api/google/auth", (_req, res) => {
+  if (!Google.isConfigured()) return res.json({ error: "Google not configured. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env" });
+  res.redirect(Google.getAuthUrl());
+});
+app.get("/api/google/callback", async (req, res) => {
+  const { code } = req.query;
+  if (!code) return res.send("<h2>No code received</h2>");
+  const result = await Google.exchangeCode(code);
+  if (result.error) return res.send(`<h2>Google auth failed: ${result.error}</h2>`);
+  res.send(`<h2>✓ Google connected!</h2><p>Gmail and Calendar are now accessible. You can close this tab.</p><script>setTimeout(()=>window.close(),2000)</script>`);
+});
+app.get("/api/google/status", (_req, res) => {
+  res.json({ configured: Google.isConfigured(), connected: Google.hasToken() });
+});
+
+// ── INTEGRATIONS STATUS ──
+app.get("/api/integrations/status", (_req, res) => {
+  res.json({
+    spotify:  { configured: Spotify.isConfigured(), connected: Spotify.hasToken() },
+    google:   { configured: Google.isConfigured(),  connected: Google.hasToken()  },
+    weather:  { configured: !!(process.env.OPENWEATHER_API_KEY) },
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── CHAT ENDPOINT ────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
 app.post("/api/chat", async (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
 
   const T = userTitle || "Sir";
 
-  // Build serverData — give AI full context about what the server knows
+  // Build server data
   const linkSummary = getLinksSummary();
-  const serverData  = {
-    ...linkSummary,
-    allLinks: getAllLinksFormatted(),
-  };
+  const linkResult  = lookupLink(message);
+  const serverData  = { ...linkSummary, allLinks: getAllLinksFormatted(), ...(linkResult.found ? linkResult : {}) };
 
-  // Check if it's a link lookup first
-  const linkResult = lookupLink(message);
-  if (linkResult.found) {
-    Object.assign(serverData, linkResult);
-  }
-
+  // ── First AI pass — detect if an integration is needed ──
   let aiResult;
   try {
     aiResult = AI.process({ message, sessionId, userName, userTitle, memories, moodContext, serverData });
   } catch (err) {
-    console.error("[AI] Error:", err);
+    console.error("[AI]", err);
     return res.json({ reply: `Something went sideways, ${T}. Give it another go.`, action: "ERROR" });
   }
 
-  const { reply, action, meta, intent, topic } = aiResult;
+  const { reply, action, meta, intent, topic, needsFetch, fetchType } = aiResult;
 
-  // ── Handle server-side actions triggered by AI ──
+  // ── Integration fetch ──
+  if (needsFetch || ["WEATHER","SPOTIFY","GMAIL","CALENDAR"].includes(action)) {
+    const type = (fetchType || action).toLowerCase();
+    let integrationData = null;
+    let integrationError = null;
 
-  // SHOW_LINKS — format full link list for client
+    try {
+      if (type === "weather") {
+        integrationData = await Weather.handleWeatherCommand(message);
+      } else if (type === "spotify") {
+        integrationData = await Spotify.handleSpotifyCommand(message);
+      } else if (type === "gmail") {
+        integrationData = await Google.handleGmailCommand(message);
+      } else if (type === "calendar") {
+        integrationData = await Google.handleCalendarCommand(message);
+      }
+    } catch (e) {
+      integrationError = e.message;
+      console.error(`[${type.toUpperCase()}]`, e);
+    }
+
+    // Re-process with integration data
+    if (integrationData) {
+      let finalResult;
+      try {
+        finalResult = AI.process({
+          message, sessionId, userName, userTitle, memories, moodContext, serverData,
+          integrationData: { type, data: integrationData },
+        });
+      } catch (e) {
+        finalResult = { reply: `Got the data but hit a processing error, ${T}.`, action };
+      }
+
+      // Handle auth redirects
+      if (integrationData.needsAuth) {
+        return res.json({
+          reply:  finalResult.reply,
+          action: action,
+          intent,
+          meta: { needsAuth: true, authUrl: integrationData.authUrl, service: type },
+        });
+      }
+
+      return res.json({
+        reply:  finalResult.reply,
+        action: action,
+        intent,
+        topic,
+        meta:   { integrationData, type },
+      });
+    }
+
+    // Error case
+    const errReply = integrationError
+      ? `I ran into a problem reaching ${type}, ${T}: ${integrationError}`
+      : `Couldn't fetch ${type} data right now, ${T}. Check your credentials in .env.`;
+    return res.json({ reply: errReply, action, intent });
+  }
+
+  // ── SHOW_LINKS ──
   if (action === "SHOW_LINKS") {
-    const all = getAllLinksFormatted();
     return res.json({
-      reply,
-      action,
-      intent,
-      meta: {
-        requestLinks: true,
-        linkGroups: all,
-        total: linkSummary.total,
-      },
+      reply, action, intent,
+      meta: { requestLinks: true, linkGroups: getAllLinksFormatted(), total: linkSummary.total },
     });
   }
 
-  // OPEN_LINK — resolve and return the URL
+  // ── OPEN_LINK ──
   if (action === "OPEN_LINK") {
-    const link = lookupLink(message);
-    return res.json({ reply, action, intent, meta: { ...meta, ...link } });
+    return res.json({ reply, action, intent, meta: { ...meta, ...linkResult } });
   }
 
-  // MEMORY_SAVE — persist to disk
+  // ── MEMORY_SAVE ──
   if (action === "MEMORY_SAVE" && meta?.saveFact) {
     const mem = loadMemories();
     const key = (userName || "user").toLowerCase().trim();
@@ -264,7 +335,7 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ reply, action, intent, meta: { saved: true, fact: meta.saveFact } });
   }
 
-  // MEMORY_FORGET — remove from disk
+  // ── MEMORY_FORGET ──
   if (action === "MEMORY_FORGET" && meta?.forgetHint) {
     const mem = loadMemories();
     const key = (userName || "user").toLowerCase().trim();
@@ -273,26 +344,21 @@ app.post("/api/chat", async (req, res) => {
     mem[key] = mem[key].filter(m => !m.fact.toLowerCase().includes(meta.forgetHint.toLowerCase()));
     saveMemories(mem);
     const removed = before - mem[key].length;
-    const finalReply = removed > 0 ? `Done, ${T}. ${removed} memory entry removed.` : `Nothing matching that on file, ${T}.`;
+    const finalReply = removed > 0 ? `Done, ${T}. ${removed} memory entr${removed>1?"ies":"y"} removed.` : `Nothing matching that on file, ${T}.`;
     return res.json({ reply: finalReply, action, intent });
   }
 
-  // SYSTEM_STATUS — add real metrics
+  // ── SYSTEM_STATUS ──
   if (action === "SYSTEM_STATUS") {
     const uptime = Math.floor(process.uptime());
     const mem    = process.memoryUsage();
     const mins   = Math.floor(uptime / 60), secs = uptime % 60;
-    const used   = (mem.heapUsed / 1024 / 1024).toFixed(1);
-    const total  = (mem.heapTotal / 1024 / 1024).toFixed(1);
     return res.json({
-      reply,
-      action,
-      intent,
-      meta: { uptime, uptimeLabel: `${mins}m ${secs}s`, heapUsed: used, heapTotal: total },
+      reply, action, intent,
+      meta: { uptime, uptimeLabel: `${mins}m ${secs}s`, heapUsed: (mem.heapUsed/1024/1024).toFixed(1), heapTotal: (mem.heapTotal/1024/1024).toFixed(1) },
     });
   }
 
-  // All other actions pass through with their meta
   return res.json({ reply, action, intent, topic, meta });
 });
 
@@ -300,28 +366,40 @@ app.post("/api/chat", async (req, res) => {
 app.post("/api/screen", (req, res) => {
   const { ocrText, question, userName, userTitle, memories } = req.body;
   const T = userTitle || "Sir";
-
   if (!ocrText || ocrText.trim().length < 5) {
     return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}. Make sure the content is visible.` });
   }
-
   const screenContext = `The user's screen contains: "${ocrText.trim().slice(0, 800)}". The user asked: "${question || "What is on my screen?"}"`;
   try {
-    const result = AI.process({
-      message: screenContext,
-      sessionId: `screen_${userName || "user"}`,
-      userName, userTitle, memories,
-      serverData: getLinksSummary(),
-    });
-    const reply = result.reply.length > 20
+    const result = AI.process({ message: screenContext, sessionId: `screen_${userName||"user"}`, userName, userTitle, memories, serverData: getLinksSummary() });
+    const replyText = result.reply.length > 20
       ? `I can see your screen, ${T}. ${result.reply}`
       : `Your screen shows: ${ocrText.trim().slice(0, 200)}`;
-    return res.json({ reply });
+    return res.json({ reply: replyText });
   } catch {
     const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0, 5);
     return res.json({ reply: `On your screen, ${T}: ${lines.join(". ")}` });
   }
 });
 
+// ── INTEGRATION STATUS PAGE ──
+app.get("/api/setup", (_req, res) => {
+  const status = {
+    spotify: { configured: Spotify.isConfigured(), connected: Spotify.hasToken(), authUrl: "/api/spotify/auth" },
+    google:  { configured: Google.isConfigured(),  connected: Google.hasToken(),  authUrl: "/api/google/auth"  },
+    weather: { configured: !!(process.env.OPENWEATHER_API_KEY), envKey: "OPENWEATHER_API_KEY" },
+  };
+  res.json(status);
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`J.A.R.V.I.S online → http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`\n╔══════════════════════════════════════════╗`);
+  console.log(`║  J.A.R.V.I.S  →  http://localhost:${PORT}  ║`);
+  console.log(`╚══════════════════════════════════════════╝\n`);
+  console.log(`Integrations:`);
+  console.log(`  Weather:  ${process.env.OPENWEATHER_API_KEY ? "✓ configured" : "✗ add OPENWEATHER_API_KEY to .env"}`);
+  console.log(`  Spotify:  ${process.env.SPOTIFY_CLIENT_ID ? "✓ configured — visit /api/spotify/auth to connect" : "✗ add SPOTIFY_CLIENT_ID + SPOTIFY_CLIENT_SECRET"}`);
+  console.log(`  Google:   ${process.env.GOOGLE_CLIENT_ID ? "✓ configured — visit /api/google/auth to connect" : "✗ add GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET"}`);
+  console.log(``);
+});
