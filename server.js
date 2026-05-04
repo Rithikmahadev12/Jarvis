@@ -84,21 +84,29 @@ function lookupLink(text) {
 }
 
 function getLinksSummary() {
-  const groups = Object.entries(LINKS).map(([name, urls]) => `${name} (${urls.length} links)`);
+  const groups = Object.entries(LINKS).map(([name, urls]) => `${name} (${urls.length} link${urls.length > 1 ? "s" : ""})`);
   const total  = Object.values(LINKS).reduce((s, arr) => s + arr.length, 0);
   return { groups, total, names: Object.keys(LINKS) };
 }
 
-app.get("/api/links", (req, res) => res.json({ groups: Object.keys(LINKS), summary: getLinksSummary() }));
+function getAllLinksFormatted() {
+  const out = [];
+  for (const [name, urls] of Object.entries(LINKS)) {
+    out.push({ name, count: urls.length, urls });
+  }
+  return out;
+}
+
+// ── LINKS API ──
+app.get("/api/links",         (req, res) => res.json({ groups: Object.keys(LINKS), summary: getLinksSummary(), all: getAllLinksFormatted() }));
+app.get("/api/links/summary", (req, res) => res.json(getLinksSummary()));
+app.get("/api/links/all",     (req, res) => res.json({ links: getAllLinksFormatted() }));
 
 app.post("/api/link", (req, res) => {
   const { query } = req.body;
   if (!query) return res.status(400).json({ found: false });
   res.json(lookupLink(query));
 });
-
-// ── Link meta info endpoint ──
-app.get("/api/links/summary", (req, res) => res.json(getLinksSummary()));
 
 // ── PERSISTENT STORE ──
 const DATA_DIR      = path.join(__dirname, "data");
@@ -110,54 +118,54 @@ function ensureDataDir() {
   if (!fs.existsSync(PROFILES_FILE)) fs.writeFileSync(PROFILES_FILE, JSON.stringify({}), "utf8");
   if (!fs.existsSync(MEMORIES_FILE)) fs.writeFileSync(MEMORIES_FILE, JSON.stringify({}), "utf8");
 }
-function loadProfiles() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(PROFILES_FILE,"utf8")); } catch { return {}; } }
-function saveProfiles(p) { ensureDataDir(); fs.writeFileSync(PROFILES_FILE, JSON.stringify(p,null,2), "utf8"); }
-function loadMemories() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(MEMORIES_FILE,"utf8")); } catch { return {}; } }
-function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON.stringify(m,null,2), "utf8"); }
+function loadProfiles() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(PROFILES_FILE, "utf8")); } catch { return {}; } }
+function saveProfiles(p) { ensureDataDir(); fs.writeFileSync(PROFILES_FILE, JSON.stringify(p, null, 2), "utf8"); }
+function loadMemories() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(MEMORIES_FILE, "utf8")); } catch { return {}; } }
+function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON.stringify(m, null, 2), "utf8"); }
 
 app.get("/favicon.ico", (req, res) => res.status(204).end());
 
 // ── PROFILE ROUTES ──
 app.post("/api/register", (req, res) => {
   const { name, passwordHash, title, voiceAliases } = req.body;
-  if (!name || !passwordHash) return res.status(400).json({ error:"Missing fields" });
+  if (!name || !passwordHash) return res.status(400).json({ error: "Missing fields" });
   const profiles = loadProfiles();
   const key = name.toLowerCase().trim();
   profiles[key] = {
-    name: name.trim(), passwordHash, title: title||"Sir",
-    voiceAliases: voiceAliases||[],
+    name: name.trim(), passwordHash, title: title || "Sir",
+    voiceAliases: voiceAliases || [],
     createdAt: profiles[key]?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
   saveProfiles(profiles);
-  res.json({ success:true });
+  res.json({ success: true });
 });
 
 app.get("/api/profile/:name", (req, res) => {
   const profiles = loadProfiles();
   const key = req.params.name.toLowerCase().trim();
   const profile = profiles[key];
-  if (!profile) return res.json({ found:false });
+  if (!profile) return res.json({ found: false });
   const { passwordHash, ...safe } = profile;
-  res.json({ found:true, profile:safe });
+  res.json({ found: true, profile: safe });
 });
 
 app.post("/api/verify", (req, res) => {
   const { name, passwordHash } = req.body;
-  if (!name || !passwordHash) return res.status(400).json({ authorized:false });
+  if (!name || !passwordHash) return res.status(400).json({ authorized: false });
   const profiles = loadProfiles();
   const key = name.toLowerCase().trim();
   const stored = profiles[key];
-  if (!stored) return res.json({ authorized:false, reason:"no_profile" });
-  if (stored.passwordHash !== passwordHash) return res.json({ authorized:false, reason:"wrong_password" });
-  const { passwordHash:_, ...safe } = stored;
-  res.json({ authorized:true, profile:safe });
+  if (!stored) return res.json({ authorized: false, reason: "no_profile" });
+  if (stored.passwordHash !== passwordHash) return res.json({ authorized: false, reason: "wrong_password" });
+  const { passwordHash: _, ...safe } = stored;
+  res.json({ authorized: true, profile: safe });
 });
 
 app.get("/api/profiles", (req, res) => {
   const profiles = loadProfiles();
   const list = Object.values(profiles).map(({ name, title, voiceAliases }) => ({ name, title, voiceAliases }));
-  res.json({ profiles:list });
+  res.json({ profiles: list });
 });
 
 // ── MEMORY ROUTES ──
@@ -168,22 +176,22 @@ app.get("/api/memory/:user", (req, res) => {
 
 app.post("/api/memory", (req, res) => {
   const { user, fact } = req.body;
-  if (!user || !fact) return res.status(400).json({ error:"Missing fields" });
+  if (!user || !fact) return res.status(400).json({ error: "Missing fields" });
   const mem = loadMemories();
   const key = user.toLowerCase().trim();
   if (!mem[key]) mem[key] = [];
   mem[key].push({ fact: fact.trim(), savedAt: new Date().toISOString() });
   if (mem[key].length > 50) mem[key] = mem[key].slice(-50);
   saveMemories(mem);
-  res.json({ success:true });
+  res.json({ success: true });
 });
 
 app.post("/api/memory/forget", (req, res) => {
   const { user, hint } = req.body;
-  if (!user || !hint) return res.status(400).json({ error:"Missing fields" });
+  if (!user || !hint) return res.status(400).json({ error: "Missing fields" });
   const mem = loadMemories();
   const key = user.toLowerCase().trim();
-  if (!mem[key]) return res.json({ removed:0 });
+  if (!mem[key]) return res.json({ removed: 0 });
   const before = mem[key].length;
   mem[key] = mem[key].filter(m => !m.fact.toLowerCase().includes(hint.toLowerCase()));
   saveMemories(mem);
@@ -191,89 +199,127 @@ app.post("/api/memory/forget", (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// ── CHAT — 100% local AI, no external calls ──
+// ── CHAT — semantic AI engine, action-based routing ──
 // ══════════════════════════════════════════════════════════════
-app.post("/api/chat", (req, res) => {
+app.post("/api/chat", async (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext } = req.body;
-  if (!message || !sessionId) return res.status(400).json({ error:"Missing fields" });
+  if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
 
   const T = userTitle || "Sir";
-  const lower = message.toLowerCase();
 
-  // ── Link meta queries handled here with real data ──
-  if (/how many links|count.*links|total.*links|number of links/i.test(lower)) {
-    const s = getLinksSummary();
-    const reply = `I have ${s.total} links across ${s.names.length} groups, ${T}: ${s.groups.join(", ")}.`;
-    return res.json({ reply, intent:"link_meta" });
-  }
-  if (/list.*links|show.*links|what links|which.*groups?|link groups/i.test(lower)) {
-    const s = getLinksSummary();
-    const reply = `My link groups are: ${s.groups.join(" and ")}. ${s.total} links total, ${T}.`;
-    return res.json({ reply, intent:"link_meta" });
-  }
+  // Build serverData — give AI full context about what the server knows
+  const linkSummary = getLinksSummary();
+  const serverData  = {
+    ...linkSummary,
+    allLinks: getAllLinksFormatted(),
+  };
 
-  // ── System status with real data ──
-  if (/system status|diagnostics|self.?check|all systems|status report/i.test(lower)) {
-    const uptime = Math.floor(process.uptime());
-    const mem    = process.memoryUsage();
-    const mb     = b => (b/1024/1024).toFixed(1);
-    const mins   = Math.floor(uptime/60), secs = uptime%60;
-    const reply  = `All systems operational, ${T}. Uptime: ${mins}m ${secs}s. Memory — heap used: ${mb(mem.heapUsed)} MB of ${mb(mem.heapTotal)} MB. All subsystems running within normal parameters.`;
-    return res.json({ reply, intent:"system_status" });
+  // Check if it's a link lookup first
+  const linkResult = lookupLink(message);
+  if (linkResult.found) {
+    Object.assign(serverData, linkResult);
   }
 
-  // ── Capabilities ──
-  if (/what can you do|your (?:abilities|capabilities|features|skills)|how do you work/i.test(lower)) {
-    const reply = `Quite a lot, ${T}. I can reason across science, history, mathematics, philosophy, psychology, technology, and more using a semantic knowledge engine. I understand context across a conversation, resolve references like "it" and "that", handle comparisons, hypotheticals, and personal questions. I can save and recall memories, manage your link bank of ${getLinksSummary().total} links, read your screen via OCR, track your camera, clip recordings, and have a proper conversation — all without any external servers. Entirely self-contained.`;
-    return res.json({ reply, intent:"capabilities" });
-  }
-
-  // ── Route to AI engine ──
+  let aiResult;
   try {
-    const result = AI.process({ message, sessionId, userName, userTitle, memories, moodContext });
-    return res.json({ reply: result.reply, intent: result.intent });
+    aiResult = AI.process({ message, sessionId, userName, userTitle, memories, moodContext, serverData });
   } catch (err) {
     console.error("[AI] Error:", err);
-    return res.json({ reply:`Something went sideways, ${T}. Give it another go.` });
+    return res.json({ reply: `Something went sideways, ${T}. Give it another go.`, action: "ERROR" });
   }
+
+  const { reply, action, meta, intent, topic } = aiResult;
+
+  // ── Handle server-side actions triggered by AI ──
+
+  // SHOW_LINKS — format full link list for client
+  if (action === "SHOW_LINKS") {
+    const all = getAllLinksFormatted();
+    return res.json({
+      reply,
+      action,
+      intent,
+      meta: {
+        requestLinks: true,
+        linkGroups: all,
+        total: linkSummary.total,
+      },
+    });
+  }
+
+  // OPEN_LINK — resolve and return the URL
+  if (action === "OPEN_LINK") {
+    const link = lookupLink(message);
+    return res.json({ reply, action, intent, meta: { ...meta, ...link } });
+  }
+
+  // MEMORY_SAVE — persist to disk
+  if (action === "MEMORY_SAVE" && meta?.saveFact) {
+    const mem = loadMemories();
+    const key = (userName || "user").toLowerCase().trim();
+    if (!mem[key]) mem[key] = [];
+    mem[key].push({ fact: meta.saveFact, savedAt: new Date().toISOString() });
+    if (mem[key].length > 50) mem[key] = mem[key].slice(-50);
+    saveMemories(mem);
+    return res.json({ reply, action, intent, meta: { saved: true, fact: meta.saveFact } });
+  }
+
+  // MEMORY_FORGET — remove from disk
+  if (action === "MEMORY_FORGET" && meta?.forgetHint) {
+    const mem = loadMemories();
+    const key = (userName || "user").toLowerCase().trim();
+    if (!mem[key]) return res.json({ reply: `Nothing on file matching that, ${T}.`, action, intent });
+    const before = mem[key].length;
+    mem[key] = mem[key].filter(m => !m.fact.toLowerCase().includes(meta.forgetHint.toLowerCase()));
+    saveMemories(mem);
+    const removed = before - mem[key].length;
+    const finalReply = removed > 0 ? `Done, ${T}. ${removed} memory entry removed.` : `Nothing matching that on file, ${T}.`;
+    return res.json({ reply: finalReply, action, intent });
+  }
+
+  // SYSTEM_STATUS — add real metrics
+  if (action === "SYSTEM_STATUS") {
+    const uptime = Math.floor(process.uptime());
+    const mem    = process.memoryUsage();
+    const mins   = Math.floor(uptime / 60), secs = uptime % 60;
+    const used   = (mem.heapUsed / 1024 / 1024).toFixed(1);
+    const total  = (mem.heapTotal / 1024 / 1024).toFixed(1);
+    return res.json({
+      reply,
+      action,
+      intent,
+      meta: { uptime, uptimeLabel: `${mins}m ${secs}s`, heapUsed: used, heapTotal: total },
+    });
+  }
+
+  // All other actions pass through with their meta
+  return res.json({ reply, action, intent, topic, meta });
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── SCREEN ANALYSIS — receives OCR text from client Tesseract ──
-// Client does the heavy lifting (Tesseract.js), sends extracted text
-// ══════════════════════════════════════════════════════════════
+// ── SCREEN ANALYSIS ──
 app.post("/api/screen", (req, res) => {
   const { ocrText, question, userName, userTitle, memories } = req.body;
   const T = userTitle || "Sir";
 
   if (!ocrText || ocrText.trim().length < 5) {
-    return res.json({ reply:`I received the screen frame but couldn't extract readable text from it, ${T}. Make sure the content is visible and not heavily compressed.` });
+    return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}. Make sure the content is visible.` });
   }
 
-  // Use AI engine to reason about screen content
-  const screenContext = `The user's screen contains the following text: "${ocrText.trim().slice(0,800)}". The user asked: "${question || "What is on my screen?"}"`;
-
+  const screenContext = `The user's screen contains: "${ocrText.trim().slice(0, 800)}". The user asked: "${question || "What is on my screen?"}"`;
   try {
     const result = AI.process({
       message: screenContext,
       sessionId: `screen_${userName || "user"}`,
-      userName, userTitle,
-      memories,
-      moodContext: "screen_reading",
+      userName, userTitle, memories,
+      serverData: getLinksSummary(),
     });
-
-    // Wrap in a screen-reading framing if AI didn't pick it up well
-    const baseReply = result.reply;
-    const reply = baseReply.length > 20
-      ? `I can see your screen, ${T}. ${baseReply}`
-      : `Your screen shows: ${ocrText.trim().slice(0,200)}. ${baseReply}`;
-
+    const reply = result.reply.length > 20
+      ? `I can see your screen, ${T}. ${result.reply}`
+      : `Your screen shows: ${ocrText.trim().slice(0, 200)}`;
     return res.json({ reply });
-  } catch (err) {
-    // Fallback: just describe what's on screen from the OCR text
-    const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0,5);
-    const reply = `On your screen, ${T}, I can read: ${lines.join(". ")}`;
-    return res.json({ reply });
+  } catch {
+    const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0, 5);
+    return res.json({ reply: `On your screen, ${T}: ${lines.join(". ")}` });
   }
 });
 
