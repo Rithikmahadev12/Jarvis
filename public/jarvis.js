@@ -27,6 +27,8 @@ const state = {
   intruderChunks: [],
   intruderRecorder: null,
   intruderClips: [],
+  // NEW: track whether current intruder was authorized mid-recording
+  intruderAuthorized: false,
   faceCheckInterval: null,
   lastSeenUser: Date.now(),
   awayMode: false,
@@ -36,8 +38,8 @@ const state = {
   lastInteraction: Date.now(),
   selectedCameraId: null,
   availableCameras: [],
-  tesseractWorker: null,    // ← Tesseract OCR worker
-  tesseractReady: false,    // ← whether OCR is loaded
+  tesseractWorker: null,
+  tesseractReady: false,
 };
 
 // ── MOOD ENGINE ──
@@ -88,18 +90,14 @@ async function hashPassword(pw) {
 const $ = id => document.getElementById(id);
 
 // ═══════════════════════════════════════════════════════════════
-// ── TESSERACT OCR — fully local screen reading ──
+// ── TESSERACT OCR ──
 // ═══════════════════════════════════════════════════════════════
 async function initTesseract() {
   try {
-    // Load Tesseract.js from CDN — runs 100% in browser, no server
     if (!window.Tesseract) {
       await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
     }
-    // Create worker
-    state.tesseractWorker = await Tesseract.createWorker("eng", 1, {
-      logger: () => {}, // suppress logs
-    });
+    state.tesseractWorker = await Tesseract.createWorker("eng", 1, { logger: () => {} });
     state.tesseractReady = true;
     addMsg("system", "OCR engine loaded — screen reading available.");
   } catch(e) {
@@ -110,14 +108,10 @@ async function initTesseract() {
 
 async function ocrScreenFrame() {
   if (!state.screenStream) return null;
-  
-  // Capture frame from screen stream
   const track = state.screenStream.getVideoTracks()[0];
   if (!track) return null;
-
   let imageDataUrl;
   try {
-    // Try ImageCapture API first
     const capture = new ImageCapture(track);
     const bitmap  = await capture.grabFrame();
     const canvas  = document.createElement("canvas");
@@ -126,7 +120,6 @@ async function ocrScreenFrame() {
     canvas.getContext("2d").drawImage(bitmap, 0, 0);
     imageDataUrl = canvas.toDataURL("image/png");
   } catch {
-    // Fallback: draw from a video element
     const video = document.createElement("video");
     video.srcObject = new MediaStream([track]);
     await new Promise(r => { video.onloadedmetadata = r; });
@@ -139,13 +132,9 @@ async function ocrScreenFrame() {
     video.pause();
     imageDataUrl = canvas.toDataURL("image/png");
   }
-
   if (!state.tesseractReady || !state.tesseractWorker) {
-    // No OCR — return the raw base64 for server-side description
     return { ocrText: null, imageB64: imageDataUrl.split(",")[1] };
   }
-
-  // Run OCR locally in the browser
   try {
     const result = await state.tesseractWorker.recognize(imageDataUrl);
     const text   = result.data.text.trim();
@@ -594,10 +583,7 @@ function launchMain() {
   requestCameraAccess();
   setupTypingBox();
   startChatListening();
-
-  // Load Tesseract in background
   initTesseract();
-
   setTimeout(() => checkIntruderClips(), 2000);
 }
 
@@ -624,6 +610,151 @@ function setupTypingBox() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ── FACE AUTH OVERLAY ──
+// Shows when an unknown face is detected. Password authorizes the
+// person — but recording ALWAYS completes regardless. After the
+// recorder stops, showClipReviewPrompt() fires unconditionally.
+// ═══════════════════════════════════════════════════════════════
+function showFaceAuthOverlay() {
+  const overlay = $("face-auth-overlay");
+  const pwInput = $("face-auth-password");
+  const errMsg  = $("face-auth-error");
+  const submit  = $("face-auth-submit");
+  const dismiss = $("face-auth-dismiss");
+
+  overlay.classList.remove("hidden");
+  pwInput.value = "";
+  errMsg.classList.add("hidden");
+  pwInput.focus();
+
+  // Remove old listeners by cloning buttons
+  const newSubmit  = submit.cloneNode(true);
+  const newDismiss = dismiss.cloneNode(true);
+  submit.parentNode.replaceChild(newSubmit, submit);
+  dismiss.parentNode.replaceChild(newDismiss, dismiss);
+
+  const attemptAuth = async () => {
+    const pw = $("face-auth-password").value;
+    if (!pw) return;
+    const hash    = await hashPassword(pw);
+    const profile = loadProfile();
+
+    let authorized = false;
+    if (profile && hash === profile.passwordHash) {
+      authorized = true;
+    } else {
+      // Try backend verify
+      const nameHint = localStorage.getItem("jarvis_name_hint");
+      if (nameHint) {
+        try {
+          const res  = await fetch("/api/verify", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ name:nameHint, passwordHash:hash }) });
+          const data = await res.json();
+          if (data.authorized) authorized = true;
+        } catch {}
+      }
+    }
+
+    if (authorized) {
+      // Mark as authorized so clip review can note this
+      state.intruderAuthorized = true;
+      hideFaceAuthOverlay();
+
+      // Clear the camera alert styling
+      const panel = $("camera-panel");
+      if (panel) panel.classList.remove("alert");
+
+      const reply = `Access authorized, ${state.userTitle}. Recording is still completing — you'll be asked about the clip when it finishes.`;
+      addMsg("jarvis", reply);
+      speak(reply);
+      updateMood(10);
+    } else {
+      const errEl = $("face-auth-error");
+      errEl.classList.remove("hidden");
+      $("face-auth-password").value = "";
+      $("face-auth-password").focus();
+      setTimeout(() => errEl.classList.add("hidden"), 2500);
+    }
+  };
+
+  $("face-auth-submit").addEventListener("click", attemptAuth);
+  $("face-auth-password").addEventListener("keydown", (e) => { if (e.key === "Enter") attemptAuth(); });
+
+  $("face-auth-dismiss").addEventListener("click", () => {
+    hideFaceAuthOverlay();
+    addMsg("system", "Overlay dismissed. Incident recording continues.");
+  });
+}
+
+function hideFaceAuthOverlay() {
+  $("face-auth-overlay").classList.add("hidden");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── CLIP REVIEW PROMPT ──
+// Always fires after an intruder recording stops — regardless of
+// whether the person authorized themselves with their password.
+// ═══════════════════════════════════════════════════════════════
+function showClipReviewPrompt(clip) {
+  const overlay  = $("clip-review-overlay");
+  const subText  = $("clip-review-sub");
+  const keepBtn  = $("clip-review-keep");
+  const dlBtn    = $("clip-review-download");
+  const discardBtn = $("clip-review-discard");
+
+  // Contextual message depending on whether they authorized
+  if (state.intruderAuthorized) {
+    subText.textContent = "You authorized this visit — but the recording completed. Keep the clip on file?";
+  } else {
+    subText.textContent = "Unauthorized face detected. The recording is complete. Keep this incident clip?";
+  }
+
+  overlay.classList.remove("hidden");
+
+  // Clone buttons to clear old listeners
+  const newKeep    = keepBtn.cloneNode(true);
+  const newDl      = dlBtn.cloneNode(true);
+  const newDiscard = discardBtn.cloneNode(true);
+  keepBtn.parentNode.replaceChild(newKeep, keepBtn);
+  dlBtn.parentNode.replaceChild(newDl, dlBtn);
+  discardBtn.parentNode.replaceChild(newDiscard, discardBtn);
+
+  const close = () => overlay.classList.add("hidden");
+
+  // KEEP — store on file, don't download
+  $("clip-review-keep").addEventListener("click", () => {
+    state.intruderClips.push(clip);
+    close();
+    const reply = `Clip saved to intruder log, ${state.userTitle}. Say "show intruder clips" to review.`;
+    addMsg("jarvis", reply); speak(reply);
+  });
+
+  // DOWNLOAD & KEEP — save to disk AND keep in log
+  $("clip-review-download").addEventListener("click", () => {
+    state.intruderClips.push(clip);
+    downloadClipBlob(clip.videoBlob, `jarvis-incident-${Date.now()}.webm`);
+    close();
+    const reply = `Incident clip downloaded and saved to log, ${state.userTitle}.`;
+    addMsg("jarvis", reply); speak(reply);
+  });
+
+  // DISCARD — don't add to log
+  $("clip-review-discard").addEventListener("click", () => {
+    close();
+    const reply = state.intruderAuthorized
+      ? `Clip discarded, ${state.userTitle}. Authorized visit not logged.`
+      : `Clip discarded, ${state.userTitle}. Incident not stored.`;
+    addMsg("jarvis", reply); speak(reply);
+  });
+}
+
+function downloadClipBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ── CHAT COMMAND HANDLER ──
 // ═══════════════════════════════════════════════════════════════
 function handleChatCommand(text) {
@@ -633,18 +764,12 @@ function handleChatCommand(text) {
   const hasWake = hasWakeWord(lower);
   const cleaned = hasWake ? stripWakeWord(text) : text;
 
-  // Hard commands always process regardless of wake word
   if (/\blog\s*out\b|\blogout\b|\bsign\s*out\b/.test(lower)) { handleLogout(); return; }
   if (isClipCommand(lower))  { saveClip(); return; }
   if (isLinkCommand(lower))  { handleLinkCommand(text); return; }
-
-  // Link meta — "how many links do you have"
   if (isLinkMetaCommand(lower)) { handleLinkMeta(text); return; }
-
-  // Screen reading
   if (isScreenCommand(lower)) { readScreen(cleaned || text); return; }
 
-  // Camera switch
   const camMatch = cleaned.match(/\b(?:switch|use|change|select)\b.*?\bcamera\s*(\d+)\b/i);
   if (camMatch) {
     const idx = parseInt(camMatch[1]) - 1;
@@ -656,12 +781,10 @@ function handleChatCommand(text) {
     return;
   }
 
-  // Intruder clips
   if (/intruder|who came|while i was (?:away|gone|out)|visitor|show.*intruder|clip of them/i.test(cleaned)) {
     showIntruderClips(); return;
   }
 
-  // Memory commands
   const rememberMatch = cleaned.match(/^remember\s+(?:that\s+)?(.+)$/i);
   const forgetMatch   = cleaned.match(/^forget\s+(?:about\s+)?(.+)$/i);
   const recallMatch   = /^(?:what do you remember|recall everything|show.*memor|what.*remember)/i.test(cleaned);
@@ -669,10 +792,8 @@ function handleChatCommand(text) {
   if (forgetMatch)   { forgetMemory(forgetMatch[1].trim()); return; }
   if (recallMatch)   { recallMemories(); return; }
 
-  // Feelings
   if (/how (?:are you|do you feel|are you doing|is your mood)/i.test(cleaned)) { expressFeeling(); return; }
 
-  // Require wake word after first interaction (or within 30 sec conversation window)
   const recentlyActive = (Date.now() - state.lastInteraction) < 30000;
   if (!hasWake && !recentlyActive && state.interactionCount > 1) {
     updateLiveHearing(""); return;
@@ -689,7 +810,6 @@ function handleChatCommand(text) {
     addMsg("jarvis", ack); speak(ack); return;
   }
 
-  // Send to AI
   sendToAI(cleaned);
 }
 
@@ -748,7 +868,7 @@ async function handleLinkCommand(text) {
   }
 }
 
-// ── AI CHAT — sends to local cognitive engine ──
+// ── AI CHAT ──
 async function sendToAI(message) {
   mic.suspend();
   addMsg("user", message);
@@ -772,19 +892,18 @@ async function sendToAI(message) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── SCREEN READING — Tesseract OCR locally, no API ──
+// ── SCREEN READING ──
 // ═══════════════════════════════════════════════════════════════
 async function readScreen(question) {
   mic.suspend(); setOrb("thinking");
   addMsg("user", question || "What's on my screen?");
 
   if (!state.screenStream) {
-    const reply = `Screen sharing isn't active, ${state.userTitle}. I need you to share your screen first — it should have prompted when you started JARVIS.`;
+    const reply = `Screen sharing isn't active, ${state.userTitle}. I need you to share your screen first.`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume()); return;
   }
 
   addMsg("system", "Scanning screen…");
-
   const ocr = await ocrScreenFrame();
 
   if (!ocr) {
@@ -793,28 +912,20 @@ async function readScreen(question) {
   }
 
   if (!ocr.ocrText || ocr.ocrText.trim().length < 5) {
-    const reply = `I captured the screen but couldn't extract readable text from it, ${state.userTitle}. The content may be mostly graphical or too small to read.`;
+    const reply = `I captured the screen but couldn't extract readable text from it, ${state.userTitle}.`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume()); return;
   }
 
   const memories = await loadMemoriesForPrompt();
-
   try {
     const res = await fetch("/api/screen", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({
-        ocrText: ocr.ocrText,
-        question: question || "What is on the screen?",
-        userName: state.user,
-        userTitle: state.userTitle,
-        memories,
-      }),
+      body: JSON.stringify({ ocrText: ocr.ocrText, question: question || "What is on the screen?", userName: state.user, userTitle: state.userTitle, memories }),
     });
     const data  = await res.json();
     const reply = data.reply || `Your screen contains: ${ocr.ocrText.slice(0,200)}`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume()); updateMood(5);
   } catch(err) {
-    // Fallback: just read the OCR text directly
     const lines = ocr.ocrText.split("\n").filter(l => l.trim().length > 2).slice(0,4).join(". ");
     const reply = `Here's what I can read on your screen, ${state.userTitle}: ${lines}`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume());
@@ -901,7 +1012,7 @@ async function checkFace() {
           const msg = msgs[Math.floor(Math.random() * msgs.length)];
           addMsg("jarvis", msg); speak(msg, () => setTimeout(() => checkIntruderClips(), 1500)); updateMood(15);
         }
-      } else if (detections.length > 0 && !state.awayMode) { handleUnknownFace(); }
+      } else if (detections.length > 0 && !state.intruderActive) { handleUnknownFace(); }
     }
     if (Date.now() - state.lastSeenUser > 60000 && !state.awayMode && state.phase === "chatting") {
       state.awayMode = true;
@@ -912,13 +1023,28 @@ async function checkFace() {
 
 function handleUnknownFace() {
   if (state.intruderActive) return;
-  state.intruderActive = true;
-  const panel = $("camera-panel"); if (panel) panel.classList.add("alert");
-  addMsg("system","⚠ UNKNOWN FACE DETECTED");
+  state.intruderActive    = true;
+  state.intruderAuthorized = false; // reset for this incident
+
+  const panel = $("camera-panel");
+  if (panel) panel.classList.add("alert");
+
+  addMsg("system","⚠ UNKNOWN FACE DETECTED — recording started");
   speak("I don't recognise you. Identify yourself.", () => {
-    setTimeout(() => { if (state.intruderActive) speak("Unauthorised access detected. Recording in progress."); }, 10000);
+    setTimeout(() => {
+      if (state.intruderActive && !state.intruderAuthorized) {
+        speak("Unauthorised access detected. Recording in progress.");
+      }
+    }, 10000);
   });
-  startIntruderRecord(); captureAndStoreIntruderPhoto(); updateMood(-30);
+
+  // Show the password overlay so the authorized user can dismiss the alert
+  showFaceAuthOverlay();
+
+  // Start recording — always runs for 30s regardless of overlay action
+  startIntruderRecord();
+  captureAndStoreIntruderPhoto(); // capture snapshot immediately
+  updateMood(-30);
 }
 
 function captureAndStoreIntruderPhoto() {
@@ -931,31 +1057,67 @@ function startIntruderRecord() {
   if (!state.cameraStream) return;
   state.intruderChunks = [];
   const mime = getSupportedMime();
+  const photo = captureAndStoreIntruderPhoto(); // snapshot at start
+
   try {
     const rec = new MediaRecorder(state.cameraStream, mime ? { mimeType:mime } : {});
     state.intruderRecorder = rec;
+
     rec.ondataavailable = (e) => { if (e.data?.size > 0) state.intruderChunks.push(e.data); };
-    rec.start(1000); setTimeout(() => stopIntruderRecord(), 30000);
-  } catch {}
+
+    rec.onstop = () => {
+      // Recording finished — always prompt user regardless of auth status
+      if (state.intruderChunks.length > 0) {
+        const videoBlob = new Blob(state.intruderChunks, { type: getSupportedMime() || "video/webm" });
+        const clip = {
+          videoBlob,
+          photoB64: photo,
+          timestamp: new Date().toISOString(),
+          authorized: state.intruderAuthorized,
+        };
+
+        // Hide the face auth overlay if still open (recording done)
+        hideFaceAuthOverlay();
+
+        // Clear camera alert
+        const panel = $("camera-panel");
+        if (panel) panel.classList.remove("alert");
+
+        state.intruderActive = false;
+        state.intruderChunks = [];
+
+        // Always show the clip review prompt
+        showClipReviewPrompt(clip);
+      } else {
+        state.intruderActive = false;
+        state.intruderChunks = [];
+      }
+    };
+
+    rec.start(1000);
+
+    // Stop after 30s — onstop will handle everything
+    setTimeout(() => {
+      if (state.intruderRecorder && state.intruderRecorder.state !== "inactive") {
+        state.intruderRecorder.stop();
+      }
+    }, 30000);
+
+  } catch(e) {
+    console.warn("[JARVIS] Intruder record failed:", e);
+    state.intruderActive = false;
+  }
 }
 
 function stopIntruderRecord() {
   if (!state.intruderRecorder || state.intruderRecorder.state === "inactive") return;
-  state.intruderRecorder.stop();
-  state.intruderRecorder.onstop = () => {
-    if (state.intruderChunks.length > 0) {
-      const vb = new Blob(state.intruderChunks, { type:getSupportedMime()||"video/webm" });
-      state.intruderClips.push({ videoBlob:vb, photoB64:captureAndStoreIntruderPhoto(), timestamp:new Date().toISOString() });
-    }
-    state.intruderActive = false; state.intruderChunks = [];
-    const panel = $("camera-panel"); if (panel) panel.classList.remove("alert");
-  };
+  state.intruderRecorder.stop(); // onstop handles the rest
 }
 
 function checkIntruderClips() {
   if (!state.intruderClips.length) return;
   const count = state.intruderClips.length;
-  const report = `${state.userTitle}, I have ${count} intruder ${count===1?"incident":"incidents"} recorded. Say "show me the intruder clips" to review.`;
+  const report = `${state.userTitle}, I have ${count} intruder ${count===1?"incident":"incidents"} on file. Say "show me the intruder clips" to review.`;
   addMsg("jarvis", report); speak(report); updateMood(-10);
 }
 
@@ -968,8 +1130,9 @@ function showIntruderClips() {
   addMsg("system", `📂 ${state.intruderClips.length} intruder clip(s):`);
   state.intruderClips.forEach((clip, i) => {
     const time = new Date(clip.timestamp).toLocaleTimeString();
+    const tag  = clip.authorized ? " (AUTHORIZED)" : "";
     const wrap = document.createElement("div"); wrap.className = "msg system";
-    wrap.innerHTML = `<div class="msg-label">INTRUDER #${i+1} — ${time}</div><div class="msg-text intruder-clip-block"></div>`;
+    wrap.innerHTML = `<div class="msg-label">INTRUDER #${i+1} — ${time}${tag}</div><div class="msg-text intruder-clip-block"></div>`;
     const block = wrap.querySelector(".intruder-clip-block");
     if (clip.photoB64) {
       const img = document.createElement("img"); img.src = `data:image/jpeg;base64,${clip.photoB64}`;
@@ -1080,13 +1243,11 @@ function saveClip() {
   let saved = 0;
   if (state.clipChunks.length) {
     const blob = new Blob(state.clipChunks, { type:getSupportedMime()||"video/webm" });
-    const url = URL.createObjectURL(blob); const a = document.createElement("a");
-    a.href = url; a.download = `jarvis-screen-${Date.now()}.webm`; a.click(); URL.revokeObjectURL(url); saved++;
+    downloadClipBlob(blob, `jarvis-screen-${Date.now()}.webm`); saved++;
   }
   if (state.cameraClipChunks.length) {
     const blob = new Blob(state.cameraClipChunks, { type:getSupportedMime()||"video/webm" });
-    const url = URL.createObjectURL(blob); const a = document.createElement("a");
-    a.href = url; a.download = `jarvis-camera-${Date.now()}.webm`; a.click(); URL.revokeObjectURL(url); saved++;
+    downloadClipBlob(blob, `jarvis-camera-${Date.now()}.webm`); saved++;
   }
   if (!saved) { speak(`No buffer yet, ${state.userTitle}. Give it a moment.`, () => mic.resume()); return; }
   const toast = $("clip-toast");
