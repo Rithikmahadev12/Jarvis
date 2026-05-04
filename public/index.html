@@ -24,7 +24,6 @@
       </div>
       <h1 class="jarvis-title">J.A.R.V.I.S</h1>
       <p class="jarvis-sub">Initial Configuration</p>
-
       <div class="setup-step" id="step-profile">
         <p class="setup-label">STEP 1 — CREATE YOUR PROFILE</p>
         <input type="text" id="setup-name" placeholder="Your name (e.g. Rithik)" maxlength="30" autocomplete="off"/>
@@ -37,7 +36,6 @@
         </select>
         <button id="btn-next-profile" class="hud-btn">NEXT →</button>
       </div>
-
       <div class="setup-step hidden" id="step-voice">
         <p class="setup-label">STEP 2 — TRAIN YOUR VOICE</p>
         <p class="setup-hint">Say your name out loud 3 times when recording.</p>
@@ -49,7 +47,6 @@
         <button id="btn-record-sample" class="hud-btn">🎙 RECORD SAMPLE</button>
         <button id="btn-skip-voice" class="hud-btn secondary">SKIP (use exact name only)</button>
       </div>
-
       <div class="setup-step hidden" id="step-done">
         <p class="setup-label">CONFIGURATION COMPLETE</p>
         <p class="setup-hint" id="setup-summary"></p>
@@ -96,7 +93,7 @@
     <div class="corner tl"></div><div class="corner tr"></div>
     <div class="corner bl"></div><div class="corner br"></div>
 
-    <!-- Camera feed (top-right corner) -->
+    <!-- Camera feed -->
     <div class="camera-panel" id="camera-panel">
       <div class="camera-label">VISUAL SENSORS</div>
       <video id="camera-feed" class="camera-feed" autoplay muted playsinline></video>
@@ -126,6 +123,12 @@
     <div class="transcript-area" id="transcript"></div>
     <div id="live-mic" class="live-mic hidden"></div>
 
+    <!-- TYPING BOX -->
+    <div class="type-bar">
+      <input type="text" id="type-input" placeholder="Type a command… (Enter to send)" autocomplete="off" spellcheck="false"/>
+      <button id="type-send" class="type-send-btn">⏎</button>
+    </div>
+
     <div class="hud-bottom">
       <div id="clip-indicator" class="clip-indicator hidden">
         <span class="rec-dot"></span> BUFFER RECORDING
@@ -133,11 +136,11 @@
       <div class="hints">
         <span>"Jarvis, [anything]"</span>
         <span class="sep">·</span>
-        <span>"clip that" / "save that"</span>
+        <span>"clip that"</span>
+        <span class="sep">·</span>
+        <span>"vapor link"</span>
         <span class="sep">·</span>
         <span>"how are you feeling"</span>
-        <span class="sep">·</span>
-        <span>"what's on my screen"</span>
         <span class="sep">·</span>
         <span>"Jarvis, log out"</span>
       </div>
