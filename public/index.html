@@ -87,7 +87,7 @@
     </div>
   </div>
 
-  <!-- FACE AUTH OVERLAY — shown over main screen when unknown face detected -->
+  <!-- FACE AUTH OVERLAY -->
   <div id="face-auth-overlay" class="face-auth-overlay hidden">
     <div class="face-auth-box">
       <div class="face-auth-alert-bar">
@@ -106,7 +106,7 @@
     </div>
   </div>
 
-  <!-- CLIP REVIEW OVERLAY — shown after intruder recording finishes -->
+  <!-- CLIP REVIEW OVERLAY -->
   <div id="clip-review-overlay" class="clip-review-overlay hidden">
     <div class="clip-review-box">
       <div class="clip-review-header">
@@ -128,12 +128,11 @@
     <div class="corner tl"></div><div class="corner tr"></div>
     <div class="corner bl"></div><div class="corner br"></div>
 
-    <!-- Camera feed — selector injected here by JS after enumeration -->
+    <!-- Camera feed -->
     <div class="camera-panel" id="camera-panel">
       <div class="camera-label">VISUAL SENSORS</div>
       <video id="camera-feed" class="camera-feed" autoplay muted playsinline></video>
       <div class="camera-status" id="camera-status">● OFFLINE</div>
-      <!-- camera-selector-wrap injected here dynamically -->
     </div>
 
     <div class="hud-top">
@@ -142,6 +141,9 @@
         <span class="hud-val" id="status-text">STANDBY</span>
         <span class="hud-label" style="margin-top:6px">EMOTIONAL STATE</span>
         <span class="hud-val mood-val" id="mood-display">● NEUTRAL</span>
+        <!-- LLM status indicator -->
+        <span class="hud-label" style="margin-top:6px">NEURAL ENGINE</span>
+        <span class="hud-val" id="llm-status" style="font-size:0.78rem;color:var(--amber)">LLM: STANDBY</span>
       </div>
       <div class="hud-center-col">
         <div class="orb" id="orb">
@@ -168,7 +170,7 @@
 
     <!-- TYPING BOX -->
     <div class="type-bar">
-      <input type="text" id="type-input" placeholder="Type a command… (Enter to send)" autocomplete="off" spellcheck="false"/>
+      <input type="text" id="type-input" placeholder="Type anything… (Enter to send)" autocomplete="off" spellcheck="false"/>
       <button id="type-send" class="type-send-btn">⏎</button>
     </div>
 
@@ -177,9 +179,9 @@
         <span class="rec-dot"></span> BUFFER RECORDING
       </div>
       <div class="hints">
-        <span>"Jarvis, [anything]"</span>
+        <span>"Jarvis, [anything at all]"</span>
         <span class="sep">·</span>
-        <span>"switch to camera 2"</span>
+        <span>"what's the meaning of life"</span>
         <span class="sep">·</span>
         <span>"clip that"</span>
         <span class="sep">·</span>
