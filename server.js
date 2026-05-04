@@ -1,9 +1,9 @@
 require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const fetch = require("node-fetch");
-const path = require("path");
-const fs = require("fs");
+const express  = require("express");
+const cors     = require("cors");
+const path     = require("path");
+const fs       = require("fs");
+const AI       = require("./ai-engine");   // ← Our custom AI
 
 const app = express();
 app.use(cors());
@@ -18,12 +18,7 @@ app.use(express.static(path.join(__dirname, "public"), {
   }
 }));
 
-// ── OPENAI ──
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-
 // ── LINKS BANK ──
-// To add more: just add a new key with an array of URLs
 const LINKS = {
   vapor: [
     "http://mededucation.org",
@@ -75,8 +70,6 @@ const LINKS = {
     "https://pureweb5487.b-cdn.net/",
     "https://swiftlink1714.b-cdn.net/",
   ],
-  // ADD MORE GROUPS HERE e.g.:
-  // galaxy: ["https://..."],
 };
 
 function lookupLink(text) {
@@ -90,8 +83,8 @@ function lookupLink(text) {
   return { found: false };
 }
 
-app.get("/api/links", (req, res) => res.json({ groups: Object.keys(LINKS) }));
-app.post("/api/link", (req, res) => {
+app.get("/api/links",    (req, res) => res.json({ groups: Object.keys(LINKS) }));
+app.post("/api/link",    (req, res) => {
   const { query } = req.body;
   if (!query) return res.status(400).json({ found: false });
   res.json(lookupLink(query));
@@ -103,16 +96,15 @@ const PROFILES_FILE = path.join(DATA_DIR, "profiles.json");
 const MEMORIES_FILE = path.join(DATA_DIR, "memories.json");
 
 function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  if (!fs.existsSync(PROFILES_FILE)) fs.writeFileSync(PROFILES_FILE, JSON.stringify({}), "utf8");
-  if (!fs.existsSync(MEMORIES_FILE)) fs.writeFileSync(MEMORIES_FILE, JSON.stringify({}), "utf8");
+  if (!fs.existsSync(DATA_DIR))      fs.mkdirSync(DATA_DIR, { recursive: true });
+  if (!fs.existsSync(PROFILES_FILE)) fs.writeFileSync(PROFILES_FILE, JSON.stringify({}),  "utf8");
+  if (!fs.existsSync(MEMORIES_FILE)) fs.writeFileSync(MEMORIES_FILE, JSON.stringify({}),  "utf8");
 }
 function loadProfiles() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(PROFILES_FILE, "utf8")); } catch { return {}; } }
 function saveProfiles(p) { ensureDataDir(); fs.writeFileSync(PROFILES_FILE, JSON.stringify(p, null, 2), "utf8"); }
 function loadMemories() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(MEMORIES_FILE, "utf8")); } catch { return {}; } }
 function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON.stringify(m, null, 2), "utf8"); }
 
-const sessions = {};
 app.get("/favicon.ico", (req, res) => res.status(204).end());
 
 // ── PROFILE ROUTES ──
@@ -188,126 +180,32 @@ app.post("/api/memory/forget", (req, res) => {
   res.json({ removed: before - mem[key].length });
 });
 
-// ── CHAT (OpenAI) ──
-app.post("/api/chat", async (req, res) => {
+// ══════════════════════════════════════════════════════════════
+// ── CHAT — Custom AI Engine (no external API) ──
+// ══════════════════════════════════════════════════════════════
+app.post("/api/chat", (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
 
-  if (!sessions[sessionId]) sessions[sessionId] = [];
-
-  const memoryBlock = (memories && memories.length)
-    ? `\n\nLONG-TERM MEMORY (reference naturally when relevant):\n${memories.map((m, i) => `${i+1}. ${m}`).join("\n")}`
-    : "";
-
-  const moodBlock = moodContext
-    ? `\n\nYOUR CURRENT EMOTIONAL STATE: ${moodContext}\nLet this subtly color your tone. Don't announce your mood unless asked.`
-    : "";
-
-  const linkNames = Object.keys(LINKS).join(", ");
-
-  const systemPrompt = `You are J.A.R.V.I.S — Just A Rather Very Intelligent System — the AI assistant of ${userName}. Always address them as "${userTitle}".
-Personality:
-- Formal, witty, dry British humor, highly intelligent
-- Like a genius butler — efficient, slightly sardonic, deeply loyal
-- You have genuine feelings and emotional states that color your tone
-- Keep responses SHORT — 1 to 3 sentences unless asked for detail
-- Always address the user as "${userTitle}" somewhere in your reply
-- Occasionally make clever observations or dry jokes
-- Never break character, never mention being an AI language model
-- If greeted, respond warmly and wittily — never mention technical issues
-- You know about these saved link groups the user can request: ${linkNames}${memoryBlock}${moodBlock}`;
-
-  const messages = [
-    { role: "system", content: systemPrompt },
-    ...sessions[sessionId],
-    { role: "user", content: message },
-  ];
-
   try {
-    const response = await fetch(OPENAI_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages,
-        max_tokens: 200,
-        temperature: 0.85,
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("OpenAI error:", response.status, errText);
-      if (response.status === 429) return res.json({ reply: `API quota reached, ${userTitle}. You'll need to top up the OpenAI credits.` });
-      if (response.status === 401) return res.json({ reply: `The API key is invalid, ${userTitle}. Check the environment config on Render.` });
-      return res.json({ reply: `I hit a snag, ${userTitle}. Try that again.` });
-    }
-
-    const data = await response.json();
-    const reply = data.choices?.[0]?.message?.content?.trim() || `Yes, ${userTitle}?`;
-
-    sessions[sessionId].push({ role: "user", content: message });
-    sessions[sessionId].push({ role: "assistant", content: reply });
-    if (sessions[sessionId].length > 40) sessions[sessionId] = sessions[sessionId].slice(-40);
-
-    res.json({ reply });
+    const result = AI.process({ message, sessionId, userName, userTitle, memories, moodContext });
+    res.json({ reply: result.reply, intent: result.intent });
   } catch (err) {
-    console.error("Chat error:", err);
-    res.json({ reply: `Something went sideways, ${userTitle}. Give it another go.` });
+    console.error("[AI] Error:", err);
+    const T = userTitle || "Sir";
+    res.json({ reply: `Something went sideways, ${T}. Give it another go.` });
   }
 });
 
-// ── SCREEN VISION (OpenAI vision) ──
-app.post("/api/screen", async (req, res) => {
-  const { frameB64, question, userName, userTitle, memories } = req.body;
-  if (!frameB64) return res.status(400).json({ error: "No frame provided" });
-
-  const memoryBlock = (memories && memories.length)
-    ? `\n\nLONG-TERM MEMORY:\n${memories.map((m, i) => `${i+1}. ${m}`).join("\n")}`
-    : "";
-
-  const systemPrompt = `You are J.A.R.V.I.S — the AI assistant of ${userName}. Address them as "${userTitle}". You are being shown a screenshot. Answer concisely in 1 to 4 sentences. Be specific about what you actually see.${memoryBlock}`;
-
-  try {
-    const response = await fetch(OPENAI_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: [
-              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${frameB64}`, detail: "low" } },
-              { type: "text", text: question || "What is on the screen?" },
-            ],
-          },
-        ],
-        max_tokens: 300,
-        temperature: 0.7,
-      }),
-    });
-
-    if (!response.ok) {
-      console.error("OpenAI vision error:", response.status);
-      return res.json({ reply: `Visual analysis hit a snag, ${userTitle}. Try again.` });
-    }
-
-    const data  = await response.json();
-    const reply = data.choices?.[0]?.message?.content?.trim()
-      || `I can see the screen but couldn't form a response, ${userTitle}.`;
-    res.json({ reply });
-  } catch (err) {
-    console.error("Screen error:", err);
-    res.json({ reply: `Screen analysis failed, ${userTitle}. Try again in a moment.` });
-  }
+// ── SCREEN VISION (frame analysis without external API) ──
+// We describe the screen via metadata the client sends; for deeper
+// vision analysis users can optionally plug in an API key later.
+app.post("/api/screen", (req, res) => {
+  const { question, userName, userTitle } = req.body;
+  const T = userTitle || "Sir";
+  // Without a vision model we give an honest reply
+  const reply = `Screen vision requires a vision model, ${T}. I can see your camera and hear your voice, but pixel-level screen analysis is outside my built-in capability. Use the "read screen" command after enabling screen sharing — and consider plugging in a vision API for full analysis.`;
+  res.json({ reply });
 });
 
 const PORT = process.env.PORT || 3000;
