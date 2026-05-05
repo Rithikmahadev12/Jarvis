@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Client Brain v4.0
-// Full semantic AI integration, action-based routing,
-// natural language clip/timer/link/camera control
+// J.A.R.V.I.S — Client Brain v5.0
+// StreamElements TTS (Brian voice) + Ollama LLM
+// Interrupt detection + Audio device routing
 // ═══════════════════════════════════════════════════════════════
 
 // ── STATE ──
@@ -10,8 +10,8 @@ const state = {
   user: null,
   userTitle: null,
   sessionId: crypto.randomUUID(),
-  synth: window.speechSynthesis,
   isListening: false,
+  isSpeaking: false,
   micActive: false,
   mediaRecorder: null,
   clipChunks: [],
@@ -40,7 +40,201 @@ const state = {
   tesseractWorker: null,
   tesseractReady: false,
   activeTimers: [],
+  // TTS / Audio
+  currentAudio: null,
+  audioCtx: null,
+  ttsVoice: "Brian",
+  selectedSinkId: null,   // output device
+  audioDevices: [],
+  useStreamElements: true, // true = StreamElements, false = Web Speech
+  ollamaAvailable: false,
+  // Interrupt state
+  interruptPending: false,
 };
+
+// ═══════════════════════════════════════════════════════════════
+// ── AUDIO DEVICE MANAGER ──
+// ═══════════════════════════════════════════════════════════════
+async function enumerateAudioOutputs() {
+  try {
+    await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {});
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    state.audioDevices = devices.filter(d => d.kind === "audiooutput");
+    buildAudioDeviceSelector();
+  } catch (e) {
+    console.warn("[JARVIS] Audio output enum failed:", e);
+  }
+}
+
+function buildAudioDeviceSelector() {
+  const existing = $("audio-device-wrap"); if (existing) existing.remove();
+  if (state.audioDevices.length <= 1) return;
+
+  const hud = $("hud-bottom");
+  if (!hud) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "audio-device-wrap";
+  wrap.style.cssText = "display:flex;align-items:center;gap:6px;margin-left:auto;";
+
+  const label = document.createElement("span");
+  label.style.cssText = "font-family:var(--mono);font-size:0.52rem;letter-spacing:0.15em;color:var(--text-dim);";
+  label.textContent = "🔊 OUT:";
+
+  const sel = document.createElement("select");
+  sel.id = "audio-device-select";
+  sel.style.cssText = "background:rgba(0,200,255,0.06);border:1px solid var(--blue-dim);color:var(--blue);font-family:var(--mono);font-size:0.58rem;letter-spacing:0.08em;padding:3px 6px;border-radius:3px;outline:none;cursor:pointer;max-width:160px;";
+
+  state.audioDevices.forEach((dev, i) => {
+    const opt = document.createElement("option");
+    opt.value = dev.deviceId;
+    opt.textContent = dev.label || `Speaker ${i + 1}`;
+    if (dev.deviceId === state.selectedSinkId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+
+  sel.addEventListener("change", () => {
+    state.selectedSinkId = sel.value;
+    addMsg("system", `Audio output switched.`);
+  });
+
+  wrap.appendChild(label);
+  wrap.appendChild(sel);
+
+  const hints = hud.querySelector(".hints");
+  if (hints) hud.insertBefore(wrap, hints);
+  else hud.appendChild(wrap);
+}
+
+// Attach audio to selected output device
+async function attachSink(audioElement) {
+  if (!state.selectedSinkId) return;
+  try {
+    if (typeof audioElement.setSinkId === "function") {
+      await audioElement.setSinkId(state.selectedSinkId);
+    }
+  } catch (e) {
+    console.warn("[JARVIS] setSinkId failed:", e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── STREAMELEMENTS TTS ENGINE ──
+// Uses Brian voice — deep British male, ideal for JARVIS
+// Falls back to Web Speech if StreamElements fails
+// ═══════════════════════════════════════════════════════════════
+
+async function speak(text, onEnd) {
+  if (!text || !text.trim()) { if (onEnd) onEnd(); return; }
+
+  state.isSpeaking = true;
+  setOrb("speaking");
+
+  // Stop any current speech
+  stopSpeaking();
+
+  if (state.useStreamElements) {
+    await speakStreamElements(text, onEnd);
+  } else {
+    speakWebSpeech(text, onEnd);
+  }
+}
+
+async function speakStreamElements(text, onEnd) {
+  const clean = text.replace(/[*_`#]/g, "").trim();
+
+  try {
+    const url = `/api/tts?voice=${encodeURIComponent(state.ttsVoice)}&text=${encodeURIComponent(clean)}`;
+    const audio = new Audio();
+
+    state.currentAudio = audio;
+    await attachSink(audio);
+
+    audio.src = url;
+
+    // Safety timer
+    const safetyMs = Math.max(4000, clean.length * 80);
+    let finished = false;
+    const safetyTimer = setTimeout(() => {
+      if (!finished) { finished = true; _onSpeakEnd(onEnd); }
+    }, safetyMs);
+
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(safetyTimer);
+      _onSpeakEnd(onEnd);
+    };
+
+    audio.onended  = done;
+    audio.onerror  = () => {
+      console.warn("[TTS] StreamElements failed, falling back to Web Speech");
+      clearTimeout(safetyTimer);
+      speakWebSpeech(text, onEnd);
+    };
+
+    await audio.play().catch(() => {
+      // Autoplay blocked — try Web Speech
+      speakWebSpeech(text, onEnd);
+    });
+
+  } catch (err) {
+    console.warn("[TTS] Error:", err);
+    speakWebSpeech(text, onEnd);
+  }
+}
+
+const MALE_VOICE_NAMES   = ["Google UK English Male","Microsoft George - English (United Kingdom)","Daniel","Arthur","James","Thomas"];
+const FEMALE_VOICE_NAMES = ["Google UK English Female","Samantha","Karen","Victoria","Susan"];
+
+function pickVoice() {
+  const voices = window.speechSynthesis.getVoices();
+  if (!voices.length) return null;
+  for (const name of MALE_VOICE_NAMES) {
+    const v = voices.find(v => v.name === name || v.name.includes(name));
+    if (v) return v;
+  }
+  return voices.find(v => v.lang === "en-GB") || voices.find(v => v.lang.startsWith("en")) || null;
+}
+
+function speakWebSpeech(text, onEnd) {
+  const synth = window.speechSynthesis;
+  synth.cancel();
+
+  const utter   = new SpeechSynthesisUtterance(text);
+  utter.rate    = 0.93;
+  utter.pitch   = 0.72;
+  utter.volume  = 1;
+  const tryVoice = () => { const v = pickVoice(); if (v) utter.voice = v; };
+  tryVoice(); if (!utter.voice) setTimeout(tryVoice, 150);
+
+  const safetyMs = Math.max(3500, text.length * 75);
+  let finished = false;
+  const safetyTimer = setTimeout(() => { if (!finished) { finished = true; _onSpeakEnd(onEnd); } }, safetyMs);
+
+  const done = () => { if (finished) return; finished = true; clearTimeout(safetyTimer); _onSpeakEnd(onEnd); };
+  utter.onend   = done;
+  utter.onerror = done;
+  synth.speak(utter);
+}
+
+function _onSpeakEnd(onEnd) {
+  state.isSpeaking = false;
+  state.currentAudio = null;
+  setOrb("idle");
+  if (onEnd) onEnd();
+}
+
+function stopSpeaking() {
+  // Stop Audio element
+  if (state.currentAudio) {
+    try { state.currentAudio.pause(); state.currentAudio.src = ""; } catch (_) {}
+    state.currentAudio = null;
+  }
+  // Stop Web Speech
+  try { window.speechSynthesis.cancel(); } catch (_) {}
+  state.isSpeaking = false;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // ── NOTIFICATION SYSTEM ──
@@ -174,7 +368,7 @@ async function restoreProfileFromBackend() {
   const nameHint = localStorage.getItem("jarvis_name_hint");
   if (!nameHint) return null;
   try {
-    const res = await fetch(`/api/profile/${encodeURIComponent(nameHint)}`);
+    const res  = await fetch(`/api/profile/${encodeURIComponent(nameHint)}`);
     const data = await res.json();
     if (data.found) return { ...data.profile, passwordHash: localStorage.getItem("jarvis_pw_hash") || "" };
   } catch (e) { console.warn("[JARVIS] Backend restore failed:", e); }
@@ -227,105 +421,7 @@ async function ocrScreenFrame() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── VOICE ENGINE ──
-// ═══════════════════════════════════════════════════════════════
-const MALE_VOICE_NAMES   = ["Google UK English Male","Microsoft George - English (United Kingdom)","Microsoft David Desktop - English (United States)","Microsoft Mark - English (United States)","Daniel","Alex","Fred","Thomas","Arthur","James"];
-const FEMALE_VOICE_NAMES = ["Google UK English Female","Google US English","Samantha","Karen","Moira","Tessa","Fiona","Victoria","Serena","Susan","Nicky"];
-
-function pickVoice() {
-  const voices = state.synth.getVoices(); if (!voices.length) return null;
-  const wantMale = (state.userTitle === "Sir");
-  if (wantMale) {
-    for (const name of MALE_VOICE_NAMES) { const v = voices.find(v => v.name === name || v.name.includes(name)); if (v) return v; }
-    const enGB = voices.find(v => v.lang === "en-GB" && !FEMALE_VOICE_NAMES.some(n => v.name.includes(n)));
-    if (enGB) return enGB;
-    return voices.find(v => v.lang.startsWith("en")) || null;
-  }
-  return voices.find(v => v.name === "Google UK English Male") || voices.find(v => v.name.includes("Daniel")) || voices.find(v => v.lang === "en-GB") || voices.find(v => v.lang.startsWith("en")) || null;
-}
-window.speechSynthesis.onvoiceschanged = () => {};
-
-function speak(text, onEnd) {
-  state.synth.cancel();
-  const utter = new SpeechSynthesisUtterance(text);
-  utter.rate   = 0.93;
-  utter.pitch  = (state.userTitle === "Sir") ? 0.75 : 0.8;
-  utter.volume = 1;
-  const trySetVoice = () => { const v = pickVoice(); if (v) utter.voice = v; };
-  trySetVoice();
-  if (!utter.voice) setTimeout(trySetVoice, 150);
-  const safetyMs = Math.max(3500, text.length * 75);
-  let finished = false;
-  const safetyTimer = setTimeout(() => { if (!finished) { finished = true; setOrb("idle"); if (onEnd) onEnd(); } }, safetyMs);
-  const done = () => { if (finished) return; finished = true; clearTimeout(safetyTimer); setOrb("idle"); if (onEnd) onEnd(); };
-  utter.onstart = () => setOrb("speaking");
-  utter.onend   = done;
-  utter.onerror = done;
-  state.synth.speak(utter);
-}
-
-function setOrb(s) {
-  const orb = $("orb"); if (!orb) return;
-  orb.className = "orb" + (s !== "idle" ? " " + s : "");
-  const labels = { idle: "STANDBY", listening: "LISTENING", thinking: "PROCESSING", speaking: "SPEAKING" };
-  const st = $("status-text"); if (st) st.textContent = labels[s] || "STANDBY";
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── CAMERA ──
-// ═══════════════════════════════════════════════════════════════
-async function enumerateCameras() {
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    state.availableCameras = devices.filter(d => d.kind === "videoinput");
-    buildCameraSelector();
-  } catch (e) {}
-}
-
-function buildCameraSelector() {
-  const existing = $("camera-selector-wrap"); if (existing) existing.remove();
-  if (state.availableCameras.length <= 1) return;
-  const panel = $("camera-panel"); if (!panel) return;
-  const wrap = document.createElement("div"); wrap.id = "camera-selector-wrap";
-  wrap.style.cssText = "display:flex;align-items:center;gap:6px;margin-top:4px;";
-  const label = document.createElement("span");
-  label.style.cssText = "font-family:var(--mono);font-size:0.52rem;letter-spacing:0.15em;color:var(--text-dim);";
-  label.textContent = "CAM:";
-  const sel = document.createElement("select"); sel.id = "camera-select";
-  sel.style.cssText = "background:rgba(0,200,255,0.06);border:1px solid var(--blue-dim);color:var(--blue);font-family:var(--mono);font-size:0.58rem;letter-spacing:0.1em;padding:3px 6px;border-radius:3px;outline:none;cursor:pointer;width:120px;";
-  state.availableCameras.forEach((cam, i) => {
-    const opt = document.createElement("option");
-    opt.value = cam.deviceId; opt.textContent = cam.label || `Camera ${i + 1}`;
-    if (cam.deviceId === state.selectedCameraId) opt.selected = true;
-    sel.appendChild(opt);
-  });
-  sel.addEventListener("change", () => { state.selectedCameraId = sel.value; switchCamera(sel.value); });
-  wrap.appendChild(label); wrap.appendChild(sel); panel.appendChild(wrap);
-}
-
-async function switchCamera(deviceId) {
-  if (state.cameraStream) { state.cameraStream.getTracks().forEach(t => t.stop()); state.cameraStream = null; }
-  if (state.cameraRecorder && state.cameraRecorder.state !== "inactive") { state.cameraRecorder.stop(); state.cameraRecorder = null; }
-  state.cameraClipChunks = []; state.cameraClipTimestamps = [];
-  addMsg("system", "Switching camera…");
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { deviceId: { exact: deviceId }, width: 640, height: 480, frameRate: 15 }, audio: false
-    });
-    state.cameraStream = stream; state.selectedCameraId = deviceId;
-    const vid = $("camera-feed"); if (vid) { vid.srcObject = stream; vid.play(); }
-    startCameraBuffer(stream);
-    state.faceDescriptors = null; await enrollUserFace();
-    const reply = `Camera switched, ${state.userTitle}. Visual sensors updated.`;
-    addMsg("jarvis", reply); speak(reply); updateMood(2);
-  } catch {
-    const reply = `Camera switch failed, ${state.userTitle}. The device may be in use.`;
-    addMsg("jarvis", reply); speak(reply);
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── MIC ENGINE ──
+// ── MIC ENGINE with INTERRUPT DETECTION ──
 // ═══════════════════════════════════════════════════════════════
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const mic = {
@@ -353,22 +449,46 @@ const mic = {
     const r = new SR();
     r.lang = "en-US"; r.continuous = true; r.interimResults = true; r.maxAlternatives = 5;
     this.rec = r; this.active = true; state.isListening = true;
-    setOrb(state.phase === "chatting" ? "listening" : "idle");
 
     r.onresult = (e) => {
       this.retryCount = 0;
       const result = e.results[e.results.length - 1];
+
       if (result.isFinal) {
         let bestText = result[0].transcript.trim(), bestConf = result[0].confidence || 0;
         for (let i = 1; i < result.length; i++) {
           if ((result[i].confidence || 0) > bestConf) { bestConf = result[i].confidence; bestText = result[i].transcript.trim(); }
         }
         if (!bestText) return;
-        updateLiveHearing(""); updateMicDebug(`Mic: "${bestText}" (${(bestConf * 100).toFixed(0)}%)`);
+        updateLiveHearing(""); updateMicDebug(`Mic: "${bestText}" (${(bestConf*100).toFixed(0)}%)`);
+
+        // ── INTERRUPT DETECTION ──
+        // If JARVIS is currently speaking, a wake word immediately interrupts
+        if (state.isSpeaking && hasWakeWord(bestText.toLowerCase())) {
+          stopSpeaking();
+          addMsg("system", "Interrupted.");
+          const stripped = stripWakeWord(bestText);
+          if (stripped.trim().length > 1) {
+            if (this.onResult) this.onResult(stripped);
+          } else {
+            // Just the wake word alone — acknowledge
+            const acks = [`Yes, ${state.userTitle}?`, `At your service.`, `How can I help?`];
+            const ack = acks[Math.floor(Math.random() * acks.length)];
+            addMsg("jarvis", ack); speak(ack, () => mic.resume());
+          }
+          return;
+        }
+
         if (this.onResult) this.onResult(bestText);
       } else if (result[0]) {
         const interim = result[0].transcript.trim();
         updateLiveHearing(interim); updateMicDebug("Mic: " + interim + "…");
+
+        // Interim interrupt: if speaking and "jarvis" is in partial text, flag it
+        if (state.isSpeaking && hasWakeWord(interim.toLowerCase())) {
+          state.interruptPending = true;
+        }
+
         if (this.onInterim) this.onInterim(interim);
       }
     };
@@ -406,6 +526,7 @@ const mic = {
   resume()  { if (!this.suspended) return; this.suspended = false; this.retryCount = 0; updateMicDebug("Mic: resuming…"); this._launch(); },
 };
 
+// Keep mic alive
 setInterval(() => {
   if ((state.phase === "chatting" || state.phase === "idle") && !mic.suspended && !mic.active && !mic.retryTimer) mic._launch();
 }, 2000);
@@ -603,12 +724,31 @@ async function checkVoiceAuth(spokenText) {
 // ═══════════════════════════════════════════════════════════════
 // ── LAUNCH MAIN ──
 // ═══════════════════════════════════════════════════════════════
-function launchMain() {
+async function launchMain() {
   state.phase = "chatting";
   $("auth-screen").classList.remove("active");
   $("main-screen").classList.add("active");
   $("user-display").textContent = `${state.user} / ${state.userTitle}`;
   state.lastInteraction = Date.now(); updateMood(20);
+
+  // Check Ollama availability
+  try {
+    const res = await fetch("/api/ollama/status");
+    const data = await res.json();
+    state.ollamaAvailable = data.available && data.hasModel;
+    const llmEl = $("llm-status");
+    if (llmEl) {
+      llmEl.textContent = state.ollamaAvailable
+        ? `LLM: ${data.model} ● ONLINE`
+        : data.available
+          ? `LLM: MODEL NOT PULLED — run: ollama pull ${data.model}`
+          : "LLM: OFFLINE — run: ollama serve";
+      llmEl.style.color = state.ollamaAvailable ? "var(--green)" : "var(--amber)";
+    }
+  } catch {
+    const llmEl = $("llm-status");
+    if (llmEl) { llmEl.textContent = "LLM: OFFLINE"; llmEl.style.color = "var(--amber)"; }
+  }
 
   notif.init().then(() => {
     addMsg("system", notif.perms === "granted"
@@ -616,19 +756,59 @@ function launchMain() {
       : "Push notifications not granted. Say \"notification settings\" to enable.");
   });
 
+  // Enumerate audio devices
+  await enumerateAudioOutputs();
+
   const greetings = [
     `All systems online, ${state.userTitle}. Cognitive engine active. Just talk to me — no commands to memorise.`,
     `Good to have you back, ${state.userTitle}. Full semantic reasoning active — say anything naturally.`,
     `Online and operational, ${state.userTitle}. Ask me anything, tell me to clip something, open a link, set a timer — just say it how you'd say it.`,
   ];
-  addMsg("system", greetings[Math.floor(Math.random() * greetings.length)]);
+  const greeting = greetings[Math.floor(Math.random() * greetings.length)];
+  addMsg("system", greeting);
 
   requestScreenRecord();
   requestCameraAccess();
   setupTypingBox();
+  setupTTSToggle();
   startChatListening();
   initTesseract();
   setTimeout(() => checkIntruderClips(), 2000);
+}
+
+// ── TTS TOGGLE ──
+function setupTTSToggle() {
+  // Create a small TTS mode button in the HUD
+  const hud = $("hud-bottom"); if (!hud) return;
+  const existing = $("tts-toggle-wrap"); if (existing) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "tts-toggle-wrap";
+  wrap.style.cssText = "display:flex;align-items:center;gap:6px;flex-shrink:0;";
+
+  const label = document.createElement("span");
+  label.style.cssText = "font-family:var(--mono);font-size:0.52rem;letter-spacing:0.15em;color:var(--text-dim);";
+  label.textContent = "VOICE:";
+
+  const btn = document.createElement("button");
+  btn.id = "tts-toggle-btn";
+  btn.style.cssText = "background:transparent;border:1px solid var(--blue-dim);color:var(--blue);font-family:var(--mono);font-size:0.58rem;letter-spacing:0.1em;padding:3px 8px;border-radius:3px;cursor:pointer;";
+  btn.textContent = "BRIAN";
+  btn.title = "Toggle between StreamElements Brian and Web Speech";
+
+  btn.addEventListener("click", () => {
+    state.useStreamElements = !state.useStreamElements;
+    btn.textContent = state.useStreamElements ? "BRIAN" : "WEB";
+    btn.style.borderColor = state.useStreamElements ? "var(--blue-dim)" : "var(--amber)";
+    btn.style.color = state.useStreamElements ? "var(--blue)" : "var(--amber)";
+    addMsg("system", `Voice: ${state.useStreamElements ? "StreamElements Brian" : "Web Speech"}`);
+  });
+
+  wrap.appendChild(label); wrap.appendChild(btn);
+
+  const micDbg = hud.querySelector(".mic-debug");
+  if (micDbg) hud.insertBefore(wrap, micDbg);
+  else hud.appendChild(wrap);
 }
 
 // ── CHAT LISTENING ──
@@ -645,7 +825,7 @@ function setupTypingBox() {
   const input = $("type-input"), btn = $("type-send"); if (!input || !btn) return;
   const submit = () => {
     const text = input.value.trim(); if (!text || state.phase !== "chatting") return;
-    input.value = ""; handleChatCommand(text);
+    input.value = ""; handleChatCommand(text, true); // true = typed, skip wake word gate
   };
   btn.addEventListener("click", submit);
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } e.stopPropagation(); });
@@ -655,35 +835,35 @@ function setupTypingBox() {
 
 // ═══════════════════════════════════════════════════════════════
 // ── CHAT COMMAND HANDLER ──
-// Everything routes to AI — it figures out intent
 // ═══════════════════════════════════════════════════════════════
-function handleChatCommand(text) {
+function handleChatCommand(text, isTyped = false) {
   const lower = text.toLowerCase();
   state.lastInteraction = Date.now();
   state.interactionCount++;
   updateMood(3);
 
-  const hasWake = hasWakeWord(lower);
-  const cleaned = hasWake ? stripWakeWord(text) : text;
+  const hasWake = isTyped || hasWakeWord(lower);
+  const cleaned = hasWake ? (isTyped ? text : stripWakeWord(text)) : text;
 
-  // Wake word gate for non-recent interactions (after first few turns)
-  const recentlyActive = (Date.now() - state.lastInteraction) < 30000;
-  if (!hasWake && !recentlyActive && state.interactionCount > 3) {
-    updateLiveHearing(""); return;
+  // Wake word gate for voice (not for typing)
+  if (!isTyped) {
+    const recentlyActive = (Date.now() - state.lastInteraction) < 30000;
+    if (!hasWake && !recentlyActive && state.interactionCount > 3) {
+      updateLiveHearing(""); return;
+    }
   }
 
   if (!cleaned || cleaned.trim().length < 1) {
     const acks = [`Yes, ${state.userTitle}?`, `At your service, ${state.userTitle}.`, `How can I help, ${state.userTitle}?`];
     const ack = acks[Math.floor(Math.random() * acks.length)];
-    addMsg("jarvis", ack); speak(ack); return;
+    addMsg("jarvis", ack); speak(ack, () => mic.resume()); return;
   }
 
-  // Everything goes to AI — semantic routing handles it all
   sendToAI(cleaned);
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── AI CHAT — action-aware ──
+// ── AI CHAT ──
 // ═══════════════════════════════════════════════════════════════
 async function sendToAI(message) {
   mic.suspend();
@@ -695,28 +875,18 @@ async function sendToAI(message) {
     const res  = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message,
-        sessionId:   state.sessionId,
-        userName:    state.user,
-        userTitle:   state.userTitle,
-        memories,
-        moodContext: moodCtx,
-      }),
+      body: JSON.stringify({ message, sessionId: state.sessionId, userName: state.user, userTitle: state.userTitle, memories, moodContext: moodCtx }),
     });
     const data  = await res.json();
     const reply = data.reply || `Yes, ${state.userTitle}?`;
-
     addMsg("jarvis", reply);
     updateMood(5);
 
-    // Route to action handler if AI returned an action
     if (data.action && data.meta) {
       await handleAction(data.action, data.meta, reply);
     } else {
       speak(reply, () => mic.resume());
     }
-
   } catch (err) {
     console.error("[JARVIS] AI error:", err);
     const fb = `Something went sideways, ${state.userTitle}. Give it another go.`;
@@ -726,43 +896,32 @@ async function sendToAI(message) {
 
 // ═══════════════════════════════════════════════════════════════
 // ── ACTION HANDLER ──
-// Executes side effects based on AI-returned action codes
 // ═══════════════════════════════════════════════════════════════
 async function handleAction(action, meta, replyText) {
   const T = state.userTitle || "Sir";
 
   switch (action) {
-
-    // ── SHOW ALL LINKS ──
     case "SHOW_LINKS": {
       speak(replyText, () => mic.resume());
       if (meta.linkGroups && meta.linkGroups.length > 0) {
         const wrap = document.createElement("div"); wrap.className = "msg system";
         let html = `<div class="msg-label">J.A.R.V.I.S — LINK BANK (${meta.total} total)</div><div class="msg-text link-bank-display">`;
         for (const group of meta.linkGroups) {
-          html += `<div class="link-group">`;
-          html += `<div class="link-group-name">${group.name.toUpperCase()} <span class="link-count">(${group.count})</span></div>`;
+          html += `<div class="link-group"><div class="link-group-name">${group.name.toUpperCase()} <span class="link-count">(${group.count})</span></div>`;
           if (group.count <= 5) {
-            for (const url of group.urls) {
-              html += `<a href="${url}" target="_blank" rel="noopener" class="jarvis-link link-item">${url}</a>`;
-            }
+            for (const url of group.urls) html += `<a href="${url}" target="_blank" rel="noopener" class="jarvis-link link-item">${url}</a>`;
           } else {
-            for (const url of group.urls.slice(0, 3)) {
-              html += `<a href="${url}" target="_blank" rel="noopener" class="jarvis-link link-item">${url}</a>`;
-            }
-            html += `<span class="link-more">… and ${group.count - 3} more. Say "${group.name}" to open a random one.</span>`;
+            for (const url of group.urls.slice(0, 3)) html += `<a href="${url}" target="_blank" rel="noopener" class="jarvis-link link-item">${url}</a>`;
+            html += `<span class="link-more">… and ${group.count - 3} more. Say "${group.name}" to open one.</span>`;
           }
           html += `</div>`;
         }
         html += `</div>`;
         wrap.innerHTML = html;
-        $("transcript").appendChild(wrap);
-        $("transcript").scrollTop = $("transcript").scrollHeight;
+        $("transcript").appendChild(wrap); $("transcript").scrollTop = $("transcript").scrollHeight;
       }
       break;
     }
-
-    // ── OPEN LINK ──
     case "OPEN_LINK": {
       if (meta.found) {
         const wrap = document.createElement("div"); wrap.className = "msg jarvis";
@@ -774,8 +933,6 @@ async function handleAction(action, meta, replyText) {
       }
       break;
     }
-
-    // ── CLIP SAVE — natural duration support ──
     case "CLIP_SAVE": {
       speak(replyText, () => {
         const clipType = meta.clipType || "both";
@@ -789,7 +946,7 @@ async function handleAction(action, meta, replyText) {
           downloadClipBlob(blob, `jarvis-camera-${Date.now()}.webm`); saved++;
         }
         if (!saved) {
-          const noBufferMsg = `No buffer available yet, ${T}. The rolling buffer needs a moment to fill — try again in a few seconds.`;
+          const noBufferMsg = `No buffer available yet, ${T}. Give it a few seconds.`;
           addMsg("jarvis", noBufferMsg); speak(noBufferMsg, () => mic.resume()); return;
         }
         const toast = $("clip-toast");
@@ -798,23 +955,17 @@ async function handleAction(action, meta, replyText) {
       });
       break;
     }
-
-    // ── SHOW INTRUDER CLIPS ──
     case "SHOW_CLIPS": {
       speak(replyText, () => { showIntruderClips(); mic.resume(); });
       break;
     }
-
-    // ── READ SCREEN ──
     case "READ_SCREEN": {
       speak(replyText, () => {});
       await readScreen(meta.question || "What's on my screen?");
       break;
     }
-
-    // ── SWITCH CAMERA ──
     case "SWITCH_CAMERA": {
-      if (meta.switchCamera && meta.cameraIndex >= 0) {
+      if (meta.switchCamera !== false && typeof meta.cameraIndex === "number" && meta.cameraIndex >= 0) {
         speak(replyText, () => {});
         if (state.availableCameras[meta.cameraIndex]) {
           await switchCamera(state.availableCameras[meta.cameraIndex].deviceId);
@@ -827,22 +978,16 @@ async function handleAction(action, meta, replyText) {
       }
       break;
     }
-
-    // ── TIMER ──
     case "TIMER": {
       if (meta.action === "TIMER_SET" && meta.duration) {
         speak(replyText, () => mic.resume());
         showTimerBadge(meta.duration, meta.task);
         const timerId = setTimeout(() => {
           const task = meta.task ? ` — remember to ${meta.task}` : "";
-          const alertMsg = `${T}, your timer is up${task}. That was ${formatDurationClient(meta.duration)}.`;
-          addMsg("jarvis", alertMsg);
-          speak(alertMsg);
-          notif.tone("timer");
-          notif.push("⏱ J.A.R.V.I.S — Timer", alertMsg, "timer", true);
-          hideTimerBadge(timerId);
-          const orb = $("orb");
-          if (orb) { orb.classList.add("speaking"); setTimeout(() => orb.classList.remove("speaking"), 3000); }
+          const alertMsg = `${T}, your timer is up${task}.`;
+          addMsg("jarvis", alertMsg); speak(alertMsg);
+          notif.tone("timer"); notif.push("⏱ J.A.R.V.I.S — Timer", alertMsg, "timer", true);
+          hideTimerBadge();
         }, meta.duration);
         state.activeTimers.push({ id: timerId, duration: meta.duration, task: meta.task, startedAt: Date.now() });
       } else {
@@ -850,32 +995,16 @@ async function handleAction(action, meta, replyText) {
       }
       break;
     }
-
-    // ── NOTIF SETTINGS ──
     case "NOTIF_SETTINGS": {
       speak(replyText, () => {}); showNotifSettings(); break;
     }
-
-    // ── LOGOUT ──
     case "LOGOUT": {
       speak(replyText, () => {}); setTimeout(() => handleLogout(), 800); break;
     }
-
-    // ── MEMORY SAVE / FORGET (handled server-side, just speak) ──
-    case "MEMORY_SAVE":
-    case "MEMORY_FORGET":
-    case "MEMORY_RECALL":
-    case "SYSTEM_STATUS":
-    case "CAPABILITIES":
-    case "IDENTITY":
-    case "GREETING":
-    case "THANKS":
-    case "MOOD_QUERY":
-    case "PERSONAL":
-    case "KNOWLEDGE":
-    case "MATH":
-    case "COMPARISON":
-    case "OPINION":
+    case "MATH": {
+      // meta.result may have the computed value
+      speak(replyText, () => mic.resume()); break;
+    }
     default: {
       speak(replyText, () => mic.resume()); break;
     }
@@ -900,34 +1029,34 @@ function showTimerBadge(durationMs, task) {
   }, 1000);
   badge._tick = tick;
 }
-function hideTimerBadge(timerId) {
+function hideTimerBadge() {
   const badge = $("timer-badge-el"); if (!badge) return;
   if (badge._tick) clearInterval(badge._tick);
   badge.classList.add("hidden");
 }
-
-// ── DURATION FORMATTER (client) ──
 function formatDurationClient(ms) {
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
+  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), s = Math.floor((ms % 60000) / 1000);
   const parts = [];
-  if (h) parts.push(`${h}h`);
-  if (m) parts.push(`${m}m`);
-  if (s && !h) parts.push(`${s}s`);
+  if (h) parts.push(`${h}h`); if (m) parts.push(`${m}m`); if (s && !h) parts.push(`${s}s`);
   return parts.join(" ") || "0s";
 }
 
+// ── ORB ──
+function setOrb(s) {
+  const orb = $("orb"); if (!orb) return;
+  orb.className = "orb" + (s !== "idle" ? " " + s : "");
+  const labels = { idle: "STANDBY", listening: "LISTENING", thinking: "PROCESSING", speaking: "SPEAKING" };
+  const st = $("status-text"); if (st) st.textContent = labels[s] || "STANDBY";
+}
+
 // ═══════════════════════════════════════════════════════════════
-// ── NOTIFICATION SETTINGS OVERLAY ──
+// ── NOTIFICATION SETTINGS ──
 // ═══════════════════════════════════════════════════════════════
 function showNotifSettings() {
   mic.suspend();
   let overlay = $("notif-settings-overlay");
   if (!overlay) {
-    overlay = document.createElement("div");
-    overlay.id = "notif-settings-overlay";
-    overlay.className = "notif-settings-overlay";
+    overlay = document.createElement("div"); overlay.id = "notif-settings-overlay"; overlay.className = "notif-settings-overlay";
     overlay.innerHTML = `
       <div class="notif-settings-box">
         <div class="notif-settings-header">
@@ -943,22 +1072,10 @@ function showNotifSettings() {
         </div>
         <div class="notif-section">
           <div class="notif-section-label">ALERT CHANNELS</div>
-          <div class="notif-row">
-            <div class="notif-row-info"><span class="notif-row-dot red"></span><div><div class="notif-row-title">Intruder detection</div><div class="notif-row-sub">Push + alarm tone</div></div></div>
-            <label class="notif-toggle"><input type="checkbox" id="nt-intruder" ${notif.cfg.intruder ? "checked" : ""}><span class="notif-slider"></span></label>
-          </div>
-          <div class="notif-row">
-            <div class="notif-row-info"><span class="notif-row-dot amber"></span><div><div class="notif-row-title">Away mode</div><div class="notif-row-sub">Push + descending chime</div></div></div>
-            <label class="notif-toggle"><input type="checkbox" id="nt-away" ${notif.cfg.away ? "checked" : ""}><span class="notif-slider"></span></label>
-          </div>
-          <div class="notif-row">
-            <div class="notif-row-info"><span class="notif-row-dot blue"></span><div><div class="notif-row-title">User return</div><div class="notif-row-sub">Push + ascending welcome tone</div></div></div>
-            <label class="notif-toggle"><input type="checkbox" id="nt-return" ${notif.cfg.return ? "checked" : ""}><span class="notif-slider"></span></label>
-          </div>
-          <div class="notif-row">
-            <div class="notif-row-info"><span class="notif-row-dot green"></span><div><div class="notif-row-title">System events</div><div class="notif-row-sub">Subtle ping</div></div></div>
-            <label class="notif-toggle"><input type="checkbox" id="nt-system" ${notif.cfg.system ? "checked" : ""}><span class="notif-slider"></span></label>
-          </div>
+          <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot red"></span><div><div class="notif-row-title">Intruder detection</div><div class="notif-row-sub">Push + alarm tone</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-intruder" ${notif.cfg.intruder?"checked":""}><span class="notif-slider"></span></label></div>
+          <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot amber"></span><div><div class="notif-row-title">Away mode</div><div class="notif-row-sub">Push + descending chime</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-away" ${notif.cfg.away?"checked":""}><span class="notif-slider"></span></label></div>
+          <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot blue"></span><div><div class="notif-row-title">User return</div><div class="notif-row-sub">Push + ascending welcome tone</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-return" ${notif.cfg.return?"checked":""}><span class="notif-slider"></span></label></div>
+          <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot green"></span><div><div class="notif-row-title">System events</div><div class="notif-row-sub">Subtle ping</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-system" ${notif.cfg.system?"checked":""}><span class="notif-slider"></span></label></div>
         </div>
         <div class="notif-section">
           <div class="notif-section-label">TEST ALERTS</div>
@@ -971,28 +1088,21 @@ function showNotifSettings() {
         </div>
       </div>`;
     document.body.appendChild(overlay);
-
     $("notif-close-btn").addEventListener("click", hideNotifSettings);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) hideNotifSettings(); });
     $("notif-perm-btn")?.addEventListener("click", () => notif.requestPerm());
-
     const toggleMap = { "nt-intruder":"intruder","nt-away":"away","nt-return":"return","nt-system":"system" };
-    for (const [id, key] of Object.entries(toggleMap)) {
-      $(id)?.addEventListener("change", (e) => { notif.cfg[key] = e.target.checked; });
-    }
-
+    for (const [id, key] of Object.entries(toggleMap)) $(id)?.addEventListener("change", (e) => { notif.cfg[key] = e.target.checked; });
     const testT = state.userTitle || "Sir";
-    $("ntest-intruder").addEventListener("click", () => { notif.tone("intruder"); notif.push("⚠ J.A.R.V.I.S — TEST", `Test: intruder alert, ${testT}.`, "test-intruder"); });
-    $("ntest-away").addEventListener("click",     () => { notif.tone("away");     notif.push("J.A.R.V.I.S — TEST", `Test: away mode, ${testT}.`, "test-away"); });
-    $("ntest-return").addEventListener("click",   () => { notif.tone("return");   notif.push("J.A.R.V.I.S — TEST", `Test: welcome back, ${testT}.`, "test-return"); });
-    $("ntest-system").addEventListener("click",   () => { notif.tone("system");   notif.push("J.A.R.V.I.S — TEST", "Test: system ping.", "test-system"); });
+    $("ntest-intruder").addEventListener("click", () => { notif.tone("intruder"); notif.push("⚠ TEST","Intruder alert test.","test-i"); });
+    $("ntest-away").addEventListener("click",     () => { notif.tone("away");     notif.push("TEST","Away mode test.","test-a"); });
+    $("ntest-return").addEventListener("click",   () => { notif.tone("return");   notif.push("TEST","Return test.","test-r"); });
+    $("ntest-system").addEventListener("click",   () => { notif.tone("system");   notif.push("TEST","System ping.","test-s"); });
   }
-
   overlay.classList.remove("hidden");
   updateNotifPermDisplay();
   addMsg("system", "Notification settings open.");
 }
-
 function hideNotifSettings() {
   const overlay = $("notif-settings-overlay"); if (overlay) overlay.classList.add("hidden");
   if (state.phase === "chatting") mic.resume();
@@ -1007,30 +1117,21 @@ function showFaceAuthOverlay() {
         dismiss = $("face-auth-dismiss");
   overlay.classList.remove("hidden");
   pwInput.value = ""; errMsg.classList.add("hidden"); pwInput.focus();
-
-  const newSubmit  = submit.cloneNode(true), newDismiss = dismiss.cloneNode(true);
-  submit.parentNode.replaceChild(newSubmit, submit);
-  dismiss.parentNode.replaceChild(newDismiss, dismiss);
-
+  const nK = submit.cloneNode(true), nDi = dismiss.cloneNode(true);
+  submit.parentNode.replaceChild(nK, submit);
+  dismiss.parentNode.replaceChild(nDi, dismiss);
   const attemptAuth = async () => {
     const pw = $("face-auth-password").value; if (!pw) return;
-    const hash = await hashPassword(pw), profile = loadProfile();
-    let authorized = false;
-    if (profile && hash === profile.passwordHash) { authorized = true; }
+    const hash = await hashPassword(pw), profile = loadProfile(); let authorized = false;
+    if (profile && hash === profile.passwordHash) authorized = true;
     else {
       const nameHint = localStorage.getItem("jarvis_name_hint");
-      if (nameHint) {
-        try {
-          const res  = await fetch("/api/verify", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ name: nameHint, passwordHash: hash }) });
-          const data = await res.json();
-          if (data.authorized) authorized = true;
-        } catch {}
-      }
+      if (nameHint) { try { const res = await fetch("/api/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:nameHint,passwordHash:hash})}); const data = await res.json(); if (data.authorized) authorized = true; } catch {} }
     }
     if (authorized) {
       state.intruderAuthorized = true; hideFaceAuthOverlay();
-      const panel = $("camera-panel"); if (panel) panel.classList.remove("alert");
-      const reply = `Access authorized, ${state.userTitle}. Recording is still completing.`;
+      $("camera-panel")?.classList.remove("alert");
+      const reply = `Access authorized, ${state.userTitle}. Recording is completing.`;
       addMsg("jarvis", reply); speak(reply); updateMood(10);
     } else {
       const errEl = $("face-auth-error"); errEl.classList.remove("hidden");
@@ -1038,10 +1139,9 @@ function showFaceAuthOverlay() {
       setTimeout(() => errEl.classList.add("hidden"), 2500);
     }
   };
-
   $("face-auth-submit").addEventListener("click", attemptAuth);
   $("face-auth-password").addEventListener("keydown", (e) => { if (e.key === "Enter") attemptAuth(); });
-  $("face-auth-dismiss").addEventListener("click", () => { hideFaceAuthOverlay(); addMsg("system", "Overlay dismissed. Incident recording continues."); });
+  $("face-auth-dismiss").addEventListener("click", () => { hideFaceAuthOverlay(); addMsg("system", "Overlay dismissed. Recording continues."); });
 }
 function hideFaceAuthOverlay() { $("face-auth-overlay").classList.add("hidden"); }
 
@@ -1050,38 +1150,16 @@ function hideFaceAuthOverlay() { $("face-auth-overlay").classList.add("hidden");
 // ═══════════════════════════════════════════════════════════════
 function showClipReviewPrompt(clip) {
   const overlay = $("clip-review-overlay"), subText = $("clip-review-sub"),
-        keepBtn = $("clip-review-keep"),    dlBtn   = $("clip-review-download"),
-        discardBtn = $("clip-review-discard");
-
-  subText.textContent = state.intruderAuthorized
-    ? "You authorized this visit — the recording completed. Keep the clip?"
-    : "Unauthorized face detected. The recording is complete. Keep this incident clip?";
+        keepBtn = $("clip-review-keep"), dlBtn = $("clip-review-download"), discardBtn = $("clip-review-discard");
+  subText.textContent = state.intruderAuthorized ? "You authorized this visit. Keep the clip?" : "Unauthorized face detected. Keep this incident clip?";
   overlay.classList.remove("hidden");
-
   const nK = keepBtn.cloneNode(true), nD = dlBtn.cloneNode(true), nDi = discardBtn.cloneNode(true);
-  keepBtn.parentNode.replaceChild(nK, keepBtn);
-  dlBtn.parentNode.replaceChild(nD, dlBtn);
-  discardBtn.parentNode.replaceChild(nDi, discardBtn);
+  keepBtn.parentNode.replaceChild(nK, keepBtn); dlBtn.parentNode.replaceChild(nD, dlBtn); discardBtn.parentNode.replaceChild(nDi, discardBtn);
   const close = () => overlay.classList.add("hidden");
-
-  $("clip-review-keep").addEventListener("click", () => {
-    state.intruderClips.push(clip); close();
-    const r = `Clip saved to intruder log, ${state.userTitle}. Say "show me the intruder clips" to review.`;
-    addMsg("jarvis", r); speak(r);
-  });
-  $("clip-review-download").addEventListener("click", () => {
-    state.intruderClips.push(clip);
-    downloadClipBlob(clip.videoBlob, `jarvis-incident-${Date.now()}.webm`); close();
-    const r = `Incident clip downloaded and saved, ${state.userTitle}.`;
-    addMsg("jarvis", r); speak(r);
-  });
-  $("clip-review-discard").addEventListener("click", () => {
-    close();
-    const r = state.intruderAuthorized ? `Clip discarded, ${state.userTitle}. Authorized visit not logged.` : `Clip discarded, ${state.userTitle}.`;
-    addMsg("jarvis", r); speak(r);
-  });
+  $("clip-review-keep").addEventListener("click",     () => { state.intruderClips.push(clip); close(); const r = `Clip saved, ${state.userTitle}.`; addMsg("jarvis",r); speak(r); });
+  $("clip-review-download").addEventListener("click", () => { state.intruderClips.push(clip); downloadClipBlob(clip.videoBlob,`jarvis-incident-${Date.now()}.webm`); close(); const r = `Incident clip downloaded, ${state.userTitle}.`; addMsg("jarvis",r); speak(r); });
+  $("clip-review-discard").addEventListener("click",  () => { close(); const r = `Clip discarded, ${state.userTitle}.`; addMsg("jarvis",r); speak(r); });
 }
-
 function downloadClipBlob(blob, filename) {
   const url = URL.createObjectURL(blob), a = document.createElement("a");
   a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
@@ -1094,25 +1172,24 @@ async function readScreen(question) {
   mic.suspend(); setOrb("thinking");
   addMsg("user", question || "What's on my screen?");
   if (!state.screenStream) {
-    const reply = `Screen sharing isn't active, ${state.userTitle}. I need you to share your screen first.`;
+    const reply = `Screen sharing isn't active, ${state.userTitle}.`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume()); return;
   }
   addMsg("system", "Scanning screen…");
   const ocr = await ocrScreenFrame();
-  if (!ocr) { const r = `Failed to capture the screen, ${state.userTitle}.`; addMsg("jarvis", r); speak(r, () => mic.resume()); return; }
-  if (!ocr.ocrText || ocr.ocrText.trim().length < 5) { const r = `I captured the screen but couldn't extract readable text, ${state.userTitle}.`; addMsg("jarvis", r); speak(r, () => mic.resume()); return; }
+  if (!ocr || !ocr.ocrText || ocr.ocrText.trim().length < 5) {
+    const r = `Couldn't extract readable text from the screen, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r, () => mic.resume()); return;
+  }
   const memories = await loadMemoriesForPrompt();
   try {
-    const res = await fetch("/api/screen", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ocrText: ocr.ocrText, question: question || "What is on the screen?", userName: state.user, userTitle: state.userTitle, memories }),
-    });
+    const res = await fetch("/api/screen", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ ocrText:ocr.ocrText, question:question||"What is on the screen?", userName:state.user, userTitle:state.userTitle, memories }) });
     const data  = await res.json();
-    const reply = data.reply || `Your screen contains: ${ocr.ocrText.slice(0, 200)}`;
+    const reply = data.reply || `Your screen contains: ${ocr.ocrText.slice(0,200)}`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume()); updateMood(5);
   } catch {
-    const lines = ocr.ocrText.split("\n").filter(l => l.trim().length > 2).slice(0, 4).join(". ");
-    const reply = `Here's what I can read on your screen, ${state.userTitle}: ${lines}`;
+    const lines = ocr.ocrText.split("\n").filter(l => l.trim().length > 2).slice(0,4).join(". ");
+    const reply = `Here's what I can read, ${state.userTitle}: ${lines}`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume());
   }
 }
@@ -1120,13 +1197,60 @@ async function readScreen(question) {
 // ═══════════════════════════════════════════════════════════════
 // ── CAMERA / FACE ──
 // ═══════════════════════════════════════════════════════════════
+async function enumerateCameras() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    state.availableCameras = devices.filter(d => d.kind === "videoinput");
+    buildCameraSelector();
+  } catch (e) {}
+}
+
+function buildCameraSelector() {
+  const existing = $("camera-selector-wrap"); if (existing) existing.remove();
+  if (state.availableCameras.length <= 1) return;
+  const panel = $("camera-panel"); if (!panel) return;
+  const wrap = document.createElement("div"); wrap.id = "camera-selector-wrap";
+  wrap.style.cssText = "display:flex;align-items:center;gap:6px;margin-top:4px;";
+  const label = document.createElement("span");
+  label.style.cssText = "font-family:var(--mono);font-size:0.52rem;letter-spacing:0.15em;color:var(--text-dim);";
+  label.textContent = "CAM:";
+  const sel = document.createElement("select"); sel.id = "camera-select";
+  sel.style.cssText = "background:rgba(0,200,255,0.06);border:1px solid var(--blue-dim);color:var(--blue);font-family:var(--mono);font-size:0.58rem;letter-spacing:0.08em;padding:3px 6px;border-radius:3px;outline:none;cursor:pointer;width:120px;";
+  state.availableCameras.forEach((cam, i) => {
+    const opt = document.createElement("option"); opt.value = cam.deviceId; opt.textContent = cam.label || `Camera ${i+1}`;
+    if (cam.deviceId === state.selectedCameraId) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  sel.addEventListener("change", () => { state.selectedCameraId = sel.value; switchCamera(sel.value); });
+  wrap.appendChild(label); wrap.appendChild(sel); panel.appendChild(wrap);
+}
+
+async function switchCamera(deviceId) {
+  if (state.cameraStream) { state.cameraStream.getTracks().forEach(t => t.stop()); state.cameraStream = null; }
+  if (state.cameraRecorder && state.cameraRecorder.state !== "inactive") { state.cameraRecorder.stop(); state.cameraRecorder = null; }
+  state.cameraClipChunks = []; state.cameraClipTimestamps = [];
+  addMsg("system", "Switching camera…");
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId }, width:640, height:480, frameRate:15 }, audio:false });
+    state.cameraStream = stream; state.selectedCameraId = deviceId;
+    const vid = $("camera-feed"); if (vid) { vid.srcObject = stream; vid.play(); }
+    startCameraBuffer(stream);
+    state.faceDescriptors = null; await enrollUserFace();
+    const reply = `Camera switched, ${state.userTitle}.`;
+    addMsg("jarvis", reply); speak(reply); updateMood(2);
+  } catch {
+    const reply = `Camera switch failed, ${state.userTitle}.`;
+    addMsg("jarvis", reply); speak(reply);
+  }
+}
+
 async function requestCameraAccess() {
   try {
     await enumerateCameras();
     const videoConstraints = state.selectedCameraId
-      ? { deviceId: { exact: state.selectedCameraId }, width: 640, height: 480, frameRate: 15 }
-      : { width: 640, height: 480, frameRate: 15 };
-    const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: false });
+      ? { deviceId: { exact: state.selectedCameraId }, width:640, height:480, frameRate:15 }
+      : { width:640, height:480, frameRate:15 };
+    const stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio:false });
     state.cameraStream = stream;
     const track = stream.getVideoTracks()[0];
     if (track) { const s = track.getSettings(); state.selectedCameraId = s.deviceId || state.selectedCameraId; }
@@ -1187,20 +1311,18 @@ async function checkFace() {
     if (detections.length > 0) state.lastSeenUser = Date.now();
     if (state.faceDescriptors && detections.length > 0) {
       let userPresent = false;
-      for (const d of detections) {
-        if (faceapi.euclideanDistance(d.descriptor, state.faceDescriptors) < 0.55) { userPresent = true; break; }
-      }
+      for (const d of detections) { if (faceapi.euclideanDistance(d.descriptor, state.faceDescriptors) < 0.55) { userPresent = true; break; } }
       if (userPresent) {
         if (state.awayMode) {
           state.awayMode = false; stopIntruderRecord(); notif.userReturn(state.userTitle);
-          const msgs = [`Welcome back, ${state.userTitle}. I've been keeping watch.`, `${state.userTitle} — face confirmed. Systems restored.`];
+          const msgs = [`Welcome back, ${state.userTitle}.`, `${state.userTitle} — face confirmed. Systems restored.`];
           const msg = msgs[Math.floor(Math.random() * msgs.length)];
           addMsg("jarvis", msg); speak(msg, () => setTimeout(() => checkIntruderClips(), 1500)); updateMood(15);
         }
       } else if (detections.length > 0 && !state.intruderActive) { handleUnknownFace(); }
     }
     if (Date.now() - state.lastSeenUser > 60000 && !state.awayMode && state.phase === "chatting") {
-      state.awayMode = true; notif.away(state.userTitle); addMsg("system", "User not detected — away mode active. Monitoring.");
+      state.awayMode = true; notif.away(state.userTitle); addMsg("system", "User not detected — away mode active.");
     }
   } catch {}
 }
@@ -1208,19 +1330,13 @@ async function checkFace() {
 function handleUnknownFace() {
   if (state.intruderActive) return;
   state.intruderActive = true; state.intruderAuthorized = false;
-  const panel = $("camera-panel"); if (panel) panel.classList.add("alert");
+  $("camera-panel")?.classList.add("alert");
   notif.intruder(state.userTitle);
   addMsg("system", "⚠ UNKNOWN FACE DETECTED — recording started");
   speak("I don't recognise you. Identify yourself.", () => {
     setTimeout(() => { if (state.intruderActive && !state.intruderAuthorized) speak("Unauthorised access detected. Recording in progress."); }, 10000);
   });
-  showFaceAuthOverlay(); startIntruderRecord(); captureAndStoreIntruderPhoto(); updateMood(-30);
-}
-
-function captureAndStoreIntruderPhoto() {
-  const vid = $("camera-feed"); if (!vid) return null;
-  const c = document.createElement("canvas"); c.width = vid.videoWidth || 640; c.height = vid.videoHeight || 480;
-  c.getContext("2d").drawImage(vid, 0, 0); return c.toDataURL("image/jpeg", 0.85).split(",")[1];
+  showFaceAuthOverlay(); startIntruderRecord(); updateMood(-30);
 }
 
 function startIntruderRecord() {
@@ -1235,28 +1351,29 @@ function startIntruderRecord() {
       if (state.intruderChunks.length > 0) {
         const videoBlob = new Blob(state.intruderChunks, { type: getSupportedMime() || "video/webm" });
         const clip = { videoBlob, photoB64: photo, timestamp: new Date().toISOString(), authorized: state.intruderAuthorized };
-        hideFaceAuthOverlay();
-        const panel = $("camera-panel"); if (panel) panel.classList.remove("alert");
+        hideFaceAuthOverlay(); $("camera-panel")?.classList.remove("alert");
         state.intruderActive = false; state.intruderChunks = [];
         showClipReviewPrompt(clip);
-      } else {
-        state.intruderActive = false; state.intruderChunks = [];
-      }
+      } else { state.intruderActive = false; state.intruderChunks = []; }
     };
     rec.start(1000);
     setTimeout(() => { if (state.intruderRecorder && state.intruderRecorder.state !== "inactive") state.intruderRecorder.stop(); }, 30000);
   } catch { state.intruderActive = false; }
 }
-
 function stopIntruderRecord() {
   if (!state.intruderRecorder || state.intruderRecorder.state === "inactive") return;
   state.intruderRecorder.stop();
+}
+function captureAndStoreIntruderPhoto() {
+  const vid = $("camera-feed"); if (!vid) return null;
+  const c = document.createElement("canvas"); c.width = vid.videoWidth || 640; c.height = vid.videoHeight || 480;
+  c.getContext("2d").drawImage(vid, 0, 0); return c.toDataURL("image/jpeg", 0.85).split(",")[1];
 }
 
 function checkIntruderClips() {
   if (!state.intruderClips.length) return;
   const count = state.intruderClips.length;
-  const report = `${state.userTitle}, I have ${count} intruder ${count === 1 ? "incident" : "incidents"} on file. Say "show me the intruder clips" to review.`;
+  const report = `${state.userTitle}, I have ${count} intruder incident${count === 1?"":"s"} on file. Say "show me the intruder clips" to review.`;
   notif.system(`${count} intruder clip(s) on file.`);
   addMsg("jarvis", report); speak(report); updateMood(-10);
 }
@@ -1272,7 +1389,7 @@ function showIntruderClips() {
     const time = new Date(clip.timestamp).toLocaleTimeString();
     const tag  = clip.authorized ? " (AUTHORIZED)" : "";
     const wrap = document.createElement("div"); wrap.className = "msg system";
-    wrap.innerHTML = `<div class="msg-label">INTRUDER #${i + 1} — ${time}${tag}</div><div class="msg-text intruder-clip-block"></div>`;
+    wrap.innerHTML = `<div class="msg-label">INTRUDER #${i+1} — ${time}${tag}</div><div class="msg-text intruder-clip-block"></div>`;
     const block = wrap.querySelector(".intruder-clip-block");
     if (clip.photoB64) {
       const img = document.createElement("img"); img.src = `data:image/jpeg;base64,${clip.photoB64}`;
@@ -1336,8 +1453,7 @@ function startRollingBuffer(stream) {
 }
 
 function getSupportedMime() {
-  return ["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm","video/mp4"]
-    .find(t => MediaRecorder.isTypeSupported(t)) || "";
+  return ["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm","video/mp4"].find(t => MediaRecorder.isTypeSupported(t)) || "";
 }
 
 function stopScreenRecord() {
@@ -1349,12 +1465,11 @@ function stopScreenRecord() {
 
 // ── LOGOUT ──
 function handleLogout() {
-  mic.suspend();
+  mic.suspend(); stopSpeaking();
   if (state.faceCheckInterval) clearInterval(state.faceCheckInterval);
-  // Clear timers
   for (const t of state.activeTimers) clearTimeout(t.id);
   state.activeTimers = [];
-  const badge = $("timer-badge-el"); if (badge) badge.classList.add("hidden");
+  $("timer-badge-el")?.classList.add("hidden");
 
   speak(`Goodbye, ${state.userTitle}. Initiating shutdown.`, () => {
     state.phase = "idle"; state.user = null; state.userTitle = null;
@@ -1381,10 +1496,12 @@ function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 // ── BOOT ──
 // ═══════════════════════════════════════════════════════════════
 window.addEventListener("load", async () => {
+  // Warm up speech synthesis voices
   setTimeout(() => {
     const w = new SpeechSynthesisUtterance(" ");
     w.volume = 0; speechSynthesis.speak(w); speechSynthesis.getVoices();
   }, 500);
+
   let profile = loadProfile();
   if (!profile) { profile = await restoreProfileFromBackend(); if (profile) saveProfileLocal(profile); }
   if (!profile) showSetup(); else showAuthScreen();
