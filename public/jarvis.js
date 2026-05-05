@@ -1,8 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Client Brain v6.0
-// Bluetooth headset support (hold-volume wake)
-// Ollama serve / start from voice/text
-// Pure LLM intent — no preset command matching
+// J.A.R.V.I.S — Client Brain v7.0
+// Powered by Pollinations AI — no API key required
+// Full autonomous intent — AI decides actions naturally
 // ═══════════════════════════════════════════════════════════════
 
 const state = {
@@ -46,13 +45,12 @@ const state = {
   selectedSinkId: null,
   audioDevices: [],
   useStreamElements: true,
-  ollamaAvailable: false,
   interruptPending: false,
   // Bluetooth
   bluetoothDevice: null,
   bluetoothConnected: false,
-  bluetoothMicId: null,   // deviceId of the bluetooth mic once connected
-  mediaKeys: false,       // whether MediaSession API is active
+  bluetoothMicId: null,
+  mediaKeys: false,
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -101,19 +99,13 @@ async function attachSink(audioElement) {
 
 // ═══════════════════════════════════════════════════════════════
 // ── BLUETOOTH HEADSET SUPPORT ──
-// Connects to Bluetooth audio device via Web Bluetooth API.
-// Volume button on headset triggers wake via MediaSession API.
-// Falls back to showing available bluetooth mics from device list.
 // ═══════════════════════════════════════════════════════════════
-
 async function connectBluetooth() {
-  // Method 1: Web Bluetooth API (Chrome/Edge only, needs user gesture)
   if (navigator.bluetooth) {
     try {
       addMsg("system", "Scanning for Bluetooth devices…");
       const device = await navigator.bluetooth.requestDevice({
         acceptAllDevices: true,
-        // Request battery and generic access profiles common in headsets
         optionalServices: ["battery_service", "generic_access", "device_information"],
       });
       state.bluetoothDevice = device;
@@ -126,20 +118,15 @@ async function connectBluetooth() {
         addMsg("system", "Bluetooth headset disconnected.");
       });
 
-      // Try to connect to GATT server
       try {
-        const server = await device.gatt.connect();
+        await device.gatt.connect();
         addMsg("system", `Connected to ${device.name}. Now select it as your mic input below.`);
       } catch (e) {
-        // GATT may not be available on all headsets — that's fine
         addMsg("system", `Found ${device.name}. Select it as your mic input below.`);
       }
 
       updateBluetoothStatus(true, device.name);
-
-      // Now enumerate audio inputs to find the bluetooth mic
       await refreshAudioInputs();
-
       return true;
     } catch (e) {
       if (e.name === "NotFoundError") {
@@ -147,12 +134,10 @@ async function connectBluetooth() {
       } else {
         addMsg("system", `Bluetooth: ${e.message}. Try selecting your headset from the mic input list.`);
       }
-      // Fall through to show mic selector
       await refreshAudioInputs();
       return false;
     }
   } else {
-    // Web Bluetooth not available — show mic selector only
     addMsg("system", "Web Bluetooth API not available in this browser. Use the mic selector to choose your headset.");
     await refreshAudioInputs();
     return false;
@@ -161,7 +146,6 @@ async function connectBluetooth() {
 
 async function refreshAudioInputs() {
   try {
-    // Need permission first
     await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => {});
     const devices = await navigator.mediaDevices.enumerateDevices();
     const inputs = devices.filter(d => d.kind === "audioinput");
@@ -189,10 +173,9 @@ function buildMicSelector(inputs) {
   inputs.forEach((dev, i) => {
     const opt = document.createElement("option");
     opt.value = dev.deviceId;
-    const label = dev.label || `Microphone ${i + 1}`;
-    opt.textContent = label;
-    // Auto-select bluetooth/headset
-    if (/bluetooth|headset|headphone|wireless|airpod|jabra|bose|sony|sennheiser/i.test(label)) {
+    const lbl = dev.label || `Microphone ${i + 1}`;
+    opt.textContent = lbl;
+    if (/bluetooth|headset|headphone|wireless|airpod|jabra|bose|sony|sennheiser/i.test(lbl)) {
       opt.selected = true;
       state.bluetoothMicId = dev.deviceId;
     }
@@ -232,41 +215,28 @@ function updateBluetoothStatus(connected, deviceName) {
   }
 }
 
-// ── MEDIA SESSION API — volume button wake ──
-// When user presses volume on bluetooth headset, we use MediaSession
-// to intercept the media key and treat it as a JARVIS wake
 function setupMediaSessionWake() {
   if (!("mediaSession" in navigator)) return;
   try {
-    // Set a dummy audio to allow MediaSession to work
     navigator.mediaSession.metadata = new MediaMetadata({
       title: "J.A.R.V.I.S",
       artist: "Listening…",
       album: "Active Session",
     });
-
-    // Intercept play/pause (volume button long-press on many BT headsets)
     navigator.mediaSession.setActionHandler("play", () => {
-      if (state.phase === "chatting") {
-        // Treat as JARVIS wake
-        triggerBluetoothWake();
-      }
+      if (state.phase === "chatting") triggerBluetoothWake();
     });
     navigator.mediaSession.setActionHandler("pause", () => {
       if (state.isSpeaking) stopSpeaking();
       else if (state.phase === "chatting") triggerBluetoothWake();
     });
-
-    // Some headsets send "previoustrack" on double-click volume
     navigator.mediaSession.setActionHandler("previoustrack", () => {
       if (state.phase === "chatting") triggerBluetoothWake();
     });
     navigator.mediaSession.setActionHandler("nexttrack", () => {
-      if (state.isSpeaking) stopSpeaking(); // next = interrupt
+      if (state.isSpeaking) stopSpeaking();
     });
-
     state.mediaKeys = true;
-    console.log("[JARVIS] MediaSession wake active — BT buttons will trigger wake");
   } catch (e) {
     console.warn("[JARVIS] MediaSession not available:", e);
   }
@@ -274,22 +244,18 @@ function setupMediaSessionWake() {
 
 function triggerBluetoothWake() {
   if (state.isSpeaking) { stopSpeaking(); return; }
-  // Flash the orb to show we heard the button
   setOrb("listening");
   addMsg("system", "Bluetooth wake detected.");
   const acks = [`Yes, ${state.userTitle}?`, `At your service.`, `What do you need, ${state.userTitle}?`];
   const ack = acks[Math.floor(Math.random() * acks.length)];
-  // Give a brief audible confirmation then listen
   speak(ack, () => {
     setOrb("idle");
     mic.resume();
   });
 }
 
-// ── KEYBOARD MEDIA KEY listener (headsets that send keyboard events) ──
 document.addEventListener("keydown", (e) => {
   if (state.phase !== "chatting") return;
-  // MediaTrackPrevious / MediaPlayPause / F keys on some headsets
   if (e.code === "MediaPlayPause" || e.code === "MediaTrackPrevious") {
     e.preventDefault();
     triggerBluetoothWake();
@@ -300,7 +266,6 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// ── BUILD BLUETOOTH PANEL in main screen ──
 function buildBluetoothPanel() {
   const existing = $("bt-panel"); if (existing) return;
   const hud = $("hud-bottom"); if (!hud) return;
@@ -528,7 +493,6 @@ async function ocrScreenFrame() {
 
 // ═══════════════════════════════════════════════════════════════
 // ── MIC ENGINE ──
-// Now supports selected input device (bluetooth mic)
 // ═══════════════════════════════════════════════════════════════
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const mic = {
@@ -571,7 +535,6 @@ const mic = {
         }
         if (!bestText) return;
         updateLiveHearing(""); updateMicDebug(`Mic: "${bestText}" (${(bestConf*100).toFixed(0)}%)`);
-        // Interrupt detection
         if (state.isSpeaking && hasWakeWord(bestText.toLowerCase())) {
           stopSpeaking(); addMsg("system", "Interrupted.");
           const stripped = stripWakeWord(bestText);
@@ -816,27 +779,23 @@ async function launchMain() {
   $("user-display").textContent = `${state.user} / ${state.userTitle}`;
   state.lastInteraction = Date.now(); updateMood(20);
 
-  // Check Ollama
+  // Check Pollinations AI status
   try {
-    const res = await fetch("/api/ollama/status");
+    const res  = await fetch("/api/ai/status");
     const data = await res.json();
-    state.ollamaAvailable = data.available && data.hasModel;
     const llmEl = $("llm-status");
     if (llmEl) {
-      if (state.ollamaAvailable) {
-        llmEl.textContent = `LLM: ${data.model} ● ONLINE`;
+      if (data.available) {
+        llmEl.textContent = `BRAIN: Pollinations AI ● ONLINE`;
         llmEl.style.color = "var(--green)";
-      } else if (data.available) {
-        llmEl.textContent = `LLM: MODEL NOT PULLED — say "pull ${data.model}"`;
-        llmEl.style.color = "var(--amber)";
       } else {
-        llmEl.textContent = `LLM: OFFLINE — say "start ollama"`;
+        llmEl.textContent = `BRAIN: Pollinations AI ● OFFLINE (check internet)`;
         llmEl.style.color = "var(--amber)";
       }
     }
   } catch {
     const llmEl = $("llm-status");
-    if (llmEl) { llmEl.textContent = "LLM: OFFLINE — say \"start ollama\""; llmEl.style.color = "var(--amber)"; }
+    if (llmEl) { llmEl.textContent = "BRAIN: Pollinations AI — checking…"; llmEl.style.color = "var(--amber)"; }
   }
 
   notif.init().then(() => {
@@ -844,20 +803,14 @@ async function launchMain() {
   });
 
   await enumerateAudioOutputs();
-
-  // Build bluetooth panel
   buildBluetoothPanel();
-
-  // Setup MediaSession for bluetooth button wake
   setupMediaSessionWake();
-
-  // Try to auto-detect bluetooth headsets in mic list
   await refreshAudioInputs();
 
   const greetings = [
-    `All systems online, ${state.userTitle}. Just talk to me — no commands to memorise. Say "start ollama" if my intelligence is offline.`,
-    `Good to have you back, ${state.userTitle}. Full semantic reasoning active. Connect a Bluetooth headset and hold volume to wake me.`,
-    `Online and operational, ${state.userTitle}. Ask me anything naturally. Hold volume on your headset to get my attention.`,
+    `All systems online, ${state.userTitle}. Pollinations AI is active — just talk to me naturally. No commands to memorise.`,
+    `Good to have you back, ${state.userTitle}. Full intelligence online. Connect a Bluetooth headset and hold volume to wake me.`,
+    `Online and operational, ${state.userTitle}. Ask me anything — I'll figure out what you need and do it.`,
   ];
   addMsg("system", greetings[Math.floor(Math.random() * greetings.length)]);
 
@@ -942,7 +895,7 @@ function handleChatCommand(text, isTyped = false) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── AI CHAT — pure Ollama, no intent scoring ──
+// ── SEND TO AI ──
 // ═══════════════════════════════════════════════════════════════
 async function sendToAI(message) {
   mic.suspend();
@@ -950,19 +903,29 @@ async function sendToAI(message) {
   setOrb("thinking");
   const memories = await loadMemoriesForPrompt();
   const moodCtx  = `mood: ${state.mood} (score: ${state.moodScore})`;
+
   try {
     const res  = await fetch("/api/chat", {
-      method: "POST",
+      method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, sessionId: state.sessionId, userName: state.user, userTitle: state.userTitle, memories, moodContext: moodCtx }),
+      body:    JSON.stringify({
+        message,
+        sessionId:   state.sessionId,
+        userName:    state.user,
+        userTitle:   state.userTitle,
+        memories,
+        moodContext: moodCtx,
+      }),
     });
+
     const data  = await res.json();
     const reply = data.reply || `Yes, ${state.userTitle}?`;
+
     addMsg("jarvis", reply);
     updateMood(5);
 
-    // Refresh LLM status in case it just came online/offline
-    refreshLLMStatus();
+    // Update AI status indicator
+    updateAIStatus(true);
 
     if (data.action && data.action !== "NONE") {
       await handleAction(data.action, data.meta || {}, reply);
@@ -971,30 +934,21 @@ async function sendToAI(message) {
     }
   } catch (err) {
     console.error("[JARVIS] AI error:", err);
+    updateAIStatus(false);
     const fb = `Something went sideways, ${state.userTitle}. Give it another go.`;
     addMsg("jarvis", fb); speak(fb, () => mic.resume()); updateMood(-5);
   }
 }
 
-async function refreshLLMStatus() {
-  try {
-    const res = await fetch("/api/ollama/status");
-    const data = await res.json();
-    const llmEl = $("llm-status"); if (!llmEl) return;
-    if (data.available && data.hasModel) {
-      llmEl.textContent = `LLM: ${data.model} ● ONLINE`;
-      llmEl.style.color = "var(--green)";
-      state.ollamaAvailable = true;
-    } else if (data.available) {
-      llmEl.textContent = `LLM: MODEL NOT PULLED — say "pull ${data.model}"`;
-      llmEl.style.color = "var(--amber)";
-      state.ollamaAvailable = false;
-    } else {
-      llmEl.textContent = `LLM: OFFLINE — say "start ollama"`;
-      llmEl.style.color = "var(--amber)";
-      state.ollamaAvailable = false;
-    }
-  } catch {}
+function updateAIStatus(online) {
+  const llmEl = $("llm-status"); if (!llmEl) return;
+  if (online) {
+    llmEl.textContent = "BRAIN: Pollinations AI ● ONLINE";
+    llmEl.style.color = "var(--green)";
+  } else {
+    llmEl.textContent = "BRAIN: Pollinations AI ● OFFLINE (check internet)";
+    llmEl.style.color = "var(--amber)";
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1004,6 +958,7 @@ async function handleAction(action, meta, replyText) {
   const T = state.userTitle || "Sir";
 
   switch (action) {
+
     case "SHOW_LINKS": {
       speak(replyText, () => mic.resume());
       if (meta.linkGroups && meta.linkGroups.length > 0) {
@@ -1025,15 +980,19 @@ async function handleAction(action, meta, replyText) {
       }
       break;
     }
+
     case "OPEN_LINK": {
       if (meta.found) {
         const wrap = document.createElement("div"); wrap.className = "msg jarvis";
         wrap.innerHTML = `<div class="msg-label">J.A.R.V.I.S — LINK</div><div class="msg-text"><a href="${meta.url}" target="_blank" rel="noopener" class="jarvis-link">${meta.url}</a></div>`;
         $("transcript").appendChild(wrap); $("transcript").scrollTop = $("transcript").scrollHeight;
         speak(replyText, () => { window.open(meta.url, "_blank", "noopener"); mic.resume(); });
-      } else { speak(replyText, () => mic.resume()); }
+      } else {
+        speak(replyText, () => mic.resume());
+      }
       break;
     }
+
     case "CLIP_SAVE": {
       speak(replyText, () => {
         const clipType = meta.clipType || "both";
@@ -1056,16 +1015,33 @@ async function handleAction(action, meta, replyText) {
       });
       break;
     }
-    case "SHOW_CLIPS":   { speak(replyText, () => { showIntruderClips(); mic.resume(); }); break; }
-    case "READ_SCREEN":  { speak(replyText, () => {}); await readScreen(meta.question || "What's on my screen?"); break; }
+
+    case "SHOW_CLIPS": {
+      speak(replyText, () => { showIntruderClips(); mic.resume(); });
+      break;
+    }
+
+    case "READ_SCREEN": {
+      speak(replyText, () => {});
+      await readScreen(meta.question || "What's on my screen?");
+      break;
+    }
+
     case "SWITCH_CAMERA": {
       if (typeof meta.cameraIndex === "number" && meta.cameraIndex >= 0) {
         speak(replyText, () => {});
-        if (state.availableCameras[meta.cameraIndex]) await switchCamera(state.availableCameras[meta.cameraIndex].deviceId);
-        else { const m = `I don't see camera ${meta.cameraIndex + 1}, ${T}.`; addMsg("jarvis", m); speak(m, () => mic.resume()); }
-      } else { speak(replyText, () => mic.resume()); }
+        if (state.availableCameras[meta.cameraIndex]) {
+          await switchCamera(state.availableCameras[meta.cameraIndex].deviceId);
+        } else {
+          const m = `I don't see camera ${meta.cameraIndex + 1}, ${T}.`;
+          addMsg("jarvis", m); speak(m, () => mic.resume());
+        }
+      } else {
+        speak(replyText, () => mic.resume());
+      }
       break;
     }
+
     case "TIMER": {
       if (meta.action === "TIMER_SET" && meta.duration) {
         speak(replyText, () => mic.resume());
@@ -1078,12 +1054,109 @@ async function handleAction(action, meta, replyText) {
           hideTimerBadge();
         }, meta.duration);
         state.activeTimers.push({ id: timerId, duration: meta.duration, task: meta.task, startedAt: Date.now() });
-      } else { speak(replyText, () => mic.resume()); }
+      } else {
+        speak(replyText, () => mic.resume());
+      }
       break;
     }
-    case "NOTIF_SETTINGS": { speak(replyText, () => {}); showNotifSettings(); break; }
-    case "LOGOUT":          { speak(replyText, () => {}); setTimeout(() => handleLogout(), 800); break; }
-    default:                { speak(replyText, () => mic.resume()); break; }
+
+    case "NOTIF_SETTINGS": {
+      speak(replyText, () => {});
+      showNotifSettings();
+      break;
+    }
+
+    case "LOGOUT": {
+      speak(replyText, () => {});
+      setTimeout(() => handleLogout(), 800);
+      break;
+    }
+
+    case "WEATHER": {
+      const weatherData = meta.weatherData;
+      if (weatherData && !weatherData.error) {
+        const { city, temp, feels_like, description, humidity, wind_speed, high, low } = weatherData;
+        const spoken = `${city}: ${temp}°C, ${description}. Feels like ${feels_like}°C. Humidity ${humidity}%, wind ${wind_speed} m/s. High of ${high}, low of ${low} today.`;
+        addMsg("jarvis", spoken); speak(spoken, () => mic.resume());
+      } else {
+        const errMsg = weatherData?.error || `Couldn't fetch weather right now, ${T}.`;
+        addMsg("jarvis", errMsg); speak(errMsg, () => mic.resume());
+      }
+      break;
+    }
+
+    case "SPOTIFY": {
+      const spotifyData = meta.spotifyData;
+      if (spotifyData) {
+        let spoken = replyText;
+        if (spotifyData.needsAuth) {
+          spoken = `Spotify needs authorisation first, ${T}. Open ${spotifyData.authUrl} to connect.`;
+        } else if (spotifyData.action === "now_playing" && spotifyData.track) {
+          spoken = `${spotifyData.is_playing ? "Playing" : "Paused on"} "${spotifyData.track}" by ${spotifyData.artist}, ${T}.`;
+        } else if (spotifyData.action === "now_playing" && !spotifyData.track) {
+          spoken = `Nothing playing on Spotify right now, ${T}.`;
+        } else if (spotifyData.action === "played") {
+          spoken = `Playing "${spotifyData.track}" by ${spotifyData.artist}, ${T}.`;
+        } else if (spotifyData.action === "paused") {
+          spoken = `Spotify paused, ${T}.`;
+        } else if (spotifyData.action === "resumed") {
+          spoken = `Spotify resumed, ${T}.`;
+        } else if (spotifyData.action === "next") {
+          spoken = `Skipped to the next track, ${T}.`;
+        } else if (spotifyData.error) {
+          spoken = `Spotify error: ${spotifyData.error}, ${T}.`;
+        }
+        addMsg("jarvis", spoken); speak(spoken, () => mic.resume());
+      } else {
+        speak(replyText, () => mic.resume());
+      }
+      break;
+    }
+
+    case "GMAIL": {
+      const gmailData = meta.gmailData;
+      if (gmailData) {
+        let spoken = replyText;
+        if (gmailData.needsAuth) {
+          spoken = `Gmail needs authorisation first, ${T}. Visit ${gmailData.authUrl} to connect.`;
+        } else if (gmailData.unread === 0) {
+          spoken = `Inbox clear, ${T}. No unread messages.`;
+        } else if (gmailData.unread > 0) {
+          const preview = gmailData.messages?.slice(0, 2).map(m => `"${m.subject}" from ${m.from}`).join(", ");
+          spoken = `You have ${gmailData.unread} unread email${gmailData.unread > 1 ? "s" : ""}, ${T}. ${preview ? `Latest: ${preview}.` : ""}`;
+        } else if (gmailData.error) {
+          spoken = `Couldn't reach Gmail right now, ${T}.`;
+        }
+        addMsg("jarvis", spoken); speak(spoken, () => mic.resume());
+      } else {
+        speak(replyText, () => mic.resume());
+      }
+      break;
+    }
+
+    case "CALENDAR": {
+      const calData = meta.calendarData;
+      if (calData) {
+        let spoken = replyText;
+        if (calData.needsAuth) {
+          spoken = `Google Calendar needs authorisation, ${T}. Visit ${calData.authUrl} to connect.`;
+        } else if (!calData.events || calData.events.length === 0) {
+          spoken = `Nothing on the calendar ${calData.period || "today"}, ${T}. Schedule is clear.`;
+        } else {
+          const eventList = calData.events.slice(0, 3).map(e => `${e.time ? e.time + " — " : ""}${e.title}`).join("; ");
+          spoken = `${calData.events.length} event${calData.events.length > 1 ? "s" : ""} ${calData.period || "today"}, ${T}: ${eventList}.`;
+        }
+        addMsg("jarvis", spoken); speak(spoken, () => mic.resume());
+      } else {
+        speak(replyText, () => mic.resume());
+      }
+      break;
+    }
+
+    default: {
+      speak(replyText, () => mic.resume());
+      break;
+    }
   }
 }
 
