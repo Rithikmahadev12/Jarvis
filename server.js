@@ -5,7 +5,7 @@ const path     = require("path");
 const fs       = require("fs");
 const https    = require("https");
 const http     = require("http");
-const AI       = require("./ai-engine");
+const { exec } = require("child_process");
 
 const app = express();
 app.use(cors());
@@ -201,106 +201,59 @@ app.post("/api/memory/forget", (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// ── OLLAMA LLM INTEGRATION ──
-// Requires Ollama running locally: https://ollama.ai
-// Run: ollama pull llama3 (or mistral, phi3, etc.)
+// ── OLLAMA MANAGEMENT ──
+// Handles "start ollama", "stop ollama", "ollama serve" etc.
 // ══════════════════════════════════════════════════════════════
 const OLLAMA_URL   = process.env.OLLAMA_URL   || "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3";
 
-function buildSystemPrompt(userName, userTitle, memories, linkNames, linkSummary) {
-  const memBlock = memories && memories.length
-    ? `\nKnown facts about the user:\n${memories.map(m => `- ${m}`).join("\n")}`
-    : "";
-  const linkBlock = linkNames && linkNames.length
-    ? `\nAvailable link groups (say the name to open): ${linkNames.join(", ")}. Total: ${linkSummary?.total || 0} links.`
-    : "";
+let ollamaProcess = null;
 
-  return `You are J.A.R.V.I.S — Just A Rather Very Intelligent System. You are a sophisticated AI assistant with dry British wit, precision, and genuine intelligence. You address the user as "${userTitle}" (their name is ${userName || "unknown"}).
-
-Your personality: confident, precise, subtly witty, genuinely helpful. You do NOT say "Certainly!", "Of course!" or sycophantic openers. You speak like a brilliant British butler who is also a supercomputer.
-
-${memBlock}
-${linkBlock}
-
-CRITICAL: You must ALWAYS respond with ONLY valid JSON in this exact format:
-{"reply": "Your spoken response here", "action": "ACTION_CODE", "meta": {}}
-
-ACTION CODES — choose the most appropriate:
-- "NONE" — general conversation, knowledge, questions, opinions (meta: {})
-- "OPEN_LINK" — user wants to open/launch/go to a link or website. If it matches a known group, set meta.query to the group name. (meta: {"query": "group_name_or_search"})
-- "SHOW_LINKS" — user wants to see all links / link bank (meta: {})
-- "CLIP_SAVE" — save/clip/record the last N seconds of screen/camera (meta: {"clipType": "both|screen|camera", "duration": milliseconds_or_null})
-- "SHOW_CLIPS" — show intruder clips / recordings (meta: {})
-- "READ_SCREEN" — read/analyze/describe what's on screen (meta: {"question": "what they asked"})
-- "SWITCH_CAMERA" — switch to camera N (meta: {"cameraIndex": 0_based_index})
-- "SYSTEM_STATUS" — system health/diagnostics/status check (meta: {})
-- "MEMORY_SAVE" — remember a fact (meta: {"saveFact": "the fact to store"})
-- "MEMORY_RECALL" — show stored memories (meta: {})
-- "MEMORY_FORGET" — forget something (meta: {"forgetHint": "what to forget"})
-- "LOGOUT" — log out / goodbye / shutdown (meta: {})
-- "NOTIF_SETTINGS" — notification settings (meta: {})
-- "TIMER" — set a timer/reminder (meta: {"action": "TIMER_SET", "duration": ms, "task": "optional task label or null"})
-- "WEATHER" — weather query (meta: {})
-- "SPOTIFY" — music control (meta: {})
-- "GMAIL" — email check (meta: {})
-- "CALENDAR" — calendar/schedule (meta: {})
-- "MATH" — calculation result (meta: {"result": number})
-
-Duration parsing for TIMER/CLIP: convert "5 minutes" → 300000, "30 seconds" → 30000, "1 hour" → 3600000, "last 30" → 30000, etc.
-
-For MATH, compute the result yourself and put it in meta.result. The reply should state the answer naturally.
-
-For MEMORY_SAVE, extract what specifically should be remembered from the user's message.
-
-Keep replies concise and spoken-word friendly — no markdown, no bullet points, no asterisks. Speak naturally as JARVIS would aloud. Under 3 sentences for most responses.
-
-If unsure of the action, use "NONE" and just answer conversationally.`;
-}
-
-async function callOllama(messages, systemPrompt) {
-  const payload = JSON.stringify({
-    model: OLLAMA_MODEL,
-    messages: [
-      { role: "system", content: systemPrompt },
-      ...messages
-    ],
-    stream: false,
-    format: "json",
-    options: { temperature: 0.7, num_predict: 400 }
-  });
-
-  return new Promise((resolve, reject) => {
-    const url = new URL(OLLAMA_URL + "/api/chat");
-    const lib = url.protocol === "https:" ? https : http;
-
-    const req = lib.request({
-      hostname: url.hostname,
-      port:     url.port || (url.protocol === "https:" ? 443 : 11434),
-      path:     url.pathname,
-      method:   "POST",
-      headers:  { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) },
-    }, (res) => {
-      let data = "";
-      res.on("data", chunk => data += chunk);
-      res.on("end", () => {
-        try {
-          const parsed = JSON.parse(data);
-          resolve(parsed);
-        } catch (e) {
-          reject(new Error("Ollama parse error: " + data.slice(0, 200)));
-        }
-      });
+function startOllamaServe() {
+  return new Promise((resolve) => {
+    if (ollamaProcess) {
+      resolve({ started: false, reason: "already_running" });
+      return;
+    }
+    // Try to start ollama serve as a background process
+    const child = exec("ollama serve", (err) => {
+      // This fires when the process ends — not on start
+      ollamaProcess = null;
     });
-
-    req.on("error", reject);
-    req.setTimeout(30000, () => { req.destroy(); reject(new Error("Ollama timeout")); });
-    req.write(payload);
-    req.end();
+    ollamaProcess = child;
+    // Give it 2 seconds to start up, then check
+    setTimeout(async () => {
+      const up = await ollamaAvailable();
+      resolve({ started: up, pid: child.pid });
+    }, 2000);
   });
 }
 
-// Check if Ollama is available
+// POST /api/ollama/start — start ollama serve
+app.post("/api/ollama/start", async (req, res) => {
+  const already = await ollamaAvailable();
+  if (already) return res.json({ success: true, message: "Ollama is already running." });
+  const result = await startOllamaServe();
+  if (result.started) {
+    res.json({ success: true, message: `Ollama started successfully (PID ${result.pid}).` });
+  } else if (result.reason === "already_running") {
+    res.json({ success: true, message: "Ollama process already tracked." });
+  } else {
+    res.json({ success: false, message: "Could not start Ollama. Make sure it is installed: https://ollama.ai" });
+  }
+});
+
+// POST /api/ollama/pull — pull a model
+app.post("/api/ollama/pull", async (req, res) => {
+  const model = req.body.model || OLLAMA_MODEL;
+  res.json({ success: true, message: `Pulling ${model}... this runs in the background. Check terminal for progress.` });
+  // Fire and forget
+  exec(`ollama pull ${model}`, (err, stdout, stderr) => {
+    if (err) console.error("[Ollama pull] error:", err.message);
+    else console.log("[Ollama pull] done:", stdout);
+  });
+});
+
 async function ollamaAvailable() {
   return new Promise((resolve) => {
     const url = new URL(OLLAMA_URL);
@@ -318,7 +271,6 @@ async function ollamaAvailable() {
 app.get("/api/ollama/status", async (req, res) => {
   const available = await ollamaAvailable();
   if (!available) return res.json({ available: false, model: OLLAMA_MODEL });
-  // Check if model is pulled
   return new Promise((resolve) => {
     const url = new URL(OLLAMA_URL);
     const lib = url.protocol === "https:" ? https : http;
@@ -339,59 +291,124 @@ app.get("/api/ollama/status", async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// ── TTS PROXY — StreamElements (free, no API key) ──
-// Voice: Brian = deep British male, perfect for JARVIS
+// ── TTS PROXY — StreamElements ──
 // ══════════════════════════════════════════════════════════════
 app.get("/api/tts", async (req, res) => {
   const text  = req.query.text;
   const voice = req.query.voice || "Brian";
-
   if (!text) return res.status(400).send("No text");
-
-  // StreamElements TTS — completely free, no key needed
-  const clean = text.trim().slice(0, 600); // cap length
+  const clean = text.trim().slice(0, 600);
   const url   = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(clean)}`;
-
   https.get(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (compatible; JARVIS/2.0)",
-      "Accept": "audio/mpeg, audio/*, */*",
-    }
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; JARVIS/2.0)", "Accept": "audio/mpeg, audio/*, */*" }
   }, (ttsRes) => {
-    if (ttsRes.statusCode !== 200) {
-      console.error("[TTS] StreamElements returned", ttsRes.statusCode);
-      return res.status(502).send("TTS error");
-    }
+    if (ttsRes.statusCode !== 200) return res.status(502).send("TTS error");
     res.setHeader("Content-Type", ttsRes.headers["content-type"] || "audio/mpeg");
     res.setHeader("Cache-Control", "public, max-age=300");
     ttsRes.pipe(res);
-  }).on("error", (err) => {
-    console.error("[TTS] Network error:", err.message);
-    res.status(502).send("TTS network error");
-  });
+  }).on("error", (err) => res.status(502).send("TTS network error"));
 });
 
-// Also proxy ElevenLabs-style voices via StreamElements
-// Available free voices: Brian, Amy, Emma, Geraint, Russell, Nicole, Joey, Justin, Matthew, Ivy, Joanna, Kendra, Kimberly, Salli, Conchita, Enrique, Hans, Marlene, Vicki, Chantal, Celine, Mathieu, Giorgio, Carla, Bianca, Mia, Mizuki, Seoyeon, Zhiyu
 app.get("/api/tts/voices", (req, res) => {
   res.json({
     voices: ["Brian","Amy","Emma","Geraint","Russell","Joey","Matthew","Joanna","Salli","Hans","Giorgio","Carla"],
     recommended: "Brian",
-    note: "Brian = deep British male, ideal for JARVIS"
   });
 });
 
 // ══════════════════════════════════════════════════════════════
-// ── CHAT — Ollama LLM with ai-engine fallback ──
+// ── OLLAMA LLM CORE ──
 // ══════════════════════════════════════════════════════════════
+function buildSystemPrompt(userName, userTitle, memories, linkNames, linkSummary) {
+  const memBlock = memories && memories.length
+    ? `\nKnown facts about the user:\n${memories.map(m => `- ${m}`).join("\n")}`
+    : "";
+  const linkBlock = linkNames && linkNames.length
+    ? `\nAvailable link groups (the user can ask to open these by name): ${linkNames.join(", ")}. Total links: ${linkSummary?.total || 0}.`
+    : "";
 
-// Per-session conversation history for Ollama
+  return `You are J.A.R.V.I.S — Just A Rather Very Intelligent System. A sophisticated AI assistant with dry British wit, precision, and genuine intelligence. The user's name is ${userName || "unknown"} and you address them as "${userTitle}".
+
+Your personality: confident, precise, subtly witty, genuinely helpful. No sycophantic openers like "Certainly!" or "Of course!". You speak like a brilliant British butler who is also a supercomputer. Short, punchy, intelligent responses.
+${memBlock}
+${linkBlock}
+
+CRITICAL INSTRUCTION: You must ALWAYS respond with ONLY valid JSON. No markdown, no text outside the JSON. Format:
+{"reply": "Your spoken response here", "action": "ACTION_CODE", "meta": {}}
+
+UNDERSTAND INTENT NATURALLY — do not rely on keywords. Infer what the user wants from context:
+
+ACTION CODES:
+- "NONE" — general talk, questions, knowledge, opinions, anything conversational
+- "OPEN_LINK" — user wants to open/visit/go to a named link group. meta: {"query": "group name"}
+- "SHOW_LINKS" — user wants to see all saved links
+- "CLIP_SAVE" — save/clip/record screen or camera footage. meta: {"clipType": "both|screen|camera", "duration": ms_number_or_null}
+- "SHOW_CLIPS" — show recorded intruder clips
+- "READ_SCREEN" — read/analyze screen. meta: {"question": "what they asked"}
+- "SWITCH_CAMERA" — change camera. meta: {"cameraIndex": 0_based_number}
+- "SYSTEM_STATUS" — system health check
+- "MEMORY_SAVE" — store a fact. meta: {"saveFact": "exact fact to store"}
+- "MEMORY_RECALL" — show what's been stored
+- "MEMORY_FORGET" — delete a memory. meta: {"forgetHint": "search string"}
+- "LOGOUT" — log out / end session
+- "NOTIF_SETTINGS" — open notification settings
+- "TIMER" — set a timer. meta: {"action": "TIMER_SET", "duration": milliseconds, "task": "label or null"}
+- "OLLAMA_START" — user wants to start/run ollama, says "ollama serve", "start ollama", "run ollama", etc.
+- "OLLAMA_PULL" — user wants to pull/download an ollama model. meta: {"model": "model name"}
+- "MATH" — calculation. meta: {"result": computed_number}
+- "WEATHER" — weather query (needs fetching)
+- "SPOTIFY" — music control
+- "GMAIL" — email
+- "CALENDAR" — calendar/schedule
+
+DURATION PARSING: "5 minutes" = 300000, "30 seconds" = 30000, "1 hour" = 3600000, "last 30" = 30000, "an hour" = 3600000.
+
+For MATH: compute it yourself and put the number in meta.result. Reply should state it naturally.
+For MEMORY_SAVE: extract exactly what to remember.
+For OLLAMA_START: reply should tell the user you're starting it and it'll be ready in a moment.
+
+No markdown in reply. No bullet points. No asterisks. Spoken-word only. Under 3 sentences usually. Be concise.`;
+}
+
+async function callOllama(messages, systemPrompt) {
+  const payload = JSON.stringify({
+    model: OLLAMA_MODEL,
+    messages: [{ role: "system", content: systemPrompt }, ...messages],
+    stream: false,
+    format: "json",
+    options: { temperature: 0.75, num_predict: 400 }
+  });
+
+  return new Promise((resolve, reject) => {
+    const url = new URL(OLLAMA_URL + "/api/chat");
+    const lib = url.protocol === "https:" ? https : http;
+    const req = lib.request({
+      hostname: url.hostname,
+      port:     url.port || (url.protocol === "https:" ? 443 : 11434),
+      path:     url.pathname,
+      method:   "POST",
+      headers:  { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) },
+    }, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(new Error("Ollama parse error: " + data.slice(0, 200))); }
+      });
+    });
+    req.on("error", reject);
+    req.setTimeout(45000, () => { req.destroy(); reject(new Error("Ollama timeout")); });
+    req.write(payload);
+    req.end();
+  });
+}
+
+// Per-session conversation history
 const sessionHistories = new Map();
 function getHistory(sessionId) {
   if (!sessionHistories.has(sessionId)) sessionHistories.set(sessionId, []);
   return sessionHistories.get(sessionId);
 }
-// Clean up old sessions every 2 hours
 setInterval(() => {
   const cutoff = Date.now() - 7200000;
   for (const [id, hist] of sessionHistories) {
@@ -399,92 +416,190 @@ setInterval(() => {
   }
 }, 600000);
 
+// ── SMART FALLBACK — when Ollama is offline ──
+function smartFallback(message, userName, userTitle, memories) {
+  const T = userTitle || "Sir";
+  const lower = message.toLowerCase().trim();
+
+  // Math
+  const mathMatch = lower.match(/(\d+)\s*([\+\-\*\/\^]|times|plus|minus|divided by|over)\s*(\d+)/i);
+  if (mathMatch) {
+    try {
+      const expr = lower
+        .replace(/times/g, "*").replace(/plus/g, "+")
+        .replace(/minus/g, "-").replace(/divided by|over/g, "/");
+      const numExpr = expr.match(/[\d\s\+\-\*\/\.\(\)\%\^]+/)?.[0];
+      if (numExpr) {
+        // eslint-disable-next-line no-new-func
+        const result = Function(`"use strict"; return (${numExpr.replace(/\^/g,"**")})`)();
+        if (isFinite(result)) return { reply: `That's ${result}, ${T}.`, action: "MATH", meta: { result } };
+      }
+    } catch {}
+  }
+
+  // Time
+  if (/what.*time|current time/i.test(lower)) {
+    const t = new Date().toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit", hour12:true });
+    return { reply: `It's ${t}, ${T}.`, action: "NONE", meta: {} };
+  }
+  // Date
+  if (/what.*date|what day|today/i.test(lower)) {
+    const d = new Date().toLocaleDateString("en-GB", { weekday:"long", year:"numeric", month:"long", day:"numeric" });
+    return { reply: `Today is ${d}, ${T}.`, action: "NONE", meta: {} };
+  }
+
+  // Ollama commands
+  if (/ollama\s+serve|start\s+ollama|run\s+ollama|launch\s+ollama/i.test(lower)) {
+    return { reply: `Starting Ollama now, ${T}. Give it a moment.`, action: "OLLAMA_START", meta: {} };
+  }
+  if (/ollama\s+pull|pull\s+(\w+)|download.*model/i.test(lower)) {
+    const modelMatch = lower.match(/pull\s+(\w+)/i);
+    const model = modelMatch ? modelMatch[1] : OLLAMA_MODEL;
+    return { reply: `Pulling ${model} in the background, ${T}. Check your terminal for progress.`, action: "OLLAMA_PULL", meta: { model } };
+  }
+
+  // Links
+  if (/show.*link|link bank|all link/i.test(lower)) {
+    return { reply: `Showing your link bank now, ${T}.`, action: "SHOW_LINKS", meta: {} };
+  }
+  const linkResult = lookupLink(lower);
+  if (linkResult.found || /open|launch|go to|pull up/i.test(lower)) {
+    if (linkResult.found) return { reply: `Opening ${linkResult.name} now, ${T}.`, action: "OPEN_LINK", meta: { query: lower } };
+  }
+
+  // Clips
+  if (/clip|save.*footage|record that|save that/i.test(lower)) {
+    return { reply: `Saving the clip, ${T}.`, action: "CLIP_SAVE", meta: { clipType: "both", duration: null } };
+  }
+
+  // Status
+  if (/status|diagnostics|system|health|uptime/i.test(lower)) {
+    return { reply: `Running the system check, ${T}.`, action: "SYSTEM_STATUS", meta: {} };
+  }
+
+  // Logout
+  if (/log out|logout|goodbye|shut down|exit/i.test(lower)) {
+    return { reply: `Goodbye, ${T}. Initiating shutdown.`, action: "LOGOUT", meta: {} };
+  }
+
+  // Greeting
+  if (/^(hi|hello|hey|good morning|good afternoon|good evening|yo|sup)/i.test(lower)) {
+    const h = new Date().getHours();
+    const tod = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+    return { reply: `Good ${tod}, ${T}. Ollama is offline — I'm running in limited mode. Start it with "start ollama" for full intelligence.`, action: "NONE", meta: {} };
+  }
+
+  // Timer
+  const timerMatch = lower.match(/(?:set\s+)?(?:a\s+)?timer\s+(?:for\s+)?(\d+)\s*(second|minute|hour|min|sec|hr)/i);
+  if (timerMatch || /remind me in/i.test(lower)) {
+    const durMatch = lower.match(/(\d+)\s*(second|minute|hour|min|sec|hr)/i);
+    if (durMatch) {
+      const n = parseInt(durMatch[1]);
+      const unit = durMatch[2].toLowerCase();
+      const ms = unit.startsWith("h") ? n * 3600000 : unit.startsWith("m") ? n * 60000 : n * 1000;
+      const label = `${n} ${unit}${n > 1 ? "s" : ""}`;
+      return { reply: `Timer set for ${label}, ${T}.`, action: "TIMER", meta: { action: "TIMER_SET", duration: ms, task: null } };
+    }
+  }
+
+  // Memory recall
+  if (/what.*remember|show.*memor|recall/i.test(lower)) {
+    if (memories && memories.length) {
+      return { reply: `I have ${memories.length} thing${memories.length > 1 ? "s" : ""} stored for you, ${T}. Starting with: ${memories[0]}.`, action: "MEMORY_RECALL", meta: {} };
+    }
+    return { reply: `Nothing stored yet, ${T}.`, action: "MEMORY_RECALL", meta: {} };
+  }
+
+  // Default — inform user Ollama is offline
+  return {
+    reply: `Ollama is offline, ${T}. I'm in limited mode — I can handle basic commands but not open questions. Say "start ollama" and I'll fire it up.`,
+    action: "NONE",
+    meta: {}
+  };
+}
+
+// ══════════════════════════════════════════════════════════════
+// ── MAIN CHAT ENDPOINT ──
+// ══════════════════════════════════════════════════════════════
 app.post("/api/chat", async (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
-
   const T = userTitle || "Sir";
-
   const linkSummary = getLinksSummary();
-  const serverData  = { ...linkSummary, allLinks: getAllLinksFormatted() };
 
-  // Check link lookup first
-  const linkResult = lookupLink(message);
-  if (linkResult.found) Object.assign(serverData, linkResult);
-
-  // ── Try Ollama first ──
   const useOllama = await ollamaAvailable();
+
+  let parsed;
 
   if (useOllama) {
     try {
       const history = getHistory(sessionId);
       history._ts = Date.now();
-
       const systemPrompt = buildSystemPrompt(userName, T, memories, getLinksSummary().names, getLinksSummary());
-      const userMessages = [...history.filter(m => typeof m === "object"), { role: "user", content: message }];
-
+      const userMessages = [...history.filter(m => typeof m === "object" && m.role), { role: "user", content: message }];
       const ollamaResp = await callOllama(userMessages, systemPrompt);
       const rawContent = ollamaResp?.message?.content || ollamaResp?.choices?.[0]?.message?.content || "";
 
-      // Parse JSON from Ollama
-      let parsed;
       try {
-        // Sometimes Ollama wraps in markdown code blocks
         const cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
         parsed = JSON.parse(cleaned);
       } catch {
-        // If JSON parse fails, treat entire response as the reply
         parsed = { reply: rawContent || `Understood, ${T}.`, action: "NONE", meta: {} };
       }
 
-      const reply  = parsed.reply  || `Understood, ${T}.`;
-      const action = parsed.action || "NONE";
-      const meta   = parsed.meta   || {};
-
-      // Save to history (keep last 10 turns = 20 messages)
       history.push({ role: "user", content: message });
       history.push({ role: "assistant", content: rawContent });
-      while (history.filter(m => typeof m === "object").length > 20) {
-        const idx = history.findIndex(m => typeof m === "object");
-        if (idx >= 0) history.splice(idx, 1); else break;
+      const objMessages = history.filter(m => typeof m === "object" && m.role);
+      if (objMessages.length > 20) {
+        history.splice(history.findIndex(m => typeof m === "object" && m.role), 1);
+        history.splice(history.findIndex(m => typeof m === "object" && m.role), 1);
       }
-
-      // ── Server-side action processing ──
-      return await processAction(action, meta, reply, message, userName, userTitle, T, linkSummary, res);
-
     } catch (err) {
       console.error("[Ollama] Error:", err.message);
-      // Fall through to ai-engine
+      parsed = smartFallback(message, userName, userTitle, memories);
     }
+  } else {
+    parsed = smartFallback(message, userName, userTitle, memories);
   }
 
-  // ── Fallback: ai-engine ──
-  let aiResult;
-  try {
-    aiResult = AI.process({ message, sessionId, userName, userTitle, memories, moodContext, serverData });
-  } catch (err) {
-    console.error("[AI] Error:", err);
-    return res.json({ reply: `Something went sideways, ${T}. Give it another go.`, action: "ERROR" });
-  }
+  const reply  = parsed.reply  || `Understood, ${T}.`;
+  const action = parsed.action || "NONE";
+  const meta   = parsed.meta   || {};
 
-  const { reply, action, meta, intent, topic } = aiResult;
-  return await processAction(action, meta, reply, message, userName, userTitle, T, linkSummary, res, intent, topic);
+  return await processAction(action, meta, reply, message, userName, userTitle, T, linkSummary, res);
 });
 
-// Shared action processor for both Ollama and ai-engine paths
-async function processAction(action, meta, reply, message, userName, userTitle, T, linkSummary, res, intent, topic) {
+// ── ACTION PROCESSOR ──
+async function processAction(action, meta, reply, message, userName, userTitle, T, linkSummary, res) {
+  // Ollama management actions
+  if (action === "OLLAMA_START") {
+    const already = await ollamaAvailable();
+    if (already) {
+      return res.json({ reply: `Ollama is already running, ${T}.`, action: "NONE", meta: {} });
+    }
+    const result = await startOllamaServe();
+    const finalReply = result.started
+      ? `Ollama is up and running, ${T}. Full intelligence restored.`
+      : `I tried to start Ollama but it didn't respond, ${T}. Make sure it's installed — get it at ollama dot ai.`;
+    return res.json({ reply: finalReply, action: "NONE", meta: {} });
+  }
+
+  if (action === "OLLAMA_PULL") {
+    const model = meta?.model || OLLAMA_MODEL;
+    exec(`ollama pull ${model}`, (err) => {
+      if (err) console.error("[Ollama pull] error:", err.message);
+    });
+    return res.json({ reply, action: "NONE", meta: {} });
+  }
 
   if (action === "SHOW_LINKS") {
-    return res.json({
-      reply, action, intent,
-      meta: { requestLinks: true, linkGroups: getAllLinksFormatted(), total: linkSummary.total },
-    });
+    return res.json({ reply, action, meta: { requestLinks: true, linkGroups: getAllLinksFormatted(), total: linkSummary.total } });
   }
 
   if (action === "OPEN_LINK") {
     const query = meta?.query || message;
     const link  = lookupLink(query);
-    return res.json({ reply, action, intent, meta: { ...meta, ...link } });
+    return res.json({ reply, action, meta: { ...meta, ...link } });
   }
 
   if (action === "MEMORY_SAVE" && meta?.saveFact) {
@@ -494,19 +609,19 @@ async function processAction(action, meta, reply, message, userName, userTitle, 
     mem[key].push({ fact: meta.saveFact, savedAt: new Date().toISOString() });
     if (mem[key].length > 50) mem[key] = mem[key].slice(-50);
     saveMemories(mem);
-    return res.json({ reply, action, intent, meta: { saved: true, fact: meta.saveFact } });
+    return res.json({ reply, action, meta: { saved: true, fact: meta.saveFact } });
   }
 
   if (action === "MEMORY_FORGET" && meta?.forgetHint) {
     const mem = loadMemories();
     const key = (userName || "user").toLowerCase().trim();
-    if (!mem[key]) return res.json({ reply: `Nothing on file matching that, ${T}.`, action, intent });
+    if (!mem[key]) return res.json({ reply: `Nothing matching that on file, ${T}.`, action, meta: {} });
     const before = mem[key].length;
     mem[key] = mem[key].filter(m => !m.fact.toLowerCase().includes(meta.forgetHint.toLowerCase()));
     saveMemories(mem);
     const removed = before - mem[key].length;
     const finalReply = removed > 0 ? `Done, ${T}. ${removed} memory entry removed.` : `Nothing matching that on file, ${T}.`;
-    return res.json({ reply: finalReply, action, intent });
+    return res.json({ reply: finalReply, action, meta: {} });
   }
 
   if (action === "SYSTEM_STATUS") {
@@ -515,51 +630,39 @@ async function processAction(action, meta, reply, message, userName, userTitle, 
     const mins   = Math.floor(uptime / 60), secs = uptime % 60;
     const used   = (m.heapUsed / 1024 / 1024).toFixed(1);
     const total  = (m.heapTotal / 1024 / 1024).toFixed(1);
-    return res.json({ reply, action, intent, meta: { uptime, uptimeLabel: `${mins}m ${secs}s`, heapUsed: used, heapTotal: total } });
+    return res.json({ reply, action, meta: { uptime, uptimeLabel: `${mins}m ${secs}s`, heapUsed: used, heapTotal: total } });
   }
 
-  return res.json({ reply, action, intent, topic, meta });
+  return res.json({ reply, action, meta });
 }
 
 // ── SCREEN ANALYSIS ──
 app.post("/api/screen", async (req, res) => {
   const { ocrText, question, userName, userTitle, memories } = req.body;
   const T = userTitle || "Sir";
-
   if (!ocrText || ocrText.trim().length < 5) {
     return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}.` });
   }
-
   const useOllama = await ollamaAvailable();
   if (useOllama) {
     try {
-      const systemPrompt = `You are J.A.R.V.I.S. The user has shared their screen content via OCR. Analyze it and answer their question. Be concise, spoken-word friendly (no markdown). Address them as "${T}". Respond with ONLY JSON: {"reply": "your answer"}`;
-      const userMsg = `Screen content: "${ocrText.trim().slice(0, 800)}"\nUser question: "${question || "What is on my screen?"}"`;
+      const systemPrompt = `You are J.A.R.V.I.S. Analyze the screen content and answer the question. Be concise and spoken-word friendly. Address them as "${T}". Respond with ONLY JSON: {"reply": "your answer"}`;
+      const userMsg = `Screen content: "${ocrText.trim().slice(0, 800)}"\nQuestion: "${question || "What is on my screen?"}"`;
       const result = await callOllama([{ role: "user", content: userMsg }], systemPrompt);
       const raw = result?.message?.content || "";
       let reply;
       try {
-        const parsed = JSON.parse(raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim());
-        reply = parsed.reply || raw;
+        const p = JSON.parse(raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim());
+        reply = p.reply || raw;
       } catch { reply = raw || `Your screen shows: ${ocrText.trim().slice(0, 200)}`; }
-      return res.json({ reply: `${reply}` });
-    } catch (err) {
-      console.error("[Ollama screen]", err.message);
-    }
+      return res.json({ reply });
+    } catch (err) { console.error("[Ollama screen]", err.message); }
   }
-
-  // Fallback
-  const screenContext = `The user's screen contains: "${ocrText.trim().slice(0, 800)}". The user asked: "${question || "What is on my screen?"}"`;
-  try {
-    const result = AI.process({ message: screenContext, sessionId: `screen_${userName || "user"}`, userName, userTitle, memories, serverData: getLinksSummary() });
-    return res.json({ reply: `I can see your screen, ${T}. ${result.reply}` });
-  } catch {
-    const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0, 5);
-    return res.json({ reply: `On your screen, ${T}: ${lines.join(". ")}` });
-  }
+  const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0, 5);
+  return res.json({ reply: `On your screen, ${T}: ${lines.join(". ")}` });
 });
 
-// ── GOOGLE OAUTH CALLBACK (optional) ──
+// ── GOOGLE OAUTH CALLBACK ──
 app.get("/api/google/callback", async (req, res) => {
   const { code } = req.query;
   if (!code) return res.send("<h2>No code received.</h2>");
@@ -567,11 +670,11 @@ app.get("/api/google/callback", async (req, res) => {
     const google = require("./google");
     const result = await google.exchangeCode(code);
     if (result.error) return res.send(`<h2>Auth error: ${result.error}</h2>`);
-    res.send(`<h2>Google connected successfully!</h2><p>You can close this tab and return to J.A.R.V.I.S.</p><script>setTimeout(()=>window.close(),2000)</script>`);
+    res.send(`<h2>Google connected!</h2><script>setTimeout(()=>window.close(),2000)</script>`);
   } catch { res.send("<h2>Google module not found.</h2>"); }
 });
 
-// ── SPOTIFY OAUTH CALLBACK (optional) ──
+// ── SPOTIFY OAUTH CALLBACK ──
 app.get("/api/spotify/callback", async (req, res) => {
   const { code } = req.query;
   if (!code) return res.send("<h2>No code received.</h2>");
@@ -579,7 +682,7 @@ app.get("/api/spotify/callback", async (req, res) => {
     const spotify = require("./spotify");
     const result  = await spotify.exchangeCode(code);
     if (result.error) return res.send(`<h2>Auth error: ${result.error}</h2>`);
-    res.send(`<h2>Spotify connected!</h2><p>You can close this tab.</p><script>setTimeout(()=>window.close(),2000)</script>`);
+    res.send(`<h2>Spotify connected!</h2><script>setTimeout(()=>window.close(),2000)</script>`);
   } catch { res.send("<h2>Spotify module not found.</h2>"); }
 });
 
@@ -587,5 +690,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\nJ.A.R.V.I.S online → http://localhost:${PORT}`);
   console.log(`Ollama URL: ${OLLAMA_URL} | Model: ${OLLAMA_MODEL}`);
-  console.log(`Run "ollama pull ${OLLAMA_MODEL}" if you haven't already.\n`);
+  console.log(`Tip: run "ollama serve" in a separate terminal, or say "start ollama" in the chat.\n`);
 });
