@@ -1,10 +1,11 @@
 require("dotenv").config();
-const express  = require("express");
-const cors     = require("cors");
-const path     = require("path");
-const fs       = require("fs");
-const AI       = require("./ai-engine");
-const Research = require("./research");
+const express     = require("express");
+const cors        = require("cors");
+const path        = require("path");
+const fs          = require("fs");
+const AI          = require("./ai-engine");
+const Research    = require("./research");
+const Personality = require("./personality");
 
 const app = express();
 app.use(cors());
@@ -19,7 +20,7 @@ app.use(express.static(path.join(__dirname, "public"), {
   }
 }));
 
-// ── LINKS BANK ──
+// ── LINKS BANK ──────────────────────────────────────────────────
 const LINKS = {
   vapor: [
     "http://mededucation.org",
@@ -98,7 +99,7 @@ function getAllLinksFormatted() {
   return out;
 }
 
-// ── LINKS API ──
+// ── LINKS API ────────────────────────────────────────────────────
 app.get("/api/links",         (req, res) => res.json({ groups: Object.keys(LINKS), summary: getLinksSummary(), all: getAllLinksFormatted() }));
 app.get("/api/links/summary", (req, res) => res.json(getLinksSummary()));
 app.get("/api/links/all",     (req, res) => res.json({ links: getAllLinksFormatted() }));
@@ -109,7 +110,7 @@ app.post("/api/link", (req, res) => {
   res.json(lookupLink(query));
 });
 
-// ── PERSISTENT STORE ──
+// ── PERSISTENT STORE ─────────────────────────────────────────────
 const DATA_DIR      = path.join(__dirname, "data");
 const PROFILES_FILE = path.join(DATA_DIR, "profiles.json");
 const MEMORIES_FILE = path.join(DATA_DIR, "memories.json");
@@ -126,17 +127,19 @@ function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON
 
 app.get("/favicon.ico", (req, res) => res.status(204).end());
 
-// ── PROFILE ROUTES ──
+// ── PROFILE ROUTES ────────────────────────────────────────────────
 app.post("/api/register", (req, res) => {
   const { name, passwordHash, title, voiceAliases } = req.body;
   if (!name || !passwordHash) return res.status(400).json({ error: "Missing fields" });
   const profiles = loadProfiles();
   const key = name.toLowerCase().trim();
   profiles[key] = {
-    name: name.trim(), passwordHash, title: title || "Sir",
+    name:         name.trim(),
+    passwordHash,
+    title:        title || "Sir",
     voiceAliases: voiceAliases || [],
-    createdAt: profiles[key]?.createdAt || new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
+    createdAt:    profiles[key]?.createdAt || new Date().toISOString(),
+    updatedAt:    new Date().toISOString(),
   };
   saveProfiles(profiles);
   res.json({ success: true });
@@ -144,8 +147,8 @@ app.post("/api/register", (req, res) => {
 
 app.get("/api/profile/:name", (req, res) => {
   const profiles = loadProfiles();
-  const key = req.params.name.toLowerCase().trim();
-  const profile = profiles[key];
+  const key      = req.params.name.toLowerCase().trim();
+  const profile  = profiles[key];
   if (!profile) return res.json({ found: false });
   const { passwordHash, ...safe } = profile;
   res.json({ found: true, profile: safe });
@@ -155,9 +158,9 @@ app.post("/api/verify", (req, res) => {
   const { name, passwordHash } = req.body;
   if (!name || !passwordHash) return res.status(400).json({ authorized: false });
   const profiles = loadProfiles();
-  const key = name.toLowerCase().trim();
-  const stored = profiles[key];
-  if (!stored) return res.json({ authorized: false, reason: "no_profile" });
+  const key      = name.toLowerCase().trim();
+  const stored   = profiles[key];
+  if (!stored)                         return res.json({ authorized: false, reason: "no_profile" });
   if (stored.passwordHash !== passwordHash) return res.json({ authorized: false, reason: "wrong_password" });
   const { passwordHash: _, ...safe } = stored;
   res.json({ authorized: true, profile: safe });
@@ -169,7 +172,7 @@ app.get("/api/profiles", (req, res) => {
   res.json({ profiles: list });
 });
 
-// ── MEMORY ROUTES ──
+// ── MEMORY ROUTES ─────────────────────────────────────────────────
 app.get("/api/memory/:user", (req, res) => {
   const mem = loadMemories();
   res.json({ memories: mem[req.params.user.toLowerCase().trim()] || [] });
@@ -190,8 +193,8 @@ app.post("/api/memory", (req, res) => {
 app.post("/api/memory/forget", (req, res) => {
   const { user, hint } = req.body;
   if (!user || !hint) return res.status(400).json({ error: "Missing fields" });
-  const mem = loadMemories();
-  const key = user.toLowerCase().trim();
+  const mem  = loadMemories();
+  const key  = user.toLowerCase().trim();
   if (!mem[key]) return res.json({ removed: 0 });
   const before = mem[key].length;
   mem[key] = mem[key].filter(m => !m.fact.toLowerCase().includes(hint.toLowerCase()));
@@ -199,23 +202,58 @@ app.post("/api/memory/forget", (req, res) => {
   res.json({ removed: before - mem[key].length });
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── CHAT — local AI engine + live research fallback ──
-// ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// ── PERSONALITY — camera-triggered proactive comment ─────────────
+// ══════════════════════════════════════════════════════════════════
+app.post("/api/personality/comment", (req, res) => {
+  const { scene, userTitle, sessionMinutes, previousScene } = req.body;
+  const T = userTitle || "Sir";
+
+  // Don't repeat the same idle scene back to back
+  if (scene === previousScene && scene === "idle") {
+    return res.json({ reply: null });
+  }
+
+  const reply = Personality.getCameraComment(scene, T, sessionMinutes);
+  res.json({ reply: reply || null });
+});
+
+// ── PERSONALITY — smalltalk ───────────────────────────────────────
+app.post("/api/personality/smalltalk", (req, res) => {
+  const { message, userTitle } = req.body;
+  const T = userTitle || "Sir";
+  if (!message) return res.status(400).json({ reply: null });
+
+  const reply = Personality.routeSmallTalk(message, T);
+  res.json({ reply: reply || null });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ── CHAT — local AI + smalltalk fast path + live research ────────
+// ══════════════════════════════════════════════════════════════════
 app.post("/api/chat", async (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
 
   const T = userTitle || "Sir";
 
-  // Build serverData
+  // ── Fast path: try smalltalk first ──
+  const smalltalkReply = Personality.routeSmallTalk(message, T);
+  if (smalltalkReply) {
+    return res.json({
+      reply:  smalltalkReply,
+      action: "SMALLTALK",
+      intent: "smalltalk",
+    });
+  }
+
+  // ── Build server context ──
   const linkSummary = getLinksSummary();
   const serverData  = { ...linkSummary, allLinks: getAllLinksFormatted() };
-
-  const linkResult = lookupLink(message);
+  const linkResult  = lookupLink(message);
   if (linkResult.found) Object.assign(serverData, linkResult);
 
-  // ── Step 1: Run local AI engine ──
+  // ── Run local AI engine ──
   let aiResult;
   try {
     aiResult = AI.process({ message, sessionId, userName, userTitle, memories, moodContext, serverData });
@@ -226,8 +264,8 @@ app.post("/api/chat", async (req, res) => {
 
   const { reply, action, meta, intent, topic } = aiResult;
 
-  // ── Step 2: Research fallback ──
-  // If local engine fell back OR returned a thin knowledge answer, try live research
+  // ── Research fallback ──
+  // Kick in when local engine falls back OR gives a thin knowledge answer
   const shouldTryResearch = (
     action === "FALLBACK" ||
     (action === "KNOWLEDGE" && reply.length < 200) ||
@@ -239,32 +277,29 @@ app.post("/api/chat", async (req, res) => {
       const researched = await Research.research(message, userTitle);
       if (researched && researched.reply) {
         console.log(`[RESEARCH] Upgraded response for: "${message.slice(0, 50)}"`);
-
-        // Return the researched answer, keeping the action routing intact
         return res.json({
-          reply:    researched.reply,
-          action:   action === "FALLBACK" ? "RESEARCH" : action,
-          intent:   "research",
-          topic:    researched.query,
-          meta:     {
-            researched: true,
-            sources:    researched.sources,
-          },
+          reply:  researched.reply,
+          action: action === "FALLBACK" ? "RESEARCH" : action,
+          intent: "research",
+          topic:  researched.query,
+          meta:   { researched: true, sources: researched.sources },
         });
       }
     } catch (researchErr) {
-      console.warn("[RESEARCH] Research failed, using local answer:", researchErr.message);
-      // Fall through to local answer below
+      console.warn("[RESEARCH] Failed, falling back to local answer:", researchErr.message);
     }
   }
 
-  // ── Step 3: Handle local actions (unchanged from original) ──
+  // ── Handle local action side effects ──
 
   if (action === "SHOW_LINKS") {
-    const all = getAllLinksFormatted();
     return res.json({
       reply, action, intent,
-      meta: { requestLinks: true, linkGroups: all, total: linkSummary.total },
+      meta: {
+        requestLinks: true,
+        linkGroups:   getAllLinksFormatted(),
+        total:        linkSummary.total,
+      },
     });
   }
 
@@ -284,22 +319,25 @@ app.post("/api/chat", async (req, res) => {
   }
 
   if (action === "MEMORY_FORGET" && meta?.forgetHint) {
-    const mem = loadMemories();
-    const key = (userName || "user").toLowerCase().trim();
+    const mem    = loadMemories();
+    const key    = (userName || "user").toLowerCase().trim();
     if (!mem[key]) return res.json({ reply: `Nothing on file matching that, ${T}.`, action, intent });
     const before = mem[key].length;
     mem[key] = mem[key].filter(m => !m.fact.toLowerCase().includes(meta.forgetHint.toLowerCase()));
     saveMemories(mem);
-    const removed = before - mem[key].length;
-    const finalReply = removed > 0 ? `Done, ${T}. ${removed} memory entry removed.` : `Nothing matching that on file, ${T}.`;
+    const removed    = before - mem[key].length;
+    const finalReply = removed > 0
+      ? `Done, ${T}. ${removed} memory entry removed.`
+      : `Nothing matching that on file, ${T}.`;
     return res.json({ reply: finalReply, action, intent });
   }
 
   if (action === "SYSTEM_STATUS") {
     const uptime = Math.floor(process.uptime());
     const mem    = process.memoryUsage();
-    const mins   = Math.floor(uptime / 60), secs = uptime % 60;
-    const used   = (mem.heapUsed / 1024 / 1024).toFixed(1);
+    const mins   = Math.floor(uptime / 60);
+    const secs   = uptime % 60;
+    const used   = (mem.heapUsed  / 1024 / 1024).toFixed(1);
     const total  = (mem.heapTotal / 1024 / 1024).toFixed(1);
     return res.json({
       reply, action, intent,
@@ -307,24 +345,27 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
+  // All other actions pass through with their meta
   return res.json({ reply, action, intent, topic, meta });
 });
 
-// ── SCREEN ANALYSIS ──
+// ── SCREEN ANALYSIS ───────────────────────────────────────────────
 app.post("/api/screen", (req, res) => {
   const { ocrText, question, userName, userTitle, memories } = req.body;
   const T = userTitle || "Sir";
 
   if (!ocrText || ocrText.trim().length < 5) {
-    return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}.` });
+    return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}. Make sure the content is visible.` });
   }
 
   const screenContext = `The user's screen contains: "${ocrText.trim().slice(0, 800)}". The user asked: "${question || "What is on my screen?"}"`;
   try {
     const result = AI.process({
-      message: screenContext,
-      sessionId: `screen_${userName || "user"}`,
-      userName, userTitle, memories,
+      message:    screenContext,
+      sessionId:  `screen_${userName || "user"}`,
+      userName,
+      userTitle,
+      memories,
       serverData: getLinksSummary(),
     });
     const reply = result.reply.length > 20
@@ -337,7 +378,7 @@ app.post("/api/screen", (req, res) => {
   }
 });
 
-// ── RESEARCH ENDPOINT (direct, for testing) ──
+// ── RESEARCH ENDPOINT (direct) ────────────────────────────────────
 app.post("/api/research", async (req, res) => {
   const { query, userTitle } = req.body;
   if (!query) return res.status(400).json({ error: "Missing query" });
@@ -349,5 +390,6 @@ app.post("/api/research", async (req, res) => {
   }
 });
 
+// ── BOOT ──────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`J.A.R.V.I.S online → http://localhost:${PORT}`));
