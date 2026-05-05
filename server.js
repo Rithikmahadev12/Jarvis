@@ -4,6 +4,7 @@ const cors     = require("cors");
 const path     = require("path");
 const fs       = require("fs");
 const AI       = require("./ai-engine");
+const Research = require("./research");
 
 const app = express();
 app.use(cors());
@@ -199,7 +200,7 @@ app.post("/api/memory/forget", (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// ── CHAT — semantic AI engine, action-based routing ──
+// ── CHAT — local AI engine + live research fallback ──
 // ══════════════════════════════════════════════════════════════
 app.post("/api/chat", async (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext } = req.body;
@@ -207,19 +208,14 @@ app.post("/api/chat", async (req, res) => {
 
   const T = userTitle || "Sir";
 
-  // Build serverData — give AI full context about what the server knows
+  // Build serverData
   const linkSummary = getLinksSummary();
-  const serverData  = {
-    ...linkSummary,
-    allLinks: getAllLinksFormatted(),
-  };
+  const serverData  = { ...linkSummary, allLinks: getAllLinksFormatted() };
 
-  // Check if it's a link lookup first
   const linkResult = lookupLink(message);
-  if (linkResult.found) {
-    Object.assign(serverData, linkResult);
-  }
+  if (linkResult.found) Object.assign(serverData, linkResult);
 
+  // ── Step 1: Run local AI engine ──
   let aiResult;
   try {
     aiResult = AI.process({ message, sessionId, userName, userTitle, memories, moodContext, serverData });
@@ -230,30 +226,53 @@ app.post("/api/chat", async (req, res) => {
 
   const { reply, action, meta, intent, topic } = aiResult;
 
-  // ── Handle server-side actions triggered by AI ──
+  // ── Step 2: Research fallback ──
+  // If local engine fell back OR returned a thin knowledge answer, try live research
+  const shouldTryResearch = (
+    action === "FALLBACK" ||
+    (action === "KNOWLEDGE" && reply.length < 200) ||
+    Research.shouldResearch(message)
+  );
 
-  // SHOW_LINKS — format full link list for client
+  if (shouldTryResearch) {
+    try {
+      const researched = await Research.research(message, userTitle);
+      if (researched && researched.reply) {
+        console.log(`[RESEARCH] Upgraded response for: "${message.slice(0, 50)}"`);
+
+        // Return the researched answer, keeping the action routing intact
+        return res.json({
+          reply:    researched.reply,
+          action:   action === "FALLBACK" ? "RESEARCH" : action,
+          intent:   "research",
+          topic:    researched.query,
+          meta:     {
+            researched: true,
+            sources:    researched.sources,
+          },
+        });
+      }
+    } catch (researchErr) {
+      console.warn("[RESEARCH] Research failed, using local answer:", researchErr.message);
+      // Fall through to local answer below
+    }
+  }
+
+  // ── Step 3: Handle local actions (unchanged from original) ──
+
   if (action === "SHOW_LINKS") {
     const all = getAllLinksFormatted();
     return res.json({
-      reply,
-      action,
-      intent,
-      meta: {
-        requestLinks: true,
-        linkGroups: all,
-        total: linkSummary.total,
-      },
+      reply, action, intent,
+      meta: { requestLinks: true, linkGroups: all, total: linkSummary.total },
     });
   }
 
-  // OPEN_LINK — resolve and return the URL
   if (action === "OPEN_LINK") {
     const link = lookupLink(message);
     return res.json({ reply, action, intent, meta: { ...meta, ...link } });
   }
 
-  // MEMORY_SAVE — persist to disk
   if (action === "MEMORY_SAVE" && meta?.saveFact) {
     const mem = loadMemories();
     const key = (userName || "user").toLowerCase().trim();
@@ -264,7 +283,6 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ reply, action, intent, meta: { saved: true, fact: meta.saveFact } });
   }
 
-  // MEMORY_FORGET — remove from disk
   if (action === "MEMORY_FORGET" && meta?.forgetHint) {
     const mem = loadMemories();
     const key = (userName || "user").toLowerCase().trim();
@@ -277,7 +295,6 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ reply: finalReply, action, intent });
   }
 
-  // SYSTEM_STATUS — add real metrics
   if (action === "SYSTEM_STATUS") {
     const uptime = Math.floor(process.uptime());
     const mem    = process.memoryUsage();
@@ -285,14 +302,11 @@ app.post("/api/chat", async (req, res) => {
     const used   = (mem.heapUsed / 1024 / 1024).toFixed(1);
     const total  = (mem.heapTotal / 1024 / 1024).toFixed(1);
     return res.json({
-      reply,
-      action,
-      intent,
+      reply, action, intent,
       meta: { uptime, uptimeLabel: `${mins}m ${secs}s`, heapUsed: used, heapTotal: total },
     });
   }
 
-  // All other actions pass through with their meta
   return res.json({ reply, action, intent, topic, meta });
 });
 
@@ -302,7 +316,7 @@ app.post("/api/screen", (req, res) => {
   const T = userTitle || "Sir";
 
   if (!ocrText || ocrText.trim().length < 5) {
-    return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}. Make sure the content is visible.` });
+    return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}.` });
   }
 
   const screenContext = `The user's screen contains: "${ocrText.trim().slice(0, 800)}". The user asked: "${question || "What is on my screen?"}"`;
@@ -320,6 +334,18 @@ app.post("/api/screen", (req, res) => {
   } catch {
     const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0, 5);
     return res.json({ reply: `On your screen, ${T}: ${lines.join(". ")}` });
+  }
+});
+
+// ── RESEARCH ENDPOINT (direct, for testing) ──
+app.post("/api/research", async (req, res) => {
+  const { query, userTitle } = req.body;
+  if (!query) return res.status(400).json({ error: "Missing query" });
+  try {
+    const result = await Research.research(query, userTitle || "Sir");
+    res.json(result || { reply: null, message: "No results found" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
