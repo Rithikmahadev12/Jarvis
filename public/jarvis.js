@@ -628,6 +628,8 @@ function launchMain() {
   setupTypingBox();
   startChatListening();
   initTesseract();
+  // CHANGE 1: Start camera observer after Tesseract init
+  CameraObserver.start();
   setTimeout(() => checkIntruderClips(), 2000);
 }
 
@@ -662,6 +664,8 @@ function handleChatCommand(text) {
   state.lastInteraction = Date.now();
   state.interactionCount++;
   updateMood(3);
+  // CHANGE 2: Notify camera observer of user message
+  CameraObserver.notifyUserMessage();
 
   const hasWake = hasWakeWord(lower);
   const cleaned = hasWake ? stripWakeWord(text) : text;
@@ -689,6 +693,24 @@ async function sendToAI(message) {
   mic.suspend();
   addMsg("user", message);
   setOrb("thinking");
+
+  // CHANGE 3: Try smalltalk first — fast, local personality responses
+  try {
+    const stRes = await fetch("/api/personality/smalltalk", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, userTitle: state.userTitle }),
+    });
+    const stData = await stRes.json();
+    if (stData.reply) {
+      addMsg("jarvis", stData.reply);
+      speak(stData.reply, () => mic.resume());
+      updateMood(5);
+      return; // handled — no need to hit full AI engine
+    }
+  } catch { /* fall through to full AI */ }
+
+  // Full AI engine for everything else
   const memories = await loadMemoriesForPrompt();
   const moodCtx  = `mood: ${state.mood} (score: ${state.moodScore})`;
   try {
