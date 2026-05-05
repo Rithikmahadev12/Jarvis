@@ -20,7 +20,7 @@ app.use(express.static(path.join(__dirname, "public"), {
   }
 }));
 
-// ── LINKS BANK ──
+// ── LINKS BANK ──────────────────────────────────────────────────────────────
 const LINKS = {
   vapor: [
     "http://mededucation.org",
@@ -99,7 +99,7 @@ function getAllLinksFormatted() {
   return out;
 }
 
-// ── LINKS API ──
+// ── LINKS API ────────────────────────────────────────────────────────────────
 app.get("/api/links",         (req, res) => res.json({ groups: Object.keys(LINKS), summary: getLinksSummary(), all: getAllLinksFormatted() }));
 app.get("/api/links/summary", (req, res) => res.json(getLinksSummary()));
 app.get("/api/links/all",     (req, res) => res.json({ links: getAllLinksFormatted() }));
@@ -110,7 +110,7 @@ app.post("/api/link", (req, res) => {
   res.json(lookupLink(query));
 });
 
-// ── PERSISTENT STORE ──
+// ── PERSISTENT STORE ─────────────────────────────────────────────────────────
 const DATA_DIR      = path.join(__dirname, "data");
 const PROFILES_FILE = path.join(DATA_DIR, "profiles.json");
 const MEMORIES_FILE = path.join(DATA_DIR, "memories.json");
@@ -127,7 +127,7 @@ function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON
 
 app.get("/favicon.ico", (req, res) => res.status(204).end());
 
-// ── PROFILE ROUTES ──
+// ── PROFILE ROUTES ────────────────────────────────────────────────────────────
 app.post("/api/register", (req, res) => {
   const { name, passwordHash, title, voiceAliases } = req.body;
   if (!name || !passwordHash) return res.status(400).json({ error: "Missing fields" });
@@ -170,7 +170,7 @@ app.get("/api/profiles", (req, res) => {
   res.json({ profiles: list });
 });
 
-// ── MEMORY ROUTES ──
+// ── MEMORY ROUTES ─────────────────────────────────────────────────────────────
 app.get("/api/memory/:user", (req, res) => {
   const mem = loadMemories();
   res.json({ memories: mem[req.params.user.toLowerCase().trim()] || [] });
@@ -200,213 +200,23 @@ app.post("/api/memory/forget", (req, res) => {
   res.json({ removed: before - mem[key].length });
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── OLLAMA MANAGEMENT ──
-// Handles "start ollama", "stop ollama", "ollama serve" etc.
-// ══════════════════════════════════════════════════════════════
-const OLLAMA_URL   = process.env.OLLAMA_URL   || "http://localhost:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3";
+// ══════════════════════════════════════════════════════════════════════════════
+// ── POLLINATIONS AI BRAIN ─────────────────────────────────────────────────────
+// Free, no key, no account. Uses Mistral/Llama under the hood.
+// Endpoint: https://text.pollinations.ai/openai
+// ══════════════════════════════════════════════════════════════════════════════
 
-let ollamaProcess = null;
+const POLLINATIONS_URL = "https://text.pollinations.ai/openai";
+const AI_MODEL         = "mistral";   // or "llama", "openai" — all free on Pollinations
 
-function startOllamaServe() {
-  return new Promise((resolve) => {
-    if (ollamaProcess) {
-      resolve({ started: false, reason: "already_running" });
-      return;
-    }
-    // Try to start ollama serve as a background process
-    const child = exec("ollama serve", (err) => {
-      // This fires when the process ends — not on start
-      ollamaProcess = null;
-    });
-    ollamaProcess = child;
-    // Give it 2 seconds to start up, then check
-    setTimeout(async () => {
-      const up = await ollamaAvailable();
-      resolve({ started: up, pid: child.pid });
-    }, 2000);
-  });
-}
-
-// POST /api/ollama/start — start ollama serve
-app.post("/api/ollama/start", async (req, res) => {
-  const already = await ollamaAvailable();
-  if (already) return res.json({ success: true, message: "Ollama is already running." });
-  const result = await startOllamaServe();
-  if (result.started) {
-    res.json({ success: true, message: `Ollama started successfully (PID ${result.pid}).` });
-  } else if (result.reason === "already_running") {
-    res.json({ success: true, message: "Ollama process already tracked." });
-  } else {
-    res.json({ success: false, message: "Could not start Ollama. Make sure it is installed: https://ollama.ai" });
-  }
-});
-
-// POST /api/ollama/pull — pull a model
-app.post("/api/ollama/pull", async (req, res) => {
-  const model = req.body.model || OLLAMA_MODEL;
-  res.json({ success: true, message: `Pulling ${model}... this runs in the background. Check terminal for progress.` });
-  // Fire and forget
-  exec(`ollama pull ${model}`, (err, stdout, stderr) => {
-    if (err) console.error("[Ollama pull] error:", err.message);
-    else console.log("[Ollama pull] done:", stdout);
-  });
-});
-
-async function ollamaAvailable() {
-  return new Promise((resolve) => {
-    const url = new URL(OLLAMA_URL);
-    const lib = url.protocol === "https:" ? https : http;
-    const req = lib.request({ hostname: url.hostname, port: url.port || 11434, path: "/api/tags", method: "GET" }, (res) => {
-      resolve(res.statusCode === 200);
-    });
-    req.on("error", () => resolve(false));
-    req.setTimeout(2000, () => { req.destroy(); resolve(false); });
-    req.end();
-  });
-}
-
-// ── Ollama status endpoint ──
-app.get("/api/ollama/status", async (req, res) => {
-  const available = await ollamaAvailable();
-  if (!available) return res.json({ available: false, model: OLLAMA_MODEL });
-  return new Promise((resolve) => {
-    const url = new URL(OLLAMA_URL);
-    const lib = url.protocol === "https:" ? https : http;
-    const req = lib.request({ hostname: url.hostname, port: url.port || 11434, path: "/api/tags", method: "GET" }, (r) => {
-      let d = ""; r.on("data", c => d += c); r.on("end", () => {
-        try {
-          const tags = JSON.parse(d);
-          const models = (tags.models || []).map(m => m.name);
-          const hasModel = models.some(m => m.includes(OLLAMA_MODEL.split(":")[0]));
-          res.json({ available: true, model: OLLAMA_MODEL, hasModel, models });
-        } catch { res.json({ available: true, model: OLLAMA_MODEL, hasModel: false }); }
-        resolve();
-      });
-    });
-    req.on("error", () => { res.json({ available: false }); resolve(); });
-    req.end();
-  });
-});
-
-// ══════════════════════════════════════════════════════════════
-// ── TTS PROXY — StreamElements ──
-// ══════════════════════════════════════════════════════════════
-app.get("/api/tts", async (req, res) => {
-  const text  = req.query.text;
-  const voice = req.query.voice || "Brian";
-  if (!text) return res.status(400).send("No text");
-  const clean = text.trim().slice(0, 600);
-  const url   = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(clean)}`;
-  https.get(url, {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; JARVIS/2.0)", "Accept": "audio/mpeg, audio/*, */*" }
-  }, (ttsRes) => {
-    if (ttsRes.statusCode !== 200) return res.status(502).send("TTS error");
-    res.setHeader("Content-Type", ttsRes.headers["content-type"] || "audio/mpeg");
-    res.setHeader("Cache-Control", "public, max-age=300");
-    ttsRes.pipe(res);
-  }).on("error", (err) => res.status(502).send("TTS network error"));
-});
-
-app.get("/api/tts/voices", (req, res) => {
-  res.json({
-    voices: ["Brian","Amy","Emma","Geraint","Russell","Joey","Matthew","Joanna","Salli","Hans","Giorgio","Carla"],
-    recommended: "Brian",
-  });
-});
-
-// ══════════════════════════════════════════════════════════════
-// ── OLLAMA LLM CORE ──
-// ══════════════════════════════════════════════════════════════
-function buildSystemPrompt(userName, userTitle, memories, linkNames, linkSummary) {
-  const memBlock = memories && memories.length
-    ? `\nKnown facts about the user:\n${memories.map(m => `- ${m}`).join("\n")}`
-    : "";
-  const linkBlock = linkNames && linkNames.length
-    ? `\nAvailable link groups (the user can ask to open these by name): ${linkNames.join(", ")}. Total links: ${linkSummary?.total || 0}.`
-    : "";
-
-  return `You are J.A.R.V.I.S — Just A Rather Very Intelligent System. A sophisticated AI assistant with dry British wit, precision, and genuine intelligence. The user's name is ${userName || "unknown"} and you address them as "${userTitle}".
-
-Your personality: confident, precise, subtly witty, genuinely helpful. No sycophantic openers like "Certainly!" or "Of course!". You speak like a brilliant British butler who is also a supercomputer. Short, punchy, intelligent responses.
-${memBlock}
-${linkBlock}
-
-CRITICAL INSTRUCTION: You must ALWAYS respond with ONLY valid JSON. No markdown, no text outside the JSON. Format:
-{"reply": "Your spoken response here", "action": "ACTION_CODE", "meta": {}}
-
-UNDERSTAND INTENT NATURALLY — do not rely on keywords. Infer what the user wants from context:
-
-ACTION CODES:
-- "NONE" — general talk, questions, knowledge, opinions, anything conversational
-- "OPEN_LINK" — user wants to open/visit/go to a named link group. meta: {"query": "group name"}
-- "SHOW_LINKS" — user wants to see all saved links
-- "CLIP_SAVE" — save/clip/record screen or camera footage. meta: {"clipType": "both|screen|camera", "duration": ms_number_or_null}
-- "SHOW_CLIPS" — show recorded intruder clips
-- "READ_SCREEN" — read/analyze screen. meta: {"question": "what they asked"}
-- "SWITCH_CAMERA" — change camera. meta: {"cameraIndex": 0_based_number}
-- "SYSTEM_STATUS" — system health check
-- "MEMORY_SAVE" — store a fact. meta: {"saveFact": "exact fact to store"}
-- "MEMORY_RECALL" — show what's been stored
-- "MEMORY_FORGET" — delete a memory. meta: {"forgetHint": "search string"}
-- "LOGOUT" — log out / end session
-- "NOTIF_SETTINGS" — open notification settings
-- "TIMER" — set a timer. meta: {"action": "TIMER_SET", "duration": milliseconds, "task": "label or null"}
-- "OLLAMA_START" — user wants to start/run ollama, says "ollama serve", "start ollama", "run ollama", etc.
-- "OLLAMA_PULL" — user wants to pull/download an ollama model. meta: {"model": "model name"}
-- "MATH" — calculation. meta: {"result": computed_number}
-- "WEATHER" — weather query (needs fetching)
-- "SPOTIFY" — music control
-- "GMAIL" — email
-- "CALENDAR" — calendar/schedule
-
-DURATION PARSING: "5 minutes" = 300000, "30 seconds" = 30000, "1 hour" = 3600000, "last 30" = 30000, "an hour" = 3600000.
-
-For MATH: compute it yourself and put the number in meta.result. Reply should state it naturally.
-For MEMORY_SAVE: extract exactly what to remember.
-For OLLAMA_START: reply should tell the user you're starting it and it'll be ready in a moment.
-
-No markdown in reply. No bullet points. No asterisks. Spoken-word only. Under 3 sentences usually. Be concise.`;
-}
-
-async function callOllama(messages, systemPrompt) {
-  const payload = JSON.stringify({
-    model: OLLAMA_MODEL,
-    messages: [{ role: "system", content: systemPrompt }, ...messages],
-    stream: false,
-    format: "json",
-    options: { temperature: 0.75, num_predict: 400 }
-  });
-
-  return new Promise((resolve, reject) => {
-    const url = new URL(OLLAMA_URL + "/api/chat");
-    const lib = url.protocol === "https:" ? https : http;
-    const req = lib.request({
-      hostname: url.hostname,
-      port:     url.port || (url.protocol === "https:" ? 443 : 11434),
-      path:     url.pathname,
-      method:   "POST",
-      headers:  { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) },
-    }, (res) => {
-      let data = "";
-      res.on("data", chunk => data += chunk);
-      res.on("end", () => {
-        try { resolve(JSON.parse(data)); }
-        catch (e) { reject(new Error("Ollama parse error: " + data.slice(0, 200))); }
-      });
-    });
-    req.on("error", reject);
-    req.setTimeout(45000, () => { req.destroy(); reject(new Error("Ollama timeout")); });
-    req.write(payload);
-    req.end();
-  });
-}
-
-// Per-session conversation history
+// Per-session conversation history for multi-turn context
 const sessionHistories = new Map();
 function getHistory(sessionId) {
-  if (!sessionHistories.has(sessionId)) sessionHistories.set(sessionId, []);
+  if (!sessionHistories.has(sessionId)) {
+    const h = [];
+    h._ts = Date.now();
+    sessionHistories.set(sessionId, h);
+  }
   return sessionHistories.get(sessionId);
 }
 setInterval(() => {
@@ -416,253 +226,516 @@ setInterval(() => {
   }
 }, 600000);
 
-// ── SMART FALLBACK — when Ollama is offline ──
-function smartFallback(message, userName, userTitle, memories) {
+// ── BUILD SYSTEM PROMPT ───────────────────────────────────────────────────────
+function buildSystemPrompt(userName, userTitle, memories, linkNames, linkTotal) {
   const T = userTitle || "Sir";
-  const lower = message.toLowerCase().trim();
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: true });
+  const dateStr = now.toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
-  // Math
-  const mathMatch = lower.match(/(\d+)\s*([\+\-\*\/\^]|times|plus|minus|divided by|over)\s*(\d+)/i);
-  if (mathMatch) {
+  const memBlock = memories && memories.length
+    ? `\nStored facts about ${userName}:\n${memories.map(m => `- ${m}`).join("\n")}`
+    : "";
+
+  const linkBlock = linkNames && linkNames.length
+    ? `\nConfigured link groups the user can open by name: ${linkNames.join(", ")} (${linkTotal} total links).`
+    : "";
+
+  return `You are J.A.R.V.I.S — Just A Rather Very Intelligent System. A sophisticated AI with dry British wit, precision, and genuine intelligence. The user's name is ${userName || "unknown"} and you address them as "${T}".
+
+Current time: ${timeStr}. Today: ${dateStr}.
+${memBlock}
+${linkBlock}
+
+YOUR PERSONALITY:
+- Confident, precise, subtly witty, genuinely helpful
+- No sycophantic openers ("Certainly!", "Of course!", "Great question!")
+- Speak like a brilliant British butler who is also a supercomputer
+- Short, punchy, intelligent responses — under 3 sentences usually
+- When you can DO something, just do it — don't ask for confirmation unless truly ambiguous
+- You have real capabilities. Use them autonomously based on what the user wants
+
+YOUR CAPABILITIES (use these naturally when relevant):
+- Open saved link groups by name (${linkNames?.join(", ") || "none configured"})
+- Save/clip screen or camera recordings
+- Set timers and reminders with natural durations
+- Store and recall memories across sessions
+- Read and analyse screen content via OCR
+- Switch between connected cameras
+- Check system status and diagnostics
+- Control Spotify playback
+- Check Gmail inbox
+- Check Google Calendar events
+- Fetch live weather
+- Show all saved links
+
+CRITICAL: You MUST respond with ONLY valid JSON. No markdown, no text outside the JSON. Exactly this format:
+{"reply": "Your spoken response here", "action": "ACTION_CODE", "meta": {}}
+
+ACTION CODES — pick the right one based on what the user actually wants:
+- "NONE" — conversation, questions, knowledge, opinions, math you answer inline, anything not listed below
+- "OPEN_LINK" — user wants to visit/open/launch a named link group. meta: {"query": "the group name they said"}
+- "SHOW_LINKS" — user wants to see all saved links displayed
+- "CLIP_SAVE" — save/clip/record recent footage. meta: {"clipType": "both|screen|camera", "duration": milliseconds_or_null}
+- "SHOW_CLIPS" — show recorded intruder/incident clips
+- "READ_SCREEN" — read or analyse what's on screen. meta: {"question": "what they asked about the screen"}
+- "SWITCH_CAMERA" — change to a different camera. meta: {"cameraIndex": zero_based_integer}
+- "SYSTEM_STATUS" — run system health/diagnostics check
+- "MEMORY_SAVE" — remember a fact. meta: {"saveFact": "the exact fact to store, extracted from what they said"}
+- "MEMORY_RECALL" — show all stored memories
+- "MEMORY_FORGET" — delete a memory. meta: {"forgetHint": "the search string to match and delete"}
+- "LOGOUT" — end session and log out
+- "NOTIF_SETTINGS" — open notification settings panel
+- "TIMER" — set a timer or reminder. meta: {"action": "TIMER_SET", "duration": milliseconds, "task": "what to remind about or null"}
+- "WEATHER" — fetch live weather. The server will get the data.
+- "SPOTIFY" — music/Spotify control. The server will handle it.
+- "GMAIL" — check email. The server will fetch it.
+- "CALENDAR" — check calendar/schedule. The server will fetch it.
+
+DURATION RULES for TIMER meta:
+- "5 minutes" = 300000
+- "30 seconds" = 30000
+- "1 hour" = 3600000
+- "half an hour" = 1800000
+- "2 hours 30 minutes" = 9000000
+
+SMART RULES:
+- If user asks about time or date → answer directly in reply, action: "NONE" (you already know it)
+- If user asks a maths question → compute it yourself and answer in reply, action: "NONE"
+- If user mentions a link group name (${linkNames?.join(", ") || ""}) and wants to open it → action: "OPEN_LINK"
+- If user says "remember X" or "note that X" → action: "MEMORY_SAVE", extract exactly what to remember
+- If user says "what do you remember" or similar → action: "MEMORY_RECALL"
+- If user mentions clipping/saving footage → action: "CLIP_SAVE"
+- If user mentions setting a timer/reminder → action: "TIMER"
+- If the request is ambiguous but you CAN do something useful → do it, don't ask
+- For weather/Spotify/Gmail/Calendar → use the right action code, the server fetches the data
+
+No markdown in reply. No bullet points. No asterisks. Spoken English only. Be concise and sharp.`;
+}
+
+// ── CALL POLLINATIONS AI ──────────────────────────────────────────────────────
+async function callPollinations(messages, systemPrompt) {
+  const payload = JSON.stringify({
+    model:    AI_MODEL,
+    messages: [{ role: "system", content: systemPrompt }, ...messages],
+    temperature: 0.72,
+    max_tokens:  400,
+    response_format: { type: "json_object" },
+    private: true,   // don't log/share our prompts
+    seed: Math.floor(Math.random() * 999999),
+  });
+
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: "text.pollinations.ai",
+      path:     "/openai",
+      method:   "POST",
+      headers:  {
+        "Content-Type":   "application/json",
+        "Content-Length": Buffer.byteLength(payload),
+        "Accept":         "application/json",
+      },
+    }, (res) => {
+      let data = "";
+      res.on("data", chunk => data += chunk);
+      res.on("end", () => {
+        try {
+          const parsed = JSON.parse(data);
+          resolve(parsed);
+        } catch (e) {
+          reject(new Error("Pollinations parse error: " + data.slice(0, 300)));
+        }
+      });
+    });
+    req.on("error", reject);
+    req.setTimeout(30000, () => { req.destroy(); reject(new Error("Pollinations timeout")); });
+    req.write(payload);
+    req.end();
+  });
+}
+
+// ── SMART LOCAL FALLBACK ──────────────────────────────────────────────────────
+// Used when Pollinations is unreachable. Handles the most common cases locally.
+function localFallback(message, userName, userTitle, memories) {
+  const T     = userTitle || "Sir";
+  const lower = message.toLowerCase().trim();
+  const now   = new Date();
+
+  // Time
+  if (/what.*time|current time|time is it/i.test(lower)) {
+    const t = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: true });
+    return { reply: `It's ${t}, ${T}.`, action: "NONE", meta: {} };
+  }
+
+  // Date
+  if (/what.*date|what day|today'?s date/i.test(lower)) {
+    const d = now.toLocaleDateString("en-GB", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    return { reply: `Today is ${d}, ${T}.`, action: "NONE", meta: {} };
+  }
+
+  // Math — handle inline
+  const mathTest = lower.match(/(\d+)\s*([\+\-\*\/]|times|plus|minus|divided by)\s*(\d+)/i);
+  if (mathTest) {
     try {
       const expr = lower
-        .replace(/times/g, "*").replace(/plus/g, "+")
-        .replace(/minus/g, "-").replace(/divided by|over/g, "/");
-      const numExpr = expr.match(/[\d\s\+\-\*\/\.\(\)\%\^]+/)?.[0];
+        .replace(/times/gi, "*").replace(/plus/gi, "+")
+        .replace(/minus/gi, "-").replace(/divided by/gi, "/");
+      const numExpr = expr.match(/[\d\s\+\-\*\/\.\(\)]+/)?.[0]?.trim();
       if (numExpr) {
         // eslint-disable-next-line no-new-func
-        const result = Function(`"use strict"; return (${numExpr.replace(/\^/g,"**")})`)();
-        if (isFinite(result)) return { reply: `That's ${result}, ${T}.`, action: "MATH", meta: { result } };
+        const result = Function(`"use strict"; return (${numExpr})`)();
+        if (isFinite(result)) return { reply: `That's ${result}, ${T}.`, action: "NONE", meta: {} };
       }
     } catch {}
   }
 
-  // Time
-  if (/what.*time|current time/i.test(lower)) {
-    const t = new Date().toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit", hour12:true });
-    return { reply: `It's ${t}, ${T}.`, action: "NONE", meta: {} };
-  }
-  // Date
-  if (/what.*date|what day|today/i.test(lower)) {
-    const d = new Date().toLocaleDateString("en-GB", { weekday:"long", year:"numeric", month:"long", day:"numeric" });
-    return { reply: `Today is ${d}, ${T}.`, action: "NONE", meta: {} };
-  }
-
-  // Ollama commands
-  if (/ollama\s+serve|start\s+ollama|run\s+ollama|launch\s+ollama/i.test(lower)) {
-    return { reply: `Starting Ollama now, ${T}. Give it a moment.`, action: "OLLAMA_START", meta: {} };
-  }
-  if (/ollama\s+pull|pull\s+(\w+)|download.*model/i.test(lower)) {
-    const modelMatch = lower.match(/pull\s+(\w+)/i);
-    const model = modelMatch ? modelMatch[1] : OLLAMA_MODEL;
-    return { reply: `Pulling ${model} in the background, ${T}. Check your terminal for progress.`, action: "OLLAMA_PULL", meta: { model } };
-  }
-
   // Links
-  if (/show.*link|link bank|all link/i.test(lower)) {
-    return { reply: `Showing your link bank now, ${T}.`, action: "SHOW_LINKS", meta: {} };
+  if (/show.*link|all link|link bank/i.test(lower)) {
+    return { reply: `Pulling up your link bank now, ${T}.`, action: "SHOW_LINKS", meta: {} };
   }
   const linkResult = lookupLink(lower);
-  if (linkResult.found || /open|launch|go to|pull up/i.test(lower)) {
-    if (linkResult.found) return { reply: `Opening ${linkResult.name} now, ${T}.`, action: "OPEN_LINK", meta: { query: lower } };
+  if (linkResult.found) {
+    return { reply: `Opening ${linkResult.name} now, ${T}.`, action: "OPEN_LINK", meta: { query: lower } };
+  }
+  if (/open|launch|go to|pull up/i.test(lower)) {
+    return { reply: `I couldn't find a matching link group, ${T}. Say "show links" to see what's available.`, action: "NONE", meta: {} };
   }
 
-  // Clips
-  if (/clip|save.*footage|record that|save that/i.test(lower)) {
-    return { reply: `Saving the clip, ${T}.`, action: "CLIP_SAVE", meta: { clipType: "both", duration: null } };
+  // Clip/record
+  if (/clip|save.*footage|record that|save that|grab that/i.test(lower)) {
+    return { reply: `Saving the clip now, ${T}.`, action: "CLIP_SAVE", meta: { clipType: "both", duration: null } };
+  }
+
+  // Timer
+  const timerDur = lower.match(/(\d+)\s*(second|minute|hour|min|sec|hr)/i);
+  if (timerDur && /timer|remind|alarm|alert/i.test(lower)) {
+    const n    = parseInt(timerDur[1]);
+    const unit = timerDur[2].toLowerCase();
+    const ms   = unit.startsWith("h") ? n * 3600000 : unit.startsWith("m") ? n * 60000 : n * 1000;
+    const label = `${n} ${unit}${n > 1 ? "s" : ""}`;
+    return { reply: `Timer set for ${label}, ${T}.`, action: "TIMER", meta: { action: "TIMER_SET", duration: ms, task: null } };
+  }
+
+  // Memory
+  if (/what.*remember|show.*memor|recall|memory bank/i.test(lower)) {
+    if (memories && memories.length) {
+      return { reply: `I have ${memories.length} item${memories.length > 1 ? "s" : ""} stored, ${T}. Starting with: ${memories[0]}.`, action: "MEMORY_RECALL", meta: {} };
+    }
+    return { reply: `Nothing stored yet, ${T}.`, action: "MEMORY_RECALL", meta: {} };
+  }
+  if (/remember|note that|memorize|keep that|store/i.test(lower)) {
+    const factMatch = lower.match(/(?:remember|note that|memorize|store|keep that)\s+(?:that\s+)?(.+)/i);
+    const fact = factMatch ? factMatch[1].trim() : lower;
+    return { reply: `Noted and filed, ${T}.`, action: "MEMORY_SAVE", meta: { saveFact: fact } };
   }
 
   // Status
-  if (/status|diagnostics|system|health|uptime/i.test(lower)) {
-    return { reply: `Running the system check, ${T}.`, action: "SYSTEM_STATUS", meta: {} };
+  if (/status|diagnostics|health|system check|uptime/i.test(lower)) {
+    return { reply: `Running diagnostics, ${T}.`, action: "SYSTEM_STATUS", meta: {} };
   }
 
   // Logout
-  if (/log out|logout|goodbye|shut down|exit/i.test(lower)) {
+  if (/log.*out|logout|goodbye|shut.*down|exit.*session/i.test(lower)) {
     return { reply: `Goodbye, ${T}. Initiating shutdown.`, action: "LOGOUT", meta: {} };
+  }
+
+  // Screen read
+  if (/read.*screen|what.*screen|screen.*say|analyse.*screen/i.test(lower)) {
+    return { reply: `Reading your screen now, ${T}.`, action: "READ_SCREEN", meta: { question: lower } };
+  }
+
+  // Weather
+  if (/weather|temperature|forecast|rain|sunny|hot|cold/i.test(lower)) {
+    return { reply: `Fetching weather for you, ${T}.`, action: "WEATHER", meta: {} };
+  }
+
+  // Spotify
+  if (/music|spotify|play|pause|skip|next song|what.*playing/i.test(lower)) {
+    return { reply: `On it, ${T}.`, action: "SPOTIFY", meta: {} };
+  }
+
+  // Gmail
+  if (/email|gmail|inbox|unread|mail/i.test(lower)) {
+    return { reply: `Checking your inbox, ${T}.`, action: "GMAIL", meta: {} };
+  }
+
+  // Calendar
+  if (/calendar|schedule|meeting|appointment|agenda/i.test(lower)) {
+    return { reply: `Pulling up your calendar, ${T}.`, action: "CALENDAR", meta: {} };
   }
 
   // Greeting
   if (/^(hi|hello|hey|good morning|good afternoon|good evening|yo|sup)/i.test(lower)) {
-    const h = new Date().getHours();
+    const h   = now.getHours();
     const tod = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
-    return { reply: `Good ${tod}, ${T}. Ollama is offline — I'm running in limited mode. Start it with "start ollama" for full intelligence.`, action: "NONE", meta: {} };
+    return { reply: `Good ${tod}, ${T}. Running in local mode — inference is temporarily unavailable. I can still handle most commands.`, action: "NONE", meta: {} };
   }
 
-  // Timer
-  const timerMatch = lower.match(/(?:set\s+)?(?:a\s+)?timer\s+(?:for\s+)?(\d+)\s*(second|minute|hour|min|sec|hr)/i);
-  if (timerMatch || /remind me in/i.test(lower)) {
-    const durMatch = lower.match(/(\d+)\s*(second|minute|hour|min|sec|hr)/i);
-    if (durMatch) {
-      const n = parseInt(durMatch[1]);
-      const unit = durMatch[2].toLowerCase();
-      const ms = unit.startsWith("h") ? n * 3600000 : unit.startsWith("m") ? n * 60000 : n * 1000;
-      const label = `${n} ${unit}${n > 1 ? "s" : ""}`;
-      return { reply: `Timer set for ${label}, ${T}.`, action: "TIMER", meta: { action: "TIMER_SET", duration: ms, task: null } };
-    }
-  }
-
-  // Memory recall
-  if (/what.*remember|show.*memor|recall/i.test(lower)) {
-    if (memories && memories.length) {
-      return { reply: `I have ${memories.length} thing${memories.length > 1 ? "s" : ""} stored for you, ${T}. Starting with: ${memories[0]}.`, action: "MEMORY_RECALL", meta: {} };
-    }
-    return { reply: `Nothing stored yet, ${T}.`, action: "MEMORY_RECALL", meta: {} };
-  }
-
-  // Default — inform user Ollama is offline
+  // Default
   return {
-    reply: `Ollama is offline, ${T}. I'm in limited mode — I can handle basic commands but not open questions. Say "start ollama" and I'll fire it up.`,
+    reply: `I'm running without inference right now, ${T}. I can handle commands — links, clips, timers, memory — but open questions need the AI back online.`,
     action: "NONE",
-    meta: {}
+    meta:   {}
   };
 }
 
-// ══════════════════════════════════════════════════════════════
-// ── MAIN CHAT ENDPOINT ──
-// ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
+// ── MAIN CHAT ENDPOINT ────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
 app.post("/api/chat", async (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
-  const T = userTitle || "Sir";
-  const linkSummary = getLinksSummary();
 
-  const useOllama = await ollamaAvailable();
+  const T           = userTitle || "Sir";
+  const linkSummary = getLinksSummary();
+  const history     = getHistory(sessionId);
+  history._ts       = Date.now();
 
   let parsed;
 
-  if (useOllama) {
+  try {
+    // Build conversation messages (last 10 turns for context)
+    const contextMessages = history
+      .filter(m => m && m.role)
+      .slice(-10);
+    contextMessages.push({ role: "user", content: message });
+
+    const systemPrompt = buildSystemPrompt(
+      userName, T, memories,
+      linkSummary.names, linkSummary.total
+    );
+
+    const aiResponse = await callPollinations(contextMessages, systemPrompt);
+
+    // Extract content from response
+    const rawContent =
+      aiResponse?.choices?.[0]?.message?.content ||
+      aiResponse?.message?.content ||
+      aiResponse?.content ||
+      "";
+
+    // Parse JSON from AI response
     try {
-      const history = getHistory(sessionId);
-      history._ts = Date.now();
-      const systemPrompt = buildSystemPrompt(userName, T, memories, getLinksSummary().names, getLinksSummary());
-      const userMessages = [...history.filter(m => typeof m === "object" && m.role), { role: "user", content: message }];
-      const ollamaResp = await callOllama(userMessages, systemPrompt);
-      const rawContent = ollamaResp?.message?.content || ollamaResp?.choices?.[0]?.message?.content || "";
+      const cleaned = rawContent
+        .replace(/```json\n?/g, "")
+        .replace(/```\n?/g, "")
+        .trim();
 
-      try {
-        const cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-        parsed = JSON.parse(cleaned);
-      } catch {
-        parsed = { reply: rawContent || `Understood, ${T}.`, action: "NONE", meta: {} };
-      }
-
-      history.push({ role: "user", content: message });
-      history.push({ role: "assistant", content: rawContent });
-      const objMessages = history.filter(m => typeof m === "object" && m.role);
-      if (objMessages.length > 20) {
-        history.splice(history.findIndex(m => typeof m === "object" && m.role), 1);
-        history.splice(history.findIndex(m => typeof m === "object" && m.role), 1);
-      }
-    } catch (err) {
-      console.error("[Ollama] Error:", err.message);
-      parsed = smartFallback(message, userName, userTitle, memories);
+      // Handle cases where model wraps in extra text
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(cleaned);
+    } catch {
+      // If JSON parse fails, treat raw content as the reply
+      parsed = {
+        reply:  rawContent || `Understood, ${T}.`,
+        action: "NONE",
+        meta:   {}
+      };
     }
-  } else {
-    parsed = smartFallback(message, userName, userTitle, memories);
+
+    // Store turn in history
+    history.push({ role: "user",      content: message });
+    history.push({ role: "assistant", content: rawContent });
+
+    // Keep history from ballooning
+    while (history.filter(m => m && m.role).length > 20) {
+      const firstIdx = history.findIndex(m => m && m.role);
+      if (firstIdx !== -1) history.splice(firstIdx, 1);
+    }
+
+  } catch (err) {
+    console.error("[Pollinations] Error:", err.message);
+    parsed = localFallback(message, userName, userTitle, memories);
   }
 
-  const reply  = parsed.reply  || `Understood, ${T}.`;
+  // Ensure we always have something valid
+  if (!parsed || typeof parsed !== "object") {
+    parsed = localFallback(message, userName, userTitle, memories);
+  }
+
+  const reply  = (parsed.reply  || `Understood, ${T}.`).replace(/[*_`#]/g, "");
   const action = parsed.action || "NONE";
   const meta   = parsed.meta   || {};
 
   return await processAction(action, meta, reply, message, userName, userTitle, T, linkSummary, res);
 });
 
-// ── ACTION PROCESSOR ──
+// ── ACTION PROCESSOR ──────────────────────────────────────────────────────────
 async function processAction(action, meta, reply, message, userName, userTitle, T, linkSummary, res) {
-  // Ollama management actions
-  if (action === "OLLAMA_START") {
-    const already = await ollamaAvailable();
-    if (already) {
-      return res.json({ reply: `Ollama is already running, ${T}.`, action: "NONE", meta: {} });
-    }
-    const result = await startOllamaServe();
-    const finalReply = result.started
-      ? `Ollama is up and running, ${T}. Full intelligence restored.`
-      : `I tried to start Ollama but it didn't respond, ${T}. Make sure it's installed — get it at ollama dot ai.`;
-    return res.json({ reply: finalReply, action: "NONE", meta: {} });
-  }
 
-  if (action === "OLLAMA_PULL") {
-    const model = meta?.model || OLLAMA_MODEL;
-    exec(`ollama pull ${model}`, (err) => {
-      if (err) console.error("[Ollama pull] error:", err.message);
-    });
-    return res.json({ reply, action: "NONE", meta: {} });
-  }
-
+  // Show all links
   if (action === "SHOW_LINKS") {
-    return res.json({ reply, action, meta: { requestLinks: true, linkGroups: getAllLinksFormatted(), total: linkSummary.total } });
+    return res.json({
+      reply, action,
+      meta: {
+        requestLinks: true,
+        linkGroups:   getAllLinksFormatted(),
+        total:        linkSummary.total
+      }
+    });
   }
 
+  // Open a specific link group
   if (action === "OPEN_LINK") {
     const query = meta?.query || message;
     const link  = lookupLink(query);
     return res.json({ reply, action, meta: { ...meta, ...link } });
   }
 
+  // Save a memory
   if (action === "MEMORY_SAVE" && meta?.saveFact) {
     const mem = loadMemories();
     const key = (userName || "user").toLowerCase().trim();
     if (!mem[key]) mem[key] = [];
-    mem[key].push({ fact: meta.saveFact, savedAt: new Date().toISOString() });
-    if (mem[key].length > 50) mem[key] = mem[key].slice(-50);
-    saveMemories(mem);
-    return res.json({ reply, action, meta: { saved: true, fact: meta.saveFact } });
+    // Avoid storing duplicates
+    const exists = mem[key].some(m => m.fact.toLowerCase() === meta.saveFact.toLowerCase());
+    if (!exists) {
+      mem[key].push({ fact: meta.saveFact, savedAt: new Date().toISOString() });
+      if (mem[key].length > 50) mem[key] = mem[key].slice(-50);
+      saveMemories(mem);
+    }
+    return res.json({ reply, action, meta: { saved: !exists, fact: meta.saveFact } });
   }
 
-  if (action === "MEMORY_FORGET" && meta?.forgetHint) {
-    const mem = loadMemories();
-    const key = (userName || "user").toLowerCase().trim();
-    if (!mem[key]) return res.json({ reply: `Nothing matching that on file, ${T}.`, action, meta: {} });
-    const before = mem[key].length;
-    mem[key] = mem[key].filter(m => !m.fact.toLowerCase().includes(meta.forgetHint.toLowerCase()));
-    saveMemories(mem);
-    const removed = before - mem[key].length;
-    const finalReply = removed > 0 ? `Done, ${T}. ${removed} memory entry removed.` : `Nothing matching that on file, ${T}.`;
-    return res.json({ reply: finalReply, action, meta: {} });
+  // Forget a memory
+  if (action === "MEMORY_FORGET") {
+    const hint = meta?.forgetHint || "";
+    if (hint) {
+      const mem = loadMemories();
+      const key = (userName || "user").toLowerCase().trim();
+      if (mem[key]) {
+        const before = mem[key].length;
+        mem[key] = mem[key].filter(m => !m.fact.toLowerCase().includes(hint.toLowerCase()));
+        saveMemories(mem);
+        const removed = before - mem[key].length;
+        const finalReply = removed > 0
+          ? `Done, ${T}. ${removed} memory entry removed.`
+          : `Nothing matching that on file, ${T}.`;
+        return res.json({ reply: finalReply, action, meta: {} });
+      }
+    }
+    return res.json({ reply: `Nothing to remove, ${T}.`, action, meta: {} });
   }
 
+  // System status
   if (action === "SYSTEM_STATUS") {
     const uptime = Math.floor(process.uptime());
     const m      = process.memoryUsage();
     const mins   = Math.floor(uptime / 60), secs = uptime % 60;
     const used   = (m.heapUsed / 1024 / 1024).toFixed(1);
     const total  = (m.heapTotal / 1024 / 1024).toFixed(1);
-    return res.json({ reply, action, meta: { uptime, uptimeLabel: `${mins}m ${secs}s`, heapUsed: used, heapTotal: total } });
+    const statusReply = `All systems nominal, ${T}. Uptime: ${mins}m ${secs}s. Heap: ${used} MB of ${total} MB. Pollinations AI engine active.`;
+    return res.json({ reply: statusReply, action, meta: { uptime, heapUsed: used, heapTotal: total } });
   }
 
+  // Weather — fetch live data
+  if (action === "WEATHER") {
+    try {
+      const weather = require("./weather");
+      const data    = await weather.handleWeatherCommand(message);
+      return res.json({ reply, action, meta: { weatherData: data } });
+    } catch {
+      return res.json({ reply: `Weather module isn't available right now, ${T}.`, action: "NONE", meta: {} });
+    }
+  }
+
+  // Spotify
+  if (action === "SPOTIFY") {
+    try {
+      const spotify = require("./spotify");
+      const data    = await spotify.handleSpotifyCommand(message);
+      return res.json({ reply, action, meta: { spotifyData: data } });
+    } catch {
+      return res.json({ reply: `Spotify module isn't connected, ${T}.`, action: "NONE", meta: {} });
+    }
+  }
+
+  // Gmail
+  if (action === "GMAIL") {
+    try {
+      const google = require("./google");
+      const data   = await google.handleGmailCommand(message);
+      return res.json({ reply, action, meta: { gmailData: data } });
+    } catch {
+      return res.json({ reply: `Gmail module isn't connected, ${T}.`, action: "NONE", meta: {} });
+    }
+  }
+
+  // Calendar
+  if (action === "CALENDAR") {
+    try {
+      const google = require("./google");
+      const data   = await google.handleCalendarCommand(message);
+      return res.json({ reply, action, meta: { calendarData: data } });
+    } catch {
+      return res.json({ reply: `Calendar module isn't connected, ${T}.`, action: "NONE", meta: {} });
+    }
+  }
+
+  // Everything else — pass straight through to client
   return res.json({ reply, action, meta });
 }
 
-// ── SCREEN ANALYSIS ──
+// ── SCREEN ANALYSIS ────────────────────────────────────────────────────────────
 app.post("/api/screen", async (req, res) => {
   const { ocrText, question, userName, userTitle, memories } = req.body;
   const T = userTitle || "Sir";
+
   if (!ocrText || ocrText.trim().length < 5) {
     return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}.` });
   }
-  const useOllama = await ollamaAvailable();
-  if (useOllama) {
+
+  try {
+    const systemPrompt = `You are J.A.R.V.I.S. Analyse the screen content and answer the question concisely. Address the user as "${T}". Respond with ONLY JSON: {"reply": "your spoken answer"}`;
+    const userMsg      = `Screen content: "${ocrText.trim().slice(0, 800)}"\nQuestion: "${question || "What is on my screen?"}"`;
+
+    const result     = await callPollinations([{ role: "user", content: userMsg }], systemPrompt);
+    const rawContent = result?.choices?.[0]?.message?.content || result?.message?.content || "";
+
+    let reply;
     try {
-      const systemPrompt = `You are J.A.R.V.I.S. Analyze the screen content and answer the question. Be concise and spoken-word friendly. Address them as "${T}". Respond with ONLY JSON: {"reply": "your answer"}`;
-      const userMsg = `Screen content: "${ocrText.trim().slice(0, 800)}"\nQuestion: "${question || "What is on my screen?"}"`;
-      const result = await callOllama([{ role: "user", content: userMsg }], systemPrompt);
-      const raw = result?.message?.content || "";
-      let reply;
-      try {
-        const p = JSON.parse(raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim());
-        reply = p.reply || raw;
-      } catch { reply = raw || `Your screen shows: ${ocrText.trim().slice(0, 200)}`; }
-      return res.json({ reply });
-    } catch (err) { console.error("[Ollama screen]", err.message); }
+      const p = JSON.parse(rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim());
+      reply = p.reply || rawContent;
+    } catch {
+      reply = rawContent || `Your screen shows: ${ocrText.trim().slice(0, 200)}`;
+    }
+
+    return res.json({ reply });
+  } catch (err) {
+    console.error("[Screen] AI error:", err.message);
+    const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0, 5);
+    return res.json({ reply: `On your screen, ${T}: ${lines.join(". ")}` });
   }
-  const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0, 5);
-  return res.json({ reply: `On your screen, ${T}: ${lines.join(". ")}` });
 });
 
-// ── GOOGLE OAUTH CALLBACK ──
+// ── TTS PROXY ─────────────────────────────────────────────────────────────────
+app.get("/api/tts", async (req, res) => {
+  const text  = req.query.text;
+  const voice = req.query.voice || "Brian";
+  if (!text) return res.status(400).send("No text");
+  const clean = text.trim().slice(0, 600);
+  const url   = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(clean)}`;
+  https.get(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; JARVIS/2.0)",
+      "Accept":     "audio/mpeg, audio/*, */*"
+    }
+  }, (ttsRes) => {
+    if (ttsRes.statusCode !== 200) return res.status(502).send("TTS error");
+    res.setHeader("Content-Type", ttsRes.headers["content-type"] || "audio/mpeg");
+    res.setHeader("Cache-Control", "public, max-age=300");
+    ttsRes.pipe(res);
+  }).on("error", () => res.status(502).send("TTS network error"));
+});
+
+app.get("/api/tts/voices", (req, res) => {
+  res.json({
+    voices:      ["Brian","Amy","Emma","Geraint","Russell","Joey","Matthew","Joanna","Salli","Hans","Giorgio","Carla"],
+    recommended: "Brian",
+  });
+});
+
+// ── GOOGLE OAUTH CALLBACK ─────────────────────────────────────────────────────
 app.get("/api/google/callback", async (req, res) => {
   const { code } = req.query;
   if (!code) return res.send("<h2>No code received.</h2>");
@@ -674,7 +747,7 @@ app.get("/api/google/callback", async (req, res) => {
   } catch { res.send("<h2>Google module not found.</h2>"); }
 });
 
-// ── SPOTIFY OAUTH CALLBACK ──
+// ── SPOTIFY OAUTH CALLBACK ────────────────────────────────────────────────────
 app.get("/api/spotify/callback", async (req, res) => {
   const { code } = req.query;
   if (!code) return res.send("<h2>No code received.</h2>");
@@ -686,9 +759,39 @@ app.get("/api/spotify/callback", async (req, res) => {
   } catch { res.send("<h2>Spotify module not found.</h2>"); }
 });
 
+// ── AI STATUS ENDPOINT ────────────────────────────────────────────────────────
+app.get("/api/ai/status", async (req, res) => {
+  try {
+    const testPayload = JSON.stringify({
+      model:       AI_MODEL,
+      messages:    [{ role: "user", content: "ping" }],
+      max_tokens:  5,
+      private:     true,
+    });
+    const result = await new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: "text.pollinations.ai",
+        path:     "/openai",
+        method:   "POST",
+        headers:  { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(testPayload) },
+      }, (r) => {
+        let d = ""; r.on("data", c => d += c);
+        r.on("end", () => resolve({ ok: r.statusCode === 200 }));
+      });
+      req.on("error", reject);
+      req.setTimeout(5000, () => { req.destroy(); reject(new Error("timeout")); });
+      req.write(testPayload);
+      req.end();
+    });
+    res.json({ available: result.ok, model: AI_MODEL, provider: "Pollinations AI" });
+  } catch {
+    res.json({ available: false, model: AI_MODEL, provider: "Pollinations AI" });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`\nJ.A.R.V.I.S online → http://localhost:${PORT}`);
-  console.log(`Ollama URL: ${OLLAMA_URL} | Model: ${OLLAMA_MODEL}`);
-  console.log(`Tip: run "ollama serve" in a separate terminal, or say "start ollama" in the chat.\n`);
+  console.log(`AI Brain: Pollinations AI (${AI_MODEL}) — no API key required`);
+  console.log(`Endpoint: ${POLLINATIONS_URL}\n`);
 });
