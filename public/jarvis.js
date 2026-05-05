@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 // J.A.R.V.I.S — Client Brain v7.0
-// Powered by Pollinations AI — no API key required
+// Powered by Local Cognitive Engine (ai-engine.js) — no API key required
 // Full autonomous intent — AI decides actions naturally
 // ═══════════════════════════════════════════════════════════════
 
@@ -779,23 +779,23 @@ async function launchMain() {
   $("user-display").textContent = `${state.user} / ${state.userTitle}`;
   state.lastInteraction = Date.now(); updateMood(20);
 
-  // Check Pollinations AI status
+  // Check local AI engine status
   try {
     const res  = await fetch("/api/ai/status");
     const data = await res.json();
     const llmEl = $("llm-status");
     if (llmEl) {
       if (data.available) {
-        llmEl.textContent = `BRAIN: Pollinations AI ● ONLINE`;
+        llmEl.textContent = `ENGINE: ${data.model} ● ONLINE`;
         llmEl.style.color = "var(--green)";
       } else {
-        llmEl.textContent = `BRAIN: Pollinations AI ● OFFLINE (check internet)`;
-        llmEl.style.color = "var(--amber)";
+        llmEl.textContent = `ENGINE: Local AI ● ERROR`;
+        llmEl.style.color = "var(--red)";
       }
     }
   } catch {
     const llmEl = $("llm-status");
-    if (llmEl) { llmEl.textContent = "BRAIN: Pollinations AI — checking…"; llmEl.style.color = "var(--amber)"; }
+    if (llmEl) { llmEl.textContent = "ENGINE: Local AI ● CHECKING…"; llmEl.style.color = "var(--amber)"; }
   }
 
   notif.init().then(() => {
@@ -808,9 +808,9 @@ async function launchMain() {
   await refreshAudioInputs();
 
   const greetings = [
-    `All systems online, ${state.userTitle}. Pollinations AI is active — just talk to me naturally. No commands to memorise.`,
-    `Good to have you back, ${state.userTitle}. Full intelligence online. Connect a Bluetooth headset and hold volume to wake me.`,
-    `Online and operational, ${state.userTitle}. Ask me anything — I'll figure out what you need and do it.`,
+    `All systems online, ${state.userTitle}. Local AI engine active — zero network dependency. Just talk to me naturally.`,
+    `Good to have you back, ${state.userTitle}. Running fully local. Connect a Bluetooth headset and hold volume to wake me.`,
+    `Online and operational, ${state.userTitle}. Local cognitive engine running clean. Ask me anything.`,
   ];
   addMsg("system", greetings[Math.floor(Math.random() * greetings.length)]);
 
@@ -923,8 +923,6 @@ async function sendToAI(message) {
 
     addMsg("jarvis", reply);
     updateMood(5);
-
-    // Update AI status indicator
     updateAIStatus(true);
 
     if (data.action && data.action !== "NONE") {
@@ -943,11 +941,11 @@ async function sendToAI(message) {
 function updateAIStatus(online) {
   const llmEl = $("llm-status"); if (!llmEl) return;
   if (online) {
-    llmEl.textContent = "BRAIN: Pollinations AI ● ONLINE";
+    llmEl.textContent = "ENGINE: Local Cognitive AI ● ONLINE";
     llmEl.style.color = "var(--green)";
   } else {
-    llmEl.textContent = "BRAIN: Pollinations AI ● OFFLINE (check internet)";
-    llmEl.style.color = "var(--amber)";
+    llmEl.textContent = "ENGINE: Local AI ● ERROR";
+    llmEl.style.color = "var(--red)";
   }
 }
 
