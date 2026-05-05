@@ -53,8 +53,6 @@ const state = {
 
 // ═══════════════════════════════════════════════════════════════
 // ── WEB LLM ENGINE ──
-// Loads Phi-3 Mini into the browser via WebGPU. No API key.
-// Falls back to local AI engine if WebGPU unavailable.
 // ═══════════════════════════════════════════════════════════════
 const LLM = {
   MODEL_ID: "Phi-3-mini-4k-instruct-q4f16_1-MLC",
@@ -84,7 +82,6 @@ Only include the JSON block when an action is needed. For normal conversation, j
   async init() {
     if (state.llmLoading || state.llmReady) return;
 
-    // Check WebGPU support
     if (!navigator.gpu) {
       addMsg("system", "WebGPU not available in this browser. JARVIS will use the local reasoning engine instead. For full AI, use Chrome 113+ on a machine with a GPU.");
       return;
@@ -95,7 +92,6 @@ Only include the JSON block when an action is needed. For normal conversation, j
     updateLLMStatus("LOADING…");
 
     try {
-      // Load WebLLM from CDN
       await loadScript("https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.73/lib/index.min.js");
 
       const engine = await window.webllm.CreateMLCEngine(this.MODEL_ID, {
@@ -124,7 +120,6 @@ Only include the JSON block when an action is needed. For normal conversation, j
   async chat(userMessage) {
     if (!state.llmReady || !state.llmEngine) return null;
 
-    // Build context
     const T = state.userTitle || "Sir";
     const memories = await loadMemoriesForPrompt();
     const memStr = memories.length ? `\n\nUser memories on file: ${memories.join("; ")}` : "";
@@ -132,8 +127,6 @@ Only include the JSON block when an action is needed. For normal conversation, j
     const userStr = `\nUser name: ${state.user || "Unknown"}. Address them as: ${T}.`;
 
     const systemWithCtx = this.SYSTEM_PROMPT + memStr + timeStr + userStr;
-
-    // Keep last 10 turns for context
     const history = state.conversationHistory.slice(-20);
 
     const messages = [
@@ -152,7 +145,6 @@ Only include the JSON block when an action is needed. For normal conversation, j
 
       const text = reply.choices[0]?.message?.content || "";
 
-      // Store in history
       state.conversationHistory.push({ role: "user", content: userMessage });
       state.conversationHistory.push({ role: "assistant", content: text });
       if (state.conversationHistory.length > 40) state.conversationHistory = state.conversationHistory.slice(-40);
@@ -164,18 +156,12 @@ Only include the JSON block when an action is needed. For normal conversation, j
     }
   },
 
-  // Parse action JSON from LLM reply
   parseAction(text) {
     const match = text.match(/\{[\s\S]*?"action"\s*:\s*"[A-Z_]+"[\s\S]*?\}/);
     if (!match) return null;
-    try {
-      return JSON.parse(match[0]);
-    } catch {
-      return null;
-    }
+    try { return JSON.parse(match[0]); } catch { return null; }
   },
 
-  // Strip action JSON from spoken text
   cleanReply(text) {
     return text.replace(/\{[\s\S]*?"action"\s*:\s*"[A-Z_]+"[\s\S]*?\}/g, "").trim();
   },
@@ -187,85 +173,83 @@ function updateLLMStatus(status) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── VOICE ENGINE — Native Web Speech API ──
-// Works on localhost with no CDN. Picks the best UK/deep male
-// voice available in the browser. Tuned to sound like JARVIS.
+// ── VOICE ENGINE — locked to Google UK English Male only ──
+// Retries every 200ms for up to 5 seconds waiting for the
+// Google network voice to register (ChromeOS loads Android
+// voices first which we deliberately ignore).
 // ═══════════════════════════════════════════════════════════════
 const VOICE = {
   _voice: null,
   _ready: false,
 
-  // Priority list — first match wins
-  PREFERRED: [
-    "Google UK English Male",
-    "Microsoft George - English (United Kingdom)",
-    "Microsoft George",
-    "Microsoft James - English (United Kingdom)",
-    "Microsoft Arthur - English (United Kingdom)",
-    "Daniel (Enhanced)",
-    "Daniel",
-    "Arthur",
-    "James",
-    "Thomas",
-    "Aaron",        // macOS deep voice
-    "Fred",         // macOS classic deep voice
-  ],
+  TARGET: "Google UK English Male",
+
+  _isBlocked(voice) {
+    const id = voice.name + (voice.voiceURI || "");
+    return ["Android", "Local", "x-gba", "x-gbb", "x-tts"].some(b => id.includes(b));
+  },
 
   init() {
-    // Voices load async in Chrome — wait for them
-    const load = () => {
+    let attempts = 0;
+    const MAX = 25; // 25 × 200ms = 5 seconds max wait
+
+    const tryInit = () => {
       const voices = window.speechSynthesis.getVoices();
-      if (!voices.length) return; // not ready yet
+      const target = voices.find(v => v.name === this.TARGET);
 
-      // Try preferred list first
-      for (const name of this.PREFERRED) {
-        const v = voices.find(v => v.name === name || v.name.startsWith(name));
-        if (v) { this._voice = v; break; }
+      if (target) {
+        this._voice = target;
+        this._ready = true;
+        console.log(`[VOICE] Using: ${this.TARGET}`);
+        addMsg("system", `Voice engine ready — ${this.TARGET}.`);
+        return;
       }
 
-      // Fallback: any en-GB male-sounding voice
-      if (!this._voice) {
-        this._voice = voices.find(v => v.lang === "en-GB") ||
-                      voices.find(v => v.lang.startsWith("en")) ||
-                      voices[0];
+      attempts++;
+      if (attempts < MAX) {
+        setTimeout(tryInit, 200);
+      } else {
+        // Voice not found after 5 seconds
+        console.warn(`[VOICE] "${this.TARGET}" not found after ${MAX} attempts.`);
+        addMsg("system", `"${this.TARGET}" not available. Check chrome://settings/languages → Text-to-Speech and ensure this voice is installed and enabled.`);
       }
-
-      this._ready = true;
-      const name = this._voice ? this._voice.name : "default";
-      console.log(`[VOICE] Using: ${name}`);
-      addMsg("system", `Voice engine ready — ${name}.`);
     };
 
-    // Chrome fires onvoiceschanged, Firefox has them immediately
-    window.speechSynthesis.onvoiceschanged = load;
-    load(); // try immediately in case already loaded
+    // Chrome fires onvoiceschanged when the list populates
+    window.speechSynthesis.onvoiceschanged = tryInit;
+    tryInit(); // also try immediately
   },
 
   speak(text, onEnd) {
     if (!text || !text.trim()) { if (onEnd) onEnd(); return; }
 
-    // Cancel anything currently playing
+    // If target voice still not found, try one more time before giving up
+    if (!this._voice) {
+      const voices = window.speechSynthesis.getVoices();
+      this._voice = voices.find(v => v.name === this.TARGET) || null;
+    }
+
+    // Refuse to speak with wrong voice — stay silent rather than use Android TTS
+    if (!this._voice) {
+      console.warn("[VOICE] Target voice not ready — skipping speech.");
+      if (onEnd) onEnd();
+      return;
+    }
+
     window.speechSynthesis.cancel();
     state.currentSpeaking = true;
     setOrb("speaking");
 
-    const utter = new SpeechSynthesisUtterance(text);
-
-    // If voices weren't loaded yet when init() ran, try again now
-    if (!this._voice) {
-      const voices = window.speechSynthesis.getVoices();
-      for (const name of this.PREFERRED) {
-        const v = voices.find(v => v.name === name || v.name.startsWith(name));
-        if (v) { this._voice = v; break; }
-      }
-      if (!this._voice) this._voice = voices.find(v => v.lang === "en-GB") || voices[0];
+    // Long text: chunk at sentence boundaries (Chrome bug — cuts off >200 chars)
+    if (text.length > 200) {
+      this._speakChunked(text, onEnd);
+      return;
     }
 
-    if (this._voice) utter.voice = this._voice;
-
-    // JARVIS voice tuning — low pitch, measured pace
-    utter.rate   = 0.88;   // slightly slower = more deliberate
-    utter.pitch  = 0.5;    // low = authoritative, not robotic
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.voice  = this._voice;
+    utter.rate   = 0.88;
+    utter.pitch  = 0.5;
     utter.volume = 1;
 
     let done = false;
@@ -279,29 +263,23 @@ const VOICE = {
 
     utter.onstart = () => { setOrb("speaking"); state.currentSpeaking = true; };
     utter.onend   = finish;
-    utter.onerror = (e) => {
-      console.warn("[VOICE] Speech error:", e.error);
-      finish();
-    };
+    utter.onerror = (e) => { console.warn("[VOICE] Speech error:", e.error); finish(); };
 
-    // Chrome has a bug where long utterances cut off — chunk if needed
-    if (text.length > 200) {
-      this._speakChunked(text, onEnd);
-      return;
-    }
-
-    // Safety timeout in case onend never fires
     setTimeout(finish, Math.max(4000, text.length * 90));
     window.speechSynthesis.speak(utter);
   },
 
-  // Split long text at sentence boundaries so Chrome doesn't cut off
   _speakChunked(text, onEnd) {
     const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
     let i = 0;
 
     const next = () => {
-      if (i >= sentences.length) { state.currentSpeaking = false; setOrb("idle"); if (onEnd) onEnd(); return; }
+      if (i >= sentences.length) {
+        state.currentSpeaking = false;
+        setOrb("idle");
+        if (onEnd) onEnd();
+        return;
+      }
       const chunk = sentences[i++].trim();
       if (!chunk) { next(); return; }
 
@@ -328,7 +306,7 @@ const VOICE = {
   },
 };
 
-// Convenience wrapper used throughout the file
+// Convenience wrapper
 function speak(text, onEnd) {
   VOICE.speak(text, onEnd);
 }
@@ -815,8 +793,6 @@ function launchMain() {
     `Online and operational, ${state.userTitle}. Neural reasoning active. There are no preset commands — just speak.`,
   ];
   addMsg("system", greetings[Math.floor(Math.random() * greetings.length)]);
-
-  // Voice is already initialised from boot — just speak the greeting
   speak(greetings[0], () => {});
 
   requestScreenRecord();
@@ -824,8 +800,6 @@ function launchMain() {
   setupTypingBox();
   startChatListening();
   initTesseract();
-
-  // Start LLM loading in background — non-blocking
   LLM.init();
 
   setTimeout(() => checkIntruderClips(), 2000);
@@ -863,7 +837,6 @@ function setOrb(s) {
 
 // ═══════════════════════════════════════════════════════════════
 // ── CHAT COMMAND HANDLER ──
-// Routes to LLM first, falls back to server AI engine
 // ═══════════════════════════════════════════════════════════════
 function handleChatCommand(text) {
   const lower = text.toLowerCase();
@@ -874,7 +847,6 @@ function handleChatCommand(text) {
   const hasWake = hasWakeWord(lower);
   const cleaned = hasWake ? stripWakeWord(text) : text;
 
-  // Wake word gate
   const recentlyActive = (Date.now() - state.lastInteraction) < 30000;
   if (!hasWake && !recentlyActive && state.interactionCount > 3) {
     updateLiveHearing(""); return;
@@ -891,8 +863,6 @@ function handleChatCommand(text) {
 
 // ═══════════════════════════════════════════════════════════════
 // ── AI PIPELINE ──
-// 1. Try LLM (WebLLM / Phi-3 Mini in browser)
-// 2. Fall back to server-side AI engine
 // ═══════════════════════════════════════════════════════════════
 async function sendToAI(message) {
   mic.suspend();
@@ -901,17 +871,15 @@ async function sendToAI(message) {
 
   const T = state.userTitle || "Sir";
 
-  // ── Path 1: WebLLM (if ready) ──
+  // ── Path 1: WebLLM ──
   if (state.llmReady && state.llmEngine) {
     try {
       const rawReply = await LLM.chat(message);
       if (rawReply) {
         const action = LLM.parseAction(rawReply);
         const reply  = LLM.cleanReply(rawReply);
-
         addMsg("jarvis", reply || rawReply);
         updateMood(5);
-
         if (action) {
           await handleAction(action.action, action.meta || {}, reply);
         } else {
@@ -924,7 +892,7 @@ async function sendToAI(message) {
     }
   }
 
-  // ── Path 2: Server AI engine (fallback) ──
+  // ── Path 2: Server AI engine ──
   try {
     const memories = await loadMemoriesForPrompt();
     const moodCtx  = `mood: ${state.mood} (score: ${state.moodScore})`;
@@ -1344,7 +1312,6 @@ async function readScreen(question) {
     addMsg("jarvis", r); speak(r, () => mic.resume()); return;
   }
 
-  // Use LLM to interpret screen content if available
   const screenQuery = `The user's screen shows this text: "${ocr.ocrText.trim().slice(0, 600)}". The user asked: "${question}"`;
   if (state.llmReady && state.llmEngine) {
     const llmReply = await LLM.chat(screenQuery);
@@ -1354,7 +1321,6 @@ async function readScreen(question) {
     }
   }
 
-  // Server fallback
   try {
     const res = await fetch("/api/screen", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1677,13 +1643,13 @@ function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 // ── BOOT ──
 // ═══════════════════════════════════════════════════════════════
 window.addEventListener("load", async () => {
-  // Prime browser TTS on load
+  // Prime browser TTS — forces Chrome to start loading voices immediately
   setTimeout(() => {
     const w = new SpeechSynthesisUtterance(" ");
     w.volume = 0; speechSynthesis.speak(w); speechSynthesis.getVoices();
   }, 500);
 
-  // Init voice engine — picks best available native voice
+  // Init voice engine — waits specifically for Google UK English Male
   VOICE.init();
 
   let profile = loadProfile();
