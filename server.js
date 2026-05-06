@@ -315,14 +315,9 @@ app.post("/api/chat", async (req, res) => {
 
   const { reply, action, meta, intent, topic } = aiResult;
 
-  // ── Handle HUD extension intents ──
-  if (action === "EXTENSION_HUD") {
-    extensionQueue.push({ action: "SHOW_HUD" });
-    return res.json({ reply, action, intent });
-  }
-  if (action === "EXTENSION_HUD_HIDE") {
-    extensionQueue.push({ action: "HIDE_HUD" });
-    return res.json({ reply, action, intent });
+  // ── Handle HUD PiP intents — client handles directly via PiPWidgets ──
+  if (action === "SHOW_HUD" || action === "HIDE_HUD") {
+    return res.json({ reply, action, intent, meta: { query: message } });
   }
 
   // ── Research fallback ──
