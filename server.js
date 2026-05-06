@@ -3,6 +3,7 @@ const express     = require("express");
 const cors        = require("cors");
 const path        = require("path");
 const fs          = require("fs");
+const archiver    = require("archiver");
 const AI          = require("./ai-engine");
 const Research    = require("./research");
 const Personality = require("./personality");
@@ -209,7 +210,6 @@ app.post("/api/personality/comment", (req, res) => {
   const { scene, userTitle, sessionMinutes, previousScene } = req.body;
   const T = userTitle || "Sir";
 
-  // Don't repeat the same idle scene back to back
   if (scene === previousScene && scene === "idle") {
     return res.json({ reply: null });
   }
@@ -226,6 +226,57 @@ app.post("/api/personality/smalltalk", (req, res) => {
 
   const reply = Personality.routeSmallTalk(message, T);
   res.json({ reply: reply || null });
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// ── EXTENSION API
+// ═══════════════════════════════════════════════════════════════════
+// In-memory command queue + live state for extension
+const extensionQueue  = [];
+let   extensionStatus = { phase: "idle", user: null, userTitle: null, mood: "neutral" };
+
+// Extension polls this every 2s to get pending commands
+app.get("/api/extension/poll", (req, res) => {
+  const commands = extensionQueue.splice(0); // drain queue
+  res.json({ commands, status: extensionStatus });
+});
+
+// JARVIS main app keeps status updated
+app.post("/api/extension/status", (req, res) => {
+  const { phase, user, userTitle, mood, moodScore } = req.body;
+  extensionStatus = { phase, user, userTitle, mood, moodScore };
+  res.json({ ok: true });
+});
+
+// Status read (for popup)
+app.get("/api/extension/status", (req, res) => {
+  res.json(extensionStatus);
+});
+
+// Push a command to the extension (from JARVIS chat or popup)
+app.post("/api/extension/command", (req, res) => {
+  const { action, data } = req.body;
+  if (!action) return res.status(400).json({ error: "Missing action" });
+  extensionQueue.push({ action, data: data || {} });
+  res.json({ ok: true, queued: extensionQueue.length });
+});
+
+// Download extension as zip
+app.get("/api/extension/download", (req, res) => {
+  const extDir = path.join(__dirname, "extension");
+  if (!fs.existsSync(extDir)) {
+    return res.status(404).json({ error: "Extension folder not found" });
+  }
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", 'attachment; filename="jarvis-extension.zip"');
+  const archive = archiver("zip", { zlib: { level: 9 } });
+  archive.on("error", (err) => {
+    console.error("[EXT] Archive error:", err);
+    res.status(500).end();
+  });
+  archive.pipe(res);
+  archive.directory(extDir, "jarvis-extension");
+  archive.finalize();
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -264,8 +315,17 @@ app.post("/api/chat", async (req, res) => {
 
   const { reply, action, meta, intent, topic } = aiResult;
 
+  // ── Handle HUD extension intents ──
+  if (action === "EXTENSION_HUD") {
+    extensionQueue.push({ action: "SHOW_HUD" });
+    return res.json({ reply, action, intent });
+  }
+  if (action === "EXTENSION_HUD_HIDE") {
+    extensionQueue.push({ action: "HIDE_HUD" });
+    return res.json({ reply, action, intent });
+  }
+
   // ── Research fallback ──
-  // Kick in when local engine falls back OR gives a thin knowledge answer
   const shouldTryResearch = (
     action === "FALLBACK" ||
     (action === "KNOWLEDGE" && reply.length < 200) ||
@@ -345,7 +405,6 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
-  // All other actions pass through with their meta
   return res.json({ reply, action, intent, topic, meta });
 });
 
