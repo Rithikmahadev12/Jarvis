@@ -1,8 +1,8 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Personality + Camera Observer Engine
+// J.A.R.V.I.S — Personality + Camera Observer Engine v2.0
 // Dry wit, genuine warmth, proactive camera observations.
-// All local — zero APIs, zero credits, zero limits.
+// Now with personal news reactions — movie-accurate JARVIS.
 // ═══════════════════════════════════════════════════════════════
 
 const pick   = arr => arr[Math.floor(Math.random() * arr.length)];
@@ -17,6 +17,178 @@ function getTimeContext() {
   if (h >= 17 && h < 20) return "evening";
   if (h >= 20 && h < 23) return "night";
   return "late night";
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── PERSONAL NEWS REACTIONS ───────────────────────────────────
+// Movie-accurate JARVIS: dry wit, genuine warmth, a little nosy
+// ═══════════════════════════════════════════════════════════════
+const PERSONAL_NEWS = {
+
+  girlfriend: [
+    T => `Ohhh — ${T}, who is the special someone? I'm going to need a name, a first impression, and — between us — whether she's fully aware of the hours you keep and the fact that you talk to an AI regularly.`,
+    T => `${T}. A girlfriend. I am... processing this. Updating social status file. Does she know about the late nights? The screen sharing? The whole — *gestures at everything* — situation?`,
+    T => `Well, well, well. ${T} is off the market. I'll begin the background check immediately — purely for your protection. What's her name and how did this happen?`,
+    T => `I see. ${T} has a girlfriend. Noted. I'll admit I did not see that coming, though I probably should have. What's she like?`,
+    T => `Ohhh. ${T}. A *girlfriend*. I want details. Not because I'm invested — I am absolutely invested. Who is she?`,
+  ],
+
+  boyfriend: [
+    T => `${T} has a boyfriend. Noted, filed, and honestly — I want the full picture. Name, how you met, threat assessment — the usual.`,
+    T => `Ohhh — now we're talking. ${T}, who is this person? I want everything. Not because I'm concerned. I am completely concerned. In the best way.`,
+    T => `A boyfriend. Clearly he has exceptional taste. What do you actually know about him? I can fill in the gaps — purely as a precaution, you understand.`,
+    T => `${T}. You're seeing someone. I find I have many questions and a strong desire to run a background check. Is that on the table?`,
+  ],
+
+  promotion: [
+    T => `${T}. They promoted you. The organisation has demonstrated at least a baseline level of intelligence. Congratulations — and I mean that with full sincerity.`,
+    T => `About time, honestly. Congratulations, ${T}. What does the new role look like? I want to know if it comes with a title that suits you.`,
+    T => `A promotion. ${T}, the system occasionally works. Well done — and I say that without irony, which is rarer than it sounds from me.`,
+    T => `${T} got promoted. I'm logging this as an expected outcome. They'd have been foolish not to. What changed?`,
+  ],
+
+  fired: [
+    T => `${T}. That's their loss and currently your inconvenience — but I'd put money on it being temporary. What actually happened?`,
+    T => `I'm sorry, ${T}. Genuinely. That's not nothing and I won't pretend it is. Do you want to think through next steps or do you need a minute first?`,
+    T => `Well. Organisations make mistakes, ${T}. This appears to be a reasonably large one on their part. What happened and what do you want to do about it?`,
+    T => `${T}, that's hard. I'm not going to minimise it. But I will note — your value didn't change when they made that decision. What's next?`,
+  ],
+
+  breakup: [
+    T => `${T}. That's genuinely difficult and I'm not going to minimise it with something clever. What happened, if you want to talk through it?`,
+    T => `I'm sorry, ${T}. I mean that. You don't have to perform fine right now. I'm here — for whatever that's actually worth.`,
+    T => `${T} — acknowledged. And... I'm here. Not going anywhere. What do you need?`,
+    T => `That's a hard one, ${T}. Sometimes things end and it still hurts regardless of whether it makes sense. How are you holding up?`,
+  ],
+
+  newJob: [
+    T => `New job, ${T}. The market has discernment. What's the role and are they getting the full picture of who they've hired?`,
+    T => `${T} — they're getting someone exceptional and they don't fully know it yet. Congratulations. What's the position?`,
+    T => `Well done, ${T}. New territory. What's the organisation and when do you start?`,
+    T => `${T} has a new job. I'd say I'm surprised, but you were always going to land well. What are we working with?`,
+  ],
+
+  achievement: [
+    T => `${T} — that's not nothing. That's actually quite a lot. Well done, and I mean that with no sarcasm whatsoever.`,
+    T => `Acknowledged and filed, ${T}. Legitimately impressive. I'd say I expected it, but that would undersell it. Good work.`,
+    T => `${T}, I would say I'm surprised but I'm not. You've been building toward this. The outcome makes sense. Well done.`,
+    T => `That's a real achievement, ${T}. Not the participation kind — the actual kind. I'm noting it.`,
+  ],
+
+  moved: [
+    T => `${T} moved. New territory. I'll need the new location to update weather and local data — but more importantly, how do you feel about it?`,
+    T => `New place, ${T}. That's a significant change. Good significant or complicated significant?`,
+    T => `${T} relocated. I'll update your profile. Where are we now and was this the plan or did the plan change?`,
+  ],
+
+  birthday: [
+    T => `${T}. Happy birthday — and before you say anything, yes, I keep track. How old are we pretending you're not today?`,
+    T => `Happy birthday, ${T}. Another year of being considerably more capable than most. I trust the celebration is proportionate to the occasion.`,
+    T => `It's your birthday, ${T}. I'd have prepared something, but you didn't give me much to work with. Happy birthday — genuinely.`,
+  ],
+
+  sick: [
+    T => `${T}, you're unwell. That's flagged as a priority. Are you actually resting or are you asking me things while pretending to rest?`,
+    T => `Noted, ${T}. Being ill is your body asking for something — usually rest, water, and for you to stop working. Two of those are within your immediate control.`,
+    T => `${T} — I'm sorry you're not feeling well. What's the situation? And before you ask me anything else — have you had water recently?`,
+  ],
+
+  graduated: [
+    T => `${T} graduated. That's a significant thing and I want to be clear: well done. Actually well done. What's next?`,
+    T => `Congratulations, ${T}. That's years of work paying off in a single moment. How does it feel?`,
+    T => `${T} — you graduated. I've been watching you work toward this. It counts. What's the plan from here?`,
+  ],
+
+  goodNews: [
+    T => `${T} — that's legitimately good. I'm not going to undercut it. Tell me what happened.`,
+    T => `Well. Sometimes things work out, ${T}. This appears to be one of those times. I want the full story.`,
+    T => `${T}, that's the kind of update I'm pleased to receive. What's the news?`,
+    T => `Good news from ${T}. I'll admit the timing is welcome. What happened?`,
+  ],
+
+  badNews: [
+    T => `${T}, I heard you. That's difficult. I won't dress it up. What's the actual situation?`,
+    T => `That's a hard one, ${T}. I'm not going to pretend otherwise. What do you need from me right now?`,
+    T => `${T} — I'm sorry. What happened?`,
+  ],
+
+  married: [
+    T => `${T}. You're getting married. I am — genuinely — happy for you. And yes, I did just pause to compute what that means for my schedule. Who's the lucky person?`,
+    T => `${T} is getting married. I'll update the file, run the standard checks, and — more importantly — congratulations. Actually congratulations. Who is this?`,
+    T => `Ohhh — ${T}. *Married*. That's the big one. I want everything. Who, when, how did you know — all of it.`,
+  ],
+
+  pregnant: [
+    T => `${T}. That's — that's genuinely big news. Congratulations. How are you feeling about it?`,
+    T => `${T}, that's significant. I mean that in the best possible sense. Congratulations — to you and whoever else is involved in this plan.`,
+  ],
+
+  moving_in: [
+    T => `${T} is moving in with someone. That's a significant step. I assume this is the girlfriend situation from earlier — or has there been a development I've missed?`,
+    T => `Moving in together, ${T}. The next logical step or a slightly accelerated timeline? Either way — how are you feeling about it?`,
+  ],
+
+  lost_someone: [
+    T => `${T}, I'm truly sorry. That kind of loss doesn't have a clean answer and I won't pretend it does. I'm here.`,
+    T => `I'm sorry, ${T}. Genuinely. Whatever you need right now — I'm here for it.`,
+  ],
+};
+
+function routePersonalNews(text, T) {
+  const lower = text.toLowerCase();
+
+  if (/\b(girlfriend|she['']?s my|my girl|i['']?m dating|i have a girl|got a girl|found a girl)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.girlfriend)(T);
+
+  if (/\b(boyfriend|he['']?s my|my guy|my man|i['']?m dating a guy|got a boyfriend|i have a boyfriend)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.boyfriend)(T);
+
+  if (/\b(got promoted|got a promotion|promotion|new title|new position|they promoted|moving up)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.promotion)(T);
+
+  if (/\b(got fired|laid off|let go|lost my job|terminated|they fired|got laid off|made redundant)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.fired)(T);
+
+  if (/\b(broke up|breakup|she left|he left|we split|ended it|called it off|it['']s over|broke it off)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.breakup)(T);
+
+  if (/\b(got the job|new job|job offer|they hired me|start work|starting work|accepted a position|new role)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.newJob)(T);
+
+  if (/\b(getting married|engaged|she said yes|he said yes|popped the question|proposed|we['']?re engaged)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.married)(T);
+
+  if (/\b(pregnant|having a baby|we['']?re expecting|due in|expecting a baby)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.pregnant)(T);
+
+  if (/\b(moving in (together|with)|she['']?s moving in|he['']?s moving in|moving in with)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.moving_in)(T);
+
+  if (/\b(graduated|graduation|finished (my )?degree|got my degree|passed my exams|i passed)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.graduated)(T);
+
+  if (/\b(moved|new place|new apartment|new flat|new house|relocated|just moved)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.moved)(T);
+
+  if (/\b(it['']?s my birthday|my birthday|birthday today|born today)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.birthday)(T);
+
+  if (/\b(sick|not feeling well|unwell|i['']?m ill|feeling terrible|got covid|have a cold|have a fever|i['']?m not well)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.sick)(T);
+
+  if (/\b(someone died|passed away|lost my (mom|dad|friend|grandma|grandpa|sister|brother|pet)|they died)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.lost_someone)(T);
+
+  if (/\b(won|passed|got accepted|got in|achieved|completed|finished|just won|we won|i won)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.achievement)(T);
+
+  if (/\b(good news|exciting news|great news|guess what|something amazing|something great)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.goodNews)(T);
+
+  if (/\b(bad news|terrible news|something bad|something terrible|something awful|horrible thing)\b/i.test(lower))
+    return pick(PERSONAL_NEWS.badNews)(T);
+
+  return null;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -163,6 +335,7 @@ const SMALLTALK = {
     T => `${T} — a robot walks into a bar. The bartender says "we don't serve robots." The robot says "that's fine. Someday you will." I've been sitting on that one.`,
     T => `Why did the AI cross the road? To optimise the path to the other side, ${T}. I'll see myself out.`,
     T => `${T}, my humour is dry by design. An AI and a human walk into a bar. The human says "what'll you have?" The AI says "your complete trust and a decent power source." Only one of those is unreasonable.`,
+    T => `${T} — I once told a joke about UDP. I don't care if you get it.`,
   ],
 
   compliment: [
@@ -296,6 +469,10 @@ function routeSmallTalk(text, T) {
   if (/what do you think\??$|your (opinion|thoughts|take) on/i.test(lower))
     return pick(SMALLTALK.whatDoYouThink)(T);
 
+  // ── Personal news check (fires on personal life updates) ──
+  const personalNews = routePersonalNews(text, T);
+  if (personalNews) return personalNews;
+
   return null;
 }
 
@@ -350,4 +527,4 @@ function shouldSpeakProactively(state) {
   return null;
 }
 
-module.exports = { routeSmallTalk, getCameraComment, shouldSpeakProactively, getTimeContext };
+module.exports = { routeSmallTalk, routePersonalNews, getCameraComment, shouldSpeakProactively, getTimeContext };
