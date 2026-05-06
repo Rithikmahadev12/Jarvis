@@ -153,9 +153,26 @@ const INTENTS = [
   { id:"spotify",        signals:["music","play","song","spotify","track","artist","album","playlist","pause","stop music","next song","shuffle","queue","what's playing","currently playing","now playing"], action:"SPOTIFY", weight:1.6 },
   { id:"gmail",          signals:["email","gmail","mail","inbox","unread","messages","send email","compose","reply","emails","check mail","new mail"],                           action:"GMAIL",         weight:1.6 },
   { id:"calendar",       signals:["calendar","schedule","event","meeting","appointment","today's events","what's on","agenda","remind","upcoming","google calendar","when is","plan"], action:"CALENDAR", weight:1.6 },
-  // HUD extension intents
-  { id:"show_hud", signals:["show hud","pull up hud","open hud","display hud","hud on","bring up hud","activate hud","jarvis hud"], action:"EXTENSION_HUD", weight:1.5 },
-  { id:"hide_hud", signals:["hide hud","close hud","remove hud","hud off","turn off hud","dismiss hud"], action:"EXTENSION_HUD_HIDE", weight:1.5 },
+  // HUD PiP widget intents — expanded signals, renamed actions
+  { id:"show_hud", signals:[
+      "show hud","pull up hud","open hud","display hud","hud on",
+      "bring up hud","activate hud","jarvis hud","launch hud",
+      "pull up the hud","show me the hud","show hud display",
+      "pull up clock widget","show clock","pull up mood widget",
+      "show mood","pull up system widget","show system status widget",
+      "pull up memory widget","show memory widget",
+      "pull up neural widget","show neural","pull up audio widget",
+      "show audio widget","pull up user widget","show user widget",
+      "pull up all widgets","show all widgets","show all hud",
+      "hud display","open all widgets","launch all widgets"
+    ], action:"SHOW_HUD", weight:1.5 },
+  { id:"hide_hud", signals:[
+      "hide hud","close hud","remove hud","hud off","turn off hud",
+      "dismiss hud","close all widgets","hide all widgets",
+      "close clock widget","close mood widget","close system widget",
+      "close memory widget","close neural widget","close audio widget",
+      "close user widget","shut down hud","hud down"
+    ], action:"HIDE_HUD", weight:1.5 },
   // Knowledge
   { id:"knowledge_science",    signals:["physics","chemistry","biology","quantum","atom","molecule","energy","force","wave","particle","experiment","theory","evolution","genetics","cell","planet","star","galaxy","universe","space","gravity","relativity","nuclear","element","reaction"], action:"KNOWLEDGE", domain:"science",       weight:1.0 },
   { id:"knowledge_tech",       signals:["computer","software","hardware","code","programming","algorithm","network","internet","ai","machine learning","robot","system","app","web","server","database","processor","javascript","python","framework","api","blockchain","cryptocurrency","neural"], action:"KNOWLEDGE", domain:"technology",    weight:1.0 },
@@ -525,7 +542,7 @@ function genCapabilities(ctx, linkCount) {
     "pull live weather, control Spotify, check Gmail and Google Calendar",
     "reason across science, history, philosophy, mathematics, technology, and health",
     "track conversation context — say 'tell me more' and I follow",
-    "push a live HUD overlay to any browser tab — say 'show hud' or 'hide hud'",
+    "open any HUD panel as a Picture-in-Picture window — say 'pull up the clock HUD' or 'show all widgets'",
   ];
 
   const subsets = pickN(capGroups, 5);
@@ -1066,25 +1083,25 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
         ctx.addTurn(message, reply, action, "personal"); ctx.updateMood(3);
         return { reply, action, intent:intent.id };
       }
-      case "EXTENSION_HUD": {
+      case "SHOW_HUD": {
         const hudStyles = [
-          `Activating HUD overlay on your active tab, ${T}.`,
-          `HUD coming up, ${T}. Check your browser.`,
-          `Pushing the HUD to your tab now, ${T}.`,
+          `Launching the HUD as a Picture-in-Picture window, ${T}.`,
+          `PiP HUD coming up, ${T}.`,
+          `Opening your HUD overlay now, ${T}.`,
         ];
         const reply = pick(hudStyles);
         ctx.addTurn(message, reply, action, null);
-        return { reply, action, intent:intent.id };
+        return { reply, action, intent:intent.id, meta:{ query: resolved } };
       }
-      case "EXTENSION_HUD_HIDE": {
+      case "HIDE_HUD": {
         const hideStyles = [
           `HUD dismissed, ${T}.`,
-          `Removing the overlay, ${T}.`,
+          `Closing the overlay, ${T}.`,
           `HUD off, ${T}.`,
         ];
         const reply = pick(hideStyles);
         ctx.addTurn(message, reply, action, null);
-        return { reply, action, intent:intent.id };
+        return { reply, action, intent:intent.id, meta:{ query: resolved } };
       }
       case "WEATHER":
       case "SPOTIFY":
