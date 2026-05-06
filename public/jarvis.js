@@ -628,9 +628,26 @@ function launchMain() {
   setupTypingBox();
   startChatListening();
   initTesseract();
-  // CHANGE 1: Start camera observer after Tesseract init
   CameraObserver.start();
   setTimeout(() => checkIntruderClips(), 2000);
+
+  // Keep extension status in sync on a steady interval
+  setInterval(syncExtensionStatus, 3000);
+}
+
+// ── EXTENSION STATUS SYNC ──
+function syncExtensionStatus() {
+  fetch("/api/extension/status", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      phase:     state.phase,
+      user:      state.user,
+      userTitle: state.userTitle,
+      mood:      state.mood,
+      moodScore: state.moodScore,
+    }),
+  }).catch(() => {});
 }
 
 // ── CHAT LISTENING ──
@@ -657,20 +674,17 @@ function setupTypingBox() {
 
 // ═══════════════════════════════════════════════════════════════
 // ── CHAT COMMAND HANDLER ──
-// Everything routes to AI — it figures out intent
 // ═══════════════════════════════════════════════════════════════
 function handleChatCommand(text) {
   const lower = text.toLowerCase();
   state.lastInteraction = Date.now();
   state.interactionCount++;
   updateMood(3);
-  // CHANGE 2: Notify camera observer of user message
   CameraObserver.notifyUserMessage();
 
   const hasWake = hasWakeWord(lower);
   const cleaned = hasWake ? stripWakeWord(text) : text;
 
-  // Wake word gate for non-recent interactions (after first few turns)
   const recentlyActive = (Date.now() - state.lastInteraction) < 30000;
   if (!hasWake && !recentlyActive && state.interactionCount > 3) {
     updateLiveHearing(""); return;
@@ -682,7 +696,6 @@ function handleChatCommand(text) {
     addMsg("jarvis", ack); speak(ack); return;
   }
 
-  // Everything goes to AI — semantic routing handles it all
   sendToAI(cleaned);
 }
 
@@ -694,7 +707,7 @@ async function sendToAI(message) {
   addMsg("user", message);
   setOrb("thinking");
 
-  // CHANGE 3: Try smalltalk first — fast, local personality responses
+  // Fast path: smalltalk
   try {
     const stRes = await fetch("/api/personality/smalltalk", {
       method: "POST",
@@ -706,11 +719,14 @@ async function sendToAI(message) {
       addMsg("jarvis", stData.reply);
       speak(stData.reply, () => mic.resume());
       updateMood(5);
-      return; // handled — no need to hit full AI engine
-    }
-  } catch { /* fall through to full AI */ }
 
-  // Full AI engine for everything else
+      // Sync extension status after smalltalk reply
+      syncExtensionStatus();
+      return;
+    }
+  } catch { /* fall through */ }
+
+  // Full AI engine
   const memories = await loadMemoriesForPrompt();
   const moodCtx  = `mood: ${state.mood} (score: ${state.moodScore})`;
   try {
@@ -732,7 +748,9 @@ async function sendToAI(message) {
     addMsg("jarvis", reply);
     updateMood(5);
 
-    // Route to action handler if AI returned an action
+    // Keep extension status in sync after every successful reply
+    syncExtensionStatus();
+
     if (data.action && data.meta) {
       await handleAction(data.action, data.meta, reply);
     } else {
@@ -748,14 +766,12 @@ async function sendToAI(message) {
 
 // ═══════════════════════════════════════════════════════════════
 // ── ACTION HANDLER ──
-// Executes side effects based on AI-returned action codes
 // ═══════════════════════════════════════════════════════════════
 async function handleAction(action, meta, replyText) {
   const T = state.userTitle || "Sir";
 
   switch (action) {
 
-    // ── SHOW ALL LINKS ──
     case "SHOW_LINKS": {
       speak(replyText, () => mic.resume());
       if (meta.linkGroups && meta.linkGroups.length > 0) {
@@ -784,7 +800,6 @@ async function handleAction(action, meta, replyText) {
       break;
     }
 
-    // ── OPEN LINK ──
     case "OPEN_LINK": {
       if (meta.found) {
         const wrap = document.createElement("div"); wrap.className = "msg jarvis";
@@ -797,7 +812,6 @@ async function handleAction(action, meta, replyText) {
       break;
     }
 
-    // ── CLIP SAVE — natural duration support ──
     case "CLIP_SAVE": {
       speak(replyText, () => {
         const clipType = meta.clipType || "both";
@@ -821,20 +835,17 @@ async function handleAction(action, meta, replyText) {
       break;
     }
 
-    // ── SHOW INTRUDER CLIPS ──
     case "SHOW_CLIPS": {
       speak(replyText, () => { showIntruderClips(); mic.resume(); });
       break;
     }
 
-    // ── READ SCREEN ──
     case "READ_SCREEN": {
       speak(replyText, () => {});
       await readScreen(meta.question || "What's on my screen?");
       break;
     }
 
-    // ── SWITCH CAMERA ──
     case "SWITCH_CAMERA": {
       if (meta.switchCamera && meta.cameraIndex >= 0) {
         speak(replyText, () => {});
@@ -850,7 +861,6 @@ async function handleAction(action, meta, replyText) {
       break;
     }
 
-    // ── TIMER ──
     case "TIMER": {
       if (meta.action === "TIMER_SET" && meta.duration) {
         speak(replyText, () => mic.resume());
@@ -873,17 +883,14 @@ async function handleAction(action, meta, replyText) {
       break;
     }
 
-    // ── NOTIF SETTINGS ──
     case "NOTIF_SETTINGS": {
       speak(replyText, () => {}); showNotifSettings(); break;
     }
 
-    // ── LOGOUT ──
     case "LOGOUT": {
       speak(replyText, () => {}); setTimeout(() => handleLogout(), 800); break;
     }
 
-    // ── MEMORY SAVE / FORGET (handled server-side, just speak) ──
     case "MEMORY_SAVE":
     case "MEMORY_FORGET":
     case "MEMORY_RECALL":
@@ -928,7 +935,6 @@ function hideTimerBadge(timerId) {
   badge.classList.add("hidden");
 }
 
-// ── DURATION FORMATTER (client) ──
 function formatDurationClient(ms) {
   const h = Math.floor(ms / 3600000);
   const m = Math.floor((ms % 3600000) / 60000);
@@ -1373,7 +1379,6 @@ function stopScreenRecord() {
 function handleLogout() {
   mic.suspend();
   if (state.faceCheckInterval) clearInterval(state.faceCheckInterval);
-  // Clear timers
   for (const t of state.activeTimers) clearTimeout(t.id);
   state.activeTimers = [];
   const badge = $("timer-badge-el"); if (badge) badge.classList.add("hidden");
