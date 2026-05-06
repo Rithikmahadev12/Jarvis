@@ -40,21 +40,17 @@ function overlap(setA, setB) { let c=0; for (const v of setA) if (setB.has(v)) c
 
 // ═══════════════════════════════════════════════════════════════
 // ── PERSONALITY ENGINE ────────────────────────────────────────
-// JARVIS has a multi-dimensional personality that shifts with
-// mood, time of day, interaction history, and topic domain.
 // ═══════════════════════════════════════════════════════════════
 const PERSONALITY = {
-  // Core traits — always present, varying in intensity
   traits: {
-    wit:         0.7,   // dry humour, wordplay
-    precision:   0.85,  // exact language, no vagueness
-    warmth:      0.55,  // genuine care, not sycophancy
-    curiosity:   0.75,  // asks follow-ups, digs deeper
-    confidence:  0.80,  // states things clearly, not hedging
-    candour:     0.70,  // will disagree, push back
+    wit:         0.7,
+    precision:   0.85,
+    warmth:      0.55,
+    curiosity:   0.75,
+    confidence:  0.80,
+    candour:     0.70,
   },
 
-  // Vocabulary banks by register
   vocab: {
     affirmations:   ["Understood","Confirmed","Acknowledged","Noted","Of course","Certainly","Right away","Immediately","Absolutely","At once","Done"],
     acknowledgments:["I see","Interesting","That tracks","Makes sense","Fair enough","Right","Indeed","Precisely","Exactly"],
@@ -67,7 +63,6 @@ const PERSONALITY = {
     transitions:    ["That said","However","On the other hand","That being said","Nevertheless","Nonetheless","Even so","By contrast","In contrast"],
   },
 
-  // Mood-dependent sentence starters
   moodStarters: {
     excited:  ["Here's something genuinely interesting —","This is worth paying attention to:","Let me give you the full picture —","This is actually fascinating:"],
     pleased:  ["Let me walk you through this —","Here's the shape of it:","Right, so —","The way I see it:"],
@@ -78,7 +73,6 @@ const PERSONALITY = {
     tired:    ["Here's the core of it:","The essentials:","Quickly:","Simply:"],
   },
 
-  // Title-specific adjustments
   titleAdjust: {
     "Sir":   { formality: 0.75, warmth: -0.1 },
     "Ma'am": { formality: 0.75, warmth: +0.1 },
@@ -88,10 +82,7 @@ const PERSONALITY = {
 };
 
 // ── SENTENCE BUILDER ─────────────────────────────────────────
-// Constructs fresh sentences from grammar templates rather than
-// picking from preset pools.
 const SB = {
-  // Vary sentence length and rhythm
   sentencePatterns: [
     "{opener} {subject}: {content}",
     "{content}. {connector}, {addendum}",
@@ -102,7 +93,6 @@ const SB = {
     "The {noun} of {subject} is {content}",
   ],
 
-  // Build a dynamic intro sentence
   intro(topic, mood, T) {
     const starter = pick(PERSONALITY.moodStarters[mood] || PERSONALITY.moodStarters.neutral);
     const opener  = pick(PERSONALITY.vocab.openers);
@@ -112,12 +102,10 @@ const SB = {
     return `${T}, ${starter.toLowerCase()}`;
   },
 
-  // Build a connector/transition sentence
   bridge() {
     return pick([...PERSONALITY.vocab.connectors, ...PERSONALITY.vocab.transitions]);
   },
 
-  // Vary a fact sentence with qualifier prefix
   variedFact(fact) {
     const style = Math.random();
     if (style < 0.2) return `${pick(PERSONALITY.vocab.qualifiers)}, ${fact.toLowerCase()}`;
@@ -126,13 +114,11 @@ const SB = {
     return fact;
   },
 
-  // Add a closing note
   close(addendum) {
     const closer = pick(PERSONALITY.vocab.closers);
     return `${closer}: ${addendum}`;
   },
 
-  // Personalise with title
   personalise(text, T) {
     if (Math.random() < 0.45) return `${text}, ${T}`;
     if (Math.random() < 0.3)  return `${T} — ${text.charAt(0).toLowerCase() + text.slice(1)}`;
@@ -167,6 +153,9 @@ const INTENTS = [
   { id:"spotify",        signals:["music","play","song","spotify","track","artist","album","playlist","pause","stop music","next song","shuffle","queue","what's playing","currently playing","now playing"], action:"SPOTIFY", weight:1.6 },
   { id:"gmail",          signals:["email","gmail","mail","inbox","unread","messages","send email","compose","reply","emails","check mail","new mail"],                           action:"GMAIL",         weight:1.6 },
   { id:"calendar",       signals:["calendar","schedule","event","meeting","appointment","today's events","what's on","agenda","remind","upcoming","google calendar","when is","plan"], action:"CALENDAR", weight:1.6 },
+  // HUD extension intents
+  { id:"show_hud", signals:["show hud","pull up hud","open hud","display hud","hud on","bring up hud","activate hud","jarvis hud"], action:"EXTENSION_HUD", weight:1.5 },
+  { id:"hide_hud", signals:["hide hud","close hud","remove hud","hud off","turn off hud","dismiss hud"], action:"EXTENSION_HUD_HIDE", weight:1.5 },
   // Knowledge
   { id:"knowledge_science",    signals:["physics","chemistry","biology","quantum","atom","molecule","energy","force","wave","particle","experiment","theory","evolution","genetics","cell","planet","star","galaxy","universe","space","gravity","relativity","nuclear","element","reaction"], action:"KNOWLEDGE", domain:"science",       weight:1.0 },
   { id:"knowledge_tech",       signals:["computer","software","hardware","code","programming","algorithm","network","internet","ai","machine learning","robot","system","app","web","server","database","processor","javascript","python","framework","api","blockchain","cryptocurrency","neural"], action:"KNOWLEDGE", domain:"technology",    weight:1.0 },
@@ -336,11 +325,8 @@ function sentiment(text) { let s=0; for (const w of text.toLowerCase().split(/\s
 
 // ═══════════════════════════════════════════════════════════════
 // ── GENERATIVE RESPONSE ENGINE ───────────────────────────────
-// Each response is built fresh — no two replies are identical.
-// Uses template grammar + vocabulary + context + personality.
 // ═══════════════════════════════════════════════════════════════
 
-// Core generative function — builds a paragraph from components
 function buildResponse(components, ctx, opts = {}) {
   const T     = ctx.userTitle || "Sir";
   const mood  = ctx.mood || "neutral";
@@ -363,31 +349,26 @@ function buildResponse(components, ctx, opts = {}) {
     }
   }
 
-  // Assemble with natural variation
   let response = "";
   for (let i = 0; i < parts.length; i++) {
     if (i === 0) {
       response = parts[i];
     } else {
-      const prev = parts[i-1]; const curr = parts[i];
-      // Vary how sentences connect
       const style = Math.random();
-      if (style < 0.25 && curr.length > 20) {
-        response += " " + curr;
+      if (style < 0.25 && parts[i].length > 20) {
+        response += " " + parts[i];
       } else if (style < 0.5) {
-        response += ". " + curr;
+        response += ". " + parts[i];
       } else if (style < 0.75) {
-        response += " — " + curr.charAt(0).toLowerCase() + curr.slice(1);
+        response += " — " + parts[i].charAt(0).toLowerCase() + parts[i].slice(1);
       } else {
-        response += ". " + curr;
+        response += ". " + parts[i];
       }
     }
   }
 
-  // Ensure ends with period
   if (response && !response.match(/[.!?]$/)) response += ".";
 
-  // Optionally personalise ending
   if (opts.personalise !== false && Math.random() < 0.4) {
     response += ` ${T}.`;
   }
@@ -401,9 +382,8 @@ function genKnowledge(knowledge, input, ctx) {
   const { key, data } = knowledge;
   const name = key.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 
-  // Shuffle facts for variety
   const facts = [...(data.facts || [])].sort(() => Math.random() - 0.5);
-  const useFacts = facts.slice(0, Math.floor(Math.random() * 2) + 2); // 2-3 facts
+  const useFacts = facts.slice(0, Math.floor(Math.random() * 2) + 2);
   const apps = data.applications ? pickN(data.applications, 2) : [];
 
   const questionType = input.trim().toLowerCase();
@@ -413,7 +393,6 @@ function genKnowledge(knowledge, input, ctx) {
 
   const components = [];
 
-  // Opening — definition with variation
   const defStyles = [
     `${name} ${openingVerb === "is" ? "is" : openingVerb} ${data.def}`,
     `At its core, ${name.toLowerCase()} ${openingVerb === "is" ? "refers to" : "involves"} ${data.def.toLowerCase()}`,
@@ -421,13 +400,11 @@ function genKnowledge(knowledge, input, ctx) {
   ];
   components.push({ type: "raw", text: pick(defStyles) });
 
-  // Facts with connectors
   for (let i = 0; i < useFacts.length; i++) {
     if (i === 0 && Math.random() < 0.5) components.push({ type: "bridge" });
     components.push(useFacts[i]);
   }
 
-  // Application — not always
   if (apps.length && Math.random() > 0.35) {
     const appText = apps.length === 1
       ? `This underpins ${apps[0]}`
@@ -548,6 +525,7 @@ function genCapabilities(ctx, linkCount) {
     "pull live weather, control Spotify, check Gmail and Google Calendar",
     "reason across science, history, philosophy, mathematics, technology, and health",
     "track conversation context — say 'tell me more' and I follow",
+    "push a live HUD overlay to any browser tab — say 'show hud' or 'hide hud'",
   ];
 
   const subsets = pickN(capGroups, 5);
@@ -814,7 +792,7 @@ class ConversationContext {
     this.moodScore = 0;
     this.openTopics= [];
     this.pendingTimer = null;
-    this.responseVariety = []; // track recent response types to avoid repetition
+    this.responseVariety = [];
   }
 
   resolveReferences(text) {
@@ -838,7 +816,6 @@ class ConversationContext {
     this.lastAction = action;
     if (topic) { this.lastTopic = topic; if (!this.openTopics.includes(topic)) { this.openTopics.unshift(topic); if (this.openTopics.length > 8) this.openTopics.pop(); } }
     this.turnCount++;
-    // Track response variety
     this.responseVariety.push(action);
     if (this.responseVariety.length > 10) this.responseVariety.shift();
   }
@@ -1089,11 +1066,30 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
         ctx.addTurn(message, reply, action, "personal"); ctx.updateMood(3);
         return { reply, action, intent:intent.id };
       }
+      case "EXTENSION_HUD": {
+        const hudStyles = [
+          `Activating HUD overlay on your active tab, ${T}.`,
+          `HUD coming up, ${T}. Check your browser.`,
+          `Pushing the HUD to your tab now, ${T}.`,
+        ];
+        const reply = pick(hudStyles);
+        ctx.addTurn(message, reply, action, null);
+        return { reply, action, intent:intent.id };
+      }
+      case "EXTENSION_HUD_HIDE": {
+        const hideStyles = [
+          `HUD dismissed, ${T}.`,
+          `Removing the overlay, ${T}.`,
+          `HUD off, ${T}.`,
+        ];
+        const reply = pick(hideStyles);
+        ctx.addTurn(message, reply, action, null);
+        return { reply, action, intent:intent.id };
+      }
       case "WEATHER":
       case "SPOTIFY":
       case "GMAIL":
       case "CALENDAR": {
-        // These need server-side fetching — signal to server
         ctx.addTurn(message, "", action, action.toLowerCase());
         return { reply:"", action, intent:intent.id, needsFetch:true, fetchType:action.toLowerCase() };
       }
