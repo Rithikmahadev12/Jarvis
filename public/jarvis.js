@@ -890,7 +890,29 @@ async function handleAction(action, meta, replyText) {
     case "LOGOUT": {
       speak(replyText, () => {}); setTimeout(() => handleLogout(), 800); break;
     }
+    case "SHOW_HUD": {
+  speak(replyText, () => mic.resume());
 
+  if (window.PiPWidgets) {
+    window.PiPWidgets.handleVoiceCommand("SHOW_HUD", {
+      query: meta?.query || replyText
+    });
+  }
+
+  break;
+}
+
+   case "HIDE_HUD": {
+  speak(replyText, () => mic.resume());
+
+  if (window.PiPWidgets) {
+    window.PiPWidgets.handleVoiceCommand("HIDE_HUD", {
+      query: meta?.query || replyText
+    });
+  }
+
+  break;
+}
     case "MEMORY_SAVE":
     case "MEMORY_FORGET":
     case "MEMORY_RECALL":
