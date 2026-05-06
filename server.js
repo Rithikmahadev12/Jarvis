@@ -7,6 +7,9 @@ const archiver    = require("archiver");
 const AI          = require("./ai-engine");
 const Research    = require("./research");
 const Personality = require("./personality");
+const Weather     = require("./weather");
+const Spotify     = require("./spotify");
+const Google      = require("./google");
 
 const app = express();
 app.use(cors());
@@ -161,7 +164,7 @@ app.post("/api/verify", (req, res) => {
   const profiles = loadProfiles();
   const key      = name.toLowerCase().trim();
   const stored   = profiles[key];
-  if (!stored)                         return res.json({ authorized: false, reason: "no_profile" });
+  if (!stored)                              return res.json({ authorized: false, reason: "no_profile" });
   if (stored.passwordHash !== passwordHash) return res.json({ authorized: false, reason: "wrong_password" });
   const { passwordHash: _, ...safe } = stored;
   res.json({ authorized: true, profile: safe });
@@ -204,6 +207,115 @@ app.post("/api/memory/forget", (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════
+// ── WEATHER INTEGRATION ───────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════
+app.post("/api/weather", async (req, res) => {
+  const { message } = req.body;
+  try {
+    const data = await Weather.handleWeatherCommand(message || "weather");
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ── SPOTIFY INTEGRATION ───────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════
+app.get("/api/spotify/auth", (req, res) => {
+  if (!Spotify.isConfigured()) {
+    return res.status(400).json({ error: "Spotify credentials not configured in .env" });
+  }
+  res.redirect(Spotify.getAuthUrl());
+});
+
+app.get("/api/spotify/callback", async (req, res) => {
+  const { code, error } = req.query;
+  if (error) return res.send(`<h2>Spotify auth failed: ${error}</h2><p>Close this tab and try again.</p>`);
+  if (!code)  return res.send("<h2>No code returned from Spotify.</h2>");
+  const result = await Spotify.exchangeCode(code);
+  if (result.error) return res.send(`<h2>Token exchange failed: ${result.error}</h2>`);
+  res.send(`
+    <html><body style="background:#010c14;color:#00c8ff;font-family:monospace;text-align:center;padding:60px">
+      <h2>✓ Spotify connected successfully</h2>
+      <p>You can close this tab. J.A.R.V.I.S now has Spotify control.</p>
+    </body></html>
+  `);
+});
+
+app.post("/api/spotify", async (req, res) => {
+  const { message } = req.body;
+  if (!Spotify.isConfigured()) {
+    return res.json({ error: "Spotify not configured", needsAuth: true, authUrl: "/api/spotify/auth" });
+  }
+  if (!Spotify.hasToken()) {
+    return res.json({ needsAuth: true, authUrl: "/api/spotify/auth" });
+  }
+  try {
+    const data = await Spotify.handleSpotifyCommand(message || "now playing");
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ── GOOGLE INTEGRATION (Gmail + Calendar) ─────────────────────────
+// ══════════════════════════════════════════════════════════════════
+app.get("/api/google/auth", (req, res) => {
+  if (!Google.isConfigured()) {
+    return res.status(400).json({ error: "Google credentials not configured in .env" });
+  }
+  res.redirect(Google.getAuthUrl());
+});
+
+app.get("/api/google/callback", async (req, res) => {
+  const { code, error } = req.query;
+  if (error) return res.send(`<h2>Google auth failed: ${error}</h2><p>Close this tab and try again.</p>`);
+  if (!code)  return res.send("<h2>No code returned from Google.</h2>");
+  const result = await Google.exchangeCode(code);
+  if (result.error) return res.send(`<h2>Token exchange failed: ${result.error}</h2>`);
+  res.send(`
+    <html><body style="background:#010c14;color:#00c8ff;font-family:monospace;text-align:center;padding:60px">
+      <h2>✓ Google connected successfully</h2>
+      <p>Gmail and Google Calendar are now active. Close this tab.</p>
+    </body></html>
+  `);
+});
+
+app.post("/api/gmail", async (req, res) => {
+  const { message } = req.body;
+  if (!Google.isConfigured()) {
+    return res.json({ error: "Google not configured", needsAuth: true, authUrl: "/api/google/auth" });
+  }
+  if (!Google.hasToken()) {
+    return res.json({ needsAuth: true, authUrl: "/api/google/auth" });
+  }
+  try {
+    const data = await Google.handleGmailCommand(message || "check inbox");
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/calendar", async (req, res) => {
+  const { message } = req.body;
+  if (!Google.isConfigured()) {
+    return res.json({ error: "Google not configured", needsAuth: true, authUrl: "/api/google/auth" });
+  }
+  if (!Google.hasToken()) {
+    return res.json({ needsAuth: true, authUrl: "/api/google/auth" });
+  }
+  try {
+    const data = await Google.handleCalendarCommand(message || "today's events");
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
 // ── PERSONALITY — camera-triggered proactive comment ─────────────
 // ══════════════════════════════════════════════════════════════════
 app.post("/api/personality/comment", (req, res) => {
@@ -224,6 +336,10 @@ app.post("/api/personality/smalltalk", (req, res) => {
   const T = userTitle || "Sir";
   if (!message) return res.status(400).json({ reply: null });
 
+  // Check personal news first (higher priority than generic smalltalk)
+  const personalNewsReply = Personality.routePersonalNews(message, T);
+  if (personalNewsReply) return res.json({ reply: personalNewsReply });
+
   const reply = Personality.routeSmallTalk(message, T);
   res.json({ reply: reply || null });
 });
@@ -231,29 +347,24 @@ app.post("/api/personality/smalltalk", (req, res) => {
 // ═══════════════════════════════════════════════════════════════════
 // ── EXTENSION API
 // ═══════════════════════════════════════════════════════════════════
-// In-memory command queue + live state for extension
 const extensionQueue  = [];
 let   extensionStatus = { phase: "idle", user: null, userTitle: null, mood: "neutral" };
 
-// Extension polls this every 2s to get pending commands
 app.get("/api/extension/poll", (req, res) => {
-  const commands = extensionQueue.splice(0); // drain queue
+  const commands = extensionQueue.splice(0);
   res.json({ commands, status: extensionStatus });
 });
 
-// JARVIS main app keeps status updated
 app.post("/api/extension/status", (req, res) => {
   const { phase, user, userTitle, mood, moodScore } = req.body;
   extensionStatus = { phase, user, userTitle, mood, moodScore };
   res.json({ ok: true });
 });
 
-// Status read (for popup)
 app.get("/api/extension/status", (req, res) => {
   res.json(extensionStatus);
 });
 
-// Push a command to the extension (from JARVIS chat or popup)
 app.post("/api/extension/command", (req, res) => {
   const { action, data } = req.body;
   if (!action) return res.status(400).json({ error: "Missing action" });
@@ -261,7 +372,6 @@ app.post("/api/extension/command", (req, res) => {
   res.json({ ok: true, queued: extensionQueue.length });
 });
 
-// Download extension as zip
 app.get("/api/extension/download", (req, res) => {
   const extDir = path.join(__dirname, "extension");
   if (!fs.existsSync(extDir)) {
@@ -280,7 +390,65 @@ app.get("/api/extension/download", (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-// ── CHAT — local AI + smalltalk fast path + live research ────────
+// ── RESEARCH ENDPOINT (direct) ────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════
+app.post("/api/research", async (req, res) => {
+  const { query, userTitle } = req.body;
+  if (!query) return res.status(400).json({ error: "Missing query" });
+  try {
+    const result = await Research.research(query, userTitle || "Sir");
+    res.json(result || { reply: null, message: "No results found" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ── PERSON LOOKUP ENDPOINT (direct) ──────────────────────────────
+app.post("/api/research/person", async (req, res) => {
+  const { name, userTitle } = req.body;
+  if (!name) return res.status(400).json({ error: "Missing name" });
+  try {
+    const data   = await Research.lookupPerson(name);
+    const report = Research.buildPersonIntelReport(data, userTitle || "Sir");
+    res.json({ reply: report, raw: data, name });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ── SCREEN ANALYSIS ───────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════
+app.post("/api/screen", (req, res) => {
+  const { ocrText, question, userName, userTitle, memories } = req.body;
+  const T = userTitle || "Sir";
+
+  if (!ocrText || ocrText.trim().length < 5) {
+    return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}. Make sure the content is visible.` });
+  }
+
+  const screenContext = `The user's screen contains: "${ocrText.trim().slice(0, 800)}". The user asked: "${question || "What is on my screen?"}"`;
+  try {
+    const result = AI.process({
+      message:    screenContext,
+      sessionId:  `screen_${userName || "user"}`,
+      userName,
+      userTitle,
+      memories,
+      serverData: getLinksSummary(),
+    });
+    const reply = result.reply.length > 20
+      ? `I can see your screen, ${T}. ${result.reply}`
+      : `Your screen shows: ${ocrText.trim().slice(0, 200)}`;
+    return res.json({ reply });
+  } catch {
+    const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0, 5);
+    return res.json({ reply: `On your screen, ${T}: ${lines.join(". ")}` });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ── MAIN CHAT ROUTE ───────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════
 app.post("/api/chat", async (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext } = req.body;
@@ -288,14 +456,16 @@ app.post("/api/chat", async (req, res) => {
 
   const T = userTitle || "Sir";
 
-  // ── Fast path: try smalltalk first ──
+  // ── Fast path: personal news ──
+  const personalNewsReply = Personality.routePersonalNews(message, T);
+  if (personalNewsReply) {
+    return res.json({ reply: personalNewsReply, action: "PERSONAL_NEWS", intent: "personal_news" });
+  }
+
+  // ── Fast path: smalltalk ──
   const smalltalkReply = Personality.routeSmallTalk(message, T);
   if (smalltalkReply) {
-    return res.json({
-      reply:  smalltalkReply,
-      action: "SMALLTALK",
-      intent: "smalltalk",
-    });
+    return res.json({ reply: smalltalkReply, action: "SMALLTALK", intent: "smalltalk" });
   }
 
   // ── Build server context ──
@@ -313,14 +483,171 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ reply: `Something went sideways, ${T}. Give it another go.`, action: "ERROR" });
   }
 
-  const { reply, action, meta, intent, topic } = aiResult;
+  const { reply, action, meta, intent, topic, needsFetch, fetchType } = aiResult;
 
-  // ── Handle HUD PiP intents — client handles directly via PiPWidgets ──
+  // ══════════════════════════════════════════════════════════════
+  // ── PERSON LOOKUP — runs research in parallel, returns intel ──
+  // ══════════════════════════════════════════════════════════════
+  if (action === "LOOKUP_PERSON" && needsFetch && meta?.personName) {
+    const personName = meta.personName;
+    console.log(`[SERVER] Person lookup: "${personName}"`);
+    try {
+      const lookupData = await Research.lookupPerson(personName);
+      const intelReport = Research.buildPersonIntelReport(lookupData, T);
+      return res.json({
+        reply:  intelReport,
+        action: "LOOKUP_PERSON",
+        intent: "lookup_person",
+        meta:   { personName, raw: lookupData },
+      });
+    } catch (e) {
+      console.error("[SERVER] Person lookup failed:", e.message);
+      const fallback = `I ran ${personName} through the public databases, ${T}, but hit an error mid-sweep. The network may be blocking a source. Try again in a moment.`;
+      return res.json({ reply: fallback, action: "LOOKUP_PERSON", intent: "lookup_person" });
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // ── INTEGRATION FETCHES ──────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
+  if (needsFetch) {
+    switch (fetchType) {
+
+      case "weather": {
+        try {
+          const weatherData = await Weather.handleWeatherCommand(message);
+          if (weatherData.error) {
+            const errReply = `Couldn't pull weather right now, ${T}. ${weatherData.error}`;
+            return res.json({ reply: errReply, action: "WEATHER", intent: "weather" });
+          }
+          // Build reply via AI engine's weather formatter
+          const { city, temp, feels_like, description, humidity, wind_speed, high, low } = weatherData;
+          const tempDesc = temp > 30 ? "quite warm" : temp > 20 ? "pleasant" : temp > 10 ? "cool" : temp > 0 ? "cold" : "freezing";
+          const weatherReply = [
+            `Current conditions in ${city}, ${T}: ${temp}°C — ${description}.`,
+            `Feels like ${feels_like}°C, which is ${tempDesc}.`,
+            `Humidity at ${humidity}%, wind ${wind_speed} m/s.`,
+            `Today's range: ${low}–${high}°C.`,
+          ].join(" ");
+          return res.json({
+            reply:  weatherReply,
+            action: "WEATHER",
+            intent: "weather",
+            meta:   { weatherData, type: "integration", integrationType: "weather" },
+          });
+        } catch (e) {
+          const errReply = `Weather fetch failed, ${T}. Check your OpenWeatherMap API key in .env.`;
+          return res.json({ reply: errReply, action: "WEATHER", intent: "weather" });
+        }
+      }
+
+      case "spotify": {
+        if (!Spotify.isConfigured()) {
+          const authReply = `Spotify isn't configured yet, ${T}. Add your SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to .env, then visit /api/spotify/auth to connect.`;
+          return res.json({ reply: authReply, action: "SPOTIFY", intent: "spotify" });
+        }
+        if (!Spotify.hasToken()) {
+          const authReply = `Spotify needs to be authorised first, ${T}. Visit http://localhost:3000/api/spotify/auth to connect your account.`;
+          return res.json({ reply: authReply, action: "SPOTIFY", intent: "spotify", meta: { needsAuth: true, authUrl: "/api/spotify/auth" } });
+        }
+        try {
+          const spotifyData = await Spotify.handleSpotifyCommand(message);
+          if (spotifyData.needsAuth) {
+            const authReply = `Spotify needs re-authorisation, ${T}. Visit http://localhost:3000/api/spotify/auth.`;
+            return res.json({ reply: authReply, action: "SPOTIFY", intent: "spotify", meta: spotifyData });
+          }
+          let spotifyReply;
+          if (spotifyData.action === "now_playing") {
+            if (!spotifyData.track) {
+              spotifyReply = `Nothing playing on Spotify right now, ${T}.`;
+            } else {
+              spotifyReply = `${spotifyData.is_playing ? "Currently playing" : "Paused on"}: "${spotifyData.track}" by ${spotifyData.artist}${spotifyData.album ? ` from ${spotifyData.album}` : ""}, ${T}.${spotifyData.progress ? ` ${spotifyData.progress} in.` : ""}`;
+            }
+          } else if (spotifyData.action === "played")  { spotifyReply = `Playing "${spotifyData.track}" by ${spotifyData.artist} on Spotify, ${T}.`; }
+          else if (spotifyData.action === "paused")    { spotifyReply = `Spotify paused, ${T}.`; }
+          else if (spotifyData.action === "resumed")   { spotifyReply = `Spotify resumed, ${T}.`; }
+          else if (spotifyData.action === "next")      { spotifyReply = spotifyData.track ? `Skipped to "${spotifyData.track}" by ${spotifyData.artist}, ${T}.` : `Skipped to next track, ${T}.`; }
+          else if (spotifyData.action === "volume")    { spotifyReply = `Volume set to ${spotifyData.volume}%, ${T}.`; }
+          else { spotifyReply = `Spotify command processed, ${T}.`; }
+          return res.json({ reply: spotifyReply, action: "SPOTIFY", intent: "spotify", meta: { spotifyData } });
+        } catch (e) {
+          const errReply = `Spotify command failed, ${T}. ${e.message}`;
+          return res.json({ reply: errReply, action: "SPOTIFY", intent: "spotify" });
+        }
+      }
+
+      case "gmail": {
+        if (!Google.isConfigured()) {
+          const authReply = `Gmail isn't configured, ${T}. Add your GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env, then visit /api/google/auth to connect.`;
+          return res.json({ reply: authReply, action: "GMAIL", intent: "gmail" });
+        }
+        if (!Google.hasToken()) {
+          const authReply = `Gmail needs to be authorised first, ${T}. Visit http://localhost:3000/api/google/auth to connect your account.`;
+          return res.json({ reply: authReply, action: "GMAIL", intent: "gmail", meta: { needsAuth: true, authUrl: "/api/google/auth" } });
+        }
+        try {
+          const gmailData = await Google.handleGmailCommand(message);
+          if (gmailData.needsAuth) {
+            const authReply = `Gmail needs re-authorisation, ${T}. Visit http://localhost:3000/api/google/auth.`;
+            return res.json({ reply: authReply, action: "GMAIL", intent: "gmail", meta: gmailData });
+          }
+          let gmailReply;
+          if (gmailData.unread === 0) {
+            gmailReply = `Inbox clear, ${T}. No unread messages.`;
+          } else if (gmailData.unread !== undefined) {
+            const preview = gmailData.messages?.slice(0, 3).map(m => `"${m.subject}" from ${m.from}`).join("; ");
+            gmailReply = `You have ${gmailData.unread} unread email${gmailData.unread > 1 ? "s" : ""}, ${T}.${preview ? ` Latest: ${preview}.` : ""}`;
+          } else {
+            gmailReply = `Gmail checked, ${T}.`;
+          }
+          return res.json({ reply: gmailReply, action: "GMAIL", intent: "gmail", meta: { gmailData } });
+        } catch (e) {
+          const errReply = `Gmail fetch failed, ${T}. ${e.message}`;
+          return res.json({ reply: errReply, action: "GMAIL", intent: "gmail" });
+        }
+      }
+
+      case "calendar": {
+        if (!Google.isConfigured()) {
+          const authReply = `Google Calendar isn't configured, ${T}. Add your Google credentials to .env, then visit /api/google/auth.`;
+          return res.json({ reply: authReply, action: "CALENDAR", intent: "calendar" });
+        }
+        if (!Google.hasToken()) {
+          const authReply = `Google Calendar needs to be authorised first, ${T}. Visit http://localhost:3000/api/google/auth.`;
+          return res.json({ reply: authReply, action: "CALENDAR", intent: "calendar", meta: { needsAuth: true, authUrl: "/api/google/auth" } });
+        }
+        try {
+          const calData = await Google.handleCalendarCommand(message);
+          if (calData.needsAuth) {
+            const authReply = `Calendar needs re-authorisation, ${T}. Visit http://localhost:3000/api/google/auth.`;
+            return res.json({ reply: authReply, action: "CALENDAR", intent: "calendar", meta: calData });
+          }
+          let calReply;
+          if (!calData.events || calData.events.length === 0) {
+            calReply = `Nothing on the calendar ${calData.period || "today"}, ${T}. Schedule is clear.`;
+          } else {
+            const eventList = calData.events.slice(0, 4).map(e => `${e.time ? e.time + " — " : ""}${e.title}`).join("; ");
+            calReply = `${calData.events.length} event${calData.events.length > 1 ? "s" : ""} ${calData.period || "today"}, ${T}: ${eventList}.`;
+          }
+          return res.json({ reply: calReply, action: "CALENDAR", intent: "calendar", meta: { calData } });
+        } catch (e) {
+          const errReply = `Calendar fetch failed, ${T}. ${e.message}`;
+          return res.json({ reply: errReply, action: "CALENDAR", intent: "calendar" });
+        }
+      }
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // ── HUD PiP intents — client handles directly ─────────────────
+  // ══════════════════════════════════════════════════════════════
   if (action === "SHOW_HUD" || action === "HIDE_HUD") {
     return res.json({ reply, action, intent, meta: { query: message } });
   }
 
-  // ── Research fallback ──
+  // ══════════════════════════════════════════════════════════════
+  // ── RESEARCH FALLBACK ─────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
   const shouldTryResearch = (
     action === "FALLBACK" ||
     (action === "KNOWLEDGE" && reply.length < 200) ||
@@ -345,7 +672,9 @@ app.post("/api/chat", async (req, res) => {
     }
   }
 
-  // ── Handle local action side effects ──
+  // ══════════════════════════════════════════════════════════════
+  // ── LOCAL ACTION SIDE EFFECTS ─────────────────────────────────
+  // ══════════════════════════════════════════════════════════════
 
   if (action === "SHOW_LINKS") {
     return res.json({
@@ -403,47 +732,11 @@ app.post("/api/chat", async (req, res) => {
   return res.json({ reply, action, intent, topic, meta });
 });
 
-// ── SCREEN ANALYSIS ───────────────────────────────────────────────
-app.post("/api/screen", (req, res) => {
-  const { ocrText, question, userName, userTitle, memories } = req.body;
-  const T = userTitle || "Sir";
-
-  if (!ocrText || ocrText.trim().length < 5) {
-    return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}. Make sure the content is visible.` });
-  }
-
-  const screenContext = `The user's screen contains: "${ocrText.trim().slice(0, 800)}". The user asked: "${question || "What is on my screen?"}"`;
-  try {
-    const result = AI.process({
-      message:    screenContext,
-      sessionId:  `screen_${userName || "user"}`,
-      userName,
-      userTitle,
-      memories,
-      serverData: getLinksSummary(),
-    });
-    const reply = result.reply.length > 20
-      ? `I can see your screen, ${T}. ${result.reply}`
-      : `Your screen shows: ${ocrText.trim().slice(0, 200)}`;
-    return res.json({ reply });
-  } catch {
-    const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0, 5);
-    return res.json({ reply: `On your screen, ${T}: ${lines.join(". ")}` });
-  }
-});
-
-// ── RESEARCH ENDPOINT (direct) ────────────────────────────────────
-app.post("/api/research", async (req, res) => {
-  const { query, userTitle } = req.body;
-  if (!query) return res.status(400).json({ error: "Missing query" });
-  try {
-    const result = await Research.research(query, userTitle || "Sir");
-    res.json(result || { reply: null, message: "No results found" });
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
 // ── BOOT ──────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`J.A.R.V.I.S online → http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`J.A.R.V.I.S online → http://localhost:${PORT}`);
+  console.log(`  Spotify: ${Spotify.isConfigured() ? "configured" : "not configured (add SPOTIFY_CLIENT_ID to .env)"}`);
+  console.log(`  Google:  ${Google.isConfigured()  ? "configured" : "not configured (add GOOGLE_CLIENT_ID to .env)"}`);
+  console.log(`  Weather: ${process.env.OPENWEATHER_API_KEY ? "configured" : "not configured (add OPENWEATHER_API_KEY to .env)"}`);
+});
