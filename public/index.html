@@ -137,8 +137,7 @@
     <div class="corner bl"><div class="pip"></div></div>
     <div class="corner br"><div class="pip"></div></div>
 
-    <!-- FIX: user-display element required by jarvis.js launchMain() -->
-    <!-- Hidden — actual display is handled by hud-panels.js via hud-user-val -->
+    <!-- Hidden user display — actual display handled by hud-panels.js -->
     <span id="user-display" style="display:none;"></span>
 
     <!-- Camera feed -->
@@ -203,6 +202,12 @@
       <div id="mic-debug" class="mic-debug">Mic: waiting…</div>
     </div>
 
+    <!-- Extension download badge -->
+    <a href="/api/extension/download" download="jarvis-extension.zip" class="ext-download-btn" title="Download Chrome Extension">
+      <span class="ext-dl-icon">⬡</span>
+      <span class="ext-dl-text">DOWNLOAD EXTENSION</span>
+    </a>
+
     <!-- Clip toast -->
     <div id="clip-toast" class="clip-toast hidden">✂ &nbsp;Clip saved — last 60 seconds</div>
 
@@ -212,7 +217,6 @@
 
   <!-- SCRIPTS — order matters -->
   <script src="camera-observer.js"></script>
-  <!-- FIX: file on disk must be named visuals.js (not just "visuals") -->
   <script src="visuals.js"></script>
   <script src="jarvis.js"></script>
   <script src="hud-panels.js"></script>
