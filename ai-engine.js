@@ -1,16 +1,16 @@
 "use strict";
 
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Generative AI Engine v5.0
-// Zero preset responses. Every reply is constructed fresh from
-// grammar templates + vocabulary banks + context + personality.
+// J.A.R.V.I.S — Generative AI Engine v5.1
+// Zero preset responses. Every reply is constructed fresh.
+// New: LOOKUP_PERSON intent + PERSONAL_NEWS intent
 // ═══════════════════════════════════════════════════════════════
 
 // ── UTILITIES ─────────────────────────────────────────────────
 const pick   = arr => arr[Math.floor(Math.random() * arr.length)];
 const pickN  = (arr, n) => [...arr].sort(() => Math.random() - 0.5).slice(0, n);
 const clamp  = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const wRand  = (items) => { // weighted random: items = [{val, w}]
+const wRand  = (items) => {
   const total = items.reduce((s, i) => s + i.w, 0);
   let r = Math.random() * total;
   for (const i of items) { r -= i.w; if (r <= 0) return i.val; }
@@ -127,9 +127,54 @@ const SB = {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// ── PERSON NAME EXTRACTOR ─────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+function extractPersonName(text) {
+  const patterns = [
+    /(?:look up|lookup|find out about|search for|research|investigate|dig up|find info on|locate|background check on|run a check on|pull up info on|pull everything on|what do you know about|what can you find on|anything on|info on|information on|check out|find me everything on|give me everything on|give me the rundown on|i need info on|i want to know about)\s+(.+?)(?:\s+for me|\s+please|\s*[?.!]*\s*$)/i,
+    /(?:who is|who's|who was)\s+(.+?)(?:\s*[?.!]*\s*$)/i,
+    /(?:run|pull)\s+(.+?)\s+(?:through|up)/i,
+  ];
+  for (const p of patterns) {
+    const m = text.match(p);
+    const raw = m && (m[2] || m[1]);
+    if (raw && raw.trim().length > 1) {
+      return raw
+        .replace(/^(a |an |the )\s*/i, "")
+        .replace(/[?.!]+$/, "")
+        .trim();
+    }
+  }
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ── INTENT TAXONOMY ──────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 const INTENTS = [
+  // ── Person lookup — highest priority for "look up X" queries ──
+  { id:"lookup_person", signals:[
+      "look up","lookup","find out about","background check","run a check",
+      "pull everything on","give me everything on","give me the rundown on",
+      "find me everything on","dig up","investigate","find info on",
+      "pull up info on","i need info on","find everything on","search for person",
+      "who is","who was","who's","find this person","locate this person",
+      "research this person","what do you know about this person",
+    ], action:"LOOKUP_PERSON", weight:1.8 },
+
+  // ── Personal news reactions ──
+  { id:"personal_news", signals:[
+      "i have a girlfriend","got a girlfriend","i have a boyfriend","got a boyfriend",
+      "got promoted","got a promotion","got fired","laid off","got laid off",
+      "lost my job","broke up","we broke up","she left me","he left me",
+      "got the job","new job","getting married","we're engaged","i'm engaged",
+      "she said yes","he said yes","we're pregnant","expecting a baby",
+      "moving in together","i graduated","just graduated","it's my birthday",
+      "i'm sick","not feeling well","someone died","passed away","i won",
+      "we won","i passed","got accepted","good news","bad news","exciting news",
+      "i just moved","just relocated","new place","new apartment",
+    ], action:"PERSONAL_NEWS", weight:1.6 },
+
   { id:"show_links",     signals:["link","links","url","urls","site","sites","show links","all links","give links","my links","saved links","link bank"],                       action:"SHOW_LINKS",    weight:1.4 },
   { id:"open_link",      signals:["open","launch","go to","pull up","navigate","take me","load","access","vapor","infamous","link for","site for","website"],                  action:"OPEN_LINK",     weight:1.3 },
   { id:"clip_save",      signals:["clip","save clip","record","capture","save that","clip that","save footage","keep that","save last","clip last","past hour","last hour","last 30","last 60","last minute","save everything","record that","grab that","save screen","save buffer"], action:"CLIP_SAVE", weight:1.5 },
@@ -153,7 +198,7 @@ const INTENTS = [
   { id:"spotify",        signals:["music","play","song","spotify","track","artist","album","playlist","pause","stop music","next song","shuffle","queue","what's playing","currently playing","now playing"], action:"SPOTIFY", weight:1.6 },
   { id:"gmail",          signals:["email","gmail","mail","inbox","unread","messages","send email","compose","reply","emails","check mail","new mail"],                           action:"GMAIL",         weight:1.6 },
   { id:"calendar",       signals:["calendar","schedule","event","meeting","appointment","today's events","what's on","agenda","remind","upcoming","google calendar","when is","plan"], action:"CALENDAR", weight:1.6 },
-  // HUD PiP widget intents — expanded signals, renamed actions
+  // HUD PiP widget intents
   { id:"show_hud", signals:[
       "show hud","pull up hud","open hud","display hud","hud on",
       "bring up hud","activate hud","jarvis hud","launch hud",
@@ -385,10 +430,7 @@ function buildResponse(components, ctx, opts = {}) {
   }
 
   if (response && !response.match(/[.!?]$/)) response += ".";
-
-  if (opts.personalise !== false && Math.random() < 0.4) {
-    response += ` ${T}.`;
-  }
+  if (opts.personalise !== false && Math.random() < 0.4) response += ` ${T}.`;
 
   return response.trim();
 }
@@ -429,8 +471,7 @@ function genKnowledge(knowledge, input, ctx) {
     components.push({ type: "close", text: appText });
   }
 
-  const response = buildResponse(components, ctx, { intro: false, topic: key, personalise: true });
-  return response;
+  return buildResponse(components, ctx, { intro: false, topic: key, personalise: true });
 }
 
 // ── GREETING BUILDER ─────────────────────────────────────────
@@ -457,7 +498,7 @@ function genGreeting(ctx) {
 // ── IDENTITY BUILDER ─────────────────────────────────────────
 function genIdentity(ctx) {
   const T = ctx.userTitle || "Sir";
-  const traits = pickN(["semantic reasoning", "contextual memory", "natural language intent routing", "zero preset responses — every reply is freshly constructed", "face recognition", "screen reading", "real-time integrations"], 3);
+  const traits = pickN(["semantic reasoning", "contextual memory", "natural language intent routing", "zero preset responses — every reply is freshly constructed", "face recognition", "screen reading", "real-time integrations", "person intelligence lookup across public databases"], 3);
 
   const openers = [
     `J.A.R.V.I.S — Just A Rather Very Intelligent System`,
@@ -542,7 +583,8 @@ function genCapabilities(ctx, linkCount) {
     "pull live weather, control Spotify, check Gmail and Google Calendar",
     "reason across science, history, philosophy, mathematics, technology, and health",
     "track conversation context — say 'tell me more' and I follow",
-    "open any HUD panel as a Picture-in-Picture window — say 'pull up the clock HUD' or 'show all widgets'",
+    "open any HUD panel as a Picture-in-Picture window",
+    "run open-source intelligence on any person — say 'look up [full name]' and I'll cross-reference GitHub, Reddit, Stack Overflow, Wikipedia, HackerNews, NPM and more",
   ];
 
   const subsets = pickN(capGroups, 5);
@@ -646,7 +688,7 @@ function genClipSave(input, ctx) {
   const wantsCamera = /camera|cam|footage|face|room/i.test(lower);
   const durLabel = dur ? formatDuration(dur) : "the last 60 seconds";
 
-  const clipType = wantsCamera ? "camera" : wantsScreen ? "screen" : "both";
+  const clipType = wantsCamera ? "both" : wantsScreen ? "screen" : "both";
   const sourceDesc = wantsCamera ? "Camera footage" : wantsScreen ? "Screen recording" : "Screen and camera footage";
 
   const replyStyles = [
@@ -675,6 +717,18 @@ function genShowLinks(ctx, serverData) {
     `Link bank loaded, ${T} — ${total} total across ${groups.join(", ")}. Say the group name to open a link.`,
   ];
   return pick(styles);
+}
+
+// ── LOOKUP PERSON BUILDER (fast reply before server fetches) ──
+function genLookupPersonReply(personName, ctx) {
+  const T = ctx.userTitle || "Sir";
+  const starters = [
+    `Running ${personName} through all available public channels now, ${T}. Cross-referencing Wikipedia, GitHub, Reddit, Stack Overflow, HackerNews, and NPM. Give me a moment.`,
+    `Initiating open-source intelligence sweep on ${personName}, ${T}. Pulling from every public database I have access to.`,
+    `On it, ${T}. Running ${personName} through public records — Wikipedia, GitHub, Reddit, Stack Overflow, the works.`,
+    `${T} — pulling everything I can find on ${personName} from open sources. Stand by.`,
+  ];
+  return pick(starters);
 }
 
 // ── FALLBACK BUILDER ──────────────────────────────────────────
@@ -752,7 +806,7 @@ function genSpotifyResponse(spotifyData, input, ctx) {
     const { track, artist, album, progress, duration, is_playing } = spotifyData;
     return `${is_playing ? "Currently playing" : "Paused on"}: "${track}" by ${artist}${album ? ` from ${album}` : ""}, ${T}. ${progress ? `${progress} in — ${duration} total.` : ""}`;
   }
-  if (spotifyData.action === "played") return `Playing "${spotifyData.track}" by ${spotifyData.artist} on Spotify, ${T}.`;
+  if (spotifyData.action === "played")  return `Playing "${spotifyData.track}" by ${spotifyData.artist} on Spotify, ${T}.`;
   if (spotifyData.action === "paused")  return `Spotify paused, ${T}.`;
   if (spotifyData.action === "resumed") return `Spotify resumed, ${T}.`;
   if (spotifyData.action === "next")    return `Skipped to the next track, ${T}.`;
@@ -912,7 +966,7 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
   const topResult = scored[0];
   const entities = extractEntities(resolved);
 
-  // 5. Integration data pass-through (server already fetched it)
+  // 5. Integration data pass-through
   if (integrationData) {
     const { type, data } = integrationData;
     if (type === "weather") {
@@ -963,6 +1017,34 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
     const action = intent.action;
 
     switch (action) {
+
+      // ── PERSON LOOKUP ──────────────────────────────────────────
+      case "LOOKUP_PERSON": {
+        const personName = extractPersonName(resolved) || resolved.replace(/^(look up|find|research|investigate|who is|who was)\s+/i,"").trim();
+        if (!personName || personName.length < 2) {
+          const reply = `Who do you want me to look up, ${T}? Give me a full name and I'll cross-reference every public database I have.`;
+          ctx.addTurn(message, reply, action, null);
+          return { reply, action, intent: intent.id };
+        }
+        const reply = genLookupPersonReply(personName, ctx);
+        ctx.addTurn(message, reply, action, personName);
+        ctx.updateMood(5);
+        return { reply, action, intent: intent.id, needsFetch: true, fetchType: "person", meta: { personName } };
+      }
+
+      // ── PERSONAL NEWS ──────────────────────────────────────────
+      case "PERSONAL_NEWS": {
+        // Server handles via routePersonalNews, but we generate a fallback here
+        const reply = pick([
+          `${T}, that's worth hearing properly. Tell me more.`,
+          `${T} — go on. What happened?`,
+          `I'm listening, ${T}. What's the news?`,
+        ]);
+        ctx.addTurn(message, reply, action, "personal");
+        ctx.updateMood(4);
+        return { reply, action, intent: intent.id };
+      }
+
       case "SHOW_LINKS": {
         const reply = genShowLinks(ctx, serverData);
         ctx.addTurn(message, reply, action, "links"); ctx.updateMood(3);
@@ -1156,4 +1238,4 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
   return { reply, action:"FALLBACK", intent:"fallback" };
 }
 
-module.exports = { process, findKnowledge, scoreIntent, parseDuration, formatDuration };
+module.exports = { process, findKnowledge, scoreIntent, parseDuration, formatDuration, extractPersonName };
