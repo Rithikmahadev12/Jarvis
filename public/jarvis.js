@@ -607,7 +607,7 @@ function launchMain() {
   state.phase = "chatting";
   $("auth-screen").classList.remove("active");
   $("main-screen").classList.add("active");
-  $("user-display").textContent = `${state.user} / ${state.userTitle}`;
+  const ud = $("user-display"); if (ud) ud.textContent = `${state.user} / ${state.userTitle}`;
   state.lastInteraction = Date.now(); updateMood(20);
 
   notif.init().then(() => {
