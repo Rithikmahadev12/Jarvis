@@ -10,7 +10,7 @@
 </head>
 <body>
 
-  <!-- PARTICLE CANVAS — sits behind everything, injected by hud-panels.js but safe to have here too -->
+  <!-- PARTICLE CANVAS -->
   <canvas id="particle-canvas"></canvas>
 
   <!-- SETUP SCREEN -->
@@ -137,7 +137,11 @@
     <div class="corner bl"><div class="pip"></div></div>
     <div class="corner br"><div class="pip"></div></div>
 
-    <!-- Camera feed — upgraded with bracket overlay -->
+    <!-- FIX: user-display element required by jarvis.js launchMain() -->
+    <!-- Hidden — actual display is handled by hud-panels.js via hud-user-val -->
+    <span id="user-display" style="display:none;"></span>
+
+    <!-- Camera feed -->
     <div class="camera-panel" id="camera-panel">
       <div class="camera-label">VISUAL SENSORS</div>
       <div class="camera-feed-wrap">
@@ -202,12 +206,13 @@
     <!-- Clip toast -->
     <div id="clip-toast" class="clip-toast hidden">✂ &nbsp;Clip saved — last 60 seconds</div>
 
-    <!-- Waveform canvas (positioned fixed by CSS) -->
+    <!-- Waveform canvas -->
     <canvas id="waveform-canvas" width="500" height="52"></canvas>
   </div>
 
   <!-- SCRIPTS — order matters -->
   <script src="camera-observer.js"></script>
+  <!-- FIX: file on disk must be named visuals.js (not just "visuals") -->
   <script src="visuals.js"></script>
   <script src="jarvis.js"></script>
   <script src="hud-panels.js"></script>
