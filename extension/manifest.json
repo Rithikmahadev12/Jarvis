@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "J.A.R.V.I.S",
+  "version": "1.0.0",
+  "description": "J.A.R.V.I.S HUD overlay for any browser tab",
+  "permissions": ["tabs", "storage", "scripting", "activeTab"],
+  "host_permissions": [
+    "http://localhost:3000/*",
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "J.A.R.V.I.S"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "exclude_matches": ["http://localhost:3000/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
