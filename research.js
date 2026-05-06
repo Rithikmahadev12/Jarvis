@@ -1,8 +1,9 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Research Engine
-// Uses DuckDuckGo Instant Answer API + Wikipedia API
-// Zero API keys. Zero credits. Zero limits.
+// J.A.R.V.I.S — Research Engine v2.0
+// Public APIs. Zero sign-in. Zero credits.
+// Person lookup: Wikipedia · DuckDuckGo · GitHub · Reddit · StackOverflow
+// Knowledge: DuckDuckGo Instant Answer + Wikipedia
 // ═══════════════════════════════════════════════════════════════
 
 // ── SIMPLE CACHE ─────────────────────────────────────────────
@@ -17,8 +18,7 @@ function getCached(key) {
 }
 function setCache(key, data) {
   cache.set(key, { data, ts: Date.now() });
-  // Keep cache from growing unbounded
-  if (cache.size > 200) {
+  if (cache.size > 300) {
     const oldest = [...cache.entries()].sort((a, b) => a[1].ts - b[1].ts)[0];
     cache.delete(oldest[0]);
   }
@@ -28,23 +28,20 @@ function setCache(key, data) {
 function cleanText(text) {
   if (!text) return "";
   return text
-    .replace(/<[^>]+>/g, " ")           // strip HTML tags
-    .replace(/\[\d+\]/g, "")            // strip Wikipedia citation numbers [1]
-    .replace(/\s+/g, " ")               // collapse whitespace
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\[\d+\]/g, "")
+    .replace(/\s+/g, " ")
     .replace(/\\n/g, " ")
     .trim();
 }
 
 function truncate(text, maxChars = 600) {
   if (!text || text.length <= maxChars) return text;
-  // Cut at last sentence boundary within limit
   const cut = text.slice(0, maxChars);
   const lastDot = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
   return lastDot > maxChars * 0.6 ? cut.slice(0, lastDot + 1) : cut + "…";
 }
 
-// ── EXTRACT SEARCH QUERY ─────────────────────────────────────
-// Pulls the core topic from a natural language question
 function extractQuery(text) {
   return text
     .toLowerCase()
@@ -54,9 +51,26 @@ function extractQuery(text) {
     .trim();
 }
 
+// ── PERSON NAME EXTRACTOR ─────────────────────────────────────
+function extractPersonName(text) {
+  const patterns = [
+    /(?:look up|lookup|find out about|search for|research|investigate|dig up|find info on|locate|background check on|run a check on|pull up info on|pull everything on|what do you know about|what can you find on|anything on|info on|information on|check out)\s+(.+?)(?:\s+for me|\s+please|\s*\??\s*$)/i,
+    /(?:who is|who's|who was)\s+(.+?)(?:\s*\??\s*$)/i,
+    /(?:tell me about|give me everything on|give me the rundown on|run\s+(.+?)\s+through)\s+(.+?)(?:\s*\??\s*$)/i,
+    /(?:i want to know about|i need info on|find me everything on)\s+(.+?)(?:\s*\??\s*$)/i,
+  ];
+  for (const p of patterns) {
+    const m = text.match(p);
+    const raw = m && (m[2] || m[1]);
+    if (raw && raw.trim().length > 1) {
+      return raw.replace(/^(a |an |the )\s*/i, '').trim();
+    }
+  }
+  return null;
+}
+
 // ═══════════════════════════════════════════════════════════════
-// ── DUCKDUCKGO INSTANT ANSWER API ────────────────────────────
-// Free, no key, returns structured answers for many topics
+// ── DUCKDUCKGO INSTANT ANSWER ────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 async function searchDuckDuckGo(query) {
   const cacheKey = `ddg:${query.toLowerCase()}`;
@@ -67,46 +81,38 @@ async function searchDuckDuckGo(query) {
     const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1`;
     const res = await fetch(url, {
       headers: { "User-Agent": "JARVIS-Assistant/1.0" },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(6000),
     });
     if (!res.ok) return null;
 
     const data = await res.json();
-
     const result = {
-      abstract:      cleanText(data.Abstract)      || null,
-      abstractSource: data.AbstractSource           || null,
-      definition:    cleanText(data.Definition)    || null,
-      answer:        cleanText(data.Answer)         || null,
+      abstract:      cleanText(data.Abstract)   || null,
+      abstractSource: data.AbstractSource        || null,
+      definition:    cleanText(data.Definition)  || null,
+      answer:        cleanText(data.Answer)      || null,
       relatedTopics: [],
       infobox:       null,
-      type:          data.Type                     || null,
+      type:          data.Type                  || null,
+      image:         data.Image                 || null,
+      heading:       data.Heading               || null,
     };
 
-    // Extract related topic summaries
     if (data.RelatedTopics && Array.isArray(data.RelatedTopics)) {
-      for (const t of data.RelatedTopics.slice(0, 4)) {
-        if (t.Text && t.Text.length > 20) {
-          result.relatedTopics.push(cleanText(t.Text));
-        }
+      for (const t of data.RelatedTopics.slice(0, 5)) {
+        if (t.Text && t.Text.length > 20) result.relatedTopics.push(cleanText(t.Text));
       }
     }
-
-    // Extract infobox key facts
     if (data.Infobox && data.Infobox.content) {
       const facts = {};
-      for (const item of data.Infobox.content.slice(0, 6)) {
-        if (item.label && item.value) {
-          facts[item.label] = cleanText(String(item.value));
-        }
+      for (const item of data.Infobox.content.slice(0, 8)) {
+        if (item.label && item.value) facts[item.label] = cleanText(String(item.value));
       }
       if (Object.keys(facts).length) result.infobox = facts;
     }
 
-    // Only cache if we got something useful
     const hasContent = result.abstract || result.definition || result.answer || result.relatedTopics.length;
     if (hasContent) setCache(cacheKey, result);
-
     return hasContent ? result : null;
   } catch (e) {
     console.warn("[RESEARCH] DuckDuckGo error:", e.message);
@@ -115,8 +121,7 @@ async function searchDuckDuckGo(query) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── WIKIPEDIA API ────────────────────────────────────────────
-// Free, no key, excellent for factual topics
+// ── WIKIPEDIA ────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 async function searchWikipedia(query) {
   const cacheKey = `wiki:${query.toLowerCase()}`;
@@ -124,11 +129,10 @@ async function searchWikipedia(query) {
   if (cached) return cached;
 
   try {
-    // Step 1: Search for the best matching article title
     const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(query)}&format=json&srlimit=3&origin=*`;
     const searchRes = await fetch(searchUrl, {
       headers: { "User-Agent": "JARVIS-Assistant/1.0" },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(6000),
     });
     if (!searchRes.ok) return null;
 
@@ -137,12 +141,10 @@ async function searchWikipedia(query) {
     if (!hits || hits.length === 0) return null;
 
     const title = hits[0].title;
-
-    // Step 2: Get the extract (summary) for that article
     const extractUrl = `https://en.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=extracts&exintro=true&explaintext=true&format=json&origin=*`;
     const extractRes = await fetch(extractUrl, {
       headers: { "User-Agent": "JARVIS-Assistant/1.0" },
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(6000),
     });
     if (!extractRes.ok) return null;
 
@@ -158,7 +160,7 @@ async function searchWikipedia(query) {
 
     const result = {
       title: page.title,
-      extract: truncate(extract, 800),
+      extract: truncate(extract, 900),
       url: `https://en.wikipedia.org/wiki/${encodeURIComponent(page.title.replace(/ /g, "_"))}`,
     };
 
@@ -171,8 +173,406 @@ async function searchWikipedia(query) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── KNOWLEDGE SYNTHESIZER ────────────────────────────────────
-// Takes raw API results and builds a JARVIS-style response
+// ── GITHUB ───────────────────────────────────────────────────
+// Free public API — no auth required for user search
+// ═══════════════════════════════════════════════════════════════
+async function searchGitHub(name) {
+  const cacheKey = `github:${name.toLowerCase()}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const searchRes = await fetch(
+      `https://api.github.com/search/users?q=${encodeURIComponent(name)}&per_page=5`,
+      {
+        headers: { "User-Agent": "JARVIS-Assistant/1.0", "Accept": "application/vnd.github.v3+json" },
+        signal: AbortSignal.timeout(7000),
+      }
+    );
+    if (!searchRes.ok) return null;
+
+    const searchData = await searchRes.json();
+    if (!searchData.items || searchData.items.length === 0) return null;
+
+    // Get full profile for top match
+    const topUser = searchData.items[0];
+    let detail = topUser;
+    try {
+      const detailRes = await fetch(
+        `https://api.github.com/users/${topUser.login}`,
+        {
+          headers: { "User-Agent": "JARVIS-Assistant/1.0", "Accept": "application/vnd.github.v3+json" },
+          signal: AbortSignal.timeout(7000),
+        }
+      );
+      if (detailRes.ok) detail = await detailRes.json();
+    } catch {}
+
+    const result = {
+      login:        detail.login,
+      name:         detail.name     ? cleanText(detail.name)    : null,
+      bio:          detail.bio      ? cleanText(detail.bio)     : null,
+      company:      detail.company  ? cleanText(detail.company) : null,
+      location:     detail.location || null,
+      publicRepos:  detail.public_repos || 0,
+      followers:    detail.followers    || 0,
+      following:    detail.following    || 0,
+      url:          detail.html_url,
+      blog:         detail.blog        || null,
+      hireable:     detail.hireable    || null,
+      createdYear:  detail.created_at  ? new Date(detail.created_at).getFullYear() : null,
+      updatedYear:  detail.updated_at  ? new Date(detail.updated_at).getFullYear() : null,
+      otherMatches: searchData.items.slice(1, 4).map(u => ({ login: u.login, url: u.html_url })),
+    };
+
+    setCache(cacheKey, result);
+    return result;
+  } catch (e) {
+    console.warn("[RESEARCH] GitHub error:", e.message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── REDDIT ───────────────────────────────────────────────────
+// Public JSON API — no auth required
+// ═══════════════════════════════════════════════════════════════
+async function searchReddit(name) {
+  const cacheKey = `reddit:${name.toLowerCase()}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const [postRes, userRes] = await Promise.allSettled([
+      fetch(
+        `https://www.reddit.com/search.json?q=${encodeURIComponent('"' + name + '"')}&sort=relevance&limit=6&type=link`,
+        { headers: { "User-Agent": "JARVIS-Assistant/1.0" }, signal: AbortSignal.timeout(7000) }
+      ),
+      fetch(
+        `https://www.reddit.com/search.json?q=${encodeURIComponent(name)}&sort=relevance&limit=5&type=user`,
+        { headers: { "User-Agent": "JARVIS-Assistant/1.0" }, signal: AbortSignal.timeout(7000) }
+      ),
+    ]);
+
+    let posts = [], users = [];
+
+    if (postRes.status === "fulfilled" && postRes.value.ok) {
+      const data = await postRes.value.json();
+      posts = (data?.data?.children || [])
+        .filter(p => p.data && p.data.title)
+        .slice(0, 4)
+        .map(p => ({
+          title:     cleanText(p.data.title),
+          subreddit: p.data.subreddit,
+          url:       `https://reddit.com${p.data.permalink}`,
+          score:     p.data.score,
+          year:      new Date(p.data.created_utc * 1000).getFullYear(),
+        }));
+    }
+
+    if (userRes.status === "fulfilled" && userRes.value.ok) {
+      const data = await userRes.value.json();
+      users = (data?.data?.children || [])
+        .filter(u => u.data && u.data.name)
+        .slice(0, 3)
+        .map(u => ({
+          name:  u.data.name,
+          url:   `https://reddit.com/u/${u.data.name}`,
+          karma: (u.data.link_karma || 0) + (u.data.comment_karma || 0),
+        }));
+    }
+
+    if (posts.length === 0 && users.length === 0) return null;
+    const result = { posts, users };
+    setCache(cacheKey, result);
+    return result;
+  } catch (e) {
+    console.warn("[RESEARCH] Reddit error:", e.message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── STACK OVERFLOW ────────────────────────────────────────────
+// Free public API — no auth required
+// ═══════════════════════════════════════════════════════════════
+async function searchStackOverflow(name) {
+  const cacheKey = `so:${name.toLowerCase()}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const res = await fetch(
+      `https://api.stackexchange.com/2.3/users?inname=${encodeURIComponent(name)}&site=stackoverflow&pagesize=5&order=desc&sort=reputation`,
+      { headers: { "User-Agent": "JARVIS-Assistant/1.0" }, signal: AbortSignal.timeout(7000) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.items || data.items.length === 0) return null;
+
+    const result = data.items.slice(0, 3).map(u => ({
+      name:       cleanText(u.display_name),
+      reputation: u.reputation,
+      location:   u.location ? cleanText(u.location) : null,
+      url:        u.link,
+      gold:       u.badge_counts?.gold   || 0,
+      silver:     u.badge_counts?.silver || 0,
+      bronze:     u.badge_counts?.bronze || 0,
+      lastSeen:   u.last_access_date ? new Date(u.last_access_date * 1000).getFullYear() : null,
+    }));
+
+    setCache(cacheKey, result);
+    return result;
+  } catch (e) {
+    console.warn("[RESEARCH] StackOverflow error:", e.message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── NPM (check if person is a developer with packages) ────────
+// Free public API — no auth required
+// ═══════════════════════════════════════════════════════════════
+async function searchNPM(name) {
+  const cacheKey = `npm:${name.toLowerCase()}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  try {
+    // search npm packages by author name
+    const res = await fetch(
+      `https://registry.npmjs.org/-/v1/search?text=author:${encodeURIComponent(name.toLowerCase().replace(/\s+/g, ""))}&size=5`,
+      { headers: { "User-Agent": "JARVIS-Assistant/1.0" }, signal: AbortSignal.timeout(6000) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.objects || data.objects.length === 0) return null;
+
+    const result = {
+      packages: data.objects.slice(0, 4).map(o => ({
+        name:        o.package.name,
+        description: o.package.description ? cleanText(o.package.description) : null,
+        version:     o.package.version,
+        keywords:    (o.package.keywords || []).slice(0, 4),
+        url:         `https://www.npmjs.com/package/${o.package.name}`,
+        downloads:   o.downloads?.monthly || null,
+      })),
+      total: data.total,
+    };
+
+    if (result.packages.length > 0) setCache(cacheKey, result);
+    return result.packages.length > 0 ? result : null;
+  } catch (e) {
+    console.warn("[RESEARCH] NPM error:", e.message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── HACKER NEWS ──────────────────────────────────────────────
+// Algolia HN Search API — free, no auth
+// ═══════════════════════════════════════════════════════════════
+async function searchHackerNews(name) {
+  const cacheKey = `hn:${name.toLowerCase()}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const res = await fetch(
+      `https://hn.algolia.com/api/v1/search?query=${encodeURIComponent('"' + name + '"')}&tags=story&hitsPerPage=5`,
+      { headers: { "User-Agent": "JARVIS-Assistant/1.0" }, signal: AbortSignal.timeout(6000) }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.hits || data.hits.length === 0) return null;
+
+    const result = data.hits.slice(0, 3).map(h => ({
+      title:  cleanText(h.title || ""),
+      author: h.author,
+      points: h.points,
+      year:   h.created_at ? new Date(h.created_at).getFullYear() : null,
+      url:    h.url || `https://news.ycombinator.com/item?id=${h.objectID}`,
+    }));
+
+    setCache(cacheKey, result);
+    return result.length > 0 ? result : null;
+  } catch (e) {
+    console.warn("[RESEARCH] HackerNews error:", e.message);
+    return null;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── PERSON LOOKUP AGGREGATOR ─────────────────────────────────
+// Runs all sources in parallel, returns everything found
+// ═══════════════════════════════════════════════════════════════
+async function lookupPerson(fullName) {
+  console.log(`[RESEARCH] Person lookup initiated: "${fullName}"`);
+
+  const [wikiRes, ddgRes, githubRes, redditRes, soRes, npmRes, hnRes] = await Promise.allSettled([
+    searchWikipedia(fullName),
+    searchDuckDuckGo(fullName),
+    searchGitHub(fullName),
+    searchReddit(fullName),
+    searchStackOverflow(fullName),
+    searchNPM(fullName),
+    searchHackerNews(fullName),
+  ]);
+
+  const result = {
+    name:          fullName,
+    wikipedia:     wikiRes.status     === "fulfilled" ? wikiRes.value     : null,
+    ddg:           ddgRes.status      === "fulfilled" ? ddgRes.value      : null,
+    github:        githubRes.status   === "fulfilled" ? githubRes.value   : null,
+    reddit:        redditRes.status   === "fulfilled" ? redditRes.value   : null,
+    stackoverflow: soRes.status       === "fulfilled" ? soRes.value       : null,
+    npm:           npmRes.status      === "fulfilled" ? npmRes.value      : null,
+    hackerNews:    hnRes.status       === "fulfilled" ? hnRes.value       : null,
+  };
+
+  const sourceCount = Object.values(result)
+    .filter((v, i) => i > 0 && v !== null).length;
+
+  console.log(`[RESEARCH] Person lookup complete: "${fullName}" — ${sourceCount} source(s) returned data`);
+  return result;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── JARVIS INTEL REPORT BUILDER ───────────────────────────────
+// Builds a movie-JARVIS style intel briefing from lookup results
+// ═══════════════════════════════════════════════════════════════
+const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+
+function buildPersonIntelReport(data, userTitle) {
+  const T    = userTitle || "Sir";
+  const name = data.name;
+  const parts = [];
+
+  const hasAnything = data.wikipedia || data.ddg?.abstract || data.ddg?.answer ||
+    data.github || data.reddit || data.stackoverflow || data.npm || data.hackerNews;
+
+  if (!hasAnything) {
+    return pick([
+      `Intel on "${name}" came back empty across all channels, ${T}. Wikipedia — nothing. GitHub — no matching profile. Reddit — no mentions. Stack Overflow — clear. HN — nothing. Either this person maintains an unusually clean digital absence, or the name needs refining. Middle name, username, or location would help narrow it down.`,
+      `Running "${name}" through every public database I have access to returned minimal signal, ${T}. No Wikipedia entry. No notable GitHub presence. No Reddit footprint. No Stack Overflow account matching that name. They're either offline, very private, or known by a different name online. Want me to try a variation?`,
+      `${T}, "${name}" isn't surfacing in any accessible public record. Wikipedia: nothing. GitHub: no match. Reddit: no trace. Stack Overflow: nothing. Hacker News: silent. I'm not going to fabricate intel — this one's genuinely thin. A username, location, or profession would help considerably.`,
+    ]);
+  }
+
+  // ── OPENING LINE ──
+  const openers = [
+    `Intel report on ${name}, ${T}. Cross-referencing ${_sourceSummary(data)}.`,
+    `${T}, running ${name} through public channels. Here's what I have.`,
+    `Scanning public databases for ${name}, ${T}. Cross-referencing ${_sourceSummary(data)}. Here's the picture.`,
+    `${T} — ${name}. Open-source intelligence report follows.`,
+  ];
+  parts.push(pick(openers));
+
+  // ── WIKIPEDIA / DDG (Most authoritative) ──
+  if (data.wikipedia) {
+    parts.push(truncate(data.wikipedia.extract, 350));
+  } else if (data.ddg?.answer) {
+    parts.push(data.ddg.answer);
+  } else if (data.ddg?.abstract) {
+    parts.push(truncate(data.ddg.abstract, 300));
+  } else if (data.ddg?.definition) {
+    parts.push(data.ddg.definition);
+  }
+
+  // ── DDG INFOBOX ──
+  if (data.ddg?.infobox) {
+    const facts = Object.entries(data.ddg.infobox)
+      .slice(0, 5)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(" · ");
+    if (facts) parts.push(`Key data — ${facts}.`);
+  }
+
+  // ── GITHUB ──
+  if (data.github) {
+    const gh = data.github;
+    const segments = [`GitHub: @${gh.login}`];
+    if (gh.name && gh.name.toLowerCase() !== name.toLowerCase()) segments.push(`(listed as ${gh.name})`);
+    if (gh.location) segments.push(`based in ${gh.location}`);
+    if (gh.company) segments.push(`works at ${gh.company}`);
+    if (gh.publicRepos) segments.push(`${gh.publicRepos} public repos`);
+    if (gh.followers) segments.push(`${gh.followers.toLocaleString()} followers`);
+    if (gh.createdYear) segments.push(`active since ${gh.createdYear}`);
+    if (gh.bio) segments.push(`Bio: "${truncate(gh.bio, 120)}"`);
+    if (gh.blog) segments.push(`Web: ${gh.blog}`);
+    parts.push(segments.join(", ") + ".");
+
+    if (gh.otherMatches && gh.otherMatches.length > 0) {
+      parts.push(`Additional GitHub accounts matching that name: ${gh.otherMatches.map(u => `@${u.login}`).join(", ")}.`);
+    }
+  }
+
+  // ── STACK OVERFLOW ──
+  if (data.stackoverflow && data.stackoverflow.length > 0) {
+    const top = data.stackoverflow[0];
+    const soSegments = [`Stack Overflow: ${top.name}`];
+    if (top.reputation) soSegments.push(`rep ${top.reputation.toLocaleString()}`);
+    if (top.location) soSegments.push(`location ${top.location}`);
+    if (top.gold || top.silver || top.bronze) soSegments.push(`badges: ${top.gold}🥇 ${top.silver}🥈 ${top.bronze}🥉`);
+    if (top.lastSeen) soSegments.push(`last active ${top.lastSeen}`);
+    parts.push(soSegments.join(", ") + ".");
+    if (data.stackoverflow.length > 1) {
+      parts.push(`${data.stackoverflow.length - 1} additional Stack Overflow account(s) also matched that name.`);
+    }
+  }
+
+  // ── NPM ──
+  if (data.npm && data.npm.packages.length > 0) {
+    const pkgs = data.npm.packages.slice(0, 3).map(p => `${p.name}${p.description ? ` (${truncate(p.description, 60)})` : ""}`).join(", ");
+    parts.push(`NPM packages published: ${pkgs}. ${data.npm.total > 3 ? `Total: ${data.npm.total} packages.` : ""}`);
+  }
+
+  // ── HACKER NEWS ──
+  if (data.hackerNews && data.hackerNews.length > 0) {
+    const hn = data.hackerNews[0];
+    parts.push(`Hacker News mention: "${truncate(hn.title, 100)}" — ${hn.points} points${hn.year ? `, ${hn.year}` : ""}.`);
+  }
+
+  // ── REDDIT ──
+  if (data.reddit) {
+    if (data.reddit.users && data.reddit.users.length > 0) {
+      const u = data.reddit.users[0];
+      parts.push(`Reddit account: u/${u.name} — ${u.karma.toLocaleString()} combined karma.`);
+    }
+    if (data.reddit.posts && data.reddit.posts.length > 0) {
+      const topPost = data.reddit.posts[0];
+      parts.push(`Reddit mentions found — top result in r/${topPost.subreddit}: "${truncate(topPost.title, 100)}" (${topPost.score} points${topPost.year ? `, ${topPost.year}` : ""}).`);
+    }
+  }
+
+  // ── CLOSING ──
+  const closers = [
+    `End of public record, ${T}. That's everything the open web has.`,
+    `That's the full open-source picture, ${T}. Anything you want me to dig deeper on?`,
+    `That's what the public databases have, ${T}. Private records would require considerably different tools.`,
+    `Intel summary complete, ${T}. The rest either doesn't exist digitally or isn't publicly accessible.`,
+  ];
+  parts.push(pick(closers));
+
+  return parts.filter(Boolean).join(" ");
+}
+
+function _sourceSummary(data) {
+  const sources = [];
+  if (data.wikipedia)     sources.push("Wikipedia");
+  if (data.ddg)           sources.push("DuckDuckGo");
+  if (data.github)        sources.push("GitHub");
+  if (data.stackoverflow) sources.push("Stack Overflow");
+  if (data.npm)           sources.push("NPM");
+  if (data.hackerNews)    sources.push("Hacker News");
+  if (data.reddit)        sources.push("Reddit");
+  if (sources.length === 0) return "public databases";
+  if (sources.length === 1) return sources[0];
+  return sources.slice(0, -1).join(", ") + " and " + sources[sources.length - 1];
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── KNOWLEDGE SYNTHESIS (for general topics) ─────────────────
 // ═══════════════════════════════════════════════════════════════
 const PERSONALITY = {
   openers: [
@@ -182,71 +582,53 @@ const PERSONALITY = {
     "I looked that up —",
     "Here's what I have on",
   ],
-  sourceLabels: {
-    wikipedia: "via Wikipedia",
-    duckduckgo: "via DuckDuckGo",
-    combined: "cross-referenced sources",
-  },
   connectors: [
     "Beyond that,", "Additionally,", "Worth noting:", "Furthermore,",
     "On top of that,", "It's also the case that,",
   ],
 };
 
-function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
-
 function synthesizeResponse(query, ddgResult, wikiResult, userTitle) {
   const T = userTitle || "Sir";
   const parts = [];
 
-  // Primary content — prefer Wikipedia extract for depth, DDG for quick answers
   let primaryText = null;
-  let source = null;
+  let source      = null;
 
   if (ddgResult?.answer) {
-    // DDG gave a direct factual answer (e.g. "What is the capital of France?")
     primaryText = ddgResult.answer;
-    source = "duckduckgo";
+    source      = "duckduckgo";
   } else if (wikiResult?.extract && wikiResult.extract.length > 100) {
-    // Wikipedia has a solid article
     primaryText = truncate(wikiResult.extract, 500);
-    source = "wikipedia";
+    source      = "wikipedia";
   } else if (ddgResult?.abstract && ddgResult.abstract.length > 50) {
     primaryText = truncate(ddgResult.abstract, 400);
-    source = "duckduckgo";
+    source      = "duckduckgo";
   } else if (ddgResult?.definition) {
     primaryText = ddgResult.definition;
-    source = "duckduckgo";
+    source      = "duckduckgo";
   }
 
   if (!primaryText && ddgResult?.relatedTopics?.length) {
     primaryText = ddgResult.relatedTopics[0];
-    source = "duckduckgo";
+    source      = "duckduckgo";
   }
 
-  if (!primaryText) return null; // Nothing found
+  if (!primaryText) return null;
 
-  // Build the opener
-  const opener = pick(PERSONALITY.openers);
+  const opener     = pick(PERSONALITY.openers);
   const topicLabel = wikiResult?.title || query;
 
-  if (Math.random() > 0.4) {
-    parts.push(`${opener} ${topicLabel}:`);
-  }
-
+  if (Math.random() > 0.4) parts.push(`${opener} ${topicLabel}:`);
   parts.push(primaryText);
 
-  // Add infobox facts if available and relevant
   if (ddgResult?.infobox && source !== "duckduckgo") {
     const infoFacts = Object.entries(ddgResult.infobox).slice(0, 3)
       .map(([k, v]) => `${k}: ${v}`)
       .join(", ");
-    if (infoFacts) {
-      parts.push(`${pick(PERSONALITY.connectors)} ${infoFacts}.`);
-    }
+    if (infoFacts) parts.push(`${pick(PERSONALITY.connectors)} ${infoFacts}.`);
   }
 
-  // Add a related topic snippet if we have room
   if (ddgResult?.relatedTopics?.length > 1 && primaryText.length < 300) {
     const extra = ddgResult.relatedTopics[1];
     if (extra && extra.length > 30 && !primaryText.includes(extra.slice(0, 30))) {
@@ -254,15 +636,9 @@ function synthesizeResponse(query, ddgResult, wikiResult, userTitle) {
     }
   }
 
-  // Personalise the ending
-  const sourceNote = source === "wikipedia"
-    ? `Source: Wikipedia — "${wikiResult.title}".`
-    : "";
-
   let response = parts.filter(Boolean).join(" ").replace(/\s{2,}/g, " ").trim();
   if (!response.match(/[.!?]$/)) response += ".";
-
-  if (sourceNote && Math.random() > 0.5) response += ` ${sourceNote}`;
+  if (source === "wikipedia" && Math.random() > 0.5) response += ` Source: Wikipedia — "${wikiResult.title}".`;
   if (Math.random() > 0.55) response += ` ${T}.`;
 
   return response;
@@ -270,16 +646,13 @@ function synthesizeResponse(query, ddgResult, wikiResult, userTitle) {
 
 // ═══════════════════════════════════════════════════════════════
 // ── MAIN RESEARCH FUNCTION ───────────────────────────────────
-// Called by server.js when JARVIS returns FALLBACK or KNOWLEDGE
-// with no local match
 // ═══════════════════════════════════════════════════════════════
 async function research(rawQuery, userTitle) {
   const query = extractQuery(rawQuery);
   if (!query || query.length < 2) return null;
 
-  console.log(`[RESEARCH] Searching: "${query}"`);
+  console.log(`[RESEARCH] Knowledge search: "${query}"`);
 
-  // Run both in parallel for speed
   const [ddgResult, wikiResult] = await Promise.allSettled([
     searchDuckDuckGo(query),
     searchWikipedia(query),
@@ -289,20 +662,18 @@ async function research(rawQuery, userTitle) {
   const wiki = wikiResult.status === "fulfilled" ? wikiResult.value : null;
 
   if (!ddg && !wiki) {
-    console.log(`[RESEARCH] No results found for: "${query}"`);
+    console.log(`[RESEARCH] No results for: "${query}"`);
     return null;
   }
 
   const response = synthesizeResponse(query, ddg, wiki, userTitle);
   if (!response) return null;
 
-  console.log(`[RESEARCH] Found answer for: "${query}" (DDG: ${!!ddg}, Wiki: ${!!wiki})`);
-
   return {
     reply:   response,
     sources: {
-      ddg:  !!ddg,
-      wiki: !!wiki,
+      ddg:       !!ddg,
+      wiki:      !!wiki,
       wikiTitle: wiki?.title || null,
       wikiUrl:   wiki?.url   || null,
     },
@@ -311,21 +682,33 @@ async function research(rawQuery, userTitle) {
 }
 
 // ── SHOULD WE RESEARCH? ──────────────────────────────────────
-// Determines if a message is the kind of thing worth looking up
 function shouldResearch(text) {
   const lower = text.toLowerCase();
-
-  // Strong research signals
   if (/^(what is|what are|who is|who was|when did|when was|where is|where was|how does|how did|why does|why did|tell me about|explain|define|describe)\b/i.test(lower)) return true;
-  if (/\b(history|invention|discovery|founded|created|born|died|meaning of|definition of|facts about|how to|what happened)\b/i.test(lower)) return true;
-
-  // Skip things that are clearly local intents
+  if (/\b(history|invention|discovery|founded|created|born|died|meaning of|definition of|facts about|what happened)\b/i.test(lower)) return true;
   if (/\b(clip|timer|alarm|reminder|links|camera|screen|memory|remember|forget|log out|logout|weather|spotify|gmail|calendar|open|launch|navigate)\b/i.test(lower)) return false;
-
-  // Skip very short queries
   if (text.trim().split(/\s+/).length < 3) return false;
-
-  return false; // Default: don't research, let local engine handle
+  return false;
 }
 
-module.exports = { research, shouldResearch, searchDuckDuckGo, searchWikipedia };
+// ── IS THIS A PERSON LOOKUP? ─────────────────────────────────
+function isPersonLookup(text) {
+  const lower = text.toLowerCase();
+  return /\b(look up|lookup|find out about|search for|investigate|dig up|background check|run a check|pull everything on|find info on|who is|who was|what do you know about|give me everything on|give me the rundown on|find me everything on|research|locate|find the person)\b/i.test(lower);
+}
+
+module.exports = {
+  research,
+  shouldResearch,
+  isPersonLookup,
+  extractPersonName,
+  lookupPerson,
+  buildPersonIntelReport,
+  searchDuckDuckGo,
+  searchWikipedia,
+  searchGitHub,
+  searchReddit,
+  searchStackOverflow,
+  searchNPM,
+  searchHackerNews,
+};
