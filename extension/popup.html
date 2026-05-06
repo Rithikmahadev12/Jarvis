@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>J.A.R.V.I.S</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="popup.css"/>
+</head>
+<body>
+  <div class="header">
+    <div class="arc">
+      <div class="arc-ring r1"></div>
+      <div class="arc-ring r2"></div>
+      <div class="arc-core"></div>
+    </div>
+    <div class="title-block">
+      <div class="title">J.A.R.V.I.S</div>
+      <div class="sub">EXTENSION v1.0</div>
+    </div>
+  </div>
+
+  <div class="status-row">
+    <div class="status-dot" id="status-dot"></div>
+    <span class="status-label" id="status-label">Connecting…</span>
+  </div>
+
+  <div class="info-block" id="info-block">
+    <div class="info-row"><span class="info-key">USER</span><span class="info-val" id="info-user">—</span></div>
+    <div class="info-row"><span class="info-key">PHASE</span><span class="info-val" id="info-phase">—</span></div>
+    <div class="info-row"><span class="info-key">MOOD</span><span class="info-val" id="info-mood">—</span></div>
+    <div class="info-row"><span class="info-key">SERVER</span><span class="info-val" id="info-server">localhost:3000</span></div>
+  </div>
+
+  <div class="btn-group">
+    <button class="hud-btn" id="btn-show">SHOW HUD</button>
+    <button class="hud-btn secondary" id="btn-hide">HIDE HUD</button>
+  </div>
+
+  <div class="server-row">
+    <input type="text" id="server-url" placeholder="http://localhost:3000"/>
+    <button class="small-btn" id="btn-save-url">SAVE</button>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
