@@ -602,7 +602,21 @@ const INTENTS = [
   { id:"spotify",        signals:["music","play","song","spotify","track","artist","album","playlist","pause","stop music","next song","shuffle","queue","what's playing","currently playing","now playing"], action:"SPOTIFY", weight:1.6 },
   { id:"gmail",          signals:["email","gmail","mail","inbox","unread","messages","send email","compose","reply","emails","check mail","new mail"],                           action:"GMAIL",         weight:1.6 },
   { id:"calendar",       signals:["calendar","schedule","event","meeting","appointment","today's events","what's on","agenda","remind","upcoming","google calendar","when is","plan"], action:"CALENDAR", weight:1.6 },
-  { id:"show_hud", signals:["show hud","pull up hud","open hud","display hud","hud on","bring up hud","activate hud","jarvis hud","launch hud","pull up the hud","show me the hud","show hud display","pull up clock widget","show clock","pull up mood widget","show mood","pull up system widget","show system status widget","pull up memory widget","show memory widget","pull up neural widget","show neural","pull up audio widget","show audio widget","pull up user widget","show user widget","pull up all widgets","show all widgets","show all hud","hud display","open all widgets","launch all widgets"], action:"SHOW_HUD", weight:1.5 },
+  { id:"show_hud", signals:[
+      // ── Solve / calculate — highest priority signals ──
+      "solve","calculate","compute","work out","figure out","what is the answer",
+      "solve for","find the answer","solve this","can you solve","jarvis solve",
+      // ── Existing HUD signals ──
+      "show hud","pull up hud","open hud","display hud","hud on","bring up hud",
+      "activate hud","jarvis hud","launch hud","pull up the hud","show me the hud",
+      "show hud display","pull up clock widget","show clock","pull up mood widget",
+      "show mood","pull up system widget","show system status widget",
+      "pull up memory widget","show memory widget","pull up neural widget",
+      "show neural","pull up audio widget","show audio widget",
+      "pull up user widget","show user widget","pull up all widgets",
+      "show all widgets","show all hud","hud display","open all widgets",
+      "launch all widgets",
+    ], action:"SHOW_HUD", weight:1.5 },
   { id:"hide_hud", signals:["hide hud","close hud","remove hud","hud off","turn off hud","dismiss hud","close all widgets","hide all widgets","close clock widget","close mood widget","close system widget","close memory widget","close neural widget","close audio widget","close user widget","shut down hud","hud down"], action:"HIDE_HUD", weight:1.5 },
   { id:"knowledge_science",    signals:["physics","chemistry","biology","quantum","atom","molecule","energy","force","wave","particle","experiment","theory","evolution","genetics","cell","planet","star","galaxy","universe","space","gravity","relativity","nuclear","element","reaction"], action:"KNOWLEDGE", domain:"science",       weight:1.0 },
   { id:"knowledge_tech",       signals:["computer","software","hardware","network","internet","ai","machine learning","robot","system","web","server","database","processor","api","blockchain","cryptocurrency","neural"], action:"KNOWLEDGE", domain:"technology",    weight:1.0 },
@@ -983,6 +997,7 @@ function genCapabilities(ctx, linkCount) {
     "auto-research any topic I don't have in my knowledge base",
     "run open-source intelligence on any person — say 'look up [full name]'",
     "open any HUD panel as a Picture-in-Picture window",
+    "solve equations, conversions, and maths problems via PiP — say 'solve [problem]'",
   ];
   const subsets = pickN(capGroups, 5);
   const styles = [
@@ -1529,7 +1544,17 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
         return { reply, action, intent:intent.id };
       }
       case "SHOW_HUD": {
-        const reply = pick([`Launching the HUD as a Picture-in-Picture window, ${T}.`,`PiP HUD coming up, ${T}.`,`Opening your HUD overlay now, ${T}.`]);
+        const isSolve = /\b(solve|calculate|compute|work out|figure out)\b/i.test(resolved);
+        const replyStyles = isSolve ? [
+          `On it, ${T}. Running the calculation now — PiP window incoming.`,
+          `Solving that now, ${T}. Opening the solve module.`,
+          `Calculating, ${T}. Stand by — PiP coming up.`,
+        ] : [
+          `Launching the HUD as a Picture-in-Picture window, ${T}.`,
+          `PiP HUD coming up, ${T}.`,
+          `Opening your HUD overlay now, ${T}.`,
+        ];
+        const reply = pick(replyStyles);
         ctx.addTurn(message, reply, action, null);
         return { reply, action, intent:intent.id, meta:{ query: resolved } };
       }
