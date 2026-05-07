@@ -1,9 +1,9 @@
 "use strict";
 
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Generative AI Engine v6.0
+// J.A.R.V.I.S — Generative AI Engine v6.1
 // New: reads config.json for personality · auto-research unknown
-// topics · full coding capability
+// topics · full coding capability · hologram 3D viewer
 // ═══════════════════════════════════════════════════════════════
 
 const fs   = require("fs");
@@ -21,7 +21,6 @@ function loadConfig() {
     _config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
     _configMtime = stat.mtimeMs;
   } catch {
-    // fallback defaults if config.json missing
     _config = {
       personality: { wit: 0.7, warmth: 0.55, sarcasm: 0.3, verbosity: "medium", tone: "formal", customRules: [] },
       behaviour:   { responseLength: "medium", askFollowUps: true, alwaysPersonalise: true },
@@ -80,8 +79,8 @@ function getPersonality() {
       candour:    0.70,
       sarcasm:    cfg.sarcasm    ?? 0.3,
     },
-    verbosity: cfg.verbosity || "medium",   // "brief" | "medium" | "verbose"
-    tone:      cfg.tone      || "formal",   // "formal" | "casual" | "blunt"
+    verbosity: cfg.verbosity || "medium",
+    tone:      cfg.tone      || "formal",
     customRules: cfg.customRules || [],
 
     vocab: {
@@ -154,7 +153,6 @@ const SB = {
 // ═══════════════════════════════════════════════════════════════
 
 const CODE_PATTERNS = {
-  // Language detection
   python:     /\b(python|py|django|flask|pandas|numpy|pytorch|tensorflow|pip|def |lambda |import )\b/i,
   javascript: /\b(javascript|js|node|nodejs|react|vue|angular|typescript|ts|npm|express|fetch|async|await|promise|const |let |var )\b/i,
   html:       /\b(html|css|webpage|website|landing page|frontend|dom|element|tag|div|span|button|form)\b/i,
@@ -173,7 +171,7 @@ function detectLanguage(text) {
   for (const [lang, re] of Object.entries(CODE_PATTERNS)) {
     if (re.test(text)) return lang;
   }
-  return "javascript"; // sensible default
+  return "javascript";
 }
 
 function isCodeRequest(text) {
@@ -183,7 +181,6 @@ function isCodeRequest(text) {
 // ── CODE GENERATORS ───────────────────────────────────────────
 const CODE_TEMPLATES = {
 
-  // ── PYTHON ─────────────────────────────────────────────────
   python: {
     "web scraper": () => `import requests
 from bs4 import BeautifulSoup
@@ -208,7 +205,6 @@ app = Flask(__name__)
 def data():
     if request.method == "POST":
         body = request.get_json()
-        # process body here
         return jsonify({"status": "ok", "received": body})
     return jsonify({"status": "ok", "data": []})
 
@@ -238,7 +234,6 @@ if __name__ == "__main__":
     print(result)`,
   },
 
-  // ── JAVASCRIPT / NODE ──────────────────────────────────────
   javascript: {
     "api": () => `const express = require("express");
 const app = express();
@@ -246,7 +241,7 @@ app.use(express.json());
 
 app.get("/api/items", async (req, res) => {
   try {
-    const items = []; // replace with DB query
+    const items = [];
     res.json({ success: true, data: items });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -256,7 +251,6 @@ app.get("/api/items", async (req, res) => {
 app.post("/api/items", async (req, res) => {
   try {
     const body = req.body;
-    // save body to DB here
     res.status(201).json({ success: true, created: body });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -277,7 +271,6 @@ app.listen(3000, () => console.log("Server running on http://localhost:3000"));`
   return res.json();
 }
 
-// Usage
 fetchData("https://api.example.com/data")
   .then(data => console.log(data))
   .catch(err => console.error(err));`,
@@ -302,9 +295,9 @@ module.exports = ${toPascalCase(topic)};`,
     "react": () => `import { useState, useEffect } from "react";
 
 export default function Component({ initialData = [] }) {
-  const [data, setData]     = useState(initialData);
+  const [data, setData]       = useState(initialData);
   const [loading, setLoading] = useState(false);
-  const [error, setError]   = useState(null);
+  const [error, setError]     = useState(null);
 
   useEffect(() => {
     setLoading(true);
@@ -341,7 +334,6 @@ function ${toCamelCase(topic)}(input) {
 module.exports = { ${toCamelCase(topic)} };`,
   },
 
-  // ── HTML / CSS ─────────────────────────────────────────────
   html: {
     "default": (topic) => `<!DOCTYPE html>
 <html lang="en">
@@ -373,7 +365,6 @@ module.exports = { ${toCamelCase(topic)} };`,
 </html>`,
   },
 
-  // ── SQL ────────────────────────────────────────────────────
   sql: {
     "default": (topic) => `-- ${topic}
 
@@ -402,7 +393,6 @@ WHERE id = 1;
 DELETE FROM ${toSnakeCase(topic)} WHERE id = 1;`,
   },
 
-  // ── BASH ───────────────────────────────────────────────────
   bash: {
     "default": (topic) => `#!/usr/bin/env bash
 # ${topic}
@@ -413,24 +403,20 @@ LOG() { echo "[$(date '+%H:%M:%S')] $*"; }
 main() {
   LOG "Starting ${topic}…"
 
-  # Check dependencies
   for cmd in curl jq; do
     command -v "\$cmd" >/dev/null 2>&1 || { LOG "ERROR: \$cmd not found"; exit 1; }
   done
 
-  # Main logic here
   LOG "Done."
 }
 
 main "\$@"`,
   },
 
-  // ── RUST ───────────────────────────────────────────────────
   rust: {
     "default": (topic) => `use std::error::Error;
 
 fn ${toSnakeCase(topic)}() -> Result<(), Box<dyn Error>> {
-    // Implementation here
     println!("${topic}");
     Ok(())
 }
@@ -443,7 +429,6 @@ fn main() {
 }`,
   },
 
-  // ── GO ─────────────────────────────────────────────────────
   go: {
     "default": (topic) => `package main
 
@@ -453,7 +438,6 @@ import (
 )
 
 func ${toCamelCase(topic)}() error {
-    // implementation here
     fmt.Println("${topic}")
     return nil
 }
@@ -537,18 +521,12 @@ function genCode(text, ctx) {
 // ═══════════════════════════════════════════════════════════════
 // ── AUTO-RESEARCH FOR UNKNOWN TOPICS ─────────────────────────
 // ═══════════════════════════════════════════════════════════════
-// research.js is called externally by server.js for async lookups.
-// Inside the engine we flag NEEDS_RESEARCH so the server can
-// intercept and do the async fetch before responding.
-
 function needsResearch(text, knowledgeResult, intentScore) {
-  if (knowledgeResult) return false;          // already have local knowledge
-  if (intentScore > 4) return false;          // strong intent match, handle locally
+  if (knowledgeResult) return false;
+  if (intentScore > 4) return false;
   const lower = text.toLowerCase();
-  // questions that strongly suggest factual lookup needed
   const factual = /^(what is|what are|who is|who was|when did|when was|where is|where was|how does|how did|why does|why did|tell me about|explain|define|describe|what happened|history of|facts about)\b/i.test(lower);
   if (factual) return true;
-  // proper nouns / titles (capitalised words that aren't names we know)
   const words = text.match(/\b[A-Z][a-z]{2,}\b/g) || [];
   if (words.length >= 1 && factual) return true;
   return false;
@@ -574,10 +552,22 @@ function extractPersonName(text) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ── HOLOGRAM OBJECT EXTRACTOR ─────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+function extractHologramQuery(text) {
+  return text
+    .replace(/jarvis[,.]?\s*/gi, '')
+    .replace(/^(show me|scan|find|pull up|display|render|give me|load)\s+(a |an |the )?/i, '')
+    .replace(/\s*(3d|model|scan|hologram|holographic)$/i, '')
+    .trim();
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ── INTENT TAXONOMY ──────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 const INTENTS = [
   { id:"coding",       signals:["write","create","build","make","generate","code","script","program","function","class","implement","develop","snippet","example","how to code","how to program","how to implement","how to build","html page","css","react component","api endpoint","database","query","bash script","python script","node server","express","flask","django","sql table","rust function","go function"], action:"CODE", weight:2.0 },
+  { id:"hologram",     signals:["show me a 3d scan","show me a 3d","3d scan","hologram","holographic","show me a model","3d model","scan this","show me what","show me smart glasses","show me a carbon","show me dna","show me a brain","show me a satellite","show me a molecule","scan smart glasses","scan atom","scan molecule","pull up 3d","display 3d","render 3d","visualise","visualize","3d view","three d","show me how","show me the structure"], action:"SHOW_HOLOGRAM", weight:1.8 },
   { id:"lookup_person", signals:["look up","lookup","find out about","background check","run a check","pull everything on","give me everything on","give me the rundown on","find me everything on","dig up","investigate","find info on","pull up info on","i need info on","find everything on","search for person","who is","who was","who's","find this person","locate this person","research this person","what do you know about this person"], action:"LOOKUP_PERSON", weight:1.8 },
   { id:"personal_news", signals:["i have a girlfriend","got a girlfriend","i have a boyfriend","got a boyfriend","got promoted","got a promotion","got fired","laid off","got laid off","lost my job","broke up","we broke up","she left me","he left me","got the job","new job","getting married","we're engaged","i'm engaged","she said yes","he said yes","we're pregnant","expecting a baby","moving in together","i graduated","just graduated","it's my birthday","i'm sick","not feeling well","someone died","passed away","i won","we won","i passed","got accepted","good news","bad news","exciting news","i just moved","just relocated","new place","new apartment"], action:"PERSONAL_NEWS", weight:1.6 },
   { id:"show_links",     signals:["link","links","url","urls","site","sites","show links","all links","give links","my links","saved links","link bank"],                       action:"SHOW_LINKS",    weight:1.4 },
@@ -603,10 +593,8 @@ const INTENTS = [
   { id:"gmail",          signals:["email","gmail","mail","inbox","unread","messages","send email","compose","reply","emails","check mail","new mail"],                           action:"GMAIL",         weight:1.6 },
   { id:"calendar",       signals:["calendar","schedule","event","meeting","appointment","today's events","what's on","agenda","remind","upcoming","google calendar","when is","plan"], action:"CALENDAR", weight:1.6 },
   { id:"show_hud", signals:[
-      // ── Solve / calculate — highest priority signals ──
       "solve","calculate","compute","work out","figure out","what is the answer",
       "solve for","find the answer","solve this","can you solve","jarvis solve",
-      // ── Existing HUD signals ──
       "show hud","pull up hud","open hud","display hud","hud on","bring up hud",
       "activate hud","jarvis hud","launch hud","pull up the hud","show me the hud",
       "show hud display","pull up clock widget","show clock","pull up mood widget",
@@ -812,7 +800,6 @@ function buildResponse(components, ctx, opts = {}) {
     }
   }
 
-  // Apply custom rules from config
   const rules = cfg.personality?.customRules || [];
   let response = "";
   for (let i = 0; i < parts.length; i++) {
@@ -832,7 +819,6 @@ function buildResponse(components, ctx, opts = {}) {
     }
   }
 
-  // Apply any custom rule transformations
   for (const rule of rules) {
     if (rule.type === "append" && rule.text) response += " " + rule.text;
     if (rule.type === "prefix" && rule.text) response = rule.text + " " + response;
@@ -916,7 +902,7 @@ function genIdentity(ctx) {
   const T = ctx.userTitle || "Sir";
   const cfg = getCfg();
   const name = cfg.personality?.name || "J.A.R.V.I.S";
-  const traits = pickN(["semantic reasoning","contextual memory","natural language intent routing","zero preset responses — every reply is freshly constructed","face recognition","screen reading","real-time integrations","person intelligence lookup across public databases","full coding capability in any language","auto-research for any topic I don't know"], 3);
+  const traits = pickN(["semantic reasoning","contextual memory","natural language intent routing","zero preset responses — every reply is freshly constructed","face recognition","screen reading","real-time integrations","person intelligence lookup across public databases","full coding capability in any language","auto-research for any topic I don't know","holographic 3D object viewer — say 'show me' anything"], 3);
 
   const openers = [
     `${name} — Just A Rather Very Intelligent System`,
@@ -998,6 +984,7 @@ function genCapabilities(ctx, linkCount) {
     "run open-source intelligence on any person — say 'look up [full name]'",
     "open any HUD panel as a Picture-in-Picture window",
     "solve equations, conversions, and maths problems via PiP — say 'solve [problem]'",
+    "pull up holographic 3D scans of any object — say 'show me a 3D model of [anything]'",
   ];
   const subsets = pickN(capGroups, 5);
   const styles = [
@@ -1313,7 +1300,7 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
   // 1. Reference resolution
   const resolved = ctx.resolveReferences(message);
 
-  // 2. Fast-path: coding request (highest priority after person lookup)
+  // 2. Fast-path: coding request
   if (isCodeRequest(resolved)) {
     const reply = genCode(resolved, ctx);
     ctx.addTurn(message, reply, "CODE", "coding");
@@ -1414,6 +1401,26 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
         const reply = genCode(resolved, ctx);
         ctx.addTurn(message, reply, action, "coding"); ctx.updateMood(6);
         return { reply, action, intent: intent.id };
+      }
+
+      // ── HOLOGRAM ─────────────────────────────────────────────
+      case "SHOW_HOLOGRAM": {
+        const objQuery = extractHologramQuery(resolved);
+        const replies = [
+          `Pulling up a 3D holographic scan of ${objQuery || "that"} now, ${T}. Stand by.`,
+          `Scanning public databases for ${objQuery || "that"}, ${T}. Hologram incoming.`,
+          `Initiating 3D scan of ${objQuery || "that"}, ${T}. Loading from live sources.`,
+          `On it, ${T} — fetching a real 3D model of ${objQuery || "that"} now.`,
+        ];
+        const reply = pick(replies);
+        ctx.addTurn(message, reply, action, objQuery);
+        ctx.updateMood(6);
+        return {
+          reply,
+          action: "SHOW_HOLOGRAM",
+          intent: intent.id,
+          meta: { query: objQuery || message },
+        };
       }
 
       case "LOOKUP_PERSON": {
@@ -1577,7 +1584,6 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
           ctx.addTurn(message, reply, action, knowledge.key); ctx.updateMood(4);
           return { reply, action, intent:intent.id, topic:knowledge.key };
         }
-        // knowledge intent matched but topic not in graph → flag for research
         break;
       }
     }
@@ -1611,7 +1617,7 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
     return { reply, action:"OPINION", intent:"opinion" };
   }
 
-  // 13. Auto-research flag — server.js will intercept and call research.js
+  // 13. Auto-research flag
   if (needsResearch(resolved, null, topResult?.score || 0)) {
     const placeholder = pick([
       `Let me look that up properly for you, ${T}.`,
