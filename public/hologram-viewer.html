@@ -1009,6 +1009,18 @@ setTimeout(()=>showToast('J.A.R.V.I.S HOLOGRAPHIC LAB — ONLINE','ok'),400);
 setTimeout(()=>showToast('Try: "show me glasses" to begin','ok'),2400);
 setTimeout(()=>showToast('Then: "add camera right side" to attach','ok'),5200);
 setTimeout(()=>showToast('Say "go inside" to explode any object','ok'),8200);
+// ── POSTMESSAGE BRIDGE (from main JARVIS iframe) ──────────────
+window.addEventListener('message', e => {
+  const { type, query } = e.data || {};
+  if (type !== 'HOLOGRAM_SEARCH' || !query) return;
+  const inp = document.getElementById('cmd-inp');
+  if (inp) inp.value = query;
+  // Wrap bare object names in a show command if needed
+  const cmd = /^(show|load|display|render|pull up|add|scan|create|build|give me)/i.test(query.trim())
+    ? query
+    : `show me ${query}`;
+  runCmd(cmd);
+});
 </script>
 </body>
 </html>
