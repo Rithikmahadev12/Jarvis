@@ -685,9 +685,21 @@ window.PiPWidgets = (function () {
       try{
         await video.requestPictureInPicture();
       }catch(e){
-        notify('PiP failed — try clicking the page first, then ask again.');
-        stream.getTracks().forEach(t=>t.stop());
-        return null;
+        // Browser blocked autoplay PiP — open a regular popup window instead
+        const popup = window.open('', 'jarvis_solve',
+          `width=${def.w},height=${def.h},top=100,left=100,toolbar=no,menubar=no,scrollbars=no`);
+        if(!popup){ notify('PiP failed — allow popups for this site.'); stream.getTracks().forEach(t=>t.stop()); return null; }
+        popup.document.body.style.cssText = 'margin:0;padding:0;background:#010c14;overflow:hidden;';
+        video.style.cssText = 'width:100%;height:100%;display:block;';
+        popup.document.body.appendChild(video);
+        const entry = { video, canvas, ctx, interval, stream, def, pipWindow: popup };
+        widgets.set(id, entry);
+        popup.addEventListener('beforeunload', () => {
+          clearInterval(interval);
+          stream.getTracks().forEach(t=>t.stop());
+          widgets.delete(id);
+        });
+        return entry;
       }
     }
 
