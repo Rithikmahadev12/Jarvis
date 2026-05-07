@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Picture-in-Picture HUD Widgets v2.0
+// J.A.R.V.I.S — Picture-in-Picture HUD Widgets v2.1
 // Each HUD panel becomes its own floating PiP window
 // stays on top of ANY tab, zero extensions needed
 // NEW: SOLVE widget — say "Jarvis, solve [problem]" from any tab
@@ -31,73 +31,15 @@ window.PiPWidgets = (function () {
   const _sessionStart = Date.now();
   let   _frame        = 0;
 
- if (!problem) {
-        // No problem spoken — try to OCR the shared screen
-        _solveState = {
-          answer: 'Reading your screen…',
-          category: 'SCREEN SCAN',
-          sub: 'Looking for maths on your current tab',
-          steps: [], extra: '', processing: true,
-        };
-        if (!widgets.has('solve')) await openWidget('solve');
-
-        try {
-          // Pull OCR text via the screen route
-          const ocrResult = await new Promise((resolve) => {
-            // Grab a frame from the existing screen stream
-            const videoEl = document.createElement('video');
-            const stream  = window.state?.screenStream;
-            if (!stream) { resolve(null); return; }
-            videoEl.srcObject = stream;
-            videoEl.onloadedmetadata = () => {
-              videoEl.play();
-              setTimeout(() => {
-                const c = document.createElement('canvas');
-                c.width = videoEl.videoWidth || 1280;
-                c.height = videoEl.videoHeight || 720;
-                c.getContext('2d').drawImage(videoEl, 0, 0);
-                videoEl.pause();
-                resolve(c.toDataURL('image/png'));
-              }, 200);
-            };
-          });
-
-          if (ocrResult && window.Tesseract && window.state?.tesseractWorker) {
-            const { data } = await window.state.tesseractWorker.recognize(ocrResult);
-            const screenText = data.text || '';
-            const result = computeSolve(screenText.trim());
-            if (result) {
-              _solveState = { ...result, processing: false };
-              notify(`Solved from screen: ${result.answer}`);
-            } else {
-              _solveState = {
-                answer: 'No equation found on screen',
-                category: 'SCREEN SCAN',
-                sub: 'Say "Jarvis solve [problem]" with the equation',
-                steps: ['e.g. "Jarvis solve x² − 5x + 6 = 0"',
-                        'e.g. "Jarvis solve 15% of 200"',
-                        'e.g. "Jarvis solve is 97 prime"'],
-                extra: '', processing: false,
-              };
-            }
-          } else {
-            _solveState = {
-              answer: 'Say the problem aloud',
-              category: 'AWAITING INPUT',
-              sub: 'e.g. "Jarvis, solve x² − 5x + 6 = 0"',
-              steps: [], extra: '', processing: false,
-            };
-          }
-        } catch {
-          _solveState = {
-            answer: 'Say the problem aloud',
-            category: 'AWAITING INPUT',
-            sub: 'e.g. "Jarvis, solve x² − 5x + 6 = 0"',
-            steps: [], extra: '', processing: false,
-          };
-        }
-
-      } else {
+  // ── SOLVE STATE ─────────────────────────────────────────────
+  let _solveState = {
+    answer:   'AWAITING QUERY',
+    category: 'STANDBY',
+    sub:      'State your problem — Jarvis will solve it.',
+    steps:    [],
+    extra:    '',
+    processing: false,
+  };
 
   // ── SOLVE ENGINE ────────────────────────────────────────────
   function isPrime(n) {
@@ -120,7 +62,6 @@ window.PiPWidgets = (function () {
       s = s.replace(/\bminus\b|\bsubtracted from\b/gi, '-');
       s = s.replace(/\bmod(?:ulo)?\b/gi, '%');
       s = s.replace(/\^/g, '**').replace(/\bpi\b/gi, 'Math.PI');
-      // close any unclosed sqrt parens
       const opens = (s.match(/Math\.sqrt\(/g) || []).length;
       const closes = (s.match(/\)/g) || []).length;
       for (let i = 0; i < opens - closes; i++) s += ')';
@@ -393,7 +334,6 @@ window.PiPWidgets = (function () {
 
     const st = _solveState;
 
-    // Processing spinner animation
     if (st.processing) {
       const cx = w / 2, cy = h / 2;
       ctx.save();
@@ -413,17 +353,14 @@ window.PiPWidgets = (function () {
       return;
     }
 
-    // Category tag
     ctx.font = '700 8px Orbitron,monospace';
     ctx.fillStyle = C.amber;
     ctx.fillText(st.category.toUpperCase(), 14, 46);
 
-    // Separator line under category
     ctx.strokeStyle = 'rgba(255,170,0,0.2)';
     ctx.lineWidth = 0.5;
     ctx.beginPath(); ctx.moveTo(14, 52); ctx.lineTo(w - 14, 52); ctx.stroke();
 
-    // Answer — word wrapped
     ctx.font = '400 20px "Share Tech Mono",monospace';
     ctx.fillStyle = C.blue;
     ctx.shadowColor = 'rgba(0,200,255,0.5)';
@@ -440,7 +377,6 @@ window.PiPWidgets = (function () {
     if (line) { ctx.fillText(line, 14, y); y += 24; }
     ctx.shadowBlur = 0;
 
-    // Sub label
     if (st.sub) {
       ctx.font = '400 9.5px "Share Tech Mono",monospace';
       ctx.fillStyle = C.textDim;
@@ -448,14 +384,12 @@ window.PiPWidgets = (function () {
       y += 18;
     }
 
-    // Divider
     y += 4;
     ctx.strokeStyle = 'rgba(0,200,255,0.15)';
     ctx.lineWidth = 0.5;
     ctx.beginPath(); ctx.moveTo(14, y); ctx.lineTo(w - 14, y); ctx.stroke();
     y += 14;
 
-    // Steps header
     if (st.steps && st.steps.length) {
       ctx.font = '700 7px Orbitron,monospace';
       ctx.fillStyle = C.textDim;
@@ -464,18 +398,14 @@ window.PiPWidgets = (function () {
 
       ctx.font = '400 9.5px "Share Tech Mono",monospace';
       for (let i = 0; i < Math.min(st.steps.length, 5); i++) {
-        // Step number
         ctx.fillStyle = C.blue;
         ctx.fillText(`0${i + 1}`, 14, y);
-        // Step text
         ctx.fillStyle = C.text;
-        const stepText = st.steps[i].slice(0, 58);
-        ctx.fillText(stepText, 34, y);
+        ctx.fillText(st.steps[i].slice(0, 58), 34, y);
         y += 15;
       }
     }
 
-    // Extra info at bottom
     if (st.extra) {
       y += 4;
       ctx.strokeStyle = 'rgba(0,200,255,0.1)';
@@ -487,7 +417,6 @@ window.PiPWidgets = (function () {
       ctx.fillText(st.extra.slice(0, 68), 14, y);
     }
 
-    // Footer hint
     ctx.font = '700 7px Orbitron,monospace';
     ctx.fillStyle = 'rgba(0,200,255,0.18)';
     ctx.fillText('SAY "JARVIS SOLVE [PROBLEM]" TO UPDATE FROM ANY TAB', 14, h - 10);
@@ -685,16 +614,21 @@ window.PiPWidgets = (function () {
       try{
         await video.requestPictureInPicture();
       }catch(e){
-        // Browser blocked autoplay PiP — open a regular popup window instead
-        const popup = window.open('', 'jarvis_solve',
-          `width=${def.w},height=${def.h},top=100,left=100,toolbar=no,menubar=no,scrollbars=no`);
-        if(!popup){ notify('PiP failed — allow popups for this site.'); stream.getTracks().forEach(t=>t.stop()); return null; }
-        popup.document.body.style.cssText = 'margin:0;padding:0;background:#010c14;overflow:hidden;';
-        video.style.cssText = 'width:100%;height:100%;display:block;';
+        // Fallback to popup window
+        const popup = window.open('', 'jarvis_pip_' + id,
+          `width=${def.w},height=${def.h},top=100,left=100,toolbar=no,menubar=no,scrollbars=no,resizable=yes`);
+        if(!popup){
+          notify('PiP blocked — allow popups for localhost in your browser settings.');
+          stream.getTracks().forEach(t=>t.stop());
+          return null;
+        }
+        popup.document.body.style.cssText='margin:0;padding:0;background:#010c14;overflow:hidden;';
+        video.style.cssText='width:100%;height:100%;display:block;';
         popup.document.body.appendChild(video);
-        const entry = { video, canvas, ctx, interval, stream, def, pipWindow: popup };
-        widgets.set(id, entry);
-        popup.addEventListener('beforeunload', () => {
+        const interval=setInterval(()=>def.render(ctx,def.w,def.h), 1000/30);
+        const entry={video,canvas,ctx,interval,stream,def,pipWindow:popup};
+        widgets.set(id,entry);
+        popup.addEventListener('beforeunload',()=>{
           clearInterval(interval);
           stream.getTracks().forEach(t=>t.stop());
           widgets.delete(id);
@@ -746,19 +680,18 @@ window.PiPWidgets = (function () {
   }
 
   function detectWidgetId(query){
-    if(/\bsolve\b/.test(query))              return 'solve';
-    if(/clock|time|date/.test(query))        return 'clock';
-    if(/mood|emotion|feel/.test(query))      return 'mood';
-    if(/system|status|uptime|phase/.test(query)) return 'system';
-    if(/memor/.test(query))                  return 'memory';
-    if(/neural|interact|activit/.test(query))return 'neural';
-    if(/audio|mic|sound|listen/.test(query)) return 'audio';
-    if(/user|authoris|profile/.test(query))  return 'user';
-    if(/all|everything|full|hud/.test(query))return 'all';
+    if(/\bsolve\b/.test(query))                  return 'solve';
+    if(/clock|time|date/.test(query))             return 'clock';
+    if(/mood|emotion|feel/.test(query))           return 'mood';
+    if(/system|status|uptime|phase/.test(query))  return 'system';
+    if(/memor/.test(query))                       return 'memory';
+    if(/neural|interact|activit/.test(query))     return 'neural';
+    if(/audio|mic|sound|listen/.test(query))      return 'audio';
+    if(/user|authoris|profile/.test(query))       return 'user';
+    if(/all|everything|full|hud/.test(query))     return 'all';
     return null;
   }
 
-  // ── EXTRACT SOLVE PROBLEM FROM VOICE QUERY ──────────────────
   function extractSolveProblem(query) {
     return query
       .replace(/jarvis[\s,]*/gi, '')
@@ -771,55 +704,116 @@ window.PiPWidgets = (function () {
   async function handleVoiceCommand(action, meta){
     const query=(meta?.query||'').toLowerCase();
 
-    // ── SOLVE command — highest priority ──────────────────────
+    // ── SOLVE command ─────────────────────────────────────────
     if (/\bsolve\b/.test(query) && action === 'SHOW_HUD') {
       const problem = extractSolveProblem(query);
 
       if (!problem) {
+        // No problem spoken — try to read screen via Tesseract
         _solveState = {
-          answer: 'State your problem, Sir.',
-          category: 'AWAITING INPUT',
-          sub: 'e.g. "Jarvis, solve x² − 5x + 6 = 0"',
-          steps: [],
-          extra: '',
-          processing: false,
+          answer: 'Reading your screen…',
+          category: 'SCREEN SCAN',
+          sub: 'Looking for maths on your current tab',
+          steps: [], extra: '', processing: true,
         };
-      } else {
-        // Show processing state while we compute
-        _solveState = { ...(_solveState), processing: true };
 
-        // Open/update widget immediately so user sees the spinner
-        if (!widgets.has('solve')) {
-          await openWidget('solve');
-        }
+        if (!widgets.has('solve')) await openWidget('solve');
 
-        // Small delay so the spinner renders at least one frame
-        await new Promise(r => setTimeout(r, 400));
+        // Grab frame from screen stream
+        const screenText = await new Promise(function(resolve) {
+          const stream = window.state && window.state.screenStream;
+          if (!stream) { resolve(''); return; }
+          const videoEl = document.createElement('video');
+          videoEl.srcObject = stream;
+          videoEl.onloadedmetadata = function() {
+            videoEl.play();
+            setTimeout(function() {
+              const c = document.createElement('canvas');
+              c.width  = videoEl.videoWidth  || 1280;
+              c.height = videoEl.videoHeight || 720;
+              c.getContext('2d').drawImage(videoEl, 0, 0);
+              videoEl.pause();
+              const dataUrl = c.toDataURL('image/png');
+              // Use Tesseract if available
+              if (window.state && window.state.tesseractWorker && window.state.tesseractReady) {
+                window.state.tesseractWorker.recognize(dataUrl)
+                  .then(function(r){ resolve(r.data.text || ''); })
+                  .catch(function(){ resolve(''); });
+              } else {
+                resolve('');
+              }
+            }, 300);
+          };
+          videoEl.onerror = function(){ resolve(''); };
+        });
 
-        const result = computeSolve(problem);
-        if (result) {
-          _solveState = { ...result, processing: false };
-          notify(`Solved: ${result.answer}`);
+        if (screenText.trim()) {
+          const result = computeSolve(screenText.trim());
+          if (result) {
+            _solveState = { ...result, processing: false };
+            notify('Solved from screen: ' + result.answer);
+          } else {
+            _solveState = {
+              answer: 'No equation found on screen',
+              category: 'SCREEN SCAN',
+              sub: 'Say "Jarvis solve [problem]" with the equation spoken',
+              steps: [
+                'e.g. "Jarvis solve x squared minus 5x plus 6 equals 0"',
+                'e.g. "Jarvis solve 15 percent of 200"',
+                'e.g. "Jarvis solve is 97 prime"',
+              ],
+              extra: '', processing: false,
+            };
+          }
         } else {
           _solveState = {
-            answer: 'Could not parse that, Sir.',
-            category: 'PARSE ERROR',
-            sub: `Query: "${problem}"`,
-            steps: ['Try: "what is 15% of 200"', 'Or: "solve x² − 3x + 2 = 0"', 'Or: "is 97 prime"', 'Or: "72°F to Celsius"'],
-            extra: '',
-            processing: false,
+            answer: 'Say the problem aloud',
+            category: 'AWAITING INPUT',
+            sub: 'e.g. "Jarvis, solve 15% of 200"',
+            steps: [
+              'e.g. "Jarvis solve x squared minus 5x equals 0"',
+              'e.g. "Jarvis solve 72 fahrenheit to celsius"',
+              'e.g. "Jarvis solve is 97 prime"',
+            ],
+            extra: '', processing: false,
           };
-          notify(`Solve: could not parse "${problem}"`);
         }
+
+        return;
       }
 
-      // Open widget if not already open
-      if (!widgets.has('solve')) {
-        await openWidget('solve');
+      // Problem was spoken — solve immediately
+      _solveState = { ..._solveState, processing: true };
+
+      if (!widgets.has('solve')) await openWidget('solve');
+
+      await new Promise(r => setTimeout(r, 300));
+
+      const result = computeSolve(problem);
+      if (result) {
+        _solveState = { ...result, processing: false };
+        notify('Solved: ' + result.answer);
+      } else {
+        _solveState = {
+          answer: 'Could not parse that.',
+          category: 'PARSE ERROR',
+          sub: `Query: "${problem}"`,
+          steps: [
+            'Try: "Jarvis solve 15 percent of 200"',
+            'Try: "Jarvis solve x squared minus 3x plus 2 equals 0"',
+            'Try: "Jarvis solve is 97 prime"',
+            'Try: "Jarvis solve 72 fahrenheit to celsius"',
+          ],
+          extra: '', processing: false,
+        };
+        notify('Solve: could not parse "' + problem + '"');
       }
+
+      if (!widgets.has('solve')) await openWidget('solve');
       return;
     }
 
+    // ── HIDE HUD ──────────────────────────────────────────────
     if(action==='HIDE_HUD'){
       const targetId=detectWidgetId(query);
       if(targetId){
@@ -832,7 +826,7 @@ window.PiPWidgets = (function () {
       return;
     }
 
-    // SHOW_HUD (non-solve)
+    // ── SHOW HUD (non-solve) ──────────────────────────────────
     const targetId=detectWidgetId(query)||'all';
     notify(`Launching ${WIDGET_DEFS[targetId]?.label||targetId} HUD as Picture-in-Picture…`);
     await openWidget(targetId);
