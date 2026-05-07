@@ -8,16 +8,26 @@
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:'Share Tech Mono',monospace;color:#00c8ff}
 
+:root{
+  --blue:#00c8ff;
+  --blue-glow:rgba(0,200,255,0.35);
+  --amber:#ffaa00;
+  --red:#ff3333;
+  --green:#00ff88;
+  --bg:#010c14;
+  --bg2:#021828;
+  --text-dim:#3a6a88;
+}
+
 /* ── CORNER BRACKETS ── */
 .corner{position:fixed;width:36px;height:36px;pointer-events:none;z-index:50}
-.corner::before,.corner::after{content:'';position:absolute;background:#00c8ff;opacity:0.6}
+.corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.6}
 .corner::before{width:100%;height:1px;top:0}.corner::after{width:1px;height:100%;top:0}
-.corner .pip{position:absolute;width:4px;height:4px;background:#00c8ff;border-radius:50%;top:-2px;left:-2px;box-shadow:0 0 8px #00c8ff;animation:pipPulse 3s ease-in-out infinite}
+.corner .pip{position:absolute;width:4px;height:4px;background:var(--blue);border-radius:50%;top:-2px;left:-2px;box-shadow:0 0 8px var(--blue);animation:pipPulse 3s ease-in-out infinite}
 .corner.tl{top:14px;left:14px}.corner.tr{top:14px;right:14px;transform:scaleX(-1)}
 .corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}.corner.br{bottom:14px;right:14px;transform:scale(-1)}
 @keyframes pipPulse{0%,100%{opacity:1}50%{opacity:0.3}}
 
-/* ── SCANLINE ── */
 .scanline{position:fixed;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,200,255,0.1) 50%,transparent);animation:scan 10s linear infinite;pointer-events:none;z-index:2}
 @keyframes scan{from{top:-2px}to{top:100vh}}
 
@@ -25,82 +35,106 @@ html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:
 #layout{display:flex;width:100%;height:100vh;position:relative}
 
 /* ── LEFT SIDEBAR ── */
-#sidebar{width:220px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;padding:16px 12px;border-right:1px solid rgba(0,200,255,0.1);overflow-y:auto;z-index:10;background:rgba(1,12,20,0.8)}
-.sidebar-label{font-family:'Orbitron',monospace;font-size:0.42rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4);margin:8px 0 4px;text-transform:uppercase}
-.obj-btn{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.15);color:rgba(0,200,255,0.6);font-family:'Share Tech Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;padding:8px 10px;cursor:pointer;text-align:left;transition:all 0.2s;border-radius:2px;width:100%}
-.obj-btn:hover,.obj-btn.active{background:rgba(0,200,255,0.12);border-color:#00c8ff;color:#00c8ff}
-.obj-btn .obj-thumb{font-size:0.9rem;margin-right:6px}
+#sidebar{width:200px;flex-shrink:0;display:flex;flex-direction:column;gap:5px;padding:14px 10px;border-right:1px solid rgba(0,200,255,0.1);overflow-y:auto;z-index:10;background:rgba(1,12,20,0.85)}
+.sidebar-label{font-family:'Orbitron',monospace;font-size:0.4rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4);margin:8px 0 4px;text-transform:uppercase}
+.obj-btn{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.15);color:rgba(0,200,255,0.6);font-family:'Share Tech Mono',monospace;font-size:0.62rem;letter-spacing:0.1em;padding:7px 8px;cursor:pointer;text-align:left;transition:all 0.2s;border-radius:2px;width:100%;display:flex;align-items:center;gap:6px}
+.obj-btn:hover,.obj-btn.active{background:rgba(0,200,255,0.12);border-color:var(--blue);color:var(--blue)}
+.obj-btn .ico{font-size:0.85rem;flex-shrink:0}
 
 /* ── VIEWER CENTER ── */
 #viewer-wrap{flex:1;position:relative;display:flex;flex-direction:column}
-#viewer-hud-top{display:flex;justify-content:space-between;align-items:flex-start;padding:12px 20px 0;flex-shrink:0;z-index:10}
-.hud-block{display:flex;flex-direction:column;gap:2px}
-.hud-key{font-family:'Orbitron',monospace;font-size:0.4rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4)}
-.hud-val{font-size:0.75rem;letter-spacing:0.15em;color:#00c8ff}
+#hud-top{display:flex;justify-content:space-between;align-items:flex-start;padding:10px 18px 0;flex-shrink:0;z-index:10}
+.hud-key{font-family:'Orbitron',monospace;font-size:0.38rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4)}
+.hud-val{font-size:0.7rem;letter-spacing:0.15em;color:var(--blue);margin-top:2px}
 
-#model-frame{flex:1;position:relative;overflow:hidden}
-#model-iframe{width:100%;height:100%;border:none;background:transparent}
+/* ── THREE.JS CANVAS ── */
+#three-canvas{position:absolute;inset:0;width:100%!important;height:100%!important;z-index:1}
 
-/* Loading overlay */
+/* ── HOLOGRAM OVERLAY RINGS ── */
+#holo-rings{position:absolute;inset:0;pointer-events:none;z-index:2;display:flex;align-items:center;justify-content:center}
+.holo-ring{position:absolute;border-radius:50%;border:1px solid rgba(0,200,255,0.12);animation:ringPulse 4s ease-in-out infinite}
+.holo-ring:nth-child(1){width:320px;height:320px;animation-delay:0s}
+.holo-ring:nth-child(2){width:420px;height:420px;animation-delay:0.8s}
+.holo-ring:nth-child(3){width:520px;height:520px;animation-delay:1.6s;border-color:rgba(0,200,255,0.06)}
+@keyframes ringPulse{0%,100%{opacity:0.5;transform:scale(1)}50%{opacity:1;transform:scale(1.02)}}
+
+/* ── DATA STREAMS ── */
+.data-stream{position:absolute;top:0;bottom:0;width:1px;background:linear-gradient(to bottom,transparent,rgba(0,200,255,0.08) 30%,rgba(0,200,255,0.15) 50%,rgba(0,200,255,0.08) 70%,transparent);pointer-events:none;z-index:2;animation:streamFloat 8s linear infinite}
+@keyframes streamFloat{from{transform:translateX(0)}to{transform:translateX(2px)}}
+
+/* ── GESTURE HUD ── */
+#gesture-overlay{position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:15}
+#gesture-status-bar{position:absolute;top:50px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:rgba(1,12,20,0.8);border:1px solid rgba(0,200,255,0.2);padding:7px 18px;border-radius:2px;font-family:'Orbitron',monospace;font-size:0.42rem;letter-spacing:0.22em;color:rgba(0,200,255,0.7);transition:opacity 0.5s;opacity:0}
+#gesture-status-bar.show{opacity:1}
+#gesture-icon{font-size:1.1rem;margin-right:4px}
+#gesture-label{color:var(--blue)}
+
+/* Hand landmark canvas overlay */
+#hand-canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:14;opacity:0.6}
+
+/* ── SCAN LINES on model ── */
+#scan-overlay{position:absolute;inset:0;pointer-events:none;z-index:3;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,200,255,0.012) 3px,rgba(0,200,255,0.012) 4px);animation:scanShift 0.1s linear infinite}
+@keyframes scanShift{from{background-position:0 0}to{background-position:0 4px}}
+
+/* ── LOADING ── */
 #loading{position:absolute;inset:0;background:rgba(1,8,18,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:20}
-.load-ring{width:56px;height:56px;border:1.5px solid rgba(0,200,255,0.15);border-top-color:#00c8ff;border-radius:50%;animation:spin 1.2s linear infinite}
+.load-ring{width:52px;height:52px;border:1.5px solid rgba(0,200,255,0.15);border-top-color:var(--blue);border-radius:50%;animation:spin 1.2s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.load-text{font-family:'Orbitron',monospace;font-size:0.5rem;letter-spacing:0.3em;color:rgba(0,200,255,0.6)}
-.load-sub{font-size:0.55rem;color:rgba(0,200,255,0.35);letter-spacing:0.15em;text-align:center;max-width:300px;line-height:1.8}
+.load-text{font-family:'Orbitron',monospace;font-size:0.48rem;letter-spacing:0.3em;color:rgba(0,200,255,0.6)}
+.load-bar-wrap{width:200px;height:2px;background:rgba(0,200,255,0.1);border-radius:2px;overflow:hidden}
+.load-bar{height:100%;background:var(--blue);width:0%;transition:width 0.3s;box-shadow:0 0 8px var(--blue)}
 
-/* No model state */
-#no-model{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:5}
-.no-model-ring{width:120px;height:120px;border:1px solid rgba(0,200,255,0.15);border-radius:50%;display:flex;align-items:center;justify-content:center;animation:breathe 4s ease-in-out infinite}
+/* ── EMPTY STATE ── */
+#no-model{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:5}
+.no-model-ring{width:100px;height:100px;border:1px solid rgba(0,200,255,0.15);border-radius:50%;display:flex;align-items:center;justify-content:center;animation:breathe 4s ease-in-out infinite}
 @keyframes breathe{0%,100%{box-shadow:0 0 20px rgba(0,200,255,0.05)}50%{box-shadow:0 0 40px rgba(0,200,255,0.15)}}
-.no-model-icon{font-size:2.5rem;opacity:0.4}
-.no-model-text{font-family:'Orbitron',monospace;font-size:0.5rem;letter-spacing:0.3em;color:rgba(0,200,255,0.35)}
-.no-model-hint{font-size:0.6rem;color:rgba(0,200,255,0.25);letter-spacing:0.1em;text-align:center;line-height:2}
+.no-model-icon{font-size:2.2rem;opacity:0.35}
+.no-model-text{font-family:'Orbitron',monospace;font-size:0.48rem;letter-spacing:0.3em;color:rgba(0,200,255,0.35)}
+.no-model-hint{font-size:0.6rem;color:rgba(0,200,255,0.25);letter-spacing:0.08em;text-align:center;line-height:2.2}
 
-/* ── BOTTOM SEARCH BAR ── */
-#search-bar{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid rgba(0,200,255,0.1);flex-shrink:0;background:rgba(1,8,18,0.7)}
-#search-input{flex:1;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.2);color:#00c8ff;font-family:'Share Tech Mono',monospace;font-size:0.72rem;padding:9px 14px;border-radius:2px;outline:none;letter-spacing:0.08em;transition:border-color 0.2s}
+/* ── SEARCH BAR ── */
+#search-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid rgba(0,200,255,0.1);flex-shrink:0;background:rgba(1,8,18,0.8);position:relative;z-index:10}
+#search-input{flex:1;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.2);color:var(--blue);font-family:'Share Tech Mono',monospace;font-size:0.68rem;padding:8px 12px;border-radius:2px;outline:none;letter-spacing:0.06em}
 #search-input:focus{border-color:rgba(0,200,255,0.5)}
 #search-input::placeholder{color:rgba(0,200,255,0.25)}
-.bar-btn{background:transparent;border:1px solid rgba(0,200,255,0.3);color:#00c8ff;font-family:'Orbitron',monospace;font-size:0.42rem;letter-spacing:0.2em;padding:9px 14px;cursor:pointer;border-radius:2px;transition:all 0.2s;white-space:nowrap}
-.bar-btn:hover{background:rgba(0,200,255,0.1);border-color:#00c8ff}
-.bar-btn.mic-on{border-color:#ff3c3c;color:#ff6060;animation:micPulse 1s ease-in-out infinite}
+.bar-btn{background:transparent;border:1px solid rgba(0,200,255,0.3);color:var(--blue);font-family:'Orbitron',monospace;font-size:0.4rem;letter-spacing:0.18em;padding:8px 12px;cursor:pointer;border-radius:2px;transition:all 0.2s;white-space:nowrap}
+.bar-btn:hover{background:rgba(0,200,255,0.1);border-color:var(--blue)}
+.bar-btn.active{border-color:var(--red);color:var(--red);animation:micPulse 1s ease-in-out infinite}
 @keyframes micPulse{0%,100%{opacity:1}50%{opacity:0.4}}
 
-/* ── RIGHT INFO PANEL ── */
-#info-panel{width:200px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;padding:16px 12px;border-left:1px solid rgba(0,200,255,0.1);z-index:10;background:rgba(1,12,20,0.8)}
-.info-card{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.1);border-radius:2px;padding:10px 12px}
-.info-card-key{font-family:'Orbitron',monospace;font-size:0.38rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4);margin-bottom:5px}
-.info-card-val{font-size:0.68rem;color:#00c8ff;letter-spacing:0.1em;line-height:1.5}
-.info-card-val.small{font-size:0.58rem;color:rgba(0,200,255,0.6)}
+/* ── RIGHT PANEL ── */
+#info-panel{width:190px;flex-shrink:0;display:flex;flex-direction:column;gap:5px;padding:14px 10px;border-left:1px solid rgba(0,200,255,0.1);z-index:10;background:rgba(1,12,20,0.85)}
+.info-card{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.1);border-radius:2px;padding:9px 10px}
+.info-card-key{font-family:'Orbitron',monospace;font-size:0.36rem;letter-spacing:0.26em;color:rgba(0,200,255,0.4);margin-bottom:4px}
+.info-card-val{font-size:0.64rem;color:var(--blue);letter-spacing:0.08em;line-height:1.5}
+.info-card-val.dim{font-size:0.56rem;color:rgba(0,200,255,0.55)}
 
-/* Source badge */
-.source-badge{display:inline-flex;align-items:center;gap:4px;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.15);border-radius:2px;padding:3px 8px;font-size:0.52rem;color:rgba(0,200,255,0.5);margin-top:4px}
+/* ── GESTURE LEGEND ── */
+#gesture-legend{margin-top:auto;padding-top:8px;border-top:1px solid rgba(0,200,255,0.08)}
+.gest-row{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:0.52rem;color:rgba(0,200,255,0.45)}
+.gest-row .gi{font-size:0.85rem;width:18px;text-align:center;flex-shrink:0}
+.gest-title{font-family:'Orbitron',monospace;font-size:0.38rem;letter-spacing:0.22em;color:rgba(0,200,255,0.3);margin-bottom:5px}
 
-/* Gesture cam */
-#cam-wrap{margin-top:auto;padding-top:8px;border-top:1px solid rgba(0,200,255,0.08)}
-#gesture-cam{width:100%;aspect-ratio:4/3;object-fit:cover;border:1px solid rgba(0,200,255,0.2);border-radius:2px;opacity:0.75;background:#000;display:block}
-.cam-label{font-family:'Orbitron',monospace;font-size:0.38rem;letter-spacing:0.22em;color:rgba(0,200,255,0.35);text-align:center;margin-top:4px}
-#gesture-status{font-size:0.58rem;color:rgba(0,200,255,0.4);text-align:center;min-height:16px;margin-top:4px;letter-spacing:0.1em}
+/* ── CAM FEED (gesture) ── */
+#cam-wrap{border-top:1px solid rgba(0,200,255,0.08);padding-top:8px}
+#gesture-cam{width:100%;aspect-ratio:4/3;object-fit:cover;border:1px solid rgba(0,200,255,0.2);border-radius:2px;opacity:0.8;background:#000;display:block;transform:scaleX(-1)}
+.cam-label{font-family:'Orbitron',monospace;font-size:0.36rem;letter-spacing:0.2em;color:rgba(0,200,255,0.3);text-align:center;margin-top:3px}
+#cam-status{font-size:0.56rem;color:rgba(0,200,255,0.35);text-align:center;margin-top:3px;letter-spacing:0.08em;transition:color 0.3s}
+#cam-status.online{color:var(--green)}
 
-/* Search results dropdown */
-#results-list{position:absolute;bottom:100%;left:0;right:0;background:rgba(1,12,22,0.98);border:1px solid rgba(0,200,255,0.2);border-bottom:none;max-height:240px;overflow-y:auto;z-index:30;display:none}
-.result-item{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(0,200,255,0.06);transition:background 0.15s}
-.result-item:hover{background:rgba(0,200,255,0.07)}
-.result-thumb{width:44px;height:44px;object-fit:cover;border:1px solid rgba(0,200,255,0.2);border-radius:2px;background:#001122;flex-shrink:0}
-.result-info{flex:1;min-width:0}
-.result-name{font-size:0.68rem;color:#00c8ff;letter-spacing:0.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.result-src{font-size:0.52rem;color:rgba(0,200,255,0.4);letter-spacing:0.1em;margin-top:2px}
+/* ── TICKER ── */
+#ticker{position:fixed;bottom:0;left:0;right:0;height:19px;background:rgba(1,8,18,0.92);border-top:1px solid rgba(0,200,255,0.07);overflow:hidden;display:flex;align-items:center;z-index:40;pointer-events:none}
+#ticker::before{content:'▶';font-size:0.44rem;color:var(--blue);padding:0 10px;flex-shrink:0;opacity:0.5}
+.ticker-track{display:flex;white-space:nowrap;animation:tickerScroll 50s linear infinite;font-size:0.5rem;color:rgba(0,200,255,0.35);letter-spacing:0.12em}
+.ticker-item{padding:0 34px}.ticker-item.blue{color:rgba(0,200,255,0.65)}
+@keyframes tickerScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 
-/* Toast */
-#toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.3);color:#00c8ff;font-family:'Orbitron',monospace;font-size:0.45rem;letter-spacing:0.22em;padding:8px 20px;border-radius:2px;z-index:100;opacity:0;transition:opacity 0.3s;pointer-events:none}
+/* ── TOAST ── */
+#toast{position:fixed;top:56px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.3);color:var(--blue);font-family:'Orbitron',monospace;font-size:0.42rem;letter-spacing:0.2em;padding:7px 18px;border-radius:2px;z-index:100;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap}
 #toast.show{opacity:1}
 
-/* Ticker */
-#ticker{position:fixed;bottom:0;left:0;right:0;height:20px;background:rgba(1,8,18,0.9);border-top:1px solid rgba(0,200,255,0.07);overflow:hidden;display:flex;align-items:center;z-index:40}
-#ticker::before{content:'▶';font-size:0.45rem;color:#00c8ff;padding:0 10px;flex-shrink:0;opacity:0.5}
-.ticker-track{display:flex;white-space:nowrap;animation:tickerScroll 50s linear infinite;font-size:0.5rem;color:rgba(0,200,255,0.35);letter-spacing:0.14em}
-.ticker-item{padding:0 36px}.ticker-item.blue{color:rgba(0,200,255,0.6)}
-@keyframes tickerScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+/* Hologram glow effect on model area */
+#viewer-wrap::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 50%,rgba(0,200,255,0.04) 0%,transparent 70%);pointer-events:none;z-index:0}
 </style>
 </head>
 <body>
@@ -110,136 +144,147 @@ html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:
 <div class="corner tr"><div class="pip"></div></div>
 <div class="corner bl"><div class="pip"></div></div>
 <div class="corner br"><div class="pip"></div></div>
-
 <div id="toast"></div>
 
 <div id="layout">
 
-  <!-- LEFT: Object library -->
+  <!-- LEFT SIDEBAR -->
   <div id="sidebar">
-    <div style="font-family:'Orbitron',monospace;font-size:0.55rem;font-weight:700;letter-spacing:0.35em;color:#00c8ff;margin-bottom:8px">J.A.R.V.I.S</div>
-    <div style="font-size:0.48rem;letter-spacing:0.2em;color:rgba(0,200,255,0.35);margin-bottom:12px">HOLOGRAPHIC VIEWER</div>
+    <div style="font-family:'Orbitron',monospace;font-size:0.52rem;font-weight:700;letter-spacing:0.32em;color:var(--blue);margin-bottom:6px">J.A.R.V.I.S</div>
+    <div style="font-size:0.46rem;letter-spacing:0.18em;color:rgba(0,200,255,0.35);margin-bottom:10px">HOLOGRAPHIC VIEWER</div>
 
     <div class="sidebar-label">Quick Load</div>
-    <button class="obj-btn" onclick="quickLoad('carbon atom 3d model')"><span class="obj-thumb">⬡</span>Carbon Atom</button>
-    <button class="obj-btn" onclick="quickLoad('DNA double helix 3d')"><span class="obj-thumb">⚬</span>DNA Helix</button>
-    <button class="obj-btn" onclick="quickLoad('water molecule 3d')"><span class="obj-thumb">◉</span>Water Molecule</button>
-    <button class="obj-btn" onclick="quickLoad('smart glasses 3d model')"><span class="obj-thumb">◈</span>Smart Glasses</button>
-    <button class="obj-btn" onclick="quickLoad('human brain 3d model')"><span class="obj-thumb">◎</span>Human Brain</button>
-    <button class="obj-btn" onclick="quickLoad('iron crystal lattice 3d')"><span class="obj-thumb">▣</span>Iron Lattice</button>
-    <button class="obj-btn" onclick="quickLoad('satellite 3d model')"><span class="obj-thumb">✦</span>Satellite</button>
-    <button class="obj-btn" onclick="quickLoad('boeing 747 3d model')"><span class="obj-thumb">✈</span>Boeing 747</button>
-    <button class="obj-btn" onclick="quickLoad('human heart 3d model')"><span class="obj-thumb">♡</span>Human Heart</button>
-    <button class="obj-btn" onclick="quickLoad('benzene ring molecule 3d')"><span class="obj-thumb">⬢</span>Benzene Ring</button>
-    <button class="obj-btn" onclick="quickLoad('neuron cell 3d model')"><span class="obj-thumb">⚡</span>Neuron</button>
-    <button class="obj-btn" onclick="quickLoad('ISS international space station 3d')"><span class="obj-thumb">🛰</span>Space Station</button>
+    <button class="obj-btn" onclick="quickLoad('carbon_atom')"><span class="ico">⬡</span>Carbon Atom</button>
+    <button class="obj-btn" onclick="quickLoad('dna')"><span class="ico">⚬</span>DNA Helix</button>
+    <button class="obj-btn" onclick="quickLoad('molecule')"><span class="ico">◉</span>Water Molecule</button>
+    <button class="obj-btn" onclick="quickLoad('torus_knot')"><span class="ico">◈</span>Torus Knot</button>
+    <button class="obj-btn" onclick="quickLoad('crystal')"><span class="ico">◊</span>Crystal Lattice</button>
+    <button class="obj-btn" onclick="quickLoad('sphere_wire')"><span class="ico">◎</span>Neural Sphere</button>
+    <button class="obj-btn" onclick="quickLoad('tetra')"><span class="ico">△</span>Tetrahedron</button>
+    <button class="obj-btn" onclick="quickLoad('helix')"><span class="ico">∿</span>Helix Strand</button>
+    <button class="obj-btn" onclick="quickLoad('icosa')"><span class="ico">⬢</span>Icosahedron</button>
+    <button class="obj-btn" onclick="quickLoad('saturn')"><span class="ico">○</span>Orbital Ring</button>
+    <button class="obj-btn" onclick="quickLoad('brain')"><span class="ico">⚡</span>Neural Network</button>
+    <button class="obj-btn" onclick="quickLoad('reactor')"><span class="ico">◉</span>Arc Reactor</button>
 
-    <div class="sidebar-label" style="margin-top:12px">Sources</div>
-    <div style="font-size:0.55rem;color:rgba(0,200,255,0.35);line-height:2;letter-spacing:0.08em">
-      ● Sketchfab<br>
-      ● NIH 3D Print Exchange<br>
-      ● NASA 3D Resources<br>
-      ● RCSB Protein Data Bank<br>
-      ● Smithsonian 3D
+    <div class="sidebar-label" style="margin-top:10px">Rendering</div>
+    <div style="font-size:0.54rem;color:rgba(0,200,255,0.35);line-height:2.2;letter-spacing:0.06em">
+      ● Three.js WebGL<br>
+      ● Self-hosted / offline<br>
+      ● Holographic shader<br>
+      ● MediaPipe Hands
     </div>
   </div>
 
-  <!-- CENTER: Viewer -->
+  <!-- CENTER VIEWER -->
   <div id="viewer-wrap">
-    <div id="viewer-hud-top">
-      <div class="hud-block">
+    <div id="hud-top">
+      <div>
         <div class="hud-key">CURRENT OBJECT</div>
         <div class="hud-val" id="hud-objname">— AWAITING SCAN —</div>
       </div>
-      <div class="hud-block" style="text-align:center">
-        <div class="hud-key">SOURCE</div>
-        <div class="hud-val" id="hud-source" style="font-size:0.6rem;color:rgba(0,200,255,0.5)">—</div>
+      <div style="text-align:center">
+        <div class="hud-key">RENDER MODE</div>
+        <div class="hud-val" id="hud-mode" style="font-size:0.58rem;color:rgba(0,200,255,0.55)">HOLOGRAPHIC</div>
       </div>
-      <div class="hud-block" style="text-align:right">
+      <div style="text-align:right">
         <div class="hud-key">STATUS</div>
-        <div class="hud-val" id="hud-status" style="font-size:0.65rem">STANDBY</div>
+        <div class="hud-val" id="hud-status" style="font-size:0.62rem">STANDBY</div>
       </div>
     </div>
 
-    <div id="model-frame">
-      <!-- Sketchfab / model embed goes here -->
-      <iframe id="model-iframe" allowfullscreen allow="autoplay; fullscreen; xr-spatial-tracking" style="display:none"></iframe>
+    <!-- Three.js canvas -->
+    <canvas id="three-canvas"></canvas>
 
-      <!-- Loading state -->
-      <div id="loading" style="display:none">
-        <div class="load-ring"></div>
-        <div class="load-text" id="load-text">SCANNING DATABASE</div>
-        <div class="load-sub" id="load-sub">Querying Sketchfab · NIH 3D · NASA · RCSB…</div>
+    <!-- Hologram overlay -->
+    <div id="holo-rings">
+      <div class="holo-ring"></div>
+      <div class="holo-ring"></div>
+      <div class="holo-ring"></div>
+    </div>
+    <div class="data-stream" style="left:25%"></div>
+    <div class="data-stream" style="left:50%;animation-delay:-4s"></div>
+    <div class="data-stream" style="left:75%;animation-delay:-2s"></div>
+    <div id="scan-overlay"></div>
+
+    <!-- Hand tracking canvas overlay -->
+    <canvas id="hand-canvas"></canvas>
+
+    <!-- Gesture status bar -->
+    <div id="gesture-overlay">
+      <div id="gesture-status-bar">
+        <span id="gesture-icon">✋</span>
+        <span id="gesture-label">INITIALISING</span>
       </div>
+    </div>
 
-      <!-- No model / start state -->
-      <div id="no-model" style="display:flex">
-        <div class="no-model-ring"><div class="no-model-icon">⬡</div></div>
-        <div class="no-model-text">HOLOGRAPHIC PROJECTOR READY</div>
-        <div class="no-model-hint">
-          Say or type what you want to see<br>
-          "show me smart glasses"<br>
-          "show me a carbon atom"<br>
-          "show me a human brain"
-        </div>
+    <!-- Loading -->
+    <div id="loading">
+      <div class="load-ring"></div>
+      <div class="load-text" id="load-text">INITIALISING ENGINE</div>
+      <div class="load-bar-wrap"><div class="load-bar" id="load-bar"></div></div>
+    </div>
+
+    <!-- Empty state -->
+    <div id="no-model" style="display:none">
+      <div class="no-model-ring"><div class="no-model-icon">⬡</div></div>
+      <div class="no-model-text">HOLOGRAPHIC PROJECTOR READY</div>
+      <div class="no-model-hint">
+        Select an object from the library<br>
+        or type in the search bar<br>
+        · Use hand gestures to interact ·
       </div>
-
-      <!-- Search results -->
-      <div id="results-list"></div>
     </div>
 
     <!-- Search bar -->
-    <div id="search-bar" style="position:relative">
-      <div id="results-list"></div>
-      <input type="text" id="search-input"
-        placeholder='Say or type: "show me smart glasses" · "show me a DNA helix" · "show me benzene"…'
-        onkeydown="handleKey(event)" oninput="onInputChange(this.value)"/>
-      <button class="bar-btn" onclick="doSearch()">⚡ SCAN</button>
+    <div id="search-bar">
+      <input type="text" id="search-input" placeholder='Search objects… "dna" · "crystal" · "atom" · "helix"' onkeydown="handleKey(event)"/>
+      <button class="bar-btn" onclick="doSearch()">⚡ LOAD</button>
       <button class="bar-btn" id="mic-btn" onclick="toggleMic()">🎙 VOICE</button>
+      <button class="bar-btn" id="wireframe-btn" onclick="toggleWireframe()">WIRE</button>
+      <button class="bar-btn" id="rotate-btn" onclick="toggleAutoRotate()">AUTO ◷</button>
     </div>
   </div>
 
-  <!-- RIGHT: Info + gesture cam -->
+  <!-- RIGHT PANEL -->
   <div id="info-panel">
     <div class="info-card">
       <div class="info-card-key">OBJECT</div>
       <div class="info-card-val" id="inf-name">—</div>
     </div>
     <div class="info-card">
-      <div class="info-card-key">DESCRIPTION</div>
-      <div class="info-card-val small" id="inf-desc">Select an object to begin scanning.</div>
+      <div class="info-card-key">VERTICES</div>
+      <div class="info-card-val" id="inf-verts">—</div>
     </div>
     <div class="info-card">
-      <div class="info-card-key">AUTHOR</div>
-      <div class="info-card-val small" id="inf-author">—</div>
+      <div class="info-card-key">ROTATION</div>
+      <div class="info-card-val dim" id="inf-rot">X: 0° Y: 0° Z: 0°</div>
     </div>
     <div class="info-card">
-      <div class="info-card-key">LICENCE</div>
-      <div class="info-card-val small" id="inf-licence">—</div>
+      <div class="info-card-key">SCALE</div>
+      <div class="info-card-val dim" id="inf-scale">1.00×</div>
     </div>
-    <div class="info-card" id="inf-link-card" style="display:none">
-      <div class="info-card-key">OPEN IN</div>
-      <a id="inf-link" href="#" target="_blank" rel="noopener"
-        style="font-size:0.6rem;color:#00c8ff;text-decoration:none;letter-spacing:0.1em;display:block;margin-top:4px">
-        ↗ VIEW ON SKETCHFAB
-      </a>
+    <div class="info-card">
+      <div class="info-card-key">GESTURE MODE</div>
+      <div class="info-card-val dim" id="inf-gesture">INACTIVE</div>
     </div>
 
-    <div class="info-card" style="margin-top:4px">
-      <div class="info-card-key">CONTROLS</div>
-      <div class="info-card-val small" style="line-height:2">
-        Left drag → rotate<br>
-        Right drag → pan<br>
-        Scroll → zoom<br>
-        Double-click → focus
-      </div>
+    <!-- Gesture legend -->
+    <div id="gesture-legend">
+      <div class="gest-title">HAND CONTROLS</div>
+      <div class="gest-row"><span class="gi">✋</span>Open palm → rotate</div>
+      <div class="gest-row"><span class="gi">👊</span>Fist → zoom out</div>
+      <div class="gest-row"><span class="gi">☝️</span>1 finger → pan X</div>
+      <div class="gest-row"><span class="gi">✌️</span>2 fingers → zoom in</div>
+      <div class="gest-row"><span class="gi">🤙</span>Pinch → spin fast</div>
+      <div class="gest-row"><span class="gi">🖐</span>5 fingers → reset</div>
     </div>
 
     <!-- Gesture cam -->
     <div id="cam-wrap">
       <video id="gesture-cam" autoplay muted playsinline></video>
-      <div class="cam-label">GESTURE CAM</div>
-      <div id="gesture-status">● OFFLINE</div>
+      <div class="cam-label">GESTURE CAMERA</div>
+      <div id="cam-status">● OFFLINE</div>
     </div>
   </div>
 
@@ -250,313 +295,919 @@ html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:
   <div class="ticker-track" id="ticker-track"></div>
 </div>
 
+<!-- Three.js r128 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
 <script>
-// ── TICKER ────────────────────────────────────────────────────
-const TICKER_ITEMS = [
-  {t:'J.A.R.V.I.S HOLOGRAPHIC VIEWER',blue:true},
-  {t:'REAL 3D MODELS FROM PUBLIC DATABASES'},
-  {t:'SOURCES: SKETCHFAB · NIH 3D · NASA · RCSB · SMITHSONIAN',blue:true},
-  {t:'SAY WHAT YOU WANT TO SEE'},
-  {t:'VOICE COMMANDS ACTIVE'},
-  {t:'DRAG TO ROTATE · SCROLL TO ZOOM',blue:true},
-  {t:'HAND GESTURE TRACKING AVAILABLE'},
-  {t:'FULLY INTERACTIVE 3D SCAN'},
-];
-(function buildTicker(){
-  const track = document.getElementById('ticker-track');
-  const all = [...TICKER_ITEMS,...TICKER_ITEMS];
-  track.innerHTML = all.map(i=>`<span class="ticker-item${i.blue?' blue':''}">${i.t}</span><span class="ticker-item" style="opacity:.25">·</span>`).join('');
-})();
+// ═══════════════════════════════════════════════════════════════
+// J.A.R.V.I.S HOLOGRAM VIEWER — SELF-HOSTED 3D + HAND GESTURES
+// ═══════════════════════════════════════════════════════════════
 
-// ── SKETCHFAB API (free, no key needed for embed search) ──────
-// We use Sketchfab's public oEmbed + search API
-const SKETCHFAB_SEARCH = 'https://api.sketchfab.com/v3/models';
+// ── TICKER ──────────────────────────────────────────────────
+const TICKERS=[{t:'J.A.R.V.I.S HOLOGRAPHIC VIEWER',b:true},{t:'SELF-HOSTED · NO EXTERNAL DEPENDENCIES'},{t:'MEDIAPIPE HAND TRACKING ACTIVE',b:true},{t:'THREE.JS WEBGL RENDERER ONLINE'},{t:'GESTURE CONTROLS: PALM=ROTATE · FIST=ZOOM · PINCH=SPIN',b:true},{t:'5 FINGERS=RESET · 2 FINGERS=ZOOM IN · 1 FINGER=PAN'},{t:'HOLOGRAPHIC SHADER ENABLED',b:true}];
+(()=>{const t=document.getElementById('ticker-track');const all=[...TICKERS,...TICKERS];t.innerHTML=all.map(i=>`<span class="ticker-item${i.b?' blue':''}">${i.t}</span><span class="ticker-item" style="opacity:.25">·</span>`).join('')})();
 
-let currentResults = [];
-let isListening = false;
-let recognition = null;
-let debounceTimer = null;
+// ── THREE.JS SETUP ──────────────────────────────────────────
+const canvas = document.getElementById('three-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setClearColor(0x000000, 0);
+renderer.shadowMap.enabled = true;
 
-function toast(msg, dur=2500) {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), dur);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
+camera.position.set(0, 0, 5);
+
+// Resize handler
+function resizeRenderer() {
+  const w = canvas.parentElement.clientWidth;
+  const h = canvas.parentElement.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
 }
+resizeRenderer();
+window.addEventListener('resize', resizeRenderer);
 
-function setStatus(s) { document.getElementById('hud-status').textContent = s; }
-function setObjName(n) { document.getElementById('hud-objname').textContent = n.toUpperCase(); }
-function setSource(s) { document.getElementById('hud-source').textContent = s; }
-
-// ── SEARCH SKETCHFAB ──────────────────────────────────────────
-async function searchSketchfab(query) {
-  const params = new URLSearchParams({
-    q: query,
-    type: 'models',
-    downloadable: false,
-    count: 8,
-    sort_by: '-viewCount',
-    // Only free/embeddable models
+// ── HOLOGRAM MATERIAL ────────────────────────────────────────
+function createHologramMaterial(color = 0x00c8ff, wireframe = false) {
+  return new THREE.MeshBasicMaterial({
+    color,
+    wireframe,
+    transparent: true,
+    opacity: wireframe ? 0.55 : 0.75,
+    side: THREE.DoubleSide,
   });
-  const url = `${SKETCHFAB_SEARCH}?${params}`;
-  const res = await fetch(url, {
-    headers: { 'Accept': 'application/json' }
+}
+
+function createGlowMaterial(color = 0x00c8ff) {
+  return new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.08,
+    side: THREE.BackSide,
   });
-  if (!res.ok) throw new Error(`Sketchfab API ${res.status}`);
-  const data = await res.json();
-  return (data.results || []).map(m => ({
-    uid:      m.uid,
-    name:     m.name,
-    author:   m.user?.displayName || 'Unknown',
-    desc:     m.description || '',
-    licence:  m.license?.label || 'Standard',
-    thumb:    m.thumbnails?.images?.[0]?.url || '',
-    embedUrl: `https://sketchfab.com/models/${m.uid}/embed?autostart=1&ui_theme=dark&ui_color=00c8ff&camera=0&transparent=0&preload=1`,
-    pageUrl:  `https://sketchfab.com/models/${m.uid}`,
-    views:    m.viewCount,
-    source:   'Sketchfab',
-  }));
 }
 
-// ── RENDER SEARCH RESULTS ─────────────────────────────────────
-function renderResults(results) {
-  const list = document.getElementById('results-list');
-  if (!results.length) {
-    list.style.display = 'none';
-    return;
-  }
-  list.innerHTML = results.map((r, i) => `
-    <div class="result-item" onclick="loadModel(${i})">
-      <img class="result-thumb" src="${r.thumb}" alt="" onerror="this.style.display='none'"/>
-      <div class="result-info">
-        <div class="result-name">${r.name}</div>
-        <div class="result-src">${r.source} · ${r.author}</div>
-      </div>
-    </div>
-  `).join('');
-  list.style.display = 'block';
+// ── SCENE STATE ─────────────────────────────────────────────
+const state = {
+  model: null,
+  glow: null,
+  particles: null,
+  autoRotate: true,
+  wireframe: false,
+  scale: 1.0,
+  rotX: 0, rotY: 0, rotZ: 0,
+  targetScale: 1.0,
+  targetRotX: 0, targetRotY: 0,
+};
+
+// ── LIGHTING ─────────────────────────────────────────────────
+const ambientLight = new THREE.AmbientLight(0x003344, 0.8);
+scene.add(ambientLight);
+const dirLight = new THREE.DirectionalLight(0x00c8ff, 1.5);
+dirLight.position.set(5, 5, 5);
+scene.add(dirLight);
+const dirLight2 = new THREE.DirectionalLight(0x0033aa, 0.8);
+dirLight2.position.set(-5, -3, -5);
+scene.add(dirLight2);
+const pointLight = new THREE.PointLight(0x00ffff, 2, 20);
+pointLight.position.set(0, 0, 3);
+scene.add(pointLight);
+
+// ── PARTICLE FIELD ───────────────────────────────────────────
+function createParticles() {
+  if (state.particles) scene.remove(state.particles);
+  const geo = new THREE.BufferGeometry();
+  const count = 600;
+  const pos = new Float32Array(count * 3);
+  for (let i = 0; i < count * 3; i++) pos[i] = (Math.random() - 0.5) * 12;
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const mat = new THREE.PointsMaterial({ color: 0x00c8ff, size: 0.025, transparent: true, opacity: 0.35 });
+  state.particles = new THREE.Points(geo, mat);
+  scene.add(state.particles);
 }
+createParticles();
 
-// ── LOAD MODEL INTO IFRAME ────────────────────────────────────
-function loadModel(idx) {
-  const r = currentResults[idx];
-  if (!r) return;
+// ── MODEL GENERATORS ─────────────────────────────────────────
+const MODELS = {
+  carbon_atom: () => {
+    const group = new THREE.Group();
+    // Nucleus
+    const nucGeo = new THREE.SphereGeometry(0.3, 16, 16);
+    const nucMat = new THREE.MeshBasicMaterial({ color: 0x00ffaa, transparent: true, opacity: 0.9, wireframe: false });
+    group.add(new THREE.Mesh(nucGeo, nucMat));
+    // Glow
+    const glowGeo = new THREE.SphereGeometry(0.38, 16, 16);
+    group.add(new THREE.Mesh(glowGeo, createGlowMaterial(0x00ffaa)));
+    // Electron shells
+    [1.2, 2.0, 2.8].forEach((r, i) => {
+      const ringGeo = new THREE.TorusGeometry(r, 0.02, 8, 64);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.5 - i * 0.1 });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.rotation.x = Math.random() * Math.PI;
+      ring.rotation.y = Math.random() * Math.PI;
+      group.add(ring);
+      // Electrons
+      const eCount = [2, 4, 6][i];
+      for (let e = 0; e < eCount; e++) {
+        const eGeo = new THREE.SphereGeometry(0.08, 8, 8);
+        const eMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 });
+        const electron = new THREE.Mesh(eGeo, eMat);
+        const angle = (e / eCount) * Math.PI * 2;
+        electron.position.set(r * Math.cos(angle), r * Math.sin(angle) * 0.2, r * Math.sin(angle));
+        group.add(electron);
+      }
+    });
+    return { group, name: 'CARBON ATOM', verts: 3200 };
+  },
 
-  document.getElementById('results-list').style.display = 'none';
-  document.getElementById('no-model').style.display = 'none';
-  document.getElementById('loading').style.display = 'flex';
-  document.getElementById('load-text').textContent = 'LOADING MODEL';
-  document.getElementById('load-sub').textContent = `Fetching "${r.name}" from ${r.source}…`;
-
-  setObjName(r.name);
-  setSource(r.source);
-  setStatus('LOADING');
-
-  // Fill info panel
-  document.getElementById('inf-name').textContent = r.name;
-  document.getElementById('inf-desc').textContent = (r.desc || 'No description.').slice(0, 160) + (r.desc && r.desc.length > 160 ? '…' : '');
-  document.getElementById('inf-author').textContent = r.author;
-  document.getElementById('inf-licence').textContent = r.licence;
-
-  const linkCard = document.getElementById('inf-link-card');
-  const linkEl   = document.getElementById('inf-link');
-  linkCard.style.display = 'block';
-  linkEl.href = r.pageUrl;
-  linkEl.textContent = `↗ VIEW ON ${r.source.toUpperCase()}`;
-
-  const iframe = document.getElementById('model-iframe');
-  iframe.style.display = 'none';
-  iframe.onload = () => {
-    document.getElementById('loading').style.display = 'none';
-    iframe.style.display = 'block';
-    setStatus('SCANNING');
-    toast(`SCAN COMPLETE — ${r.name.toUpperCase()}`);
-
-    // Tell parent JARVIS if embedded
-    if (window.addMsg) window.addMsg('jarvis', `Holographic scan loaded: ${r.name} — by ${r.author} on ${r.source}.`);
-  };
-  iframe.src = r.embedUrl;
-
-  // Timeout fallback
-  setTimeout(()=>{
-    if (document.getElementById('loading').style.display !== 'none') {
-      document.getElementById('loading').style.display = 'none';
-      iframe.style.display = 'block';
-      setStatus('ONLINE');
+  dna: () => {
+    const group = new THREE.Group();
+    const segments = 40;
+    const radius = 0.8;
+    const pitch = 0.18;
+    for (let i = 0; i < segments; i++) {
+      const t = i / segments;
+      const angle = t * Math.PI * 6;
+      const y = (t - 0.5) * 8;
+      // Strand 1
+      const s1 = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.85 }));
+      s1.position.set(radius * Math.cos(angle), y, radius * Math.sin(angle));
+      group.add(s1);
+      // Strand 2
+      const s2 = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.85 }));
+      s2.position.set(radius * Math.cos(angle + Math.PI), y, radius * Math.sin(angle + Math.PI));
+      group.add(s2);
+      // Cross bridge
+      if (i % 3 === 0) {
+        const bridgeGeo = new THREE.CylinderGeometry(0.015, 0.015, radius * 2, 4);
+        const bridge = new THREE.Mesh(bridgeGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 }));
+        bridge.position.set(0, y, 0);
+        bridge.rotation.z = Math.PI / 2;
+        bridge.rotation.y = angle;
+        group.add(bridge);
+      }
     }
-  }, 8000);
-}
+    return { group, name: 'DNA DOUBLE HELIX', verts: segments * 400 };
+  },
 
-// ── MAIN SEARCH FLOW ──────────────────────────────────────────
-async function doSearch(query) {
-  const q = query || document.getElementById('search-input').value.trim();
-  if (!q) return;
+  molecule: () => {
+    const group = new THREE.Group();
+    // Oxygen (center)
+    const oGeo = new THREE.SphereGeometry(0.45, 16, 16);
+    group.add(new THREE.Mesh(oGeo, new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.85 })));
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 16), createGlowMaterial(0xff4444)));
+    // Hydrogens
+    [[-1.2, -0.8, 0], [1.2, -0.8, 0]].forEach(pos => {
+      const hGeo = new THREE.SphereGeometry(0.28, 12, 12);
+      const h = new THREE.Mesh(hGeo, new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.85 }));
+      h.position.set(...pos);
+      group.add(h);
+      group.add(new THREE.Mesh(new THREE.SphereGeometry(0.36, 12, 12), createGlowMaterial(0x4488ff)));
+      // Bond
+      const bGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.2, 6);
+      const bond = new THREE.Mesh(bGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 }));
+      bond.position.set(pos[0] * 0.55, pos[1] * 0.55, 0);
+      bond.rotation.z = Math.atan2(pos[1], pos[0]) + Math.PI / 2;
+      group.add(bond);
+    });
+    return { group, name: 'WATER MOLECULE H₂O', verts: 1600 };
+  },
 
-  // Strip common JARVIS command words
-  const cleaned = q
-    .replace(/^(jarvis[,.]?\s*)?(show me|scan|search for|find|pull up|load|display|give me|what does)\s+(a |an |the )?/i, '')
-    .replace(/\s*(3d|model|scan|hologram)$/i, '')
-    .trim() || q;
+  torus_knot: () => {
+    const geo = new THREE.TorusKnotGeometry(1.2, 0.3, 120, 16, 3, 5);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x00c8ff, wireframe: true, transparent: true, opacity: 0.6 });
+    const mesh = new THREE.Mesh(geo, mat);
+    const solid = new THREE.Mesh(new THREE.TorusKnotGeometry(1.2, 0.28, 100, 12, 3, 5),
+      new THREE.MeshBasicMaterial({ color: 0x003355, transparent: true, opacity: 0.4 }));
+    const group = new THREE.Group();
+    group.add(solid, mesh);
+    return { group, name: 'TORUS KNOT', verts: geo.attributes.position.count };
+  },
 
-  document.getElementById('results-list').style.display = 'none';
-  document.getElementById('no-model').style.display = 'none';
-  document.getElementById('loading').style.display = 'flex';
-  document.getElementById('load-text').textContent = 'SCANNING DATABASE';
-  document.getElementById('load-sub').textContent = `Querying public 3D databases for "${cleaned}"…`;
-  setStatus('SEARCHING');
-  setObjName('SEARCHING…');
-
-  try {
-    const results = await searchSketchfab(cleaned);
-    currentResults = results;
-
-    document.getElementById('loading').style.display = 'none';
-
-    if (!results.length) {
-      toast('NO RESULTS — TRY A DIFFERENT SEARCH');
-      setStatus('NO RESULTS');
-      document.getElementById('no-model').style.display = 'flex';
-      document.getElementById('no-model').querySelector('.no-model-hint').innerHTML =
-        `No 3D models found for "<b>${cleaned}</b>"<br>Try: "carbon atom" · "smart glasses" · "human brain"`;
-      return;
+  crystal: () => {
+    const group = new THREE.Group();
+    const positions = [];
+    for (let x = -2; x <= 2; x++)
+    for (let y = -2; y <= 2; y++)
+    for (let z = -2; z <= 2; z++) {
+      if (Math.abs(x)+Math.abs(y)+Math.abs(z) <= 4) positions.push([x,y,z]);
     }
+    positions.forEach(([x,y,z]) => {
+      const s = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0),
+        new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.5 + Math.random()*0.4, wireframe: Math.random() > 0.7 }));
+      s.position.set(x * 0.9, y * 0.9, z * 0.9);
+      group.add(s);
+    });
+    return { group, name: 'CRYSTAL LATTICE', verts: positions.length * 6 };
+  },
 
-    // Auto-load best result, show rest in dropdown
-    renderResults(results);
-    loadModel(0);
+  sphere_wire: () => {
+    const group = new THREE.Group();
+    // Outer wireframe
+    const outerGeo = new THREE.SphereGeometry(1.8, 24, 16);
+    group.add(new THREE.Mesh(outerGeo, new THREE.MeshBasicMaterial({ color: 0x00c8ff, wireframe: true, transparent: true, opacity: 0.25 })));
+    // Inner glow sphere
+    const innerGeo = new THREE.SphereGeometry(0.8, 16, 16);
+    group.add(new THREE.Mesh(innerGeo, new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.15 })));
+    // Nodes
+    for (let i = 0; i < 80; i++) {
+      const phi = Math.acos(-1 + (2 * i) / 80);
+      const theta = Math.sqrt(80 * Math.PI) * phi;
+      const r = 1.8;
+      const node = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6),
+        new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.9 }));
+      node.position.setFromSphericalCoords(r, phi, theta);
+      group.add(node);
+    }
+    return { group, name: 'NEURAL SPHERE', verts: 80 * 12 };
+  },
 
-  } catch (err) {
-    console.error('[HOLOGRAM]', err);
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('no-model').style.display = 'flex';
-    setStatus('ERROR');
-    toast('SEARCH ERROR — CHECK NETWORK');
+  tetra: () => {
+    const group = new THREE.Group();
+    for (let i = 0; i < 3; i++) {
+      const scale = 1 - i * 0.25;
+      const geo = new THREE.TetrahedronGeometry(1.5 * scale, 0);
+      const wire = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x00c8ff, wireframe: true, transparent: true, opacity: 0.7 - i * 0.15 }));
+      const solid = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x003355, transparent: true, opacity: 0.2 }));
+      const sub = new THREE.Group();
+      sub.add(solid, wire);
+      sub.rotation.y = i * (Math.PI * 2 / 3);
+      group.add(sub);
+    }
+    return { group, name: 'TETRAHEDRON STACK', verts: 12 };
+  },
+
+  helix: () => {
+    const group = new THREE.Group();
+    const turns = 5;
+    const segments = 200;
+    const points1 = [], points2 = [];
+    for (let i = 0; i <= segments; i++) {
+      const t = i / segments;
+      const angle = t * Math.PI * 2 * turns;
+      const y = (t - 0.5) * 6;
+      points1.push(new THREE.Vector3(Math.cos(angle) * 1.0, y, Math.sin(angle) * 1.0));
+      points2.push(new THREE.Vector3(Math.cos(angle + Math.PI) * 1.0, y, Math.sin(angle + Math.PI) * 1.0));
+    }
+    const curve1 = new THREE.CatmullRomCurve3(points1);
+    const curve2 = new THREE.CatmullRomCurve3(points2);
+    [curve1, curve2].forEach((c, ci) => {
+      const geo = new THREE.TubeGeometry(c, 200, 0.05, 6, false);
+      const mat = new THREE.MeshBasicMaterial({ color: ci === 0 ? 0x00c8ff : 0x00ff88, transparent: true, opacity: 0.8 });
+      group.add(new THREE.Mesh(geo, mat));
+    });
+    return { group, name: 'HELIX STRAND', verts: segments * 2 };
+  },
+
+  icosa: () => {
+    const group = new THREE.Group();
+    for (let i = 0; i < 4; i++) {
+      const s = 1.8 - i * 0.35;
+      const geo = new THREE.IcosahedronGeometry(s, i < 2 ? 0 : 1);
+      const wire = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x00c8ff, wireframe: true, transparent: true, opacity: 0.6 - i * 0.1 }));
+      group.add(wire);
+    }
+    return { group, name: 'ICOSAHEDRON', verts: 80 };
+  },
+
+  saturn: () => {
+    const group = new THREE.Group();
+    const planet = new THREE.Mesh(new THREE.SphereGeometry(1.0, 24, 16),
+      new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.6 }));
+    group.add(planet);
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(1.1, 24, 16), createGlowMaterial()));
+    // Rings
+    [1.6, 2.0, 2.4, 2.7].forEach((r, i) => {
+      const ringGeo = new THREE.TorusGeometry(r, 0.035 - i * 0.004, 4, 80);
+      const ring = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.4 - i * 0.07 }));
+      ring.rotation.x = Math.PI * 0.3;
+      group.add(ring);
+    });
+    return { group, name: 'ORBITAL RING', verts: 3200 };
+  },
+
+  brain: () => {
+    const group = new THREE.Group();
+    // Central sphere
+    const center = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.9 }));
+    group.add(center);
+    // Nodes
+    const nodes = [];
+    for (let i = 0; i < 60; i++) {
+      const phi = Math.random() * Math.PI;
+      const theta = Math.random() * Math.PI * 2;
+      const r = 0.8 + Math.random() * 1.4;
+      const node = new THREE.Mesh(new THREE.SphereGeometry(0.05 + Math.random() * 0.07, 6, 6),
+        new THREE.MeshBasicMaterial({ color: Math.random() > 0.5 ? 0x00c8ff : 0x00ff88, transparent: true, opacity: 0.8 }));
+      node.position.setFromSphericalCoords(r, phi, theta);
+      nodes.push(node.position.clone());
+      group.add(node);
+    }
+    // Connections
+    for (let i = 0; i < 80; i++) {
+      const a = nodes[Math.floor(Math.random() * nodes.length)];
+      const b = nodes[Math.floor(Math.random() * nodes.length)];
+      if (a.distanceTo(b) < 1.2) {
+        const pts = [a, b];
+        const lineGeo = new THREE.BufferGeometry().setFromPoints(pts);
+        group.add(new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.2 })));
+      }
+    }
+    return { group, name: 'NEURAL NETWORK', verts: 60 * 12 };
+  },
+
+  reactor: () => {
+    const group = new THREE.Group();
+    // Core
+    const core = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.15, 8, 32),
+      new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.9 }));
+    group.add(core);
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.25, 12, 12),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 })));
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.35, 12, 12), createGlowMaterial(0x00ffff)));
+    // Outer rings
+    [0.9, 1.3, 1.6, 2.0].forEach((r, i) => {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.02, 6, 60),
+        new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.55 - i * 0.08 }));
+      ring.rotation.x = (i % 2 === 0) ? Math.PI / 4 : -Math.PI / 4;
+      group.add(ring);
+    });
+    // Spokes
+    for (let i = 0; i < 8; i++) {
+      const angle = (i / 8) * Math.PI * 2;
+      const spoke = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, 1.6, 4),
+        new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.4 }));
+      spoke.rotation.z = Math.PI / 2;
+      spoke.rotation.y = angle;
+      spoke.position.set(0.8 * Math.cos(angle), 0, 0.8 * Math.sin(angle));
+      group.add(spoke);
+    }
+    return { group, name: 'ARC REACTOR', verts: 2400 };
+  },
+};
+
+// ── LOAD MODEL ───────────────────────────────────────────────
+function loadModel(key) {
+  const factory = MODELS[key];
+  if (!factory) {
+    // Try fuzzy match
+    const keys = Object.keys(MODELS);
+    const match = keys.find(k => k.includes(key.toLowerCase()) || key.toLowerCase().includes(k));
+    if (match) { loadModel(match); return; }
+    showNoModel(); return;
   }
+
+  showLoading();
+  let progress = 0;
+  const bar = document.getElementById('load-bar');
+  const interval = setInterval(() => {
+    progress = Math.min(progress + Math.random() * 25, 90);
+    bar.style.width = progress + '%';
+  }, 80);
+
+  setTimeout(() => {
+    clearInterval(interval);
+    bar.style.width = '100%';
+
+    if (state.model) { scene.remove(state.model); state.model = null; }
+
+    const result = factory();
+    state.model = result.group;
+    scene.add(state.model);
+
+    document.getElementById('hud-objname').textContent = result.name;
+    document.getElementById('inf-name').textContent = result.name;
+    document.getElementById('inf-verts').textContent = (result.verts || 0).toLocaleString() + ' pts';
+    document.getElementById('hud-status').textContent = 'SCANNING';
+    document.getElementById('hud-mode').textContent = state.wireframe ? 'WIREFRAME' : 'HOLOGRAPHIC';
+
+    state.rotX = 0; state.rotY = 0; state.rotZ = 0;
+    state.scale = 1; state.targetScale = 1;
+
+    hideLoading();
+    toast('SCAN COMPLETE — ' + result.name.toUpperCase());
+
+    // Highlight active button
+    document.querySelectorAll('.obj-btn').forEach(b => b.classList.remove('active'));
+    const btns = document.querySelectorAll('.obj-btn');
+    btns.forEach(b => { if (b.getAttribute('onclick')?.includes(key)) b.classList.add('active'); });
+
+  }, 600);
 }
 
-function quickLoad(q) {
-  document.getElementById('search-input').value = q;
-  doSearch(q);
+function showLoading() {
+  document.getElementById('loading').style.display = 'flex';
+  document.getElementById('no-model').style.display = 'none';
+  document.getElementById('load-bar').style.width = '0%';
+  document.getElementById('load-text').textContent = 'GENERATING HOLOGRAM';
 }
 
-// ── TYPEAHEAD ─────────────────────────────────────────────────
-function onInputChange(val) {
-  clearTimeout(debounceTimer);
-  if (val.length < 3) { document.getElementById('results-list').style.display = 'none'; return; }
-  debounceTimer = setTimeout(async () => {
-    try {
-      const results = await searchSketchfab(val);
-      currentResults = results;
-      renderResults(results);
-    } catch {}
-  }, 500);
+function hideLoading() {
+  document.getElementById('loading').style.display = 'none';
 }
 
-function handleKey(e) {
-  if (e.key === 'Enter') { doSearch(); document.getElementById('results-list').style.display = 'none'; }
-  if (e.key === 'Escape') document.getElementById('results-list').style.display = 'none';
+function showNoModel() {
+  document.getElementById('no-model').style.display = 'flex';
+  hideLoading();
 }
 
-// Close results on outside click
-document.addEventListener('click', e => {
-  if (!e.target.closest('#search-bar') && !e.target.closest('#results-list')) {
-    document.getElementById('results-list').style.display = 'none';
-  }
+function quickLoad(key) {
+  loadModel(key);
+}
+
+// ── TOGGLE WIREFRAME ─────────────────────────────────────────
+function toggleWireframe() {
+  state.wireframe = !state.wireframe;
+  document.getElementById('wireframe-btn').style.borderColor = state.wireframe ? 'var(--blue)' : '';
+  document.getElementById('hud-mode').textContent = state.wireframe ? 'WIREFRAME' : 'HOLOGRAPHIC';
+  if (!state.model) return;
+  state.model.traverse(obj => {
+    if (obj.isMesh && obj.material) {
+      obj.material.wireframe = state.wireframe;
+    }
+  });
+}
+
+function toggleAutoRotate() {
+  state.autoRotate = !state.autoRotate;
+  document.getElementById('rotate-btn').style.borderColor = state.autoRotate ? 'var(--blue)' : '';
+}
+
+// ── MOUSE / TOUCH CONTROLS ───────────────────────────────────
+let mouse = { down: false, x: 0, y: 0, lastX: 0, lastY: 0 };
+
+canvas.addEventListener('mousedown', e => { mouse.down = true; mouse.lastX = e.clientX; mouse.lastY = e.clientY; });
+window.addEventListener('mouseup',   () => { mouse.down = false; });
+window.addEventListener('mousemove', e => {
+  if (!mouse.down || !state.model) return;
+  const dx = e.clientX - mouse.lastX;
+  const dy = e.clientY - mouse.lastY;
+  state.model.rotation.y += dx * 0.012;
+  state.model.rotation.x += dy * 0.012;
+  mouse.lastX = e.clientX; mouse.lastY = e.clientY;
 });
 
-// ── VOICE CONTROL ─────────────────────────────────────────────
-function toggleMic() {
-  if (!('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
-    toast('SPEECH RECOGNITION NOT AVAILABLE — USE TEXT INPUT');
+canvas.addEventListener('wheel', e => {
+  if (!state.model) return;
+  state.targetScale = Math.max(0.2, Math.min(4, state.targetScale - e.deltaY * 0.001));
+});
+
+// ── ANIMATION LOOP ───────────────────────────────────────────
+let frame = 0;
+function animate() {
+  requestAnimationFrame(animate);
+  frame++;
+
+  // Smooth scale
+  state.scale += (state.targetScale - state.scale) * 0.08;
+  if (state.model) {
+    state.model.scale.setScalar(state.scale);
+    if (state.autoRotate) {
+      state.model.rotation.y += 0.005;
+    }
+  }
+
+  // Particle drift
+  if (state.particles) {
+    state.particles.rotation.y += 0.001;
+    state.particles.rotation.x += 0.0003;
+  }
+
+  // Point light pulse
+  pointLight.intensity = 2 + Math.sin(frame * 0.04) * 0.5;
+
+  // Update HUD
+  if (state.model && frame % 10 === 0) {
+    const r = state.model.rotation;
+    document.getElementById('inf-rot').textContent =
+      `X:${(r.x * 180/Math.PI % 360).toFixed(0)}° Y:${(r.y * 180/Math.PI % 360).toFixed(0)}° Z:${(r.z * 180/Math.PI % 360).toFixed(0)}°`;
+    document.getElementById('inf-scale').textContent = state.scale.toFixed(2) + '×';
+  }
+
+  renderer.render(scene, camera);
+}
+animate();
+
+// ═══════════════════════════════════════════════════════════════
+// ── IRON MAN HAND GESTURE SYSTEM ──────────────────────────────
+// Uses MediaPipe Hands via CDN
+// ═══════════════════════════════════════════════════════════════
+const handCanvas = document.getElementById('hand-canvas');
+const handCtx = handCanvas.getContext('2d');
+
+let gestureActive = false;
+let lastGesture = '';
+let gestureHoldFrames = 0;
+const GESTURE_HOLD_REQUIRED = 4;
+let prevHandPos = null;
+let gestureVelocity = { x: 0, y: 0 };
+let handCamStream = null;
+
+// Resize hand canvas
+function resizeHandCanvas() {
+  handCanvas.width = canvas.parentElement.clientWidth;
+  handCanvas.height = canvas.parentElement.clientHeight;
+}
+resizeHandCanvas();
+window.addEventListener('resize', resizeHandCanvas);
+
+// ── LANDMARK INDICES ─────────────────────────────────────────
+const FINGER_TIPS = [4, 8, 12, 16, 20];
+const FINGER_MIDS = [3, 7, 11, 15, 19];
+const FINGER_BASE = [2, 6, 10, 14, 18];
+const WRIST = 0;
+
+function isFingerExtended(lm, tip, mid, base, wrist) {
+  const tipY = lm[tip].y;
+  const midY = lm[mid].y;
+  return tipY < midY * 0.98;
+}
+
+function thumbExtended(lm) {
+  return Math.abs(lm[4].x - lm[3].x) > 0.06;
+}
+
+function classifyGesture(lm) {
+  const extended = [
+    thumbExtended(lm),
+    isFingerExtended(lm, 8, 7, 6, 0),
+    isFingerExtended(lm, 12, 11, 10, 0),
+    isFingerExtended(lm, 16, 15, 14, 0),
+    isFingerExtended(lm, 20, 19, 18, 0),
+  ];
+  const extCount = extended.filter(Boolean).length;
+
+  // Pinch: thumb and index close
+  const pinchDist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+  if (pinchDist < 0.07 && !extended[2] && !extended[3] && !extended[4]) return 'PINCH';
+
+  if (extCount === 0) return 'FIST';
+  if (extCount >= 5) return 'OPEN';
+  if (extCount === 1 && extended[1] && !extended[2]) return 'ONE_FINGER';
+  if (extCount === 2 && extended[1] && extended[2] && !extended[3]) return 'TWO_FINGERS';
+  if (extCount === 3 && extended[1] && extended[2] && extended[3]) return 'THREE_FINGERS';
+  if (extended[0] && extended[4] && !extended[1] && !extended[2] && !extended[3]) return 'SHAKA';
+  return 'PARTIAL';
+}
+
+// ── APPLY GESTURE TO SCENE ───────────────────────────────────
+let gestureRotMomentum = { x: 0, y: 0 };
+
+function applyGesture(gesture, lm) {
+  if (!state.model) return;
+
+  // Palm center
+  const palmX = lm[0].x;
+  const palmY = lm[0].y;
+
+  let dx = 0, dy = 0;
+  if (prevHandPos) {
+    dx = (palmX - prevHandPos.x) * 8;
+    dy = (palmY - prevHandPos.y) * 8;
+    gestureVelocity.x = dx;
+    gestureVelocity.y = dy;
+  }
+  prevHandPos = { x: palmX, y: palmY };
+
+  const statusEl = document.getElementById('gesture-status-bar');
+  const iconEl = document.getElementById('gesture-icon');
+  const labelEl = document.getElementById('gesture-label');
+  const infGest = document.getElementById('inf-gesture');
+
+  statusEl.classList.add('show');
+
+  switch (gesture) {
+    case 'OPEN': // Rotate
+      state.model.rotation.y += dx * 0.8;
+      state.model.rotation.x += dy * 0.8;
+      gestureRotMomentum = { x: dy * 0.5, y: dx * 0.5 };
+      iconEl.textContent = '✋'; labelEl.textContent = 'OPEN PALM → ROTATE';
+      infGest.textContent = 'ROTATING';
+      break;
+
+    case 'FIST': // Zoom out
+      state.targetScale = Math.max(0.15, state.targetScale - 0.04);
+      iconEl.textContent = '👊'; labelEl.textContent = 'FIST → ZOOM OUT';
+      infGest.textContent = 'ZOOM OUT';
+      break;
+
+    case 'TWO_FINGERS': // Zoom in
+      state.targetScale = Math.min(4.5, state.targetScale + 0.04);
+      iconEl.textContent = '✌️'; labelEl.textContent = '2 FINGERS → ZOOM IN';
+      infGest.textContent = 'ZOOM IN';
+      break;
+
+    case 'ONE_FINGER': // Pan X
+      state.model.position.x += dx * 0.04;
+      iconEl.textContent = '☝️'; labelEl.textContent = '1 FINGER → PAN';
+      infGest.textContent = 'PAN MODE';
+      break;
+
+    case 'PINCH': // Fast spin
+      state.model.rotation.y += 0.15 * (dx > 0 ? 1 : -1);
+      state.model.rotation.z += 0.08;
+      iconEl.textContent = '🤏'; labelEl.textContent = 'PINCH → HYPER SPIN';
+      infGest.textContent = 'HYPER SPIN';
+      break;
+
+    case 'THREE_FINGERS': // Tilt Z
+      state.model.rotation.z += dx * 0.5;
+      iconEl.textContent = '🤟'; labelEl.textContent = '3 FINGERS → TILT';
+      infGest.textContent = 'TILT Z';
+      break;
+
+    case 'SHAKA': // Reset
+      state.model.rotation.set(0, 0, 0);
+      state.model.position.set(0, 0, 0);
+      state.targetScale = 1;
+      iconEl.textContent = '🤙'; labelEl.textContent = 'SHAKA → RESET';
+      infGest.textContent = 'RESET';
+      toast('POSITION RESET');
+      break;
+
+    case 'PARTIAL':
+      iconEl.textContent = '🖐'; labelEl.textContent = 'PARTIAL → SLOW ROTATE';
+      state.model.rotation.y += dy * 0.3;
+      infGest.textContent = 'SLOW ROTATE';
+      break;
+  }
+
+  // Auto-hide status after 2s of no change
+  clearTimeout(window._gestureHideTimer);
+  window._gestureHideTimer = setTimeout(() => {
+    statusEl.classList.remove('show');
+    infGest.textContent = gestureActive ? 'TRACKING' : 'INACTIVE';
+    prevHandPos = null;
+  }, 2000);
+}
+
+// ── DRAW HAND LANDMARKS (Iron Man style) ─────────────────────
+function drawHandLandmarks(landmarks, gesture) {
+  const W = handCanvas.width;
+  const H = handCanvas.height;
+  handCtx.clearRect(0, 0, W, H);
+
+  if (!landmarks || landmarks.length === 0) return;
+
+  const lm = landmarks;
+
+  // Mirror X (camera is mirrored)
+  const toScreen = (pt) => ({
+    x: (1 - pt.x) * W,
+    y: pt.y * H,
+  });
+
+  // Connections
+  const connections = [
+    [0,1],[1,2],[2,3],[3,4],
+    [0,5],[5,6],[6,7],[7,8],
+    [0,9],[9,10],[10,11],[11,12],
+    [0,13],[13,14],[14,15],[15,16],
+    [0,17],[17,18],[18,19],[19,20],
+    [5,9],[9,13],[13,17],
+  ];
+
+  const gestureColor = {
+    OPEN: '#00ff88', FIST: '#ff3333', TWO_FINGERS: '#00c8ff',
+    ONE_FINGER: '#ffaa00', PINCH: '#ff88ff', SHAKA: '#ffffff',
+    THREE_FINGERS: '#88ffff', PARTIAL: '#00c8ff',
+  }[gesture] || '#00c8ff';
+
+  connections.forEach(([a, b]) => {
+    const pa = toScreen(lm[a]);
+    const pb = toScreen(lm[b]);
+    handCtx.beginPath();
+    handCtx.moveTo(pa.x, pa.y);
+    handCtx.lineTo(pb.x, pb.y);
+    handCtx.strokeStyle = gestureColor + '88';
+    handCtx.lineWidth = 1.5;
+    handCtx.stroke();
+  });
+
+  // Nodes
+  lm.forEach((pt, i) => {
+    const s = toScreen(pt);
+    const isTip = FINGER_TIPS.includes(i);
+    handCtx.beginPath();
+    handCtx.arc(s.x, s.y, isTip ? 6 : 4, 0, Math.PI * 2);
+    handCtx.fillStyle = isTip ? gestureColor : gestureColor + 'aa';
+    handCtx.fill();
+    if (isTip) {
+      // Glow ring
+      handCtx.beginPath();
+      handCtx.arc(s.x, s.y, 10, 0, Math.PI * 2);
+      handCtx.strokeStyle = gestureColor + '44';
+      handCtx.lineWidth = 2;
+      handCtx.stroke();
+    }
+  });
+
+  // Center crosshair
+  const palm = toScreen(lm[9]);
+  handCtx.strokeStyle = gestureColor + 'aa';
+  handCtx.lineWidth = 1;
+  [-15, 15].forEach(d => {
+    handCtx.beginPath();
+    handCtx.moveTo(palm.x + d, palm.y);
+    handCtx.lineTo(palm.x + d * 2.5, palm.y);
+    handCtx.stroke();
+    handCtx.beginPath();
+    handCtx.moveTo(palm.x, palm.y + d);
+    handCtx.lineTo(palm.x, palm.y + d * 2.5);
+    handCtx.stroke();
+  });
+
+  // Gesture label near hand
+  handCtx.font = '700 10px Orbitron, monospace';
+  handCtx.fillStyle = gestureColor;
+  handCtx.letterSpacing = '0.2em';
+  handCtx.fillText(gesture, palm.x - 30, palm.y - 35);
+}
+
+// ── MEDIAPIPE HANDS SETUP ────────────────────────────────────
+let handsModel = null;
+let handCamera = null;
+
+async function initMediaPipe() {
+  const video = document.getElementById('gesture-cam');
+  const statusEl = document.getElementById('cam-status');
+  statusEl.textContent = '● LOADING MEDIAPIPE…';
+
+  // Load MediaPipe Hands via CDN
+  const script1 = document.createElement('script');
+  script1.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js';
+  document.head.appendChild(script1);
+
+  const script2 = document.createElement('script');
+  script2.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js';
+  document.head.appendChild(script2);
+
+  await new Promise(r => { script2.onload = r; script2.onerror = r; });
+  await new Promise(r => setTimeout(r, 500));
+
+  if (typeof Hands === 'undefined') {
+    // Fallback: use our own webcam analysis
+    statusEl.textContent = '● USING FALLBACK';
+    startFallbackGesture(video);
     return;
   }
-  if (isListening) { if (recognition) recognition.stop(); return; }
 
+  try {
+    handsModel = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`
+    });
+    handsModel.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.65,
+      minTrackingConfidence: 0.55,
+    });
+
+    handsModel.onResults(results => {
+      const lms = results.multiHandLandmarks;
+      if (lms && lms.length > 0) {
+        const gesture = classifyGesture(lms[0]);
+        gestureActive = true;
+        drawHandLandmarks(lms[0], gesture);
+        applyGesture(gesture, lms[0]);
+        document.getElementById('inf-gesture').textContent = gesture;
+        statusEl.textContent = '● HAND TRACKED';
+        statusEl.className = 'online';
+      } else {
+        gestureActive = false;
+        handCtx.clearRect(0, 0, handCanvas.width, handCanvas.height);
+        prevHandPos = null;
+        statusEl.textContent = '● SCANNING…';
+        statusEl.className = '';
+        // Apply momentum
+        if (state.model) {
+          state.model.rotation.y += gestureRotMomentum.y;
+          state.model.rotation.x += gestureRotMomentum.x;
+          gestureRotMomentum.x *= 0.92;
+          gestureRotMomentum.y *= 0.92;
+        }
+      }
+    });
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 320, height: 240, facingMode: 'user', frameRate: 30 }, audio: false
+      });
+      video.srcObject = stream;
+      handCamStream = stream;
+      video.play();
+      statusEl.textContent = '● CAM ONLINE';
+      statusEl.className = 'online';
+
+      if (typeof Camera !== 'undefined') {
+        handCamera = new Camera(video, {
+          onFrame: async () => { if (handsModel) await handsModel.send({ image: video }); },
+          width: 320, height: 240
+        });
+        handCamera.start();
+      } else {
+        // Manual frame send
+        setInterval(async () => {
+          if (handsModel && video.readyState >= 2) await handsModel.send({ image: video });
+        }, 50);
+      }
+    } catch (e) {
+      statusEl.textContent = '● NO CAMERA';
+      console.warn('[GESTURE] Camera denied:', e.message);
+    }
+  } catch (e) {
+    console.warn('[GESTURE] MediaPipe failed, using fallback:', e.message);
+    startFallbackGesture(video);
+  }
+}
+
+// ── FALLBACK: Pixel analysis gesture ────────────────────────
+function startFallbackGesture(video) {
+  const statusEl = document.getElementById('cam-status');
+  navigator.mediaDevices.getUserMedia({ video: { width: 160, height: 120, facingMode: 'user' }, audio: false })
+    .then(stream => {
+      video.srcObject = stream;
+      handCamStream = stream;
+      video.play();
+      statusEl.textContent = '● PIXEL TRACKING';
+      statusEl.className = 'online';
+
+      const fbCanvas = document.createElement('canvas');
+      fbCanvas.width = 80; fbCanvas.height = 60;
+      const fbCtx = fbCanvas.getContext('2d');
+
+      setInterval(() => {
+        if (video.readyState < 2 || !state.model) return;
+        fbCtx.drawImage(video, 0, 0, 80, 60);
+        const d = fbCtx.getImageData(0, 0, 80, 60).data;
+
+        let skinPx = 0, topSkin = 0, botSkin = 0, leftSkin = 0, rightSkin = 0;
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i], g = d[i+1], b = d[i+2];
+          const isSkin = r > 95 && g > 40 && b > 20 && r > g && r - b > 15 && Math.abs(r - g) > 15;
+          if (isSkin) {
+            skinPx++;
+            const px = (i/4) % 80;
+            const py = Math.floor((i/4) / 80);
+            if (py < 30) topSkin++; else botSkin++;
+            if (px < 40) leftSkin++; else rightSkin++;
+          }
+        }
+        const ratio = skinPx / (80 * 60);
+        if (ratio < 0.04) { prevHandPos = null; return; }
+
+        const palmy = topSkin > botSkin ? 0.3 : 0.7;
+        const palmx = leftSkin > rightSkin ? 0.3 : 0.7;
+
+        gestureActive = true;
+        let gesture = ratio > 0.28 ? 'OPEN' : ratio < 0.08 ? 'FIST' : ratio > 0.18 ? 'OPEN' : 'PARTIAL';
+
+        applyGesture(gesture, Array.from({length:21}, (_,i) => ({ x: palmx + (Math.random()-0.5)*0.05, y: palmy + (Math.random()-0.5)*0.05 })));
+        document.getElementById('inf-gesture').textContent = gesture + ' (PIXEL)';
+      }, 80);
+    })
+    .catch(() => { statusEl.textContent = '● NO CAMERA'; });
+}
+
+// ── SEARCH ──────────────────────────────────────────────────
+function doSearch(q) {
+  const query = q || document.getElementById('search-input').value.trim().toLowerCase();
+  if (!query) return;
+  const cleaned = query.replace(/\b(jarvis|show me|load|display|scan|a|an|the|3d|model|hologram)\b/gi, '').trim();
+  loadModel(cleaned.replace(/\s+/g, '_'));
+}
+
+function handleKey(e) { if (e.key === 'Enter') doSearch(); }
+
+// ── VOICE CONTROL ────────────────────────────────────────────
+let recognition = null, isListening = false;
+function toggleMic() {
+  if (!('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
+    toast('SPEECH NOT AVAILABLE'); return;
+  }
+  if (isListening) { recognition?.stop(); return; }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   recognition = new SR();
-  recognition.continuous = false;
-  recognition.lang = 'en-US';
-  recognition.interimResults = false;
-
-  recognition.onstart = () => {
-    isListening = true;
-    document.getElementById('mic-btn').classList.add('mic-on');
-    document.getElementById('mic-btn').textContent = '🔴 LISTENING';
-    toast('LISTENING…');
-  };
-
-  recognition.onresult = e => {
-    const txt = e.results[0][0].transcript.trim();
-    document.getElementById('search-input').value = txt;
-    toast(`HEARD: "${txt.toUpperCase()}"`);
-    doSearch(txt);
-  };
-
-  recognition.onend = () => {
-    isListening = false;
-    document.getElementById('mic-btn').classList.remove('mic-on');
-    document.getElementById('mic-btn').textContent = '🎙 VOICE';
-  };
-
-  recognition.onerror = () => {
-    isListening = false;
-    document.getElementById('mic-btn').classList.remove('mic-on');
-    document.getElementById('mic-btn').textContent = '🎙 VOICE';
-    toast('MIC ERROR');
-  };
-
+  recognition.lang = 'en-US'; recognition.continuous = false;
+  const btn = document.getElementById('mic-btn');
+  recognition.onstart = () => { isListening = true; btn.classList.add('active'); btn.textContent = '🔴 LISTENING'; toast('LISTENING…'); };
+  recognition.onresult = e => { const t = e.results[0][0].transcript; document.getElementById('search-input').value = t; doSearch(t); };
+  recognition.onend = () => { isListening = false; btn.classList.remove('active'); btn.textContent = '🎙 VOICE'; };
   recognition.start();
 }
 
-// ── GESTURE CAM ───────────────────────────────────────────────
-async function initGestureCam() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 200, height: 150, facingMode: 'user' }, audio: false
-    });
-    const vid = document.getElementById('gesture-cam');
-    vid.srcObject = stream;
-    vid.play();
-    document.getElementById('gesture-status').textContent = '● CAM ONLINE';
-    document.getElementById('gesture-status').style.color = '#00ff88';
-    startGestureTracking(vid);
-  } catch {
-    document.getElementById('gesture-status').textContent = '● CAM OFFLINE';
-  }
+// ── TOAST ────────────────────────────────────────────────────
+function toast(msg, dur=2500) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), dur);
 }
 
-function startGestureTracking(videoEl) {
-  const canvas = document.createElement('canvas');
-  canvas.width = 100; canvas.height = 75;
-  const ctx = canvas.getContext('2d');
-  let lastGesture = '', gestureFrames = 0;
-
-  setInterval(() => {
-    if (!videoEl.videoWidth) return;
-    ctx.drawImage(videoEl, 0, 0, 100, 75);
-    const imgData = ctx.getImageData(0, 0, 100, 75).data;
-    let skinCount = 0;
-    for (let i = 0; i < imgData.length; i += 16) {
-      const r = imgData[i], g = imgData[i+1], b = imgData[i+2];
-      if (r > 90 && g > 55 && b > 35 && r > g && r - b > 20) skinCount++;
-    }
-    const ratio = skinCount / (imgData.length / 16);
-    let gesture = '';
-    if (ratio > 0.30) gesture = ratio > 0.50 ? 'OPEN_HAND' : 'FIST';
-
-    if (gesture !== lastGesture) { gestureFrames = 0; lastGesture = gesture; }
-    else gestureFrames++;
-
-    if (gestureFrames > 4 && gesture) {
-      const labels = { OPEN_HAND: '✋ OPEN — ZOOM', FIST: '✊ FIST — SPIN' };
-      document.getElementById('gesture-status').textContent = labels[gesture] || '● TRACKING';
-    } else if (!gesture) {
-      document.getElementById('gesture-status').textContent = '● TRACKING';
-    }
-  }, 150);
-}
-
-// ── JARVIS INTEGRATION ────────────────────────────────────────
-// Listen for commands from parent JARVIS site if embedded in iframe
+// ── JARVIS INTEGRATION ───────────────────────────────────────
 window.addEventListener('message', e => {
   const { type, query } = e.data || {};
   if (type === 'HOLOGRAM_SEARCH' && query) {
@@ -567,12 +1218,32 @@ window.addEventListener('message', e => {
 
 // ── BOOT ─────────────────────────────────────────────────────
 window.addEventListener('load', () => {
-  initGestureCam();
-  // If loaded with a hash query e.g. hologram.html#smart+glasses
+  // Initial loading sequence
+  const loadText = document.getElementById('load-text');
+  const bar = document.getElementById('load-bar');
+  const steps = ['LOADING THREE.JS ENGINE', 'COMPILING HOLOGRAPHIC SHADERS', 'INITIALISING WEBGL', 'LOADING MEDIAPIPE HANDS', 'READY'];
+  let si = 0;
+  const stepInterval = setInterval(() => {
+    if (si >= steps.length) { clearInterval(stepInterval); return; }
+    loadText.textContent = steps[si];
+    bar.style.width = ((si+1)/steps.length*100) + '%';
+    si++;
+  }, 400);
+
+  setTimeout(() => {
+    hideLoading();
+    document.getElementById('no-model').style.display = 'flex';
+    initMediaPipe();
+    toast('HOLOGRAPHIC PROJECTOR ONLINE');
+  }, 2200);
+
+  // Hash-based auto-load
   if (location.hash) {
-    const q = decodeURIComponent(location.hash.slice(1));
-    document.getElementById('search-input').value = q;
-    setTimeout(() => doSearch(q), 500);
+    setTimeout(() => {
+      const q = decodeURIComponent(location.hash.slice(1));
+      document.getElementById('search-input').value = q;
+      doSearch(q);
+    }, 2500);
   }
 });
 </script>
