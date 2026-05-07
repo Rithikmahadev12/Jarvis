@@ -1,8 +1,10 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Picture-in-Picture HUD Widgets v2.1
+// J.A.R.V.I.S — Picture-in-Picture HUD Widgets v2.2
 // Each HUD panel becomes its own floating PiP window
 // stays on top of ANY tab, zero extensions needed
-// NEW: SOLVE widget — say "Jarvis, solve [problem]" from any tab
+// FIX: SOLVE widget screen-read now uses ImageCapture API
+// (instant frame grab from already-playing stream) with a
+// persistent video element fallback — no more blank reads.
 // ═══════════════════════════════════════════════════════════════
 
 window.PiPWidgets = (function () {
@@ -40,6 +42,104 @@ window.PiPWidgets = (function () {
     extra:    '',
     processing: false,
   };
+
+  // ── SCREEN FRAME GRABBER ─────────────────────────────────────
+  // Uses the already-playing screen stream track.
+  // Tries ImageCapture first (fastest, no video element needed).
+  // Falls back to a persistent <video> element that stays loaded.
+  let _screenVideo = null; // reuse across calls to avoid re-load delay
+
+  async function grabScreenText() {
+    const stream = window.state && window.state.screenStream;
+    if (!stream) return '';
+
+    const tracks = stream.getVideoTracks();
+    if (!tracks.length) return '';
+    const track = tracks[0];
+
+    // Check track is still live
+    if (track.readyState === 'ended') return '';
+
+    let dataUrl = null;
+
+    // ── Method 1: ImageCapture (Chrome/Edge, instant) ──────
+    if (typeof ImageCapture !== 'undefined') {
+      try {
+        const capture = new ImageCapture(track);
+        const bitmap  = await capture.grabFrame();
+        const canvas  = document.createElement('canvas');
+        canvas.width  = bitmap.width;
+        canvas.height = bitmap.height;
+        canvas.getContext('2d').drawImage(bitmap, 0, 0);
+        dataUrl = canvas.toDataURL('image/png');
+      } catch (e) {
+        console.warn('[SOLVE] ImageCapture failed, trying video fallback:', e.message);
+      }
+    }
+
+    // ── Method 2: Persistent video element ──────────────────
+    if (!dataUrl) {
+      try {
+        // Reuse video element if already loaded with this stream
+        if (!_screenVideo || _screenVideo.srcObject !== stream) {
+          _screenVideo = document.createElement('video');
+          _screenVideo.srcObject = stream;
+          _screenVideo.muted      = true;
+          _screenVideo.playsInline = true;
+
+          await new Promise((resolve) => {
+            _screenVideo.onloadeddata = resolve;
+            _screenVideo.onerror = resolve; // don't hang on error
+            _screenVideo.play().catch(resolve);
+            setTimeout(resolve, 2500); // safety timeout
+          });
+
+          // Extra wait for a real frame to be painted
+          await new Promise(r => setTimeout(r, 500));
+        }
+
+        if (_screenVideo.readyState < 2) {
+          await new Promise(r => setTimeout(r, 600));
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width  = _screenVideo.videoWidth  || 1280;
+        canvas.height = _screenVideo.videoHeight || 720;
+        canvas.getContext('2d').drawImage(_screenVideo, 0, 0);
+        dataUrl = canvas.toDataURL('image/png');
+      } catch (e) {
+        console.warn('[SOLVE] Video fallback failed:', e.message);
+        return '';
+      }
+    }
+
+    if (!dataUrl) return '';
+
+    // ── Run Tesseract OCR ──────────────────────────────────
+    // Use the already-initialised worker from jarvis.js if available
+    if (window.state && window.state.tesseractWorker && window.state.tesseractReady) {
+      try {
+        const result = await window.state.tesseractWorker.recognize(dataUrl);
+        return result.data.text || '';
+      } catch (e) {
+        console.warn('[SOLVE] Tesseract (shared worker) failed:', e.message);
+      }
+    }
+
+    // Tesseract not ready yet — spin up a one-shot worker
+    if (window.Tesseract) {
+      try {
+        const worker = await Tesseract.createWorker('eng', 1, { logger: () => {} });
+        const result = await worker.recognize(dataUrl);
+        await worker.terminate();
+        return result.data.text || '';
+      } catch (e) {
+        console.warn('[SOLVE] On-demand Tesseract failed:', e.message);
+      }
+    }
+
+    return '';
+  }
 
   // ── SOLVE ENGINE ────────────────────────────────────────────
   function isPrime(n) {
@@ -614,7 +714,6 @@ window.PiPWidgets = (function () {
       try{
         await video.requestPictureInPicture();
       }catch(e){
-        // Fallback to popup window
         const popup = window.open('', 'jarvis_pip_' + id,
           `width=${def.w},height=${def.h},top=100,left=100,toolbar=no,menubar=no,scrollbars=no,resizable=yes`);
         if(!popup){
@@ -701,81 +800,68 @@ window.PiPWidgets = (function () {
       .trim();
   }
 
-  async function handleVoiceCommand(action, meta){
-    const query=(meta?.query||'').toLowerCase();
+  // ── MAIN VOICE COMMAND HANDLER ───────────────────────────────
+  async function handleVoiceCommand(action, meta) {
+    const query = (meta?.query || '').toLowerCase();
 
-    // ── SOLVE command ─────────────────────────────────────────
+    // ── SOLVE command ───────────────────────────────────────
     if (/\bsolve\b/.test(query) && action === 'SHOW_HUD') {
       const problem = extractSolveProblem(query);
 
       if (!problem) {
-        // No problem spoken — try to read screen via Tesseract
+        // No problem spoken — read the screen
+
         _solveState = {
-          answer: 'Reading your screen…',
-          category: 'SCREEN SCAN',
-          sub: 'Looking for maths on your current tab',
-          steps: [], extra: '', processing: true,
+          answer:     'Reading your screen…',
+          category:   'SCREEN SCAN',
+          sub:        'Scanning for equations and maths',
+          steps:      [],
+          extra:      '',
+          processing: true,
         };
 
+        // Open widget immediately so user sees feedback
         if (!widgets.has('solve')) await openWidget('solve');
 
-        // Grab frame from screen stream
-        const screenText = await new Promise(function(resolve) {
-          const stream = window.state && window.state.screenStream;
-          if (!stream) { resolve(''); return; }
-          const videoEl = document.createElement('video');
-          videoEl.srcObject = stream;
-          videoEl.onloadedmetadata = function() {
-            videoEl.play();
-            setTimeout(function() {
-              const c = document.createElement('canvas');
-              c.width  = videoEl.videoWidth  || 1280;
-              c.height = videoEl.videoHeight || 720;
-              c.getContext('2d').drawImage(videoEl, 0, 0);
-              videoEl.pause();
-              const dataUrl = c.toDataURL('image/png');
-              // Use Tesseract if available
-              if (window.state && window.state.tesseractWorker && window.state.tesseractReady) {
-                window.state.tesseractWorker.recognize(dataUrl)
-                  .then(function(r){ resolve(r.data.text || ''); })
-                  .catch(function(){ resolve(''); });
-              } else {
-                resolve('');
-              }
-            }, 300);
-          };
-          videoEl.onerror = function(){ resolve(''); };
-        });
+        // Grab frame using ImageCapture from the already-playing stream
+        const screenText = await grabScreenText();
 
-        if (screenText.trim()) {
+        if (screenText && screenText.trim().length > 3) {
           const result = computeSolve(screenText.trim());
           if (result) {
             _solveState = { ...result, processing: false };
             notify('Solved from screen: ' + result.answer);
           } else {
+            const preview = screenText.trim().slice(0, 80);
             _solveState = {
-              answer: 'No equation found on screen',
+              answer:   'No equation found',
               category: 'SCREEN SCAN',
-              sub: 'Say "Jarvis solve [problem]" with the equation spoken',
+              sub:      `Read: "${preview}${preview.length < screenText.trim().length ? '…' : ''}"`,
               steps: [
+                'Say "Jarvis solve [equation]" to solve directly',
                 'e.g. "Jarvis solve x squared minus 5x plus 6 equals 0"',
                 'e.g. "Jarvis solve 15 percent of 200"',
-                'e.g. "Jarvis solve is 97 prime"',
               ],
-              extra: '', processing: false,
+              extra:      '',
+              processing: false,
             };
           }
         } else {
+          const hasStream = !!(window.state && window.state.screenStream);
           _solveState = {
-            answer: 'Say the problem aloud',
-            category: 'AWAITING INPUT',
-            sub: 'e.g. "Jarvis, solve 15% of 200"',
+            answer:   hasStream ? 'Nothing readable found' : 'Screen not shared',
+            category: 'SCREEN SCAN',
+            sub:      hasStream
+              ? 'Make sure an equation is visible — or say it aloud'
+              : 'Share your screen first (click the screen-share prompt), or say the equation',
             steps: [
-              'e.g. "Jarvis solve x squared minus 5x equals 0"',
-              'e.g. "Jarvis solve 72 fahrenheit to celsius"',
+              'Say "Jarvis solve [equation]" to solve without screen reading',
+              'e.g. "Jarvis solve 25 percent of 80"',
               'e.g. "Jarvis solve is 97 prime"',
+              'e.g. "Jarvis solve 72 fahrenheit to celsius"',
             ],
-            extra: '', processing: false,
+            extra:      '',
+            processing: false,
           };
         }
 
@@ -784,9 +870,7 @@ window.PiPWidgets = (function () {
 
       // Problem was spoken — solve immediately
       _solveState = { ..._solveState, processing: true };
-
       if (!widgets.has('solve')) await openWidget('solve');
-
       await new Promise(r => setTimeout(r, 300));
 
       const result = computeSolve(problem);
@@ -795,16 +879,17 @@ window.PiPWidgets = (function () {
         notify('Solved: ' + result.answer);
       } else {
         _solveState = {
-          answer: 'Could not parse that.',
+          answer:   'Could not parse that.',
           category: 'PARSE ERROR',
-          sub: `Query: "${problem}"`,
+          sub:      `Query: "${problem}"`,
           steps: [
             'Try: "Jarvis solve 15 percent of 200"',
             'Try: "Jarvis solve x squared minus 3x plus 2 equals 0"',
             'Try: "Jarvis solve is 97 prime"',
             'Try: "Jarvis solve 72 fahrenheit to celsius"',
           ],
-          extra: '', processing: false,
+          extra:      '',
+          processing: false,
         };
         notify('Solve: could not parse "' + problem + '"');
       }
@@ -814,11 +899,11 @@ window.PiPWidgets = (function () {
     }
 
     // ── HIDE HUD ──────────────────────────────────────────────
-    if(action==='HIDE_HUD'){
-      const targetId=detectWidgetId(query);
-      if(targetId){
+    if (action === 'HIDE_HUD') {
+      const targetId = detectWidgetId(query);
+      if (targetId) {
         await closeWidget(targetId);
-        notify(`${WIDGET_DEFS[targetId]?.label||targetId} widget closed.`);
+        notify(`${WIDGET_DEFS[targetId]?.label || targetId} widget closed.`);
       } else {
         await closeAll();
         notify('All HUD widgets closed.');
@@ -827,11 +912,21 @@ window.PiPWidgets = (function () {
     }
 
     // ── SHOW HUD (non-solve) ──────────────────────────────────
-    const targetId=detectWidgetId(query)||'all';
-    notify(`Launching ${WIDGET_DEFS[targetId]?.label||targetId} HUD as Picture-in-Picture…`);
+    const targetId = detectWidgetId(query) || 'all';
+    notify(`Launching ${WIDGET_DEFS[targetId]?.label || targetId} HUD as Picture-in-Picture…`);
     await openWidget(targetId);
   }
 
-  return { open:openWidget, close:closeWidget, closeAll, openAll, handleVoiceCommand, detectWidgetId, computeSolve, list:()=>[...widgets.keys()], WIDGET_DEFS };
+  return {
+    open:             openWidget,
+    close:            closeWidget,
+    closeAll,
+    openAll,
+    handleVoiceCommand,
+    detectWidgetId,
+    computeSolve,
+    list:             () => [...widgets.keys()],
+    WIDGET_DEFS,
+  };
 
 })();
