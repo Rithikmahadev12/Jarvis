@@ -631,7 +631,6 @@ function launchMain() {
   CameraObserver.start();
   setTimeout(() => checkIntruderClips(), 2000);
 
-  // Keep extension status in sync on a steady interval
   setInterval(syncExtensionStatus, 3000);
 }
 
@@ -700,14 +699,13 @@ function handleChatCommand(text) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── AI CHAT — action-aware ──
+// ── AI CHAT ──
 // ═══════════════════════════════════════════════════════════════
 async function sendToAI(message) {
   mic.suspend();
   addMsg("user", message);
   setOrb("thinking");
 
-  // Fast path: smalltalk
   try {
     const stRes = await fetch("/api/personality/smalltalk", {
       method: "POST",
@@ -719,14 +717,11 @@ async function sendToAI(message) {
       addMsg("jarvis", stData.reply);
       speak(stData.reply, () => mic.resume());
       updateMood(5);
-
-      // Sync extension status after smalltalk reply
       syncExtensionStatus();
       return;
     }
   } catch { /* fall through */ }
 
-  // Full AI engine
   const memories = await loadMemoriesForPrompt();
   const moodCtx  = `mood: ${state.mood} (score: ${state.moodScore})`;
   try {
@@ -747,8 +742,6 @@ async function sendToAI(message) {
 
     addMsg("jarvis", reply);
     updateMood(5);
-
-    // Keep extension status in sync after every successful reply
     syncExtensionStatus();
 
     if (data.action && data.meta) {
@@ -765,12 +758,52 @@ async function sendToAI(message) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ── HOLOGRAM FUNCTIONS ──
+// ═══════════════════════════════════════════════════════════════
+function openHologram(query) {
+  const panel  = $("hologram-panel");
+  const iframe = $("hologram-iframe");
+  if (!panel || !iframe) return;
+
+  panel.style.display = "block";
+  mic.suspend();
+
+  if (query) {
+    const send = () => {
+      try {
+        iframe.contentWindow.postMessage({ type: "HOLOGRAM_SEARCH", query }, "*");
+      } catch (e) {}
+    };
+    if (iframe.contentDocument?.readyState === "complete") {
+      send();
+    } else {
+      iframe.onload = send;
+    }
+  }
+}
+
+function closeHologram() {
+  const panel = $("hologram-panel");
+  if (panel) panel.style.display = "none";
+  if (state.phase === "chatting") mic.resume();
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ── ACTION HANDLER ──
 // ═══════════════════════════════════════════════════════════════
 async function handleAction(action, meta, replyText) {
   const T = state.userTitle || "Sir";
 
   switch (action) {
+
+    case "SHOW_HOLOGRAM": {
+      const query = meta?.query || "";
+      speak(replyText, () => {
+        openHologram(query);
+        mic.resume();
+      });
+      break;
+    }
 
     case "SHOW_LINKS": {
       speak(replyText, () => mic.resume());
@@ -890,29 +923,27 @@ async function handleAction(action, meta, replyText) {
     case "LOGOUT": {
       speak(replyText, () => {}); setTimeout(() => handleLogout(), 800); break;
     }
+
     case "SHOW_HUD": {
-  speak(replyText, () => mic.resume());
+      speak(replyText, () => mic.resume());
+      if (window.PiPWidgets) {
+        window.PiPWidgets.handleVoiceCommand("SHOW_HUD", {
+          query: meta?.query || replyText
+        });
+      }
+      break;
+    }
 
-  if (window.PiPWidgets) {
-    window.PiPWidgets.handleVoiceCommand("SHOW_HUD", {
-      query: meta?.query || replyText
-    });
-  }
+    case "HIDE_HUD": {
+      speak(replyText, () => mic.resume());
+      if (window.PiPWidgets) {
+        window.PiPWidgets.handleVoiceCommand("HIDE_HUD", {
+          query: meta?.query || replyText
+        });
+      }
+      break;
+    }
 
-  break;
-}
-
-   case "HIDE_HUD": {
-  speak(replyText, () => mic.resume());
-
-  if (window.PiPWidgets) {
-    window.PiPWidgets.handleVoiceCommand("HIDE_HUD", {
-      query: meta?.query || replyText
-    });
-  }
-
-  break;
-}
     case "MEMORY_SAVE":
     case "MEMORY_FORGET":
     case "MEMORY_RECALL":
