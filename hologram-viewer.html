@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>J.A.R.V.I.S — Holographic 3D Viewer</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:'Share Tech Mono',monospace;color:#00c8ff}
+
+/* ── CORNER BRACKETS ── */
+.corner{position:fixed;width:36px;height:36px;pointer-events:none;z-index:50}
+.corner::before,.corner::after{content:'';position:absolute;background:#00c8ff;opacity:0.6}
+.corner::before{width:100%;height:1px;top:0}.corner::after{width:1px;height:100%;top:0}
+.corner .pip{position:absolute;width:4px;height:4px;background:#00c8ff;border-radius:50%;top:-2px;left:-2px;box-shadow:0 0 8px #00c8ff;animation:pipPulse 3s ease-in-out infinite}
+.corner.tl{top:14px;left:14px}.corner.tr{top:14px;right:14px;transform:scaleX(-1)}
+.corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}.corner.br{bottom:14px;right:14px;transform:scale(-1)}
+@keyframes pipPulse{0%,100%{opacity:1}50%{opacity:0.3}}
+
+/* ── SCANLINE ── */
+.scanline{position:fixed;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,200,255,0.1) 50%,transparent);animation:scan 10s linear infinite;pointer-events:none;z-index:2}
+@keyframes scan{from{top:-2px}to{top:100vh}}
+
+/* ── LAYOUT ── */
+#layout{display:flex;width:100%;height:100vh;position:relative}
+
+/* ── LEFT SIDEBAR ── */
+#sidebar{width:220px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;padding:16px 12px;border-right:1px solid rgba(0,200,255,0.1);overflow-y:auto;z-index:10;background:rgba(1,12,20,0.8)}
+.sidebar-label{font-family:'Orbitron',monospace;font-size:0.42rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4);margin:8px 0 4px;text-transform:uppercase}
+.obj-btn{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.15);color:rgba(0,200,255,0.6);font-family:'Share Tech Mono',monospace;font-size:0.65rem;letter-spacing:0.12em;padding:8px 10px;cursor:pointer;text-align:left;transition:all 0.2s;border-radius:2px;width:100%}
+.obj-btn:hover,.obj-btn.active{background:rgba(0,200,255,0.12);border-color:#00c8ff;color:#00c8ff}
+.obj-btn .obj-thumb{font-size:0.9rem;margin-right:6px}
+
+/* ── VIEWER CENTER ── */
+#viewer-wrap{flex:1;position:relative;display:flex;flex-direction:column}
+#viewer-hud-top{display:flex;justify-content:space-between;align-items:flex-start;padding:12px 20px 0;flex-shrink:0;z-index:10}
+.hud-block{display:flex;flex-direction:column;gap:2px}
+.hud-key{font-family:'Orbitron',monospace;font-size:0.4rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4)}
+.hud-val{font-size:0.75rem;letter-spacing:0.15em;color:#00c8ff}
+
+#model-frame{flex:1;position:relative;overflow:hidden}
+#model-iframe{width:100%;height:100%;border:none;background:transparent}
+
+/* Loading overlay */
+#loading{position:absolute;inset:0;background:rgba(1,8,18,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:20}
+.load-ring{width:56px;height:56px;border:1.5px solid rgba(0,200,255,0.15);border-top-color:#00c8ff;border-radius:50%;animation:spin 1.2s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.load-text{font-family:'Orbitron',monospace;font-size:0.5rem;letter-spacing:0.3em;color:rgba(0,200,255,0.6)}
+.load-sub{font-size:0.55rem;color:rgba(0,200,255,0.35);letter-spacing:0.15em;text-align:center;max-width:300px;line-height:1.8}
+
+/* No model state */
+#no-model{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:12px;z-index:5}
+.no-model-ring{width:120px;height:120px;border:1px solid rgba(0,200,255,0.15);border-radius:50%;display:flex;align-items:center;justify-content:center;animation:breathe 4s ease-in-out infinite}
+@keyframes breathe{0%,100%{box-shadow:0 0 20px rgba(0,200,255,0.05)}50%{box-shadow:0 0 40px rgba(0,200,255,0.15)}}
+.no-model-icon{font-size:2.5rem;opacity:0.4}
+.no-model-text{font-family:'Orbitron',monospace;font-size:0.5rem;letter-spacing:0.3em;color:rgba(0,200,255,0.35)}
+.no-model-hint{font-size:0.6rem;color:rgba(0,200,255,0.25);letter-spacing:0.1em;text-align:center;line-height:2}
+
+/* ── BOTTOM SEARCH BAR ── */
+#search-bar{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid rgba(0,200,255,0.1);flex-shrink:0;background:rgba(1,8,18,0.7)}
+#search-input{flex:1;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.2);color:#00c8ff;font-family:'Share Tech Mono',monospace;font-size:0.72rem;padding:9px 14px;border-radius:2px;outline:none;letter-spacing:0.08em;transition:border-color 0.2s}
+#search-input:focus{border-color:rgba(0,200,255,0.5)}
+#search-input::placeholder{color:rgba(0,200,255,0.25)}
+.bar-btn{background:transparent;border:1px solid rgba(0,200,255,0.3);color:#00c8ff;font-family:'Orbitron',monospace;font-size:0.42rem;letter-spacing:0.2em;padding:9px 14px;cursor:pointer;border-radius:2px;transition:all 0.2s;white-space:nowrap}
+.bar-btn:hover{background:rgba(0,200,255,0.1);border-color:#00c8ff}
+.bar-btn.mic-on{border-color:#ff3c3c;color:#ff6060;animation:micPulse 1s ease-in-out infinite}
+@keyframes micPulse{0%,100%{opacity:1}50%{opacity:0.4}}
+
+/* ── RIGHT INFO PANEL ── */
+#info-panel{width:200px;flex-shrink:0;display:flex;flex-direction:column;gap:6px;padding:16px 12px;border-left:1px solid rgba(0,200,255,0.1);z-index:10;background:rgba(1,12,20,0.8)}
+.info-card{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.1);border-radius:2px;padding:10px 12px}
+.info-card-key{font-family:'Orbitron',monospace;font-size:0.38rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4);margin-bottom:5px}
+.info-card-val{font-size:0.68rem;color:#00c8ff;letter-spacing:0.1em;line-height:1.5}
+.info-card-val.small{font-size:0.58rem;color:rgba(0,200,255,0.6)}
+
+/* Source badge */
+.source-badge{display:inline-flex;align-items:center;gap:4px;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.15);border-radius:2px;padding:3px 8px;font-size:0.52rem;color:rgba(0,200,255,0.5);margin-top:4px}
+
+/* Gesture cam */
+#cam-wrap{margin-top:auto;padding-top:8px;border-top:1px solid rgba(0,200,255,0.08)}
+#gesture-cam{width:100%;aspect-ratio:4/3;object-fit:cover;border:1px solid rgba(0,200,255,0.2);border-radius:2px;opacity:0.75;background:#000;display:block}
+.cam-label{font-family:'Orbitron',monospace;font-size:0.38rem;letter-spacing:0.22em;color:rgba(0,200,255,0.35);text-align:center;margin-top:4px}
+#gesture-status{font-size:0.58rem;color:rgba(0,200,255,0.4);text-align:center;min-height:16px;margin-top:4px;letter-spacing:0.1em}
+
+/* Search results dropdown */
+#results-list{position:absolute;bottom:100%;left:0;right:0;background:rgba(1,12,22,0.98);border:1px solid rgba(0,200,255,0.2);border-bottom:none;max-height:240px;overflow-y:auto;z-index:30;display:none}
+.result-item{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid rgba(0,200,255,0.06);transition:background 0.15s}
+.result-item:hover{background:rgba(0,200,255,0.07)}
+.result-thumb{width:44px;height:44px;object-fit:cover;border:1px solid rgba(0,200,255,0.2);border-radius:2px;background:#001122;flex-shrink:0}
+.result-info{flex:1;min-width:0}
+.result-name{font-size:0.68rem;color:#00c8ff;letter-spacing:0.06em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.result-src{font-size:0.52rem;color:rgba(0,200,255,0.4);letter-spacing:0.1em;margin-top:2px}
+
+/* Toast */
+#toast{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.3);color:#00c8ff;font-family:'Orbitron',monospace;font-size:0.45rem;letter-spacing:0.22em;padding:8px 20px;border-radius:2px;z-index:100;opacity:0;transition:opacity 0.3s;pointer-events:none}
+#toast.show{opacity:1}
+
+/* Ticker */
+#ticker{position:fixed;bottom:0;left:0;right:0;height:20px;background:rgba(1,8,18,0.9);border-top:1px solid rgba(0,200,255,0.07);overflow:hidden;display:flex;align-items:center;z-index:40}
+#ticker::before{content:'▶';font-size:0.45rem;color:#00c8ff;padding:0 10px;flex-shrink:0;opacity:0.5}
+.ticker-track{display:flex;white-space:nowrap;animation:tickerScroll 50s linear infinite;font-size:0.5rem;color:rgba(0,200,255,0.35);letter-spacing:0.14em}
+.ticker-item{padding:0 36px}.ticker-item.blue{color:rgba(0,200,255,0.6)}
+@keyframes tickerScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+</style>
+</head>
+<body>
+
+<div class="scanline"></div>
+<div class="corner tl"><div class="pip"></div></div>
+<div class="corner tr"><div class="pip"></div></div>
+<div class="corner bl"><div class="pip"></div></div>
+<div class="corner br"><div class="pip"></div></div>
+
+<div id="toast"></div>
+
+<div id="layout">
+
+  <!-- LEFT: Object library -->
+  <div id="sidebar">
+    <div style="font-family:'Orbitron',monospace;font-size:0.55rem;font-weight:700;letter-spacing:0.35em;color:#00c8ff;margin-bottom:8px">J.A.R.V.I.S</div>
+    <div style="font-size:0.48rem;letter-spacing:0.2em;color:rgba(0,200,255,0.35);margin-bottom:12px">HOLOGRAPHIC VIEWER</div>
+
+    <div class="sidebar-label">Quick Load</div>
+    <button class="obj-btn" onclick="quickLoad('carbon atom 3d model')"><span class="obj-thumb">⬡</span>Carbon Atom</button>
+    <button class="obj-btn" onclick="quickLoad('DNA double helix 3d')"><span class="obj-thumb">⚬</span>DNA Helix</button>
+    <button class="obj-btn" onclick="quickLoad('water molecule 3d')"><span class="obj-thumb">◉</span>Water Molecule</button>
+    <button class="obj-btn" onclick="quickLoad('smart glasses 3d model')"><span class="obj-thumb">◈</span>Smart Glasses</button>
+    <button class="obj-btn" onclick="quickLoad('human brain 3d model')"><span class="obj-thumb">◎</span>Human Brain</button>
+    <button class="obj-btn" onclick="quickLoad('iron crystal lattice 3d')"><span class="obj-thumb">▣</span>Iron Lattice</button>
+    <button class="obj-btn" onclick="quickLoad('satellite 3d model')"><span class="obj-thumb">✦</span>Satellite</button>
+    <button class="obj-btn" onclick="quickLoad('boeing 747 3d model')"><span class="obj-thumb">✈</span>Boeing 747</button>
+    <button class="obj-btn" onclick="quickLoad('human heart 3d model')"><span class="obj-thumb">♡</span>Human Heart</button>
+    <button class="obj-btn" onclick="quickLoad('benzene ring molecule 3d')"><span class="obj-thumb">⬢</span>Benzene Ring</button>
+    <button class="obj-btn" onclick="quickLoad('neuron cell 3d model')"><span class="obj-thumb">⚡</span>Neuron</button>
+    <button class="obj-btn" onclick="quickLoad('ISS international space station 3d')"><span class="obj-thumb">🛰</span>Space Station</button>
+
+    <div class="sidebar-label" style="margin-top:12px">Sources</div>
+    <div style="font-size:0.55rem;color:rgba(0,200,255,0.35);line-height:2;letter-spacing:0.08em">
+      ● Sketchfab<br>
+      ● NIH 3D Print Exchange<br>
+      ● NASA 3D Resources<br>
+      ● RCSB Protein Data Bank<br>
+      ● Smithsonian 3D
+    </div>
+  </div>
+
+  <!-- CENTER: Viewer -->
+  <div id="viewer-wrap">
+    <div id="viewer-hud-top">
+      <div class="hud-block">
+        <div class="hud-key">CURRENT OBJECT</div>
+        <div class="hud-val" id="hud-objname">— AWAITING SCAN —</div>
+      </div>
+      <div class="hud-block" style="text-align:center">
+        <div class="hud-key">SOURCE</div>
+        <div class="hud-val" id="hud-source" style="font-size:0.6rem;color:rgba(0,200,255,0.5)">—</div>
+      </div>
+      <div class="hud-block" style="text-align:right">
+        <div class="hud-key">STATUS</div>
+        <div class="hud-val" id="hud-status" style="font-size:0.65rem">STANDBY</div>
+      </div>
+    </div>
+
+    <div id="model-frame">
+      <!-- Sketchfab / model embed goes here -->
+      <iframe id="model-iframe" allowfullscreen allow="autoplay; fullscreen; xr-spatial-tracking" style="display:none"></iframe>
+
+      <!-- Loading state -->
+      <div id="loading" style="display:none">
+        <div class="load-ring"></div>
+        <div class="load-text" id="load-text">SCANNING DATABASE</div>
+        <div class="load-sub" id="load-sub">Querying Sketchfab · NIH 3D · NASA · RCSB…</div>
+      </div>
+
+      <!-- No model / start state -->
+      <div id="no-model" style="display:flex">
+        <div class="no-model-ring"><div class="no-model-icon">⬡</div></div>
+        <div class="no-model-text">HOLOGRAPHIC PROJECTOR READY</div>
+        <div class="no-model-hint">
+          Say or type what you want to see<br>
+          "show me smart glasses"<br>
+          "show me a carbon atom"<br>
+          "show me a human brain"
+        </div>
+      </div>
+
+      <!-- Search results -->
+      <div id="results-list"></div>
+    </div>
+
+    <!-- Search bar -->
+    <div id="search-bar" style="position:relative">
+      <div id="results-list"></div>
+      <input type="text" id="search-input"
+        placeholder='Say or type: "show me smart glasses" · "show me a DNA helix" · "show me benzene"…'
+        onkeydown="handleKey(event)" oninput="onInputChange(this.value)"/>
+      <button class="bar-btn" onclick="doSearch()">⚡ SCAN</button>
+      <button class="bar-btn" id="mic-btn" onclick="toggleMic()">🎙 VOICE</button>
+    </div>
+  </div>
+
+  <!-- RIGHT: Info + gesture cam -->
+  <div id="info-panel">
+    <div class="info-card">
+      <div class="info-card-key">OBJECT</div>
+      <div class="info-card-val" id="inf-name">—</div>
+    </div>
+    <div class="info-card">
+      <div class="info-card-key">DESCRIPTION</div>
+      <div class="info-card-val small" id="inf-desc">Select an object to begin scanning.</div>
+    </div>
+    <div class="info-card">
+      <div class="info-card-key">AUTHOR</div>
+      <div class="info-card-val small" id="inf-author">—</div>
+    </div>
+    <div class="info-card">
+      <div class="info-card-key">LICENCE</div>
+      <div class="info-card-val small" id="inf-licence">—</div>
+    </div>
+    <div class="info-card" id="inf-link-card" style="display:none">
+      <div class="info-card-key">OPEN IN</div>
+      <a id="inf-link" href="#" target="_blank" rel="noopener"
+        style="font-size:0.6rem;color:#00c8ff;text-decoration:none;letter-spacing:0.1em;display:block;margin-top:4px">
+        ↗ VIEW ON SKETCHFAB
+      </a>
+    </div>
+
+    <div class="info-card" style="margin-top:4px">
+      <div class="info-card-key">CONTROLS</div>
+      <div class="info-card-val small" style="line-height:2">
+        Left drag → rotate<br>
+        Right drag → pan<br>
+        Scroll → zoom<br>
+        Double-click → focus
+      </div>
+    </div>
+
+    <!-- Gesture cam -->
+    <div id="cam-wrap">
+      <video id="gesture-cam" autoplay muted playsinline></video>
+      <div class="cam-label">GESTURE CAM</div>
+      <div id="gesture-status">● OFFLINE</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Ticker -->
+<div id="ticker">
+  <div class="ticker-track" id="ticker-track"></div>
+</div>
+
+<script>
+// ── TICKER ────────────────────────────────────────────────────
+const TICKER_ITEMS = [
+  {t:'J.A.R.V.I.S HOLOGRAPHIC VIEWER',blue:true},
+  {t:'REAL 3D MODELS FROM PUBLIC DATABASES'},
+  {t:'SOURCES: SKETCHFAB · NIH 3D · NASA · RCSB · SMITHSONIAN',blue:true},
+  {t:'SAY WHAT YOU WANT TO SEE'},
+  {t:'VOICE COMMANDS ACTIVE'},
+  {t:'DRAG TO ROTATE · SCROLL TO ZOOM',blue:true},
+  {t:'HAND GESTURE TRACKING AVAILABLE'},
+  {t:'FULLY INTERACTIVE 3D SCAN'},
+];
+(function buildTicker(){
+  const track = document.getElementById('ticker-track');
+  const all = [...TICKER_ITEMS,...TICKER_ITEMS];
+  track.innerHTML = all.map(i=>`<span class="ticker-item${i.blue?' blue':''}">${i.t}</span><span class="ticker-item" style="opacity:.25">·</span>`).join('');
+})();
+
+// ── SKETCHFAB API (free, no key needed for embed search) ──────
+// We use Sketchfab's public oEmbed + search API
+const SKETCHFAB_SEARCH = 'https://api.sketchfab.com/v3/models';
+
+let currentResults = [];
+let isListening = false;
+let recognition = null;
+let debounceTimer = null;
+
+function toast(msg, dur=2500) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), dur);
+}
+
+function setStatus(s) { document.getElementById('hud-status').textContent = s; }
+function setObjName(n) { document.getElementById('hud-objname').textContent = n.toUpperCase(); }
+function setSource(s) { document.getElementById('hud-source').textContent = s; }
+
+// ── SEARCH SKETCHFAB ──────────────────────────────────────────
+async function searchSketchfab(query) {
+  const params = new URLSearchParams({
+    q: query,
+    type: 'models',
+    downloadable: false,
+    count: 8,
+    sort_by: '-viewCount',
+    // Only free/embeddable models
+  });
+  const url = `${SKETCHFAB_SEARCH}?${params}`;
+  const res = await fetch(url, {
+    headers: { 'Accept': 'application/json' }
+  });
+  if (!res.ok) throw new Error(`Sketchfab API ${res.status}`);
+  const data = await res.json();
+  return (data.results || []).map(m => ({
+    uid:      m.uid,
+    name:     m.name,
+    author:   m.user?.displayName || 'Unknown',
+    desc:     m.description || '',
+    licence:  m.license?.label || 'Standard',
+    thumb:    m.thumbnails?.images?.[0]?.url || '',
+    embedUrl: `https://sketchfab.com/models/${m.uid}/embed?autostart=1&ui_theme=dark&ui_color=00c8ff&camera=0&transparent=0&preload=1`,
+    pageUrl:  `https://sketchfab.com/models/${m.uid}`,
+    views:    m.viewCount,
+    source:   'Sketchfab',
+  }));
+}
+
+// ── RENDER SEARCH RESULTS ─────────────────────────────────────
+function renderResults(results) {
+  const list = document.getElementById('results-list');
+  if (!results.length) {
+    list.style.display = 'none';
+    return;
+  }
+  list.innerHTML = results.map((r, i) => `
+    <div class="result-item" onclick="loadModel(${i})">
+      <img class="result-thumb" src="${r.thumb}" alt="" onerror="this.style.display='none'"/>
+      <div class="result-info">
+        <div class="result-name">${r.name}</div>
+        <div class="result-src">${r.source} · ${r.author}</div>
+      </div>
+    </div>
+  `).join('');
+  list.style.display = 'block';
+}
+
+// ── LOAD MODEL INTO IFRAME ────────────────────────────────────
+function loadModel(idx) {
+  const r = currentResults[idx];
+  if (!r) return;
+
+  document.getElementById('results-list').style.display = 'none';
+  document.getElementById('no-model').style.display = 'none';
+  document.getElementById('loading').style.display = 'flex';
+  document.getElementById('load-text').textContent = 'LOADING MODEL';
+  document.getElementById('load-sub').textContent = `Fetching "${r.name}" from ${r.source}…`;
+
+  setObjName(r.name);
+  setSource(r.source);
+  setStatus('LOADING');
+
+  // Fill info panel
+  document.getElementById('inf-name').textContent = r.name;
+  document.getElementById('inf-desc').textContent = (r.desc || 'No description.').slice(0, 160) + (r.desc && r.desc.length > 160 ? '…' : '');
+  document.getElementById('inf-author').textContent = r.author;
+  document.getElementById('inf-licence').textContent = r.licence;
+
+  const linkCard = document.getElementById('inf-link-card');
+  const linkEl   = document.getElementById('inf-link');
+  linkCard.style.display = 'block';
+  linkEl.href = r.pageUrl;
+  linkEl.textContent = `↗ VIEW ON ${r.source.toUpperCase()}`;
+
+  const iframe = document.getElementById('model-iframe');
+  iframe.style.display = 'none';
+  iframe.onload = () => {
+    document.getElementById('loading').style.display = 'none';
+    iframe.style.display = 'block';
+    setStatus('SCANNING');
+    toast(`SCAN COMPLETE — ${r.name.toUpperCase()}`);
+
+    // Tell parent JARVIS if embedded
+    if (window.addMsg) window.addMsg('jarvis', `Holographic scan loaded: ${r.name} — by ${r.author} on ${r.source}.`);
+  };
+  iframe.src = r.embedUrl;
+
+  // Timeout fallback
+  setTimeout(()=>{
+    if (document.getElementById('loading').style.display !== 'none') {
+      document.getElementById('loading').style.display = 'none';
+      iframe.style.display = 'block';
+      setStatus('ONLINE');
+    }
+  }, 8000);
+}
+
+// ── MAIN SEARCH FLOW ──────────────────────────────────────────
+async function doSearch(query) {
+  const q = query || document.getElementById('search-input').value.trim();
+  if (!q) return;
+
+  // Strip common JARVIS command words
+  const cleaned = q
+    .replace(/^(jarvis[,.]?\s*)?(show me|scan|search for|find|pull up|load|display|give me|what does)\s+(a |an |the )?/i, '')
+    .replace(/\s*(3d|model|scan|hologram)$/i, '')
+    .trim() || q;
+
+  document.getElementById('results-list').style.display = 'none';
+  document.getElementById('no-model').style.display = 'none';
+  document.getElementById('loading').style.display = 'flex';
+  document.getElementById('load-text').textContent = 'SCANNING DATABASE';
+  document.getElementById('load-sub').textContent = `Querying public 3D databases for "${cleaned}"…`;
+  setStatus('SEARCHING');
+  setObjName('SEARCHING…');
+
+  try {
+    const results = await searchSketchfab(cleaned);
+    currentResults = results;
+
+    document.getElementById('loading').style.display = 'none';
+
+    if (!results.length) {
+      toast('NO RESULTS — TRY A DIFFERENT SEARCH');
+      setStatus('NO RESULTS');
+      document.getElementById('no-model').style.display = 'flex';
+      document.getElementById('no-model').querySelector('.no-model-hint').innerHTML =
+        `No 3D models found for "<b>${cleaned}</b>"<br>Try: "carbon atom" · "smart glasses" · "human brain"`;
+      return;
+    }
+
+    // Auto-load best result, show rest in dropdown
+    renderResults(results);
+    loadModel(0);
+
+  } catch (err) {
+    console.error('[HOLOGRAM]', err);
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('no-model').style.display = 'flex';
+    setStatus('ERROR');
+    toast('SEARCH ERROR — CHECK NETWORK');
+  }
+}
+
+function quickLoad(q) {
+  document.getElementById('search-input').value = q;
+  doSearch(q);
+}
+
+// ── TYPEAHEAD ─────────────────────────────────────────────────
+function onInputChange(val) {
+  clearTimeout(debounceTimer);
+  if (val.length < 3) { document.getElementById('results-list').style.display = 'none'; return; }
+  debounceTimer = setTimeout(async () => {
+    try {
+      const results = await searchSketchfab(val);
+      currentResults = results;
+      renderResults(results);
+    } catch {}
+  }, 500);
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter') { doSearch(); document.getElementById('results-list').style.display = 'none'; }
+  if (e.key === 'Escape') document.getElementById('results-list').style.display = 'none';
+}
+
+// Close results on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('#search-bar') && !e.target.closest('#results-list')) {
+    document.getElementById('results-list').style.display = 'none';
+  }
+});
+
+// ── VOICE CONTROL ─────────────────────────────────────────────
+function toggleMic() {
+  if (!('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)) {
+    toast('SPEECH RECOGNITION NOT AVAILABLE — USE TEXT INPUT');
+    return;
+  }
+  if (isListening) { if (recognition) recognition.stop(); return; }
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SR();
+  recognition.continuous = false;
+  recognition.lang = 'en-US';
+  recognition.interimResults = false;
+
+  recognition.onstart = () => {
+    isListening = true;
+    document.getElementById('mic-btn').classList.add('mic-on');
+    document.getElementById('mic-btn').textContent = '🔴 LISTENING';
+    toast('LISTENING…');
+  };
+
+  recognition.onresult = e => {
+    const txt = e.results[0][0].transcript.trim();
+    document.getElementById('search-input').value = txt;
+    toast(`HEARD: "${txt.toUpperCase()}"`);
+    doSearch(txt);
+  };
+
+  recognition.onend = () => {
+    isListening = false;
+    document.getElementById('mic-btn').classList.remove('mic-on');
+    document.getElementById('mic-btn').textContent = '🎙 VOICE';
+  };
+
+  recognition.onerror = () => {
+    isListening = false;
+    document.getElementById('mic-btn').classList.remove('mic-on');
+    document.getElementById('mic-btn').textContent = '🎙 VOICE';
+    toast('MIC ERROR');
+  };
+
+  recognition.start();
+}
+
+// ── GESTURE CAM ───────────────────────────────────────────────
+async function initGestureCam() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: 200, height: 150, facingMode: 'user' }, audio: false
+    });
+    const vid = document.getElementById('gesture-cam');
+    vid.srcObject = stream;
+    vid.play();
+    document.getElementById('gesture-status').textContent = '● CAM ONLINE';
+    document.getElementById('gesture-status').style.color = '#00ff88';
+    startGestureTracking(vid);
+  } catch {
+    document.getElementById('gesture-status').textContent = '● CAM OFFLINE';
+  }
+}
+
+function startGestureTracking(videoEl) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 100; canvas.height = 75;
+  const ctx = canvas.getContext('2d');
+  let lastGesture = '', gestureFrames = 0;
+
+  setInterval(() => {
+    if (!videoEl.videoWidth) return;
+    ctx.drawImage(videoEl, 0, 0, 100, 75);
+    const imgData = ctx.getImageData(0, 0, 100, 75).data;
+    let skinCount = 0;
+    for (let i = 0; i < imgData.length; i += 16) {
+      const r = imgData[i], g = imgData[i+1], b = imgData[i+2];
+      if (r > 90 && g > 55 && b > 35 && r > g && r - b > 20) skinCount++;
+    }
+    const ratio = skinCount / (imgData.length / 16);
+    let gesture = '';
+    if (ratio > 0.30) gesture = ratio > 0.50 ? 'OPEN_HAND' : 'FIST';
+
+    if (gesture !== lastGesture) { gestureFrames = 0; lastGesture = gesture; }
+    else gestureFrames++;
+
+    if (gestureFrames > 4 && gesture) {
+      const labels = { OPEN_HAND: '✋ OPEN — ZOOM', FIST: '✊ FIST — SPIN' };
+      document.getElementById('gesture-status').textContent = labels[gesture] || '● TRACKING';
+    } else if (!gesture) {
+      document.getElementById('gesture-status').textContent = '● TRACKING';
+    }
+  }, 150);
+}
+
+// ── JARVIS INTEGRATION ────────────────────────────────────────
+// Listen for commands from parent JARVIS site if embedded in iframe
+window.addEventListener('message', e => {
+  const { type, query } = e.data || {};
+  if (type === 'HOLOGRAM_SEARCH' && query) {
+    document.getElementById('search-input').value = query;
+    doSearch(query);
+  }
+});
+
+// ── BOOT ─────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  initGestureCam();
+  // If loaded with a hash query e.g. hologram.html#smart+glasses
+  if (location.hash) {
+    const q = decodeURIComponent(location.hash.slice(1));
+    document.getElementById('search-input').value = q;
+    setTimeout(() => doSearch(q), 500);
+  }
+});
+</script>
+
+</body>
+</html>
