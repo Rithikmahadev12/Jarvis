@@ -215,7 +215,7 @@ def data():
 if __name__ == "__main__":
     app.run(debug=True, port=5000)`,
 
-    "class": (topic) => `class ${toPascalCase(topic or "Item")}:
+    "class": (topic) => `class ${toPascalCase(topic || "Item")}:
     def __init__(self, **kwargs):
         for key, val in kwargs.items():
             setattr(self, key, val)
