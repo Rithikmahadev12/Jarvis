@@ -31,15 +31,73 @@ window.PiPWidgets = (function () {
   const _sessionStart = Date.now();
   let   _frame        = 0;
 
-  // ── SOLVE STATE ─────────────────────────────────────────────
-  let _solveState = {
-    answer:   'AWAITING QUERY',
-    category: 'STANDBY',
-    sub:      'State your problem — Jarvis will solve it.',
-    steps:    [],
-    extra:    '',
-    processing: false,
-  };
+ if (!problem) {
+        // No problem spoken — try to OCR the shared screen
+        _solveState = {
+          answer: 'Reading your screen…',
+          category: 'SCREEN SCAN',
+          sub: 'Looking for maths on your current tab',
+          steps: [], extra: '', processing: true,
+        };
+        if (!widgets.has('solve')) await openWidget('solve');
+
+        try {
+          // Pull OCR text via the screen route
+          const ocrResult = await new Promise((resolve) => {
+            // Grab a frame from the existing screen stream
+            const videoEl = document.createElement('video');
+            const stream  = window.state?.screenStream;
+            if (!stream) { resolve(null); return; }
+            videoEl.srcObject = stream;
+            videoEl.onloadedmetadata = () => {
+              videoEl.play();
+              setTimeout(() => {
+                const c = document.createElement('canvas');
+                c.width = videoEl.videoWidth || 1280;
+                c.height = videoEl.videoHeight || 720;
+                c.getContext('2d').drawImage(videoEl, 0, 0);
+                videoEl.pause();
+                resolve(c.toDataURL('image/png'));
+              }, 200);
+            };
+          });
+
+          if (ocrResult && window.Tesseract && window.state?.tesseractWorker) {
+            const { data } = await window.state.tesseractWorker.recognize(ocrResult);
+            const screenText = data.text || '';
+            const result = computeSolve(screenText.trim());
+            if (result) {
+              _solveState = { ...result, processing: false };
+              notify(`Solved from screen: ${result.answer}`);
+            } else {
+              _solveState = {
+                answer: 'No equation found on screen',
+                category: 'SCREEN SCAN',
+                sub: 'Say "Jarvis solve [problem]" with the equation',
+                steps: ['e.g. "Jarvis solve x² − 5x + 6 = 0"',
+                        'e.g. "Jarvis solve 15% of 200"',
+                        'e.g. "Jarvis solve is 97 prime"'],
+                extra: '', processing: false,
+              };
+            }
+          } else {
+            _solveState = {
+              answer: 'Say the problem aloud',
+              category: 'AWAITING INPUT',
+              sub: 'e.g. "Jarvis, solve x² − 5x + 6 = 0"',
+              steps: [], extra: '', processing: false,
+            };
+          }
+        } catch {
+          _solveState = {
+            answer: 'Say the problem aloud',
+            category: 'AWAITING INPUT',
+            sub: 'e.g. "Jarvis, solve x² − 5x + 6 = 0"',
+            steps: [], extra: '', processing: false,
+          };
+        }
+
+      } else {
 
   // ── SOLVE ENGINE ────────────────────────────────────────────
   function isPrime(n) {
