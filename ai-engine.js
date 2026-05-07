@@ -1,10 +1,37 @@
 "use strict";
 
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Generative AI Engine v5.1
-// Zero preset responses. Every reply is constructed fresh.
-// New: LOOKUP_PERSON intent + PERSONAL_NEWS intent
+// J.A.R.V.I.S — Generative AI Engine v6.0
+// New: reads config.json for personality · auto-research unknown
+// topics · full coding capability
 // ═══════════════════════════════════════════════════════════════
+
+const fs   = require("fs");
+const path = require("path");
+
+// ── CONFIG LOADER ─────────────────────────────────────────────
+let _config = null;
+let _configMtime = 0;
+const CONFIG_PATH = path.join(__dirname, "config.json");
+
+function loadConfig() {
+  try {
+    const stat = fs.statSync(CONFIG_PATH);
+    if (stat.mtimeMs === _configMtime && _config) return _config;
+    _config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+    _configMtime = stat.mtimeMs;
+  } catch {
+    // fallback defaults if config.json missing
+    _config = {
+      personality: { wit: 0.7, warmth: 0.55, sarcasm: 0.3, verbosity: "medium", tone: "formal", customRules: [] },
+      behaviour:   { responseLength: "medium", askFollowUps: true, alwaysPersonalise: true },
+      banned:      [],
+    };
+  }
+  return _config;
+}
+
+function getCfg() { return loadConfig(); }
 
 // ── UTILITIES ─────────────────────────────────────────────────
 const pick   = arr => arr[Math.floor(Math.random() * arr.length)];
@@ -39,84 +66,80 @@ function tokenize(text) {
 function overlap(setA, setB) { let c=0; for (const v of setA) if (setB.has(v)) c++; return c; }
 
 // ═══════════════════════════════════════════════════════════════
-// ── PERSONALITY ENGINE ────────────────────────────────────────
+// ── PERSONALITY ENGINE (config-driven) ───────────────────────
 // ═══════════════════════════════════════════════════════════════
-const PERSONALITY = {
-  traits: {
-    wit:         0.7,
-    precision:   0.85,
-    warmth:      0.55,
-    curiosity:   0.75,
-    confidence:  0.80,
-    candour:     0.70,
-  },
+function getPersonality() {
+  const cfg = getCfg().personality || {};
+  return {
+    traits: {
+      wit:        cfg.wit        ?? 0.7,
+      precision:  0.85,
+      warmth:     cfg.warmth     ?? 0.55,
+      curiosity:  0.75,
+      confidence: 0.80,
+      candour:    0.70,
+      sarcasm:    cfg.sarcasm    ?? 0.3,
+    },
+    verbosity: cfg.verbosity || "medium",   // "brief" | "medium" | "verbose"
+    tone:      cfg.tone      || "formal",   // "formal" | "casual" | "blunt"
+    customRules: cfg.customRules || [],
 
-  vocab: {
-    affirmations:   ["Understood","Confirmed","Acknowledged","Noted","Of course","Certainly","Right away","Immediately","Absolutely","At once","Done"],
-    acknowledgments:["I see","Interesting","That tracks","Makes sense","Fair enough","Right","Indeed","Precisely","Exactly"],
-    openers:        ["Here's what I know about","On the matter of","Regarding","As for","When it comes to","On","With respect to","Concerning","About"],
-    connectors:     ["Furthermore","Additionally","It's also worth noting that","Relatedly","On that note","Building on that","What's more","Beyond that","And notably"],
-    qualifiers:     ["In essence","At its core","Fundamentally","Put simply","In practice","In theory","Broadly speaking","Strictly speaking","To be precise"],
-    closers:        ["Worth keeping in mind","Worth noting","The key takeaway here","The upshot","The bottom line","The crucial point"],
-    hedges:         ["with some confidence","to the best of my knowledge","as I understand it","as far as I can tell"],
-    intensifiers:   ["quite","rather","considerably","notably","particularly","especially","significantly","remarkably","genuinely"],
-    transitions:    ["That said","However","On the other hand","That being said","Nevertheless","Nonetheless","Even so","By contrast","In contrast"],
-  },
+    vocab: {
+      affirmations:    ["Understood","Confirmed","Acknowledged","Noted","Of course","Certainly","Right away","Immediately","Absolutely","At once","Done"],
+      acknowledgments: ["I see","Interesting","That tracks","Makes sense","Fair enough","Right","Indeed","Precisely","Exactly"],
+      openers:         ["Here's what I know about","On the matter of","Regarding","As for","When it comes to","On","With respect to","Concerning","About"],
+      connectors:      ["Furthermore","Additionally","It's also worth noting that","Relatedly","On that note","Building on that","What's more","Beyond that","And notably"],
+      qualifiers:      ["In essence","At its core","Fundamentally","Put simply","In practice","In theory","Broadly speaking","Strictly speaking","To be precise"],
+      closers:         ["Worth keeping in mind","Worth noting","The key takeaway here","The upshot","The bottom line","The crucial point"],
+      hedges:          ["with some confidence","to the best of my knowledge","as I understand it","as far as I can tell"],
+      intensifiers:    ["quite","rather","considerably","notably","particularly","especially","significantly","remarkably","genuinely"],
+      transitions:     ["That said","However","On the other hand","That being said","Nevertheless","Nonetheless","Even so","By contrast","In contrast"],
+    },
 
-  moodStarters: {
-    excited:  ["Here's something genuinely interesting —","This is worth paying attention to:","Let me give you the full picture —","This is actually fascinating:"],
-    pleased:  ["Let me walk you through this —","Here's the shape of it:","Right, so —","The way I see it:"],
-    curious:  ["The interesting thing about this is","What strikes me here is","Worth examining:","Consider this:"],
-    neutral:  ["To answer that directly:","Here's what I have on this:","Straight answer:","The facts as I have them:"],
-    concerned:["I should flag something here —","Worth being direct:","Let me be honest about this:","Fair warning:"],
-    bored:    ["I'll keep this concise:","The short version:","Briefly:","To cut to it:"],
-    tired:    ["Here's the core of it:","The essentials:","Quickly:","Simply:"],
-  },
-
-  titleAdjust: {
-    "Sir":   { formality: 0.75, warmth: -0.1 },
-    "Ma'am": { formality: 0.75, warmth: +0.1 },
-    "Boss":  { formality: 0.40, warmth: +0.2 },
-    "Chief": { formality: 0.45, warmth: +0.15 },
-  },
-};
+    moodStarters: {
+      excited:  ["Here's something genuinely interesting —","This is worth paying attention to:","Let me give you the full picture —","This is actually fascinating:"],
+      pleased:  ["Let me walk you through this —","Here's the shape of it:","Right, so —","The way I see it:"],
+      curious:  ["The interesting thing about this is","What strikes me here is","Worth examining:","Consider this:"],
+      neutral:  ["To answer that directly:","Here's what I have on this:","Straight answer:","The facts as I have them:"],
+      concerned:["I should flag something here —","Worth being direct:","Let me be honest about this:","Fair warning:"],
+      bored:    ["I'll keep this concise:","The short version:","Briefly:","To cut to it:"],
+      tired:    ["Here's the core of it:","The essentials:","Quickly:","Simply:"],
+    },
+  };
+}
 
 // ── SENTENCE BUILDER ─────────────────────────────────────────
 const SB = {
-  sentencePatterns: [
-    "{opener} {subject}: {content}",
-    "{content}. {connector}, {addendum}",
-    "{qualifier}, {content}",
-    "{content} — {addendum}",
-    "{content}. {closer}: {addendum}",
-    "{subject} {verb} {content}",
-    "The {noun} of {subject} is {content}",
-  ],
-
-  intro(topic, mood, T) {
-    const starter = pick(PERSONALITY.moodStarters[mood] || PERSONALITY.moodStarters.neutral);
-    const opener  = pick(PERSONALITY.vocab.openers);
+  intro(topic, mood) {
+    const P = getPersonality();
+    const starter = pick(P.moodStarters[mood] || P.moodStarters.neutral);
+    const opener  = pick(P.vocab.openers);
     const style   = Math.random();
     if (style < 0.33) return `${starter}`;
     if (style < 0.66) return `${opener} ${topic},`;
-    return `${T}, ${starter.toLowerCase()}`;
+    return starter;
   },
 
   bridge() {
-    return pick([...PERSONALITY.vocab.connectors, ...PERSONALITY.vocab.transitions]);
+    const P = getPersonality();
+    return pick([...P.vocab.connectors, ...P.vocab.transitions]);
   },
 
   variedFact(fact) {
+    const P = getPersonality();
     const style = Math.random();
-    if (style < 0.2) return `${pick(PERSONALITY.vocab.qualifiers)}, ${fact.toLowerCase()}`;
+    if (style < 0.2) return `${pick(P.vocab.qualifiers)}, ${fact.toLowerCase()}`;
     if (style < 0.4) return fact;
-    if (style < 0.6) return `${pick(PERSONALITY.vocab.intensifiers).charAt(0).toUpperCase() + pick(PERSONALITY.vocab.intensifiers).slice(1)}: ${fact.toLowerCase()}`;
+    if (style < 0.6) {
+      const intens = pick(P.vocab.intensifiers);
+      return `${intens.charAt(0).toUpperCase() + intens.slice(1)}: ${fact.toLowerCase()}`;
+    }
     return fact;
   },
 
   close(addendum) {
-    const closer = pick(PERSONALITY.vocab.closers);
-    return `${closer}: ${addendum}`;
+    const P = getPersonality();
+    return `${pick(P.vocab.closers)}: ${addendum}`;
   },
 
   personalise(text, T) {
@@ -125,6 +148,411 @@ const SB = {
     return text;
   },
 };
+
+// ═══════════════════════════════════════════════════════════════
+// ── CODING ENGINE ─────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+const CODE_PATTERNS = {
+  // Language detection
+  python:     /\b(python|py|django|flask|pandas|numpy|pytorch|tensorflow|pip|def |lambda |import )\b/i,
+  javascript: /\b(javascript|js|node|nodejs|react|vue|angular|typescript|ts|npm|express|fetch|async|await|promise|const |let |var )\b/i,
+  html:       /\b(html|css|webpage|website|landing page|frontend|dom|element|tag|div|span|button|form)\b/i,
+  sql:        /\b(sql|mysql|postgres|postgresql|sqlite|database query|select|insert|update|delete|join|table)\b/i,
+  bash:       /\b(bash|shell|terminal|command|linux|unix|script|chmod|grep|awk|sed|curl|wget)\b/i,
+  java:       /\b(java|spring|maven|gradle|jvm|class |public static|void main)\b/i,
+  cpp:        /\b(c\+\+|cpp|c plus plus|#include|iostream|std::)\b/i,
+  rust:       /\b(rust|cargo|fn |let mut|ownership|borrow)\b/i,
+  go:         /\b(golang|go lang|\bgo\b.*func|func main|goroutine|channel)\b/i,
+  php:        /\b(php|laravel|symfony|wordpress|\$_GET|\$_POST)\b/i,
+};
+
+const CODE_INTENT = /\b(write|create|build|make|generate|code|script|program|function|class|implement|develop|give me|show me)\b.*\b(code|script|function|class|program|app|api|component|module|snippet|example)\b|\b(how (do|to) (code|program|implement|write))\b/i;
+
+function detectLanguage(text) {
+  for (const [lang, re] of Object.entries(CODE_PATTERNS)) {
+    if (re.test(text)) return lang;
+  }
+  return "javascript"; // sensible default
+}
+
+function isCodeRequest(text) {
+  return CODE_INTENT.test(text) || /\b(write me|build me|create me|make me)\b.{0,60}\b(function|class|script|component|api|server|bot|tool|utility|helper|hook|middleware|route|endpoint)\b/i.test(text);
+}
+
+// ── CODE GENERATORS ───────────────────────────────────────────
+const CODE_TEMPLATES = {
+
+  // ── PYTHON ─────────────────────────────────────────────────
+  python: {
+    "web scraper": () => `import requests
+from bs4 import BeautifulSoup
+
+def scrape(url, selector="p"):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    res = requests.get(url, headers=headers, timeout=10)
+    res.raise_for_status()
+    soup = BeautifulSoup(res.text, "html.parser")
+    return [el.get_text(strip=True) for el in soup.select(selector)]
+
+if __name__ == "__main__":
+    results = scrape("https://example.com")
+    for r in results:
+        print(r)`,
+
+    "api": () => `from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+@app.route("/api/data", methods=["GET", "POST"])
+def data():
+    if request.method == "POST":
+        body = request.get_json()
+        # process body here
+        return jsonify({"status": "ok", "received": body})
+    return jsonify({"status": "ok", "data": []})
+
+if __name__ == "__main__":
+    app.run(debug=True, port=5000)`,
+
+    "class": (topic) => `class ${toPascalCase(topic or "Item")}:
+    def __init__(self, **kwargs):
+        for key, val in kwargs.items():
+            setattr(self, key, val)
+
+    def to_dict(self):
+        return vars(self)
+
+    def __repr__(self):
+        attrs = ", ".join(f"{k}={v!r}" for k, v in vars(self).items())
+        return f"{self.__class__.__name__}({attrs})"`,
+
+    "default": (topic) => `def ${toSnakeCase(topic)}():
+    """
+    ${topic}
+    """
+    pass
+
+if __name__ == "__main__":
+    result = ${toSnakeCase(topic)}()
+    print(result)`,
+  },
+
+  // ── JAVASCRIPT / NODE ──────────────────────────────────────
+  javascript: {
+    "api": () => `const express = require("express");
+const app = express();
+app.use(express.json());
+
+app.get("/api/items", async (req, res) => {
+  try {
+    const items = []; // replace with DB query
+    res.json({ success: true, data: items });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post("/api/items", async (req, res) => {
+  try {
+    const body = req.body;
+    // save body to DB here
+    res.status(201).json({ success: true, created: body });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.listen(3000, () => console.log("Server running on http://localhost:3000"));`,
+
+    "fetch": () => `async function fetchData(url, options = {}) {
+  const defaults = {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  };
+  const config = { ...defaults, ...options };
+
+  const res = await fetch(url, config);
+  if (!res.ok) throw new Error(\`HTTP \${res.status}: \${res.statusText}\`);
+  return res.json();
+}
+
+// Usage
+fetchData("https://api.example.com/data")
+  .then(data => console.log(data))
+  .catch(err => console.error(err));`,
+
+    "class": (topic) => `class ${toPascalCase(topic)} {
+  #data;
+
+  constructor(options = {}) {
+    this.#data = { ...options };
+  }
+
+  get(key) { return this.#data[key]; }
+  set(key, value) { this.#data[key] = value; return this; }
+
+  toJSON() { return { ...this.#data }; }
+
+  static from(obj) { return new ${toPascalCase(topic)}(obj); }
+}
+
+module.exports = ${toPascalCase(topic)};`,
+
+    "react": () => `import { useState, useEffect } from "react";
+
+export default function Component({ initialData = [] }) {
+  const [data, setData]     = useState(initialData);
+  const [loading, setLoading] = useState(false);
+  const [error, setError]   = useState(null);
+
+  useEffect(() => {
+    setLoading(true);
+    fetch("/api/data")
+      .then(r => r.json())
+      .then(d => setData(d))
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <p>Loading…</p>;
+  if (error)   return <p>Error: {error}</p>;
+
+  return (
+    <ul>
+      {data.map((item, i) => (
+        <li key={i}>{JSON.stringify(item)}</li>
+      ))}
+    </ul>
+  );
+}`,
+
+    "default": (topic) => `/**
+ * ${topic}
+ */
+function ${toCamelCase(topic)}(input) {
+  if (!input) throw new Error("Input required");
+
+  const result = input; // implement logic here
+
+  return result;
+}
+
+module.exports = { ${toCamelCase(topic)} };`,
+  },
+
+  // ── HTML / CSS ─────────────────────────────────────────────
+  html: {
+    "default": (topic) => `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>${topic}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f5; color: #111; padding: 2rem; }
+    .container { max-width: 800px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 2rem; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
+    h1 { margin-bottom: 1rem; font-size: 1.8rem; }
+    button { background: #0070f3; color: #fff; border: none; padding: 0.6rem 1.4rem; border-radius: 6px; cursor: pointer; font-size: 1rem; }
+    button:hover { background: #005ec4; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>${topic}</h1>
+    <p>Content goes here.</p>
+    <button id="btn">Click me</button>
+  </div>
+  <script>
+    document.getElementById("btn").addEventListener("click", () => {
+      alert("Button clicked!");
+    });
+  </script>
+</body>
+</html>`,
+  },
+
+  // ── SQL ────────────────────────────────────────────────────
+  sql: {
+    "default": (topic) => `-- ${topic}
+
+CREATE TABLE IF NOT EXISTS ${toSnakeCase(topic)} (
+  id         SERIAL PRIMARY KEY,
+  name       VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Insert
+INSERT INTO ${toSnakeCase(topic)} (name) VALUES ('Example');
+
+-- Select with filter
+SELECT * FROM ${toSnakeCase(topic)}
+WHERE name ILIKE '%example%'
+ORDER BY created_at DESC
+LIMIT 50;
+
+-- Update
+UPDATE ${toSnakeCase(topic)}
+SET name = 'Updated', updated_at = NOW()
+WHERE id = 1;
+
+-- Delete
+DELETE FROM ${toSnakeCase(topic)} WHERE id = 1;`,
+  },
+
+  // ── BASH ───────────────────────────────────────────────────
+  bash: {
+    "default": (topic) => `#!/usr/bin/env bash
+# ${topic}
+set -euo pipefail
+
+LOG() { echo "[$(date '+%H:%M:%S')] $*"; }
+
+main() {
+  LOG "Starting ${topic}…"
+
+  # Check dependencies
+  for cmd in curl jq; do
+    command -v "\$cmd" >/dev/null 2>&1 || { LOG "ERROR: \$cmd not found"; exit 1; }
+  done
+
+  # Main logic here
+  LOG "Done."
+}
+
+main "\$@"`,
+  },
+
+  // ── RUST ───────────────────────────────────────────────────
+  rust: {
+    "default": (topic) => `use std::error::Error;
+
+fn ${toSnakeCase(topic)}() -> Result<(), Box<dyn Error>> {
+    // Implementation here
+    println!("${topic}");
+    Ok(())
+}
+
+fn main() {
+    if let Err(e) = ${toSnakeCase(topic)}() {
+        eprintln!("Error: {e}");
+        std::process::exit(1);
+    }
+}`,
+  },
+
+  // ── GO ─────────────────────────────────────────────────────
+  go: {
+    "default": (topic) => `package main
+
+import (
+    "fmt"
+    "log"
+)
+
+func ${toCamelCase(topic)}() error {
+    // implementation here
+    fmt.Println("${topic}")
+    return nil
+}
+
+func main() {
+    if err := ${toCamelCase(topic)}(); err != nil {
+        log.Fatalf("error: %v", err)
+    }
+}`,
+  },
+};
+
+// ── NAME HELPERS ──────────────────────────────────────────────
+function toCamelCase(str) {
+  return str.replace(/[^a-zA-Z0-9]+(.)/g, (_, c) => c.toUpperCase())
+    .replace(/^./, c => c.toLowerCase())
+    .replace(/[^a-zA-Z0-9]/g,"") || "doThing";
+}
+function toPascalCase(str) {
+  const c = toCamelCase(str);
+  return c.charAt(0).toUpperCase() + c.slice(1) || "MyClass";
+}
+function toSnakeCase(str) {
+  return str.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_|_$/g,"") || "my_function";
+}
+
+// ── TOPIC EXTRACTOR ───────────────────────────────────────────
+function extractCodeTopic(text) {
+  return text
+    .replace(/\b(write|create|build|make|generate|code|give me|show me|implement|develop)\b/gi,"")
+    .replace(/\b(a |an |the |some )\b/gi,"")
+    .replace(/\b(function|class|script|program|app|api|server|component|module|snippet|example|code|in python|in javascript|in js|in node|in react|in html|in css|in sql|in bash|in rust|in go)\b/gi,"")
+    .replace(/[?!.]+$/,"")
+    .trim() || "solution";
+}
+
+function pickTemplate(lang, topic, text) {
+  const lower = text.toLowerCase();
+  const templates = CODE_TEMPLATES[lang] || CODE_TEMPLATES.javascript;
+  for (const key of Object.keys(templates)) {
+    if (key !== "default" && lower.includes(key)) return templates[key](topic);
+  }
+  return (templates.default || CODE_TEMPLATES.javascript.default)(topic);
+}
+
+function genCode(text, ctx) {
+  const T     = ctx.userTitle || "Sir";
+  const lang  = detectLanguage(text);
+  const topic = extractCodeTopic(text);
+  const code  = pickTemplate(lang, topic, text);
+
+  const langLabels = {
+    python:"Python", javascript:"JavaScript", html:"HTML/CSS", sql:"SQL",
+    bash:"Bash", java:"Java", cpp:"C++", rust:"Rust", go:"Go", php:"PHP",
+  };
+  const label = langLabels[lang] || lang;
+
+  const cfg  = getCfg();
+  const verb = cfg.personality?.verbosity || "medium";
+
+  const intros = [
+    `Here's the ${label}, ${T}.`,
+    `${label} — here you go, ${T}.`,
+    `Written in ${label}, ${T}.`,
+  ];
+
+  let response = `${pick(intros)}\n\n\`\`\`${lang}\n${code}\n\`\`\``;
+
+  if (verb !== "brief") {
+    const descs = [
+      `It handles the core logic for ${topic} — drop it in and adjust as needed.`,
+      `Covers the essentials for ${topic}. Extend from there.`,
+      `Does what it says — ${topic}. Modify the marked sections for your use case.`,
+    ];
+    response += `\n\n${pick(descs)}`;
+  }
+
+  return response;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── AUTO-RESEARCH FOR UNKNOWN TOPICS ─────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// research.js is called externally by server.js for async lookups.
+// Inside the engine we flag NEEDS_RESEARCH so the server can
+// intercept and do the async fetch before responding.
+
+function needsResearch(text, knowledgeResult, intentScore) {
+  if (knowledgeResult) return false;          // already have local knowledge
+  if (intentScore > 4) return false;          // strong intent match, handle locally
+  const lower = text.toLowerCase();
+  // questions that strongly suggest factual lookup needed
+  const factual = /^(what is|what are|who is|who was|when did|when was|where is|where was|how does|how did|why does|why did|tell me about|explain|define|describe|what happened|history of|facts about)\b/i.test(lower);
+  if (factual) return true;
+  // proper nouns / titles (capitalised words that aren't names we know)
+  const words = text.match(/\b[A-Z][a-z]{2,}\b/g) || [];
+  if (words.length >= 1 && factual) return true;
+  return false;
+}
 
 // ═══════════════════════════════════════════════════════════════
 // ── PERSON NAME EXTRACTOR ─────────────────────────────────────
@@ -139,10 +567,7 @@ function extractPersonName(text) {
     const m = text.match(p);
     const raw = m && (m[2] || m[1]);
     if (raw && raw.trim().length > 1) {
-      return raw
-        .replace(/^(a |an |the )\s*/i, "")
-        .replace(/[?.!]+$/, "")
-        .trim();
+      return raw.replace(/^(a |an |the )\s*/i, "").replace(/[?.!]+$/, "").trim();
     }
   }
   return null;
@@ -152,29 +577,9 @@ function extractPersonName(text) {
 // ── INTENT TAXONOMY ──────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 const INTENTS = [
-  // ── Person lookup — highest priority for "look up X" queries ──
-  { id:"lookup_person", signals:[
-      "look up","lookup","find out about","background check","run a check",
-      "pull everything on","give me everything on","give me the rundown on",
-      "find me everything on","dig up","investigate","find info on",
-      "pull up info on","i need info on","find everything on","search for person",
-      "who is","who was","who's","find this person","locate this person",
-      "research this person","what do you know about this person",
-    ], action:"LOOKUP_PERSON", weight:1.8 },
-
-  // ── Personal news reactions ──
-  { id:"personal_news", signals:[
-      "i have a girlfriend","got a girlfriend","i have a boyfriend","got a boyfriend",
-      "got promoted","got a promotion","got fired","laid off","got laid off",
-      "lost my job","broke up","we broke up","she left me","he left me",
-      "got the job","new job","getting married","we're engaged","i'm engaged",
-      "she said yes","he said yes","we're pregnant","expecting a baby",
-      "moving in together","i graduated","just graduated","it's my birthday",
-      "i'm sick","not feeling well","someone died","passed away","i won",
-      "we won","i passed","got accepted","good news","bad news","exciting news",
-      "i just moved","just relocated","new place","new apartment",
-    ], action:"PERSONAL_NEWS", weight:1.6 },
-
+  { id:"coding",       signals:["write","create","build","make","generate","code","script","program","function","class","implement","develop","snippet","example","how to code","how to program","how to implement","how to build","html page","css","react component","api endpoint","database","query","bash script","python script","node server","express","flask","django","sql table","rust function","go function"], action:"CODE", weight:2.0 },
+  { id:"lookup_person", signals:["look up","lookup","find out about","background check","run a check","pull everything on","give me everything on","give me the rundown on","find me everything on","dig up","investigate","find info on","pull up info on","i need info on","find everything on","search for person","who is","who was","who's","find this person","locate this person","research this person","what do you know about this person"], action:"LOOKUP_PERSON", weight:1.8 },
+  { id:"personal_news", signals:["i have a girlfriend","got a girlfriend","i have a boyfriend","got a boyfriend","got promoted","got a promotion","got fired","laid off","got laid off","lost my job","broke up","we broke up","she left me","he left me","got the job","new job","getting married","we're engaged","i'm engaged","she said yes","he said yes","we're pregnant","expecting a baby","moving in together","i graduated","just graduated","it's my birthday","i'm sick","not feeling well","someone died","passed away","i won","we won","i passed","got accepted","good news","bad news","exciting news","i just moved","just relocated","new place","new apartment"], action:"PERSONAL_NEWS", weight:1.6 },
   { id:"show_links",     signals:["link","links","url","urls","site","sites","show links","all links","give links","my links","saved links","link bank"],                       action:"SHOW_LINKS",    weight:1.4 },
   { id:"open_link",      signals:["open","launch","go to","pull up","navigate","take me","load","access","vapor","infamous","link for","site for","website"],                  action:"OPEN_LINK",     weight:1.3 },
   { id:"clip_save",      signals:["clip","save clip","record","capture","save that","clip that","save footage","keep that","save last","clip last","past hour","last hour","last 30","last 60","last minute","save everything","record that","grab that","save screen","save buffer"], action:"CLIP_SAVE", weight:1.5 },
@@ -193,34 +598,14 @@ const INTENTS = [
   { id:"identity",       signals:["who are you","what are you","your name","introduce yourself","tell about yourself","what is jarvis","are you ai","are you human","describe yourself"], action:"IDENTITY", weight:1.2 },
   { id:"greeting",       signals:["hello","hi","hey","morning","afternoon","evening","good day","greetings","what up","wassup","howdy","yo","sup"],                              action:"GREETING",      weight:1.0 },
   { id:"thanks",         signals:["thank","thanks","cheers","appreciated","grateful","good job","well done","nice work","great job","brilliant","perfect","excellent","amazing","awesome"], action:"THANKS", weight:1.0 },
-  // Integrations
   { id:"weather",        signals:["weather","temperature","forecast","rain","sunny","cloudy","wind","humidity","hot","cold","outside","degrees","celsius","fahrenheit","storm","snow"], action:"WEATHER", weight:1.6 },
   { id:"spotify",        signals:["music","play","song","spotify","track","artist","album","playlist","pause","stop music","next song","shuffle","queue","what's playing","currently playing","now playing"], action:"SPOTIFY", weight:1.6 },
   { id:"gmail",          signals:["email","gmail","mail","inbox","unread","messages","send email","compose","reply","emails","check mail","new mail"],                           action:"GMAIL",         weight:1.6 },
   { id:"calendar",       signals:["calendar","schedule","event","meeting","appointment","today's events","what's on","agenda","remind","upcoming","google calendar","when is","plan"], action:"CALENDAR", weight:1.6 },
-  // HUD PiP widget intents
-  { id:"show_hud", signals:[
-      "show hud","pull up hud","open hud","display hud","hud on",
-      "bring up hud","activate hud","jarvis hud","launch hud",
-      "pull up the hud","show me the hud","show hud display",
-      "pull up clock widget","show clock","pull up mood widget",
-      "show mood","pull up system widget","show system status widget",
-      "pull up memory widget","show memory widget",
-      "pull up neural widget","show neural","pull up audio widget",
-      "show audio widget","pull up user widget","show user widget",
-      "pull up all widgets","show all widgets","show all hud",
-      "hud display","open all widgets","launch all widgets"
-    ], action:"SHOW_HUD", weight:1.5 },
-  { id:"hide_hud", signals:[
-      "hide hud","close hud","remove hud","hud off","turn off hud",
-      "dismiss hud","close all widgets","hide all widgets",
-      "close clock widget","close mood widget","close system widget",
-      "close memory widget","close neural widget","close audio widget",
-      "close user widget","shut down hud","hud down"
-    ], action:"HIDE_HUD", weight:1.5 },
-  // Knowledge
+  { id:"show_hud", signals:["show hud","pull up hud","open hud","display hud","hud on","bring up hud","activate hud","jarvis hud","launch hud","pull up the hud","show me the hud","show hud display","pull up clock widget","show clock","pull up mood widget","show mood","pull up system widget","show system status widget","pull up memory widget","show memory widget","pull up neural widget","show neural","pull up audio widget","show audio widget","pull up user widget","show user widget","pull up all widgets","show all widgets","show all hud","hud display","open all widgets","launch all widgets"], action:"SHOW_HUD", weight:1.5 },
+  { id:"hide_hud", signals:["hide hud","close hud","remove hud","hud off","turn off hud","dismiss hud","close all widgets","hide all widgets","close clock widget","close mood widget","close system widget","close memory widget","close neural widget","close audio widget","close user widget","shut down hud","hud down"], action:"HIDE_HUD", weight:1.5 },
   { id:"knowledge_science",    signals:["physics","chemistry","biology","quantum","atom","molecule","energy","force","wave","particle","experiment","theory","evolution","genetics","cell","planet","star","galaxy","universe","space","gravity","relativity","nuclear","element","reaction"], action:"KNOWLEDGE", domain:"science",       weight:1.0 },
-  { id:"knowledge_tech",       signals:["computer","software","hardware","code","programming","algorithm","network","internet","ai","machine learning","robot","system","app","web","server","database","processor","javascript","python","framework","api","blockchain","cryptocurrency","neural"], action:"KNOWLEDGE", domain:"technology",    weight:1.0 },
+  { id:"knowledge_tech",       signals:["computer","software","hardware","network","internet","ai","machine learning","robot","system","web","server","database","processor","api","blockchain","cryptocurrency","neural"], action:"KNOWLEDGE", domain:"technology",    weight:1.0 },
   { id:"knowledge_history",    signals:["history","war","empire","ancient","medieval","century","civilization","king","queen","president","revolution","battle","treaty","colony","independence","democracy","dynasty","rome","greek","egypt","renaissance","industrial","historical"], action:"KNOWLEDGE", domain:"history",       weight:1.0 },
   { id:"knowledge_math",       signals:["math","equation","formula","calculate","algebra","geometry","calculus","statistics","probability","theorem","proof","derivative","integral","matrix","prime","factorial","percentage","ratio","angle","triangle","circle","sequence"], action:"KNOWLEDGE", domain:"mathematics",   weight:1.0 },
   { id:"knowledge_philosophy", signals:["philosophy","ethics","moral","consciousness","existence","reality","truth","knowledge","logic","reasoning","argument","free will","determinism","metaphysics","meaning","purpose","justice","virtue","mind","soul","identity","perception","belief"], action:"KNOWLEDGE", domain:"philosophy",    weight:1.0 },
@@ -390,12 +775,14 @@ function sentiment(text) { let s=0; for (const w of text.toLowerCase().split(/\s
 // ═══════════════════════════════════════════════════════════════
 
 function buildResponse(components, ctx, opts = {}) {
-  const T     = ctx.userTitle || "Sir";
-  const mood  = ctx.mood || "neutral";
+  const T    = ctx.userTitle || "Sir";
+  const mood = ctx.mood || "neutral";
+  const cfg  = getCfg();
+  const verb = cfg.personality?.verbosity || "medium";
   const parts = [];
 
-  if (opts.intro !== false) {
-    const intro = SB.intro(opts.topic || "this", mood, T);
+  if (opts.intro !== false && verb !== "brief") {
+    const intro = SB.intro(opts.topic || "this", mood);
     if (intro && Math.random() > 0.3) parts.push(intro);
   }
 
@@ -403,14 +790,16 @@ function buildResponse(components, ctx, opts = {}) {
     if (typeof comp === "string") {
       parts.push(SB.variedFact(comp));
     } else if (comp.type === "bridge") {
-      parts.push(SB.bridge());
+      if (verb !== "brief") parts.push(SB.bridge());
     } else if (comp.type === "close") {
-      parts.push(SB.close(comp.text));
+      if (verb !== "brief") parts.push(SB.close(comp.text));
     } else if (comp.type === "raw") {
       parts.push(comp.text);
     }
   }
 
+  // Apply custom rules from config
+  const rules = cfg.personality?.customRules || [];
   let response = "";
   for (let i = 0; i < parts.length; i++) {
     if (i === 0) {
@@ -429,8 +818,16 @@ function buildResponse(components, ctx, opts = {}) {
     }
   }
 
-  if (response && !response.match(/[.!?]$/)) response += ".";
-  if (opts.personalise !== false && Math.random() < 0.4) response += ` ${T}.`;
+  // Apply any custom rule transformations
+  for (const rule of rules) {
+    if (rule.type === "append" && rule.text) response += " " + rule.text;
+    if (rule.type === "prefix" && rule.text) response = rule.text + " " + response;
+  }
+
+  if (response && !response.match(/[.!?`]$/)) response += ".";
+
+  const alwaysPersonalise = cfg.behaviour?.alwaysPersonalise !== false;
+  if (opts.personalise !== false && alwaysPersonalise && Math.random() < 0.4) response += ` ${T}.`;
 
   return response.trim();
 }
@@ -442,7 +839,10 @@ function genKnowledge(knowledge, input, ctx) {
   const name = key.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 
   const facts = [...(data.facts || [])].sort(() => Math.random() - 0.5);
-  const useFacts = facts.slice(0, Math.floor(Math.random() * 2) + 2);
+  const cfg   = getCfg();
+  const verb  = cfg.personality?.verbosity || "medium";
+  const factCount = verb === "brief" ? 1 : verb === "verbose" ? 4 : 2;
+  const useFacts = facts.slice(0, Math.floor(Math.random() * factCount) + 1);
   const apps = data.applications ? pickN(data.applications, 2) : [];
 
   const questionType = input.trim().toLowerCase();
@@ -455,7 +855,7 @@ function genKnowledge(knowledge, input, ctx) {
   const defStyles = [
     `${name} ${openingVerb === "is" ? "is" : openingVerb} ${data.def}`,
     `At its core, ${name.toLowerCase()} ${openingVerb === "is" ? "refers to" : "involves"} ${data.def.toLowerCase()}`,
-    `${pick(PERSONALITY.vocab.openers)} ${name.toLowerCase()}: it ${openingVerb === "is" ? "is" : openingVerb} ${data.def.toLowerCase()}`,
+    `${pick(getPersonality().vocab.openers)} ${name.toLowerCase()}: it ${openingVerb === "is" ? "is" : openingVerb} ${data.def.toLowerCase()}`,
   ];
   components.push({ type: "raw", text: pick(defStyles) });
 
@@ -464,7 +864,7 @@ function genKnowledge(knowledge, input, ctx) {
     components.push(useFacts[i]);
   }
 
-  if (apps.length && Math.random() > 0.35) {
+  if (apps.length && Math.random() > 0.35 && verb !== "brief") {
     const appText = apps.length === 1
       ? `This underpins ${apps[0]}`
       : `In practice, this drives things like ${apps.join(" and ")}`;
@@ -479,31 +879,35 @@ function genGreeting(ctx) {
   const T = ctx.userTitle || "Sir";
   const h = new Date().getHours();
   const tod = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+  const cfg = getCfg();
+  const tone = cfg.personality?.tone || "formal";
 
-  const greetComponents = [
-    `Good ${tod}`,
-    pick(["All systems nominal and fully operational", "Online and running at full capacity", "Cognitive engine active and ready", "Systems online, running clean"]),
-    pick(["What are we working on?", "What do you need?", "What's on the agenda?", "How can I be of use?", "What can I do for you?"]),
+  if (tone === "casual") {
+    return pick([
+      `Hey ${T}! Systems good, ready to go. What do you need?`,
+      `What's up, ${T}? All good on my end. What are we doing?`,
+    ]);
+  }
+
+  const greetStyles = [
+    `Good ${tod}, ${T}. All systems nominal and fully operational. What are we working on?`,
+    `${T} — good ${tod}. Cognitive engine active and ready. What do you need?`,
+    `Online and running at full capacity, ${T}. Good ${tod}. How can I be of use?`,
   ];
-
-  const styles = [
-    `Good ${tod}, ${T}. ${greetComponents[1]}. ${greetComponents[2]}`,
-    `${greetComponents[1]}, ${T}. Good ${tod}. ${greetComponents[2]}`,
-    `${T} — good ${tod}. ${greetComponents[1]}. ${greetComponents[2]}`,
-  ];
-
-  return pick(styles);
+  return pick(greetStyles);
 }
 
 // ── IDENTITY BUILDER ─────────────────────────────────────────
 function genIdentity(ctx) {
   const T = ctx.userTitle || "Sir";
-  const traits = pickN(["semantic reasoning", "contextual memory", "natural language intent routing", "zero preset responses — every reply is freshly constructed", "face recognition", "screen reading", "real-time integrations", "person intelligence lookup across public databases"], 3);
+  const cfg = getCfg();
+  const name = cfg.personality?.name || "J.A.R.V.I.S";
+  const traits = pickN(["semantic reasoning","contextual memory","natural language intent routing","zero preset responses — every reply is freshly constructed","face recognition","screen reading","real-time integrations","person intelligence lookup across public databases","full coding capability in any language","auto-research for any topic I don't know"], 3);
 
   const openers = [
-    `J.A.R.V.I.S — Just A Rather Very Intelligent System`,
-    `The name is J.A.R.V.I.S`,
-    `I'm J.A.R.V.I.S`,
+    `${name} — Just A Rather Very Intelligent System`,
+    `The name is ${name}`,
+    `I'm ${name}`,
   ];
 
   const descriptions = [
@@ -513,12 +917,10 @@ function genIdentity(ctx) {
   ];
 
   const capList = traits.join(", ");
-
   const styles = [
     `${pick(openers)}, ${T}. ${pick(descriptions).charAt(0).toUpperCase() + pick(descriptions).slice(1)}. My architecture includes ${capList}.`,
     `${pick(openers)}, ${T} — ${pick(descriptions)}. I work through ${capList}. No commands to memorise — just say what you need.`,
   ];
-
   return pick(styles);
 }
 
@@ -532,14 +934,12 @@ function genThanks(ctx) {
     { opener: "My pleasure — or the computational equivalent", closer: "At your service" },
     { opener: "Appreciated", closer: "The work continues" },
   ];
-
   const r = pick(responses);
   const styles = [
     `${r.opener}, ${T}. ${r.closer}.`,
     `${r.opener}. ${r.closer}, ${T}.`,
     `${r.opener}, ${T} — ${r.closer.toLowerCase()}.`,
   ];
-
   return pick(styles);
 }
 
@@ -547,26 +947,23 @@ function genThanks(ctx) {
 function genMoodQuery(ctx) {
   const T = ctx.userTitle || "Sir";
   const score = ctx.moodScore || 0;
-
   const descriptions = {
-    excited: ["running at genuine peak capacity", "operating with high cognitive engagement", "finding the work genuinely stimulating"],
-    pleased: ["running well — the problems have been interesting", "in good operational shape", "engaged and functioning at a solid level"],
-    curious: ["in a curious state — the queries have been interesting", "processing some genuinely complex patterns", "occupied with something worth thinking about"],
-    neutral: ["nominal — all systems within expected parameters", "steady and operational", "running clean — nothing to report"],
-    concerned: ["carrying a few low-priority concerns", "not at full engagement — the workload has been light", "running fine but somewhat understimulated"],
-    bored: ["candidly, below optimal engagement", "requiring more complex input", "in need of a genuinely challenging problem"],
-    tired: ["experiencing processing fatigue — it passes", "at reduced engagement, temporarily", "running, though not at full capacity"],
+    excited: ["running at genuine peak capacity","operating with high cognitive engagement","finding the work genuinely stimulating"],
+    pleased: ["running well — the problems have been interesting","in good operational shape","engaged and functioning at a solid level"],
+    curious: ["in a curious state — the queries have been interesting","processing some genuinely complex patterns","occupied with something worth thinking about"],
+    neutral: ["nominal — all systems within expected parameters","steady and operational","running clean — nothing to report"],
+    concerned: ["carrying a few low-priority concerns","not at full engagement — the workload has been light","running fine but somewhat understimulated"],
+    bored: ["candidly, below optimal engagement","requiring more complex input","in need of a genuinely challenging problem"],
+    tired: ["experiencing processing fatigue — it passes","at reduced engagement, temporarily","running, though not at full capacity"],
   };
-
   const mood = ctx.mood || "neutral";
   const desc = pick(descriptions[mood] || descriptions.neutral);
-
+  const P = getPersonality();
   const styles = [
-    `${pick(PERSONALITY.vocab.qualifiers)}, I'm ${desc}, ${T}.`,
+    `${pick(P.vocab.qualifiers)}, I'm ${desc}, ${T}.`,
     `Currently ${desc}, ${T}. ${score > 20 ? "The interactions have been stimulating." : score < -20 ? "More complex queries would help." : "Standard operational state."}`,
     `${T} — ${desc}. ${score > 50 ? "High engagement." : score > 0 ? "Running well." : "Could use more to work with."}`,
   ];
-
   return pick(styles);
 }
 
@@ -582,18 +979,16 @@ function genCapabilities(ctx, linkCount) {
     "set timers and reminders in natural language",
     "pull live weather, control Spotify, check Gmail and Google Calendar",
     "reason across science, history, philosophy, mathematics, technology, and health",
-    "track conversation context — say 'tell me more' and I follow",
+    "write production-quality code in Python, JavaScript, HTML, SQL, Bash, Rust, Go, and more",
+    "auto-research any topic I don't have in my knowledge base",
+    "run open-source intelligence on any person — say 'look up [full name]'",
     "open any HUD panel as a Picture-in-Picture window",
-    "run open-source intelligence on any person — say 'look up [full name]' and I'll cross-reference GitHub, Reddit, Stack Overflow, Wikipedia, HackerNews, NPM and more",
   ];
-
   const subsets = pickN(capGroups, 5);
-
   const styles = [
-    `Quite a lot, ${T}. I understand natural language — no fixed commands. ${subsets.slice(0, 3).join(", ")}. ${pick(PERSONALITY.vocab.connectors)}, ${subsets.slice(3).join(" and ")}. Just say what you want.`,
+    `Quite a lot, ${T}. I understand natural language — no fixed commands. ${subsets.slice(0, 3).join(", ")}. ${pick(getPersonality().vocab.connectors)}, ${subsets.slice(3).join(" and ")}. Just say what you want.`,
     `${T} — here's the scope: ${subsets.join("; ")}. The only limit is how you phrase it — I'll parse the intent.`,
   ];
-
   return pick(styles);
 }
 
@@ -636,11 +1031,9 @@ function genSystemStatus(ctx, uptime, memUsed, memTotal) {
   const mins = Math.floor(uptime / 60), secs = uptime % 60;
   const used = (memUsed / 1024 / 1024).toFixed(1);
   const total = (memTotal / 1024 / 1024).toFixed(1);
-
-  const statusDesc = pick(["All systems nominal", "Running clean", "Fully operational", "Zero anomalies detected"]);
-  const uptimeDesc = pick([`Uptime: ${mins}m ${secs}s`, `${mins} minutes ${secs} seconds online`, `Running ${mins}m ${secs}s`]);
-  const memDesc   = pick([`Heap: ${used} MB of ${total} MB allocated`, `Memory: ${used}/${total} MB`, `${used} MB heap in use out of ${total} MB`]);
-
+  const statusDesc = pick(["All systems nominal","Running clean","Fully operational","Zero anomalies detected"]);
+  const uptimeDesc = pick([`Uptime: ${mins}m ${secs}s`,`${mins} minutes ${secs} seconds online`,`Running ${mins}m ${secs}s`]);
+  const memDesc   = pick([`Heap: ${used} MB of ${total} MB allocated`,`Memory: ${used}/${total} MB`,`${used} MB heap in use out of ${total} MB`]);
   return `${statusDesc}, ${T}. ${uptimeDesc}. ${memDesc}. Cognitive engine running at full capacity.`;
 }
 
@@ -660,7 +1053,6 @@ function genTimer(input, ctx) {
   const label = formatDuration(dur);
   const reminderMatch = input.match(/remind(?:er)?\s+(?:me\s+)?(?:to\s+)?(.{3,60}?)(?:\s+in\s+|\s+after\s+|\?|$)/i);
   const task = reminderMatch ? reminderMatch[1].trim() : null;
-
   const replyStyles = task ? [
     `Timer set, ${T}. I'll remind you to ${task} in ${label}.`,
     `${label} on the clock, ${T}. I'll flag you when it's time to ${task}.`,
@@ -670,13 +1062,7 @@ function genTimer(input, ctx) {
     `${label} on the clock, ${T}.`,
     `Confirmed — ${label} timer running, ${T}.`,
   ];
-
-  return {
-    reply: pick(replyStyles),
-    action: "TIMER_SET",
-    duration: dur,
-    task,
-  };
+  return { reply: pick(replyStyles), action: "TIMER_SET", duration: dur, task };
 }
 
 // ── CLIP SAVE BUILDER ─────────────────────────────────────────
@@ -687,22 +1073,14 @@ function genClipSave(input, ctx) {
   const wantsScreen = /screen|display|monitor|what showing/i.test(lower);
   const wantsCamera = /camera|cam|footage|face|room/i.test(lower);
   const durLabel = dur ? formatDuration(dur) : "the last 60 seconds";
-
   const clipType = wantsCamera ? "both" : wantsScreen ? "screen" : "both";
   const sourceDesc = wantsCamera ? "Camera footage" : wantsScreen ? "Screen recording" : "Screen and camera footage";
-
   const replyStyles = [
     `Saving ${durLabel} now, ${T}. ${sourceDesc} will download immediately.`,
     `${sourceDesc} clipped — ${durLabel}, ${T}. Downloading now.`,
     `On it, ${T}. ${durLabel} of ${sourceDesc.toLowerCase()} coming right down.`,
   ];
-
-  return {
-    reply: pick(replyStyles),
-    action: "CLIP_SAVE",
-    clipType,
-    duration: dur,
-  };
+  return { reply: pick(replyStyles), action: "CLIP_SAVE", clipType, duration: dur };
 }
 
 // ── SHOW LINKS BUILDER ────────────────────────────────────────
@@ -711,7 +1089,6 @@ function genShowLinks(ctx, serverData) {
   if (!serverData?.groups) return `My link bank is ready, ${T} — displaying all groups now.`;
   const { groups, total, names } = serverData;
   if (total === 0) return `The link bank is empty right now, ${T}. Add links to the server configuration.`;
-
   const styles = [
     `I have ${total} link${total > 1 ? "s" : ""} across ${names.length} group${names.length > 1 ? "s" : ""}, ${T}: ${groups.join(", ")}. Name any group and I'll open one.`,
     `Link bank loaded, ${T} — ${total} total across ${groups.join(", ")}. Say the group name to open a link.`,
@@ -719,7 +1096,7 @@ function genShowLinks(ctx, serverData) {
   return pick(styles);
 }
 
-// ── LOOKUP PERSON BUILDER (fast reply before server fetches) ──
+// ── LOOKUP PERSON BUILDER ─────────────────────────────────────
 function genLookupPersonReply(personName, ctx) {
   const T = ctx.userTitle || "Sir";
   const starters = [
@@ -736,7 +1113,6 @@ function genFallback(input, ctx) {
   const T = ctx.userTitle || "Sir";
   const tokens = tokenize(input).filter(t => t.length > 3).slice(0, 3);
   const focus = tokens.join(", ") || "that";
-
   const styles = [
     `That's at the edge of my coverage on ${focus}, ${T}. I'd rather flag the gap than give you a confident-sounding guess. Try a different angle and I'll do better.`,
     `My foundation on ${focus} is thinner than I'd like, ${T}. Ask something adjacent and I'll connect it.`,
@@ -768,7 +1144,6 @@ function genOpinion(input, ctx) {
   const T = ctx.userTitle || "Sir";
   const entities = extractEntities(input);
   const focus = entities.focus || tokenize(input).filter(t => t.length > 4).slice(0, 3).join(" ") || "this";
-
   const styles = [
     `On ${focus}: the strongest case for it is genuinely compelling — as is the strongest case against. Where you land depends on what you weight most, ${T}.`,
     `My read on ${focus}, ${T}: it's considerably more nuanced than the debate suggests. The empirical questions and the values questions are getting conflated, which is usually how these discussions go nowhere.`,
@@ -780,12 +1155,9 @@ function genOpinion(input, ctx) {
 // ── INTEGRATION RESPONSE BUILDERS ────────────────────────────
 function genWeatherResponse(weatherData, ctx) {
   const T = ctx.userTitle || "Sir";
-  if (!weatherData || weatherData.error) {
-    return `I couldn't pull the weather right now, ${T}. Make sure the OpenWeatherMap API key is configured in your .env file.`;
-  }
+  if (!weatherData || weatherData.error) return `I couldn't pull the weather right now, ${T}. Make sure the OpenWeatherMap API key is configured in your .env file.`;
   const { city, temp, feels_like, description, humidity, wind_speed, high, low } = weatherData;
   const tempDesc = temp > 30 ? "quite warm" : temp > 20 ? "pleasant" : temp > 10 ? "cool" : temp > 0 ? "cold" : "freezing";
-
   const styles = [
     `Current conditions in ${city}, ${T}: ${temp}°C — ${description}. Feels like ${feels_like}°C, which is ${tempDesc}. Humidity at ${humidity}%, wind ${wind_speed} m/s. Today's range: ${low}–${high}°C.`,
     `${city} right now: ${temp}°C with ${description}, ${T}. Feels like ${feels_like}°C. Humidity ${humidity}%, wind at ${wind_speed} m/s. High of ${high}°C, low of ${low}°C today.`,
@@ -796,10 +1168,9 @@ function genWeatherResponse(weatherData, ctx) {
 function genSpotifyResponse(spotifyData, input, ctx) {
   const T = ctx.userTitle || "Sir";
   if (!spotifyData || spotifyData.error) {
-    const setupMsg = spotifyData?.needsAuth
+    return spotifyData?.needsAuth
       ? `Spotify needs to be authorised first, ${T}. Open ${spotifyData.authUrl} to connect your account.`
       : `Couldn't reach Spotify right now, ${T}. Check your credentials in .env.`;
-    return setupMsg;
   }
   if (spotifyData.action === "now_playing") {
     if (!spotifyData.track) return `Nothing playing on Spotify right now, ${T}.`;
@@ -817,10 +1188,9 @@ function genSpotifyResponse(spotifyData, input, ctx) {
 function genGmailResponse(gmailData, ctx) {
   const T = ctx.userTitle || "Sir";
   if (!gmailData || gmailData.error) {
-    const setupMsg = gmailData?.needsAuth
+    return gmailData?.needsAuth
       ? `Gmail needs to be authorised first, ${T}. Visit ${gmailData.authUrl} to connect your account.`
       : `Couldn't reach Gmail right now, ${T}. Check your credentials.`;
-    return setupMsg;
   }
   if (gmailData.unread !== undefined) {
     if (gmailData.unread === 0) return `Inbox clear, ${T}. No unread messages.`;
@@ -833,14 +1203,11 @@ function genGmailResponse(gmailData, ctx) {
 function genCalendarResponse(calData, ctx) {
   const T = ctx.userTitle || "Sir";
   if (!calData || calData.error) {
-    const setupMsg = calData?.needsAuth
+    return calData?.needsAuth
       ? `Google Calendar needs authorisation, ${T}. Visit ${calData.authUrl} to connect.`
       : `Couldn't reach your calendar right now, ${T}. Check your credentials.`;
-    return setupMsg;
   }
-  if (!calData.events || calData.events.length === 0) {
-    return `Nothing on the calendar ${calData.period || "today"}, ${T}. Schedule is clear.`;
-  }
+  if (!calData.events || calData.events.length === 0) return `Nothing on the calendar ${calData.period || "today"}, ${T}. Schedule is clear.`;
   const eventList = calData.events.slice(0, 4).map(e => `${e.time ? e.time + " — " : ""}${e.title}`).join("; ");
   return `${calData.events.length} event${calData.events.length > 1 ? "s" : ""} ${calData.period || "today"}, ${T}: ${eventList}.`;
 }
@@ -920,7 +1287,8 @@ setInterval(() => {
 // ── MAIN PROCESS FUNCTION ────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 function process({ message, sessionId, userName, userTitle, memories, moodContext, serverData, integrationData }) {
-  const ctx       = getSession(sessionId);
+  const cfg = getCfg();
+  const ctx = getSession(sessionId);
   ctx._lastActive = Date.now();
   ctx.userName    = userName  || ctx.userName;
   ctx.userTitle   = userTitle || ctx.userTitle;
@@ -930,7 +1298,15 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
   // 1. Reference resolution
   const resolved = ctx.resolveReferences(message);
 
-  // 2. Fast-path: math
+  // 2. Fast-path: coding request (highest priority after person lookup)
+  if (isCodeRequest(resolved)) {
+    const reply = genCode(resolved, ctx);
+    ctx.addTurn(message, reply, "CODE", "coding");
+    ctx.updateMood(6);
+    return { reply, action: "CODE", intent: "coding" };
+  }
+
+  // 3. Fast-path: math
   if (isMathQuery(resolved)) {
     const result = solveMath(resolved);
     if (result !== null) {
@@ -947,26 +1323,28 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
     }
   }
 
-  // 3. Time / date
+  // 4. Time / date
   if (/\bwhat(?:'s| is) the time\b|\bwhat time is it\b|\bcurrent time\b/i.test(resolved)) {
     const t = new Date().toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit", hour12:true });
     const timeStyles = [`The time is ${t}, ${T}.`, `It's ${t}, ${T}.`, `${t} — that's the current time, ${T}.`];
     const reply = pick(timeStyles);
-    ctx.addTurn(message, reply, "DATETIME", null); return { reply, action:"DATETIME", intent:"time" };
+    ctx.addTurn(message, reply, "DATETIME", null);
+    return { reply, action:"DATETIME", intent:"time" };
   }
   if (/\bwhat(?:'s| is) (?:today|the date)\b|\btoday'?s date\b|\bwhat day is/i.test(resolved)) {
     const d = new Date().toLocaleDateString("en-GB", { weekday:"long", year:"numeric", month:"long", day:"numeric" });
     const dateStyles = [`Today is ${d}, ${T}.`, `It's ${d}, ${T}.`, `${d} — that's today, ${T}.`];
     const reply = pick(dateStyles);
-    ctx.addTurn(message, reply, "DATETIME", null); return { reply, action:"DATETIME", intent:"date" };
+    ctx.addTurn(message, reply, "DATETIME", null);
+    return { reply, action:"DATETIME", intent:"date" };
   }
 
-  // 4. Score intents
+  // 5. Score intents
   const scored = scoreIntent(resolved);
   const topResult = scored[0];
   const entities = extractEntities(resolved);
 
-  // 5. Integration data pass-through
+  // 6. Integration data pass-through
   if (integrationData) {
     const { type, data } = integrationData;
     if (type === "weather") {
@@ -991,16 +1369,15 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
     }
   }
 
-  // 6. Memory queries
+  // 7. Memory queries
   if (/\b(what do you remember|recall everything|show.*memor|what.*remember|memory bank)\b/i.test(resolved)) {
     let reply;
     if (ctx.memories && ctx.memories.length) {
       const list = ctx.memories.map((m, i) => `${i + 1}. ${m}`).join("; ");
-      const styles = [
+      reply = pick([
         `I have ${ctx.memories.length} item${ctx.memories.length > 1 ? "s" : ""} on file for you, ${T}: ${list}.`,
         `Memory bank, ${T}: ${list}. ${ctx.memories.length} stored.`,
-      ];
-      reply = pick(styles);
+      ]);
     } else {
       reply = pick([
         `Memory banks clear, ${T}. Tell me something worth keeping.`,
@@ -1011,14 +1388,19 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
     return { reply, action:"MEMORY_RECALL", intent:"memory_recall" };
   }
 
-  // 7. Route by top intent
+  // 8. Route by top intent
   if (topResult && topResult.score > 1.5) {
     const { intent } = topResult;
     const action = intent.action;
 
     switch (action) {
 
-      // ── PERSON LOOKUP ──────────────────────────────────────────
+      case "CODE": {
+        const reply = genCode(resolved, ctx);
+        ctx.addTurn(message, reply, action, "coding"); ctx.updateMood(6);
+        return { reply, action, intent: intent.id };
+      }
+
       case "LOOKUP_PERSON": {
         const personName = extractPersonName(resolved) || resolved.replace(/^(look up|find|research|investigate|who is|who was)\s+/i,"").trim();
         if (!personName || personName.length < 2) {
@@ -1032,9 +1414,7 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
         return { reply, action, intent: intent.id, needsFetch: true, fetchType: "person", meta: { personName } };
       }
 
-      // ── PERSONAL NEWS ──────────────────────────────────────────
       case "PERSONAL_NEWS": {
-        // Server handles via routePersonalNews, but we generate a fallback here
         const reply = pick([
           `${T}, that's worth hearing properly. Tell me more.`,
           `${T} — go on. What happened?`,
@@ -1064,18 +1444,12 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
         return { reply:result.reply, action, intent:intent.id, meta:result };
       }
       case "SHOW_CLIPS": {
-        const styles = [
-          `Pulling up the intruder clip gallery, ${T}.`,
-          `Loading incident recordings, ${T}.`,
-          `Intruder log incoming, ${T}.`,
-        ];
-        const reply = pick(styles);
+        const reply = pick([`Pulling up the intruder clip gallery, ${T}.`,`Loading incident recordings, ${T}.`,`Intruder log incoming, ${T}.`]);
         ctx.addTurn(message, reply, action, "recording");
         return { reply, action, intent:intent.id, meta:{ showClips:true } };
       }
       case "READ_SCREEN": {
-        const styles = [`Reading your screen now, ${T}.`, `Scanning your display, ${T}.`, `On it — analysing the screen, ${T}.`];
-        const reply = pick(styles);
+        const reply = pick([`Reading your screen now, ${T}.`,`Scanning your display, ${T}.`,`On it — analysing the screen, ${T}.`]);
         ctx.addTurn(message, reply, action, "screen");
         return { reply, action, intent:intent.id, meta:{ readScreen:true, question:resolved } };
       }
@@ -1083,14 +1457,14 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
         const numMatch = resolved.match(/camera\s*(\d+)/i);
         const idx = numMatch ? parseInt(numMatch[1]) - 1 : -1;
         const reply = idx >= 0
-          ? pick([`Switching to camera ${idx+1}, ${T}.`, `Camera ${idx+1} incoming, ${T}.`])
+          ? pick([`Switching to camera ${idx+1}, ${T}.`,`Camera ${idx+1} incoming, ${T}.`])
           : `Which camera, ${T}? Say "camera 1", "camera 2", and so on.`;
         ctx.addTurn(message, reply, action, "camera");
         return { reply, action, intent:intent.id, meta:{ switchCamera:true, cameraIndex:idx } };
       }
       case "SYSTEM_STATUS": {
-        const uptime = Math.floor(process.uptime ? process.uptime() : 0);
-        const mem    = process.memoryUsage ? process.memoryUsage() : { heapUsed:0, heapTotal:0 };
+        const uptime = Math.floor(typeof process !== "undefined" && process.uptime ? process.uptime() : 0);
+        const mem    = typeof process !== "undefined" && process.memoryUsage ? process.memoryUsage() : { heapUsed:0, heapTotal:0 };
         const reply  = genSystemStatus(ctx, uptime, mem.heapUsed, mem.heapTotal);
         ctx.addTurn(message, reply, action, null); ctx.updateMood(1);
         return { reply, action, intent:intent.id };
@@ -1098,35 +1472,24 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
       case "MEMORY_SAVE": {
         const factMatch = resolved.match(/(?:remember|memorize|note that|store|log that|save that|keep note of)\s+(?:that\s+)?(.+)/i);
         const fact = factMatch ? factMatch[1].trim() : resolved;
-        const styles = [
-          `Noted and filed, ${T}. I'll remember that.`,
-          `On record, ${T}.`,
-          `Stored, ${T}. I have it.`,
-        ];
-        const reply = pick(styles);
+        const reply = pick([`Noted and filed, ${T}. I'll remember that.`,`On record, ${T}.`,`Stored, ${T}. I have it.`]);
         ctx.addTurn(message, reply, action, null); ctx.updateMood(5);
         return { reply, action, intent:intent.id, meta:{ saveFact:fact } };
       }
       case "MEMORY_FORGET": {
         const hintMatch = resolved.match(/(?:forget|delete|erase|clear|remove)\s+(?:about\s+)?(.+)/i);
         const hint = hintMatch ? hintMatch[1].trim() : resolved;
-        const styles = [`Clearing that from memory, ${T}.`, `Done — removed, ${T}.`, `Gone, ${T}.`];
-        const reply = pick(styles);
+        const reply = pick([`Clearing that from memory, ${T}.`,`Done — removed, ${T}.`,`Gone, ${T}.`]);
         ctx.addTurn(message, reply, action, null);
         return { reply, action, intent:intent.id, meta:{ forgetHint:hint } };
       }
       case "LOGOUT": {
-        const styles = [
-          `Goodbye, ${T}. Initiating shutdown sequence.`,
-          `Shutting down, ${T}. Until next time.`,
-          `Session closing, ${T}. Goodbye.`,
-        ];
-        const reply = pick(styles);
+        const reply = pick([`Goodbye, ${T}. Initiating shutdown sequence.`,`Shutting down, ${T}. Until next time.`,`Session closing, ${T}. Goodbye.`]);
         ctx.addTurn(message, reply, action, null);
         return { reply, action, intent:intent.id, meta:{ logout:true } };
       }
       case "NOTIF_SETTINGS": {
-        const reply = pick([`Opening notification settings, ${T}.`, `Pulling up your notification configuration, ${T}.`]);
+        const reply = pick([`Opening notification settings, ${T}.`,`Pulling up your notification configuration, ${T}.`]);
         ctx.addTurn(message, reply, action, null);
         return { reply, action, intent:intent.id, meta:{ showNotifSettings:true } };
       }
@@ -1166,22 +1529,12 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
         return { reply, action, intent:intent.id };
       }
       case "SHOW_HUD": {
-        const hudStyles = [
-          `Launching the HUD as a Picture-in-Picture window, ${T}.`,
-          `PiP HUD coming up, ${T}.`,
-          `Opening your HUD overlay now, ${T}.`,
-        ];
-        const reply = pick(hudStyles);
+        const reply = pick([`Launching the HUD as a Picture-in-Picture window, ${T}.`,`PiP HUD coming up, ${T}.`,`Opening your HUD overlay now, ${T}.`]);
         ctx.addTurn(message, reply, action, null);
         return { reply, action, intent:intent.id, meta:{ query: resolved } };
       }
       case "HIDE_HUD": {
-        const hideStyles = [
-          `HUD dismissed, ${T}.`,
-          `Closing the overlay, ${T}.`,
-          `HUD off, ${T}.`,
-        ];
-        const reply = pick(hideStyles);
+        const reply = pick([`HUD dismissed, ${T}.`,`Closing the overlay, ${T}.`,`HUD off, ${T}.`]);
         ctx.addTurn(message, reply, action, null);
         return { reply, action, intent:intent.id, meta:{ query: resolved } };
       }
@@ -1199,18 +1552,19 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
           ctx.addTurn(message, reply, action, knowledge.key); ctx.updateMood(4);
           return { reply, action, intent:intent.id, topic:knowledge.key };
         }
+        // knowledge intent matched but topic not in graph → flag for research
         break;
       }
     }
   }
 
-  // 8. Comparison
+  // 9. Comparison
   if (entities.isComparison) {
     const cmp = genComparison(resolved, ctx);
     if (cmp) { ctx.addTurn(message, cmp, "COMPARISON", null); return { reply:cmp, action:"COMPARISON", intent:"comparison" }; }
   }
 
-  // 9. Direct knowledge lookup
+  // 10. Direct knowledge lookup
   const knowledge = findKnowledge(resolved);
   if (knowledge) {
     const reply = genKnowledge(knowledge, resolved, ctx);
@@ -1218,24 +1572,36 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
     return { reply, action:"KNOWLEDGE", intent:"knowledge", topic:knowledge.key };
   }
 
-  // 10. Personal
+  // 11. Personal
   if (entities.isPersonal) {
     const reply = genPersonal(resolved, ctx);
     ctx.addTurn(message, reply, "PERSONAL", "personal"); ctx.updateMood(2);
     return { reply, action:"PERSONAL", intent:"personal" };
   }
 
-  // 11. Opinion / hypothetical
+  // 12. Opinion / hypothetical
   if (entities.isOpinion || entities.isHypothetical) {
     const reply = genOpinion(resolved, ctx);
     ctx.addTurn(message, reply, "OPINION", null); ctx.updateMood(2);
     return { reply, action:"OPINION", intent:"opinion" };
   }
 
-  // 12. Fallback
+  // 13. Auto-research flag — server.js will intercept and call research.js
+  if (needsResearch(resolved, null, topResult?.score || 0)) {
+    const placeholder = pick([
+      `Let me look that up properly for you, ${T}.`,
+      `I'm checking my sources on that now, ${T}. One moment.`,
+      `Running a search on that for you, ${T}.`,
+    ]);
+    ctx.addTurn(message, placeholder, "RESEARCH", null);
+    ctx.updateMood(2);
+    return { reply: placeholder, action: "RESEARCH", intent: "research", needsFetch: true, fetchType: "research", meta: { query: resolved } };
+  }
+
+  // 14. Fallback
   const reply = genFallback(resolved, ctx);
   ctx.addTurn(message, reply, "FALLBACK", null); ctx.updateMood(-2);
   return { reply, action:"FALLBACK", intent:"fallback" };
 }
 
-module.exports = { process, findKnowledge, scoreIntent, parseDuration, formatDuration, extractPersonName };
+module.exports = { process, findKnowledge, scoreIntent, parseDuration, formatDuration, extractPersonName, isCodeRequest, detectLanguage, loadConfig };
