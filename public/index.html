@@ -67,29 +67,91 @@
     <div class="corner tr"><div class="pip"></div></div>
     <div class="corner bl"><div class="pip"></div></div>
     <div class="corner br"><div class="pip"></div></div>
+
     <div class="auth-container">
+      <!-- Arc reactor logo -->
       <div class="arc-reactor">
         <div class="arc-ring ring1"></div>
         <div class="arc-ring ring2"></div>
         <div class="arc-ring ring3"></div>
         <div class="arc-core"></div>
       </div>
+
       <h1 class="jarvis-title">J.A.R.V.I.S</h1>
       <p class="jarvis-sub">Just A Rather Very Intelligent System</p>
+
+      <!-- ── MODE TOGGLE ── -->
+      <div class="auth-mode-toggle" id="auth-mode-toggle">
+        <button class="mode-btn active" id="mode-login-btn"  onclick="switchAuthMode('login')">LOG IN</button>
+        <button class="mode-btn"        id="mode-create-btn" onclick="switchAuthMode('create')">CREATE ACCOUNT</button>
+      </div>
+
+      <!-- ── SAVED ACCOUNTS (login mode only) ── -->
+      <div id="saved-accounts-wrap"></div>
+
+      <!-- ── STATUS LINE ── -->
       <div id="auth-status" class="auth-status">
-        Say <span class="highlight">"Jarvis, log in"</span> or type password
+        Say <span class="highlight">"Jarvis, log in"</span> or type below
       </div>
-      <div class="password-fallback">
-        <input type="password" id="auth-password-input" placeholder="Password + Enter" autocomplete="off"/>
-      </div>
-      <div id="auth-prompt" class="auth-prompt hidden">
-        <div class="prompt-text">IDENTIFY YOURSELF</div>
-        <div class="voice-bars">
-          <span></span><span></span><span></span><span></span><span></span>
+
+      <!-- ══════════════════════════════════════
+           LOGIN PANEL
+           ══════════════════════════════════════ -->
+      <div id="auth-login-panel" class="auth-panel">
+        <div class="auth-field-group">
+          <input type="password" id="auth-password-input"
+                 placeholder="Password → Enter"
+                 autocomplete="current-password"/>
         </div>
-        <div class="heard-text" id="heard-text">Listening…</div>
+
+        <!-- Voice auth prompt (shown when voice flow starts) -->
+        <div id="auth-prompt" class="auth-prompt hidden">
+          <div class="prompt-text">IDENTIFY YOURSELF</div>
+          <div class="voice-bars">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div class="heard-text" id="heard-text">Listening…</div>
+        </div>
+        <div id="auth-listening" class="listening-badge hidden">● LISTENING</div>
       </div>
-      <div id="auth-listening" class="listening-badge hidden">● LISTENING</div>
+
+      <!-- ══════════════════════════════════════
+           CREATE ACCOUNT PANEL
+           ══════════════════════════════════════ -->
+      <div id="auth-create-panel" class="auth-panel hidden">
+        <div class="auth-field-group">
+          <input type="text"     id="create-name"     placeholder="Your name"            maxlength="30" autocomplete="off"/>
+          <select id="create-title">
+            <option value="Sir">Sir</option>
+            <option value="Ma'am">Ma'am</option>
+            <option value="Boss">Boss</option>
+            <option value="Chief">Chief</option>
+          </select>
+          <input type="password" id="create-password"  placeholder="Choose a password"    maxlength="50" autocomplete="new-password"/>
+          <input type="password" id="create-password2" placeholder="Confirm password"     maxlength="50" autocomplete="new-password"/>
+        </div>
+
+        <!-- Voice sample (optional) -->
+        <div class="voice-sample-block" id="voice-sample-block">
+          <div class="auth-section-label">VOICE TRAINING (optional)</div>
+          <div class="voice-sample-hint">Say your name 3×  so JARVIS recognises your voice</div>
+          <div id="create-sample-status" class="sample-status">Ready to record</div>
+          <div class="voice-bars hidden" id="create-record-bars">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div class="sample-count" id="create-sample-count">0 / 3 samples</div>
+          <div style="display:flex;gap:8px;width:100%">
+            <button id="btn-record-voice" class="hud-btn secondary" style="flex:1" onclick="recordVoiceSample()">🎙 RECORD</button>
+            <button class="hud-btn secondary" style="flex:1;font-size:0.58rem" onclick="skipVoice()">SKIP</button>
+          </div>
+        </div>
+
+        <button class="hud-btn" id="btn-create-account" onclick="submitCreateAccount()">CREATE ACCOUNT →</button>
+      </div>
+
+      <!-- error / success feedback -->
+      <div id="auth-feedback" class="auth-feedback hidden"></div>
+
       <div id="mic-debug" class="mic-debug">Mic: waiting…</div>
     </div>
   </div>
