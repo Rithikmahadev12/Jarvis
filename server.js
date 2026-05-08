@@ -129,6 +129,43 @@ function saveProfiles(p) { ensureDataDir(); fs.writeFileSync(PROFILES_FILE, JSON
 function loadMemories() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(MEMORIES_FILE, "utf8")); } catch { return {}; } }
 function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON.stringify(m, null, 2), "utf8"); }
 
+// ── BOOTSTRAP OWNER ACCOUNT ──────────────────────────────────────
+// Seeds the owner account from config.json into data/profiles.json
+// if it doesn't already exist. This means the owner defined in
+// config.json is always available without a manual sign-up step.
+function bootstrapOwnerAccount() {
+  const configPath = path.join(__dirname, "config.json");
+  if (!fs.existsSync(configPath)) return;
+  let config;
+  try { config = JSON.parse(fs.readFileSync(configPath, "utf8")); }
+  catch (e) { console.warn("[BOOT] Could not read config.json:", e.message); return; }
+  const owner = config.owner;
+  if (!owner || !owner.username || !owner.passwordHash) return;
+  const profiles = loadProfiles();
+  const key      = owner.username.toLowerCase().trim();
+  if (profiles[key]) {
+    // Already exists — update passwordHash in case config.json changed
+    if (profiles[key].passwordHash !== owner.passwordHash) {
+      profiles[key].passwordHash = owner.passwordHash;
+      saveProfiles(profiles);
+      console.log(`[BOOT] Owner account "${owner.username}" password synced from config.json`);
+    }
+    return;
+  }
+  // Create owner account from config
+  profiles[key] = {
+    name:         owner.username,
+    passwordHash: owner.passwordHash,
+    title:        owner.title || "Sir",
+    voiceAliases: owner.voiceAliases || [],
+    role:         "owner",
+    createdAt:    new Date().toISOString(),
+    updatedAt:    new Date().toISOString(),
+  };
+  saveProfiles(profiles);
+  console.log(`[BOOT] Owner account "${owner.username}" bootstrapped from config.json`);
+}
+
 app.get("/favicon.ico", (req, res) => res.status(204).end());
 
 // ── PROFILE ROUTES ────────────────────────────────────────────────
@@ -520,7 +557,6 @@ app.post("/api/chat", async (req, res) => {
             const errReply = `Couldn't pull weather right now, ${T}. ${weatherData.error}`;
             return res.json({ reply: errReply, action: "WEATHER", intent: "weather" });
           }
-          // Build reply via AI engine's weather formatter
           const { city, temp, feels_like, description, humidity, wind_speed, high, low } = weatherData;
           const tempDesc = temp > 30 ? "quite warm" : temp > 20 ? "pleasant" : temp > 10 ? "cool" : temp > 0 ? "cold" : "freezing";
           const weatherReply = [
@@ -734,6 +770,10 @@ app.post("/api/chat", async (req, res) => {
 
 // ── BOOT ──────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
+
+// Seed owner account from config.json before accepting connections
+bootstrapOwnerAccount();
+
 app.listen(PORT, () => {
   console.log(`J.A.R.V.I.S online → http://localhost:${PORT}`);
   console.log(`  Spotify: ${Spotify.isConfigured() ? "configured" : "not configured (add SPOTIFY_CLIENT_ID to .env)"}`);
