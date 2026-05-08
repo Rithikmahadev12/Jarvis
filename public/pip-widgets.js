@@ -227,8 +227,117 @@ window.PiPWidgets = (function () {
     } catch { return null; }
   }
 
+  // ── PATTERN PUZZLE SOLVER ────────────────────────────────────
+  // Detects viral "find the missing number" puzzles like:
+  //   1 + 4 = 5
+  //   2 + 5 = 12
+  //   3 + 6 = 21
+  //   8 + 11 = ?
+  // Tries multiple rules and picks the one that fits all known rows.
+  function solvePatternPuzzle(text) {
+    // Extract all rows of the form  A + B = C  or  A + B = ?
+    const rowRe = /(\d+)\s*\+\s*(\d+)\s*=\s*(\?|\d+)/gi;
+    const rows = [];
+    let m;
+    while ((m = rowRe.exec(text)) !== null) {
+      rows.push({ a: +m[1], b: +m[2], c: m[3] === '?' ? null : +m[3] });
+    }
+
+    const known  = rows.filter(r => r.c !== null);
+    const unknowns = rows.filter(r => r.c === null);
+    if (known.length < 2) return null; // need at least 2 examples to find a pattern
+
+    // ── Try candidate rules ──
+    const rules = [
+      {
+        name: 'Cumulative: result = (a+b) + previous result',
+        check(rows) {
+          for (let i = 1; i < rows.length; i++) {
+            if (rows[i].c !== rows[i].a + rows[i].b + rows[i-1].c) return false;
+          }
+          return true;
+        },
+        solve(rows, prev) { return rows.a + rows.b + prev; },
+        explain(rows) {
+          return rows.map((r,i) => i === 0
+            ? `${r.a} + ${r.b} = ${r.c}`
+            : `${r.a} + ${r.b} + ${rows[i-1].c} (prev) = ${r.c}`
+          );
+        },
+      },
+      {
+        name: 'result = a × b + a',
+        check(rows) { return rows.every(r => r.c === r.a * r.b + r.a); },
+        solve(r)    { return r.a * r.b + r.a; },
+        explain(rows) { return rows.map(r => `${r.a} × ${r.b} + ${r.a} = ${r.c}`); },
+      },
+      {
+        name: 'result = a × (a + b)',
+        check(rows) { return rows.every(r => r.c === r.a * (r.a + r.b)); },
+        solve(r)    { return r.a * (r.a + r.b); },
+        explain(rows) { return rows.map(r => `${r.a} × (${r.a}+${r.b}) = ${r.c}`); },
+      },
+      {
+        name: 'result = a² + b',
+        check(rows) { return rows.every(r => r.c === r.a * r.a + r.b); },
+        solve(r)    { return r.a * r.a + r.b; },
+        explain(rows) { return rows.map(r => `${r.a}² + ${r.b} = ${r.c}`); },
+      },
+      {
+        name: 'result = a × b + b',
+        check(rows) { return rows.every(r => r.c === r.a * r.b + r.b); },
+        solve(r)    { return r.a * r.b + r.b; },
+        explain(rows) { return rows.map(r => `${r.a} × ${r.b} + ${r.b} = ${r.c}`); },
+      },
+      {
+        name: 'result = (a + b) × a',
+        check(rows) { return rows.every(r => r.c === (r.a + r.b) * r.a); },
+        solve(r)    { return (r.a + r.b) * r.a; },
+        explain(rows) { return rows.map(r => `(${r.a}+${r.b}) × ${r.a} = ${r.c}`); },
+      },
+      {
+        name: 'result = a × b',
+        check(rows) { return rows.every(r => r.c === r.a * r.b); },
+        solve(r)    { return r.a * r.b; },
+        explain(rows) { return rows.map(r => `${r.a} × ${r.b} = ${r.c}`); },
+      },
+    ];
+
+    for (const rule of rules) {
+      if (!rule.check(known)) continue;
+
+      // Found a matching rule — solve unknowns
+      let answer;
+      if (rule.name.startsWith('Cumulative')) {
+        // needs previous result
+        const lastKnown = known[known.length - 1];
+        const target    = unknowns[0] || rows[rows.length - 1];
+        answer = target.a + target.b + lastKnown.c;
+      } else {
+        const target = unknowns[0] || rows[rows.length - 1];
+        answer = rule.solve(target);
+      }
+
+      return {
+        answer:   String(answer),
+        category: 'PATTERN PUZZLE',
+        sub:      `Rule: ${rule.name}`,
+        steps:    rule.explain(known).concat(
+          unknowns.length ? [`? = ${answer}`] : []
+        ),
+        extra: `All ${known.length} known rows verified ✓`,
+      };
+    }
+
+    return null; // no rule matched
+  }
+
   function computeSolve(raw) {
     const q = raw.toLowerCase().trim();
+
+    // ── Pattern puzzle — try this FIRST before anything else ──
+    const puzzle = solvePatternPuzzle(raw);
+    if (puzzle) return puzzle;
 
     // ── Quadratic ──
     const qm = q.match(/(-?\d*\.?\d*)\s*x[²2]\s*([+\-]\s*\d*\.?\d*)\s*x\s*([+\-]\s*\d*\.?\d*)\s*=\s*0/);
