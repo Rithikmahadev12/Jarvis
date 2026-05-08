@@ -1,6 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Client Brain v4.1
-// Fixed: account persistence + face recognition enrollment
+// J.A.R.V.I.S — Client Brain v4.2
+// Fixed: face recognition threshold 0.55 → 0.72
+// Added: intruder detection enable/disable voice command
 // ═══════════════════════════════════════════════════════════════
 
 // ── STATE ──
@@ -23,8 +24,9 @@ const state = {
   voiceSamples: [],
   // ── Face recognition ──
   faceDescriptors: null,
-  faceEnrolled: false,          // NEW: must be true before intruder detection fires
-  faceEnrollPending: false,     // NEW: enrollment in progress
+  faceEnrolled: false,
+  faceEnrollPending: false,
+  intruderDetectionEnabled: true,   // NEW: can be toggled via voice
   intruderActive: false,
   intruderChunks: [],
   intruderRecorder: null,
@@ -183,7 +185,6 @@ async function saveProfileRemote(p) {
   } catch (e) { console.warn("[JARVIS] Could not save profile:", e); }
 }
 
-// ── Load profiles list from server for auth screen ──
 async function loadServerProfiles() {
   try {
     const res = await fetch("/api/profiles");
@@ -340,7 +341,6 @@ async function switchCamera(deviceId) {
     state.cameraStream = stream; state.selectedCameraId = deviceId;
     const vid = $("camera-feed"); if (vid) { vid.srcObject = stream; vid.play(); }
     startCameraBuffer(stream);
-    // Re-enroll face on camera switch
     state.faceDescriptors = null;
     state.faceEnrolled = false;
     await enrollUserFace();
@@ -530,7 +530,7 @@ function completeSetup() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── AUTH SCREEN — shows saved accounts from server ──
+// ── AUTH SCREEN ──
 // ═══════════════════════════════════════════════════════════════
 async function showAuthScreen() {
   $("auth-screen").classList.add("active");
@@ -538,7 +538,6 @@ async function showAuthScreen() {
   if ($("main-screen")) $("main-screen").classList.remove("active");
   await mic.requestPerm();
 
-  // ── Load and display saved accounts ──
   const profiles = await loadServerProfiles();
   renderSavedAccounts(profiles);
 
@@ -551,7 +550,6 @@ async function showAuthScreen() {
     const typedPw = newPwInput.value;
     newPwInput.value = "";
 
-    // Try selected account first, then all profiles
     const selectedName = $("auth-selected-name")?.value || localStorage.getItem("jarvis_name_hint");
     const hash = await hashPassword(typedPw);
 
@@ -570,14 +568,12 @@ async function showAuthScreen() {
       } catch {}
     }
 
-    // Try local profile
     const profile = loadProfile();
     if (profile && hash === profile.passwordHash) {
       state.user = profile.name; state.userTitle = profile.title;
       speak(`Welcome back, ${profile.title}.`, launchMain); return;
     }
 
-    // Wrong password
     const as = $("auth-status");
     as.innerHTML = `<span style="color:var(--red)">Wrong password.</span>`;
     setTimeout(() => { as.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> or type password`; }, 2000);
@@ -586,9 +582,7 @@ async function showAuthScreen() {
   startAuthListening();
 }
 
-// ── Render clickable saved account tiles on auth screen ──
 function renderSavedAccounts(profiles) {
-  // Remove existing
   const old = $("saved-accounts-wrap"); if (old) old.remove();
   if (!profiles || profiles.length === 0) return;
 
@@ -599,7 +593,6 @@ function renderSavedAccounts(profiles) {
     margin-bottom:12px;
   `;
 
-  // Hidden field to track selected account
   const hiddenInput = document.createElement("input");
   hiddenInput.type = "hidden"; hiddenInput.id = "auth-selected-name";
   hiddenInput.value = localStorage.getItem("jarvis_name_hint") || "";
@@ -640,7 +633,6 @@ function renderSavedAccounts(profiles) {
     tile.addEventListener("click", () => {
       hiddenInput.value = p.name.toLowerCase();
       localStorage.setItem("jarvis_name_hint", p.name.toLowerCase());
-      // Reset all tiles
       wrap.querySelectorAll("button").forEach(b => {
         b.style.borderColor = "rgba(0,200,255,0.25)";
         b.style.background = "rgba(0,200,255,0.06)";
@@ -668,7 +660,6 @@ function renderSavedAccounts(profiles) {
     wrap.appendChild(tile);
   });
 
-  // Insert before auth-status
   const authContainer = $("auth-screen")?.querySelector(".auth-container");
   if (authContainer) {
     const status = authContainer.querySelector(".auth-status");
@@ -826,6 +817,40 @@ function handleChatCommand(text) {
     const acks = [`Yes, ${state.userTitle}?`, `At your service, ${state.userTitle}.`, `How can I help, ${state.userTitle}?`];
     const ack = acks[Math.floor(Math.random() * acks.length)];
     addMsg("jarvis", ack); speak(ack); return;
+  }
+
+  const cleanedLower = cleaned.toLowerCase();
+
+  // ── NEW: Intruder detection toggle ──────────────────────────
+  if (/\b(disable|turn off|deactivate|stop)\b/.test(cleanedLower) &&
+      /\b(intruder|face detection|face recognition|facial recognition|facial|unknown face)\b/.test(cleanedLower)) {
+    state.intruderDetectionEnabled = false;
+    // Also stop any active intruder recording
+    if (state.intruderActive) {
+      stopIntruderRecord();
+      state.intruderActive = false;
+      hideFaceAuthOverlay();
+      const panel = $("camera-panel"); if (panel) panel.classList.remove("alert");
+    }
+    const r = `Intruder detection disabled, ${state.userTitle}. I'll stop monitoring for unknown faces. Say "enable intruder detection" to turn it back on.`;
+    addMsg("jarvis", r); speak(r); updateMood(2); return;
+  }
+
+  if (/\b(enable|turn on|activate|start|re-enable)\b/.test(cleanedLower) &&
+      /\b(intruder|face detection|face recognition|facial recognition|facial|unknown face)\b/.test(cleanedLower)) {
+    state.intruderDetectionEnabled = true;
+    const r = `Intruder detection re-enabled, ${state.userTitle}. I'll alert you if an unknown face appears on camera.`;
+    addMsg("jarvis", r); speak(r); updateMood(2); return;
+  }
+
+  // ── Re-enroll face command ───────────────────────────────────
+  if (/\b(re-?enroll|enroll again|re-?scan|scan again|re-?register)\b/.test(cleanedLower) &&
+      /\b(face|facial|me)\b/.test(cleanedLower)) {
+    state.faceEnrolled = false;
+    state.faceDescriptors = null;
+    const r = `Re-enrolling your face now, ${state.userTitle}. Please look at the camera.`;
+    addMsg("jarvis", r); speak(r);
+    enrollUserFace(); return;
   }
 
   sendToAI(cleaned);
@@ -1255,7 +1280,7 @@ async function readScreen(question) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── CAMERA / FACE — FIXED enrollment flow ──
+// ── CAMERA / FACE — fixed enrollment + raised threshold ──
 // ═══════════════════════════════════════════════════════════════
 async function requestCameraAccess() {
   try {
@@ -1274,7 +1299,6 @@ async function requestCameraAccess() {
     await enumerateCameras();
     addMsg("system", `Camera online. ${state.availableCameras.length} camera(s) detected.`);
     updateMood(5);
-    // Load face models then enroll — intruder detection only starts after enrollment
     await loadFaceModels();
   } catch { addMsg("system", "Camera declined — face recognition unavailable."); }
 }
@@ -1299,17 +1323,16 @@ async function loadFaceModels() {
   }
 }
 
-// ── ENROLLMENT — retries for up to 30 seconds, shows status ──
+// ── ENROLLMENT — retries for up to 30 seconds ──
 async function enrollUserFace() {
   if (!faceApiLoaded || !state.cameraStream) return;
-  if (state.faceEnrollPending) return; // already running
+  if (state.faceEnrollPending) return;
   state.faceEnrollPending = true;
   state.faceEnrolled = false;
   state.faceDescriptors = null;
 
   const vid = $("camera-feed"); if (!vid) { state.faceEnrollPending = false; return; }
 
-  // Show enrollment status badge
   showEnrollBadge("SCANNING YOUR FACE…");
 
   const MAX_ATTEMPTS = 20;
@@ -1321,7 +1344,6 @@ async function enrollUserFace() {
     await delay(WAIT_PER_ATTEMPT_MS);
     attempts++;
 
-    // Make sure video is ready
     if (vid.readyState < 2) { updateEnrollBadge(`WAITING FOR CAMERA… (${attempts}/${MAX_ATTEMPTS})`); continue; }
 
     try {
@@ -1337,7 +1359,6 @@ async function enrollUserFace() {
         hideEnrollBadge();
         addMsg("system", `✓ Your face has been enrolled, ${state.userTitle}. Intruder detection is now active.`);
         speak(`Face enrolled, ${state.userTitle}. I'll alert you if anyone else appears on camera.`);
-        // Start watching now that we have a descriptor
         startFaceWatch();
         break;
       } else {
@@ -1354,7 +1375,6 @@ async function enrollUserFace() {
   if (!success) {
     hideEnrollBadge();
     addMsg("system", "Face enrollment failed — couldn't detect a face. Intruder detection disabled. Say 're-enroll face' to try again.");
-    // Don't start face watch — intruder detection stays off
   }
 }
 
@@ -1394,9 +1414,10 @@ function startFaceWatch() {
 }
 
 async function checkFace() {
-  // CRITICAL: do not run intruder detection unless face is enrolled
+  // ── FIXED: respect the intruderDetectionEnabled toggle ──
+  if (!state.intruderDetectionEnabled) return;
   if (!faceApiLoaded || !state.cameraStream || state.phase !== "chatting") return;
-  if (!state.faceEnrolled || !state.faceDescriptors) return; // enrollment not done yet
+  if (!state.faceEnrolled || !state.faceDescriptors) return;
   if (state.faceEnrollPending) return;
 
   const vid = $("camera-feed"); if (!vid || vid.readyState < 2) return;
@@ -1407,8 +1428,9 @@ async function checkFace() {
     if (detections.length > 0) {
       let userPresent = false;
       for (const d of detections) {
+        // ── FIXED: raised threshold from 0.55 → 0.72 for better recognition ──
         const dist = faceapi.euclideanDistance(d.descriptor, state.faceDescriptors);
-        if (dist < 0.55) { userPresent = true; break; }
+        if (dist < 0.72) { userPresent = true; break; }
       }
       if (userPresent) {
         if (state.awayMode) {
@@ -1418,7 +1440,6 @@ async function checkFace() {
           addMsg("jarvis", msg); speak(msg, () => setTimeout(() => checkIntruderClips(), 1500)); updateMood(15);
         }
       } else if (!state.intruderActive) {
-        // Unknown face detected — only fire if enrollment is solid
         handleUnknownFace();
       }
     }
@@ -1587,13 +1608,13 @@ function handleLogout() {
     state.phase = "idle"; state.user = null; state.userTitle = null;
     state.sessionId = crypto.randomUUID(); state.awayMode = false; state.intruderActive = false;
     state.faceEnrolled = false; state.faceDescriptors = null; state.faceEnrollPending = false;
+    state.intruderDetectionEnabled = true; // reset to default on logout
     $("transcript").innerHTML = "";
     $("main-screen").classList.remove("active");
     $("auth-screen").classList.add("active");
     $("auth-status").innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> or type password`;
     setOrb("idle"); stopScreenRecord();
 
-    // Refresh profiles list on auth screen
     const profiles = await loadServerProfiles();
     renderSavedAccounts(profiles);
     startAuthListening();
@@ -1627,7 +1648,6 @@ window.addEventListener("load", async () => {
     w.volume = 0; speechSynthesis.speak(w); speechSynthesis.getVoices();
   }, 500);
 
-  // Always check server first, then localStorage
   let profile = null;
   const nameHint = localStorage.getItem("jarvis_name_hint");
   if (nameHint) {
@@ -1636,7 +1656,7 @@ window.addEventListener("load", async () => {
       const data = await res.json();
       if (data.found) {
         profile = { ...data.profile, passwordHash: localStorage.getItem("jarvis_pw_hash") || "" };
-        saveProfileLocal(profile); // keep local in sync
+        saveProfileLocal(profile);
       }
     } catch {}
   }
