@@ -7,7 +7,19 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:'Share Tech Mono',monospace;color:#00c8ff}
-:root{--blue:#00c8ff;--blue-glow:rgba(0,200,255,0.35);--amber:#ffaa00;--red:#ff3333;--green:#00ff88;--purple:#aa44ff;--bg:#010c14;--bg2:#021828;--text-dim:#3a6a88}
+
+:root{
+  --blue:#00c8ff;
+  --blue-glow:rgba(0,200,255,0.35);
+  --amber:#ffaa00;
+  --red:#ff3333;
+  --green:#00ff88;
+  --purple:#aa44ff;
+  --bg:#010c14;
+  --bg2:#021828;
+  --text-dim:#3a6a88;
+}
+
 .corner{position:fixed;width:36px;height:36px;pointer-events:none;z-index:50}
 .corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.6}
 .corner::before{width:100%;height:1px;top:0}.corner::after{width:1px;height:100%;top:0}
@@ -15,75 +27,108 @@ html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:
 .corner.tl{top:14px;left:14px}.corner.tr{top:14px;right:14px;transform:scaleX(-1)}
 .corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}.corner.br{bottom:14px;right:14px;transform:scale(-1)}
 @keyframes pipPulse{0%,100%{opacity:1}50%{opacity:0.3}}
+
 .scanline{position:fixed;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,200,255,0.1) 50%,transparent);animation:scan 10s linear infinite;pointer-events:none;z-index:2}
 @keyframes scan{from{top:-2px}to{top:100vh}}
+
 #layout{display:flex;width:100%;height:100vh;position:relative}
+
+/* ── LEFT SIDEBAR ── */
 #sidebar{width:200px;flex-shrink:0;display:flex;flex-direction:column;gap:5px;padding:14px 10px;border-right:1px solid rgba(0,200,255,0.1);overflow-y:auto;z-index:10;background:rgba(1,12,20,0.85)}
 .sidebar-label{font-family:'Orbitron',monospace;font-size:0.4rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4);margin:8px 0 4px;text-transform:uppercase}
 .obj-btn{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.15);color:rgba(0,200,255,0.6);font-family:'Share Tech Mono',monospace;font-size:0.62rem;letter-spacing:0.1em;padding:7px 8px;cursor:pointer;text-align:left;transition:all 0.2s;border-radius:2px;width:100%;display:flex;align-items:center;gap:6px}
 .obj-btn:hover,.obj-btn.active{background:rgba(0,200,255,0.12);border-color:var(--blue);color:var(--blue)}
 .obj-btn .ico{font-size:0.85rem;flex-shrink:0}
+
+/* ── VIEWER CENTER ── */
 #viewer-wrap{flex:1;position:relative;display:flex;flex-direction:column}
 #hud-top{display:flex;justify-content:space-between;align-items:flex-start;padding:10px 18px 0;flex-shrink:0;z-index:10}
 .hud-key{font-family:'Orbitron',monospace;font-size:0.38rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4)}
 .hud-val{font-size:0.7rem;letter-spacing:0.15em;color:var(--blue);margin-top:2px}
+
 #three-canvas{position:absolute;inset:0;width:100%!important;height:100%!important;z-index:1}
+
 #holo-rings{position:absolute;inset:0;pointer-events:none;z-index:2;display:flex;align-items:center;justify-content:center}
 .holo-ring{position:absolute;border-radius:50%;border:1px solid rgba(0,200,255,0.12);animation:ringPulse 4s ease-in-out infinite}
 .holo-ring:nth-child(1){width:320px;height:320px;animation-delay:0s}
 .holo-ring:nth-child(2){width:420px;height:420px;animation-delay:0.8s}
 .holo-ring:nth-child(3){width:520px;height:520px;animation-delay:1.6s;border-color:rgba(0,200,255,0.06)}
 @keyframes ringPulse{0%,100%{opacity:0.5;transform:scale(1)}50%{opacity:1;transform:scale(1.02)}}
+
 .data-stream{position:absolute;top:0;bottom:0;width:1px;background:linear-gradient(to bottom,transparent,rgba(0,200,255,0.08) 30%,rgba(0,200,255,0.15) 50%,rgba(0,200,255,0.08) 70%,transparent);pointer-events:none;z-index:2;animation:streamFloat 8s linear infinite}
 @keyframes streamFloat{from{transform:translateX(0)}to{transform:translateX(2px)}}
+
+/* ── GESTURE OVERLAY ── */
+#gesture-overlay{position:absolute;top:0;left:0;right:0;bottom:0;pointer-events:none;z-index:15}
+#hand-canvas{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:14;opacity:0.65}
 #scan-overlay{position:absolute;inset:0;pointer-events:none;z-index:3;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,200,255,0.012) 3px,rgba(0,200,255,0.012) 4px);animation:scanShift 0.1s linear infinite}
 @keyframes scanShift{from{background-position:0 0}to{background-position:0 4px}}
 
-/* GRAB HUD */
-#grab-hud{position:absolute;top:0;left:50%;transform:translateX(-50%);background:rgba(1,12,20,0.92);border:1px solid rgba(0,200,255,0.25);border-top:none;padding:6px 20px 8px;border-radius:0 0 8px 8px;z-index:20;display:flex;align-items:center;gap:20px;font-family:'Orbitron',monospace;font-size:0.38rem;letter-spacing:0.2em}
-.gh-item{display:flex;align-items:center;gap:6px;color:rgba(0,200,255,0.4)}
-.gh-item.active{color:var(--green)}
-.gh-item .gh-dot{width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 5px currentColor}
-.gh-key{color:rgba(0,200,255,0.25);font-size:0.5rem;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.15);padding:1px 5px;border-radius:2px}
+/* ── GESTURE HUD BAR ── */
+#gesture-hud{
+  position:absolute;top:0;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:16px;
+  background:rgba(1,12,20,0.88);
+  border:1px solid rgba(0,200,255,0.2);
+  border-top:none;
+  padding:6px 24px 8px;
+  border-radius:0 0 8px 8px;
+  z-index:20;
+  transition:opacity 0.4s;
+}
+#gesture-hud.hidden{opacity:0;pointer-events:none}
+.gh-hand{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:90px}
+.gh-icon{font-size:1.4rem;transition:all 0.2s}
+.gh-label{font-family:'Orbitron',monospace;font-size:0.36rem;letter-spacing:0.22em;color:var(--blue);transition:color 0.2s}
+.gh-action{font-size:0.5rem;color:var(--text-dim);letter-spacing:0.1em;min-height:14px;transition:color 0.2s}
+.gh-divider{width:1px;height:40px;background:rgba(0,200,255,0.15)}
+.gh-center{display:flex;flex-direction:column;align-items:center;gap:2px}
+.gh-both-label{font-family:'Orbitron',monospace;font-size:0.32rem;letter-spacing:0.2em;color:rgba(0,200,255,0.5)}
+.gh-both-action{font-size:0.46rem;color:rgba(0,200,255,0.4);letter-spacing:0.08em;min-height:14px}
 
-/* GRABBED PARTICLE TRAIL */
-#grab-crosshair{position:absolute;pointer-events:none;z-index:30;display:none}
-.crosshair-ring{position:absolute;border-radius:50%;border:1px solid var(--green);transform:translate(-50%,-50%);animation:crossPulse 1s ease-in-out infinite}
-@keyframes crossPulse{0%,100%{opacity:0.8;transform:translate(-50%,-50%) scale(1)}50%{opacity:0.3;transform:translate(-50%,-50%) scale(1.3)}}
+/* Active gesture flash */
+.gh-hand.active .gh-icon{transform:scale(1.2)}
+.gh-hand.active .gh-label{color:var(--green)}
+.gh-hand.active .gh-action{color:var(--green)}
 
-/* ATOM INFO TOOLTIP */
-#atom-tooltip{position:absolute;background:rgba(1,12,20,0.95);border:1px solid rgba(0,200,255,0.3);padding:8px 12px;border-radius:3px;z-index:25;pointer-events:none;display:none;font-size:0.62rem;letter-spacing:0.08em;min-width:120px}
-.tt-name{color:var(--blue);font-family:'Orbitron',monospace;font-size:0.55rem;letter-spacing:0.2em;margin-bottom:4px}
-.tt-prop{color:rgba(0,200,255,0.5);font-size:0.52rem;line-height:1.8}
-.tt-val{color:var(--blue)}
+/* ── SWIPE TRAIL ── */
+.swipe-trail{position:absolute;pointer-events:none;z-index:16;border-radius:50%;animation:trailFade 0.6s ease forwards}
+@keyframes trailFade{from{opacity:0.7;transform:scale(1)}to{opacity:0;transform:scale(0.2)}}
 
-/* SNAP INDICATOR */
-#snap-indicator{position:absolute;pointer-events:none;z-index:28;display:none;width:40px;height:40px}
-.snap-ring{position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--amber);animation:snapPulse 0.5s ease-in-out infinite}
-@keyframes snapPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.4;transform:scale(1.2)}}
+/* ── GESTURE ANNOUNCE ── */
+#gesture-announce{
+  position:absolute;bottom:80px;left:50%;transform:translateX(-50%);
+  background:rgba(1,12,20,0.9);border:1px solid rgba(0,200,255,0.35);
+  color:var(--blue);font-family:'Orbitron',monospace;font-size:0.52rem;letter-spacing:0.22em;
+  padding:6px 18px;border-radius:3px;z-index:20;
+  opacity:0;transition:opacity 0.2s;pointer-events:none;white-space:nowrap;
+}
+#gesture-announce.show{opacity:1}
 
-/* THROW TRAIL */
-.throw-trail{position:absolute;border-radius:50%;pointer-events:none;z-index:27;animation:trailFade 0.8s ease forwards}
-@keyframes trailFade{from{opacity:0.8;transform:scale(1)}to{opacity:0;transform:scale(0)}}
+/* ── MOMENTUM INDICATOR ── */
+#momentum-bar{
+  position:absolute;bottom:120px;left:50%;transform:translateX(-50%);
+  display:flex;gap:3px;z-index:20;pointer-events:none;
+}
+.momentum-seg{width:4px;height:16px;background:rgba(0,200,255,0.15);border-radius:2px;transition:all 0.1s}
+.momentum-seg.active{background:var(--blue);box-shadow:0 0 4px var(--blue)}
 
-/* MAGNETIC LINES */
-#mag-canvas{position:absolute;inset:0;pointer-events:none;z-index:4}
-
-/* LOADING */
+/* ── LOADING ── */
 #loading{position:absolute;inset:0;background:rgba(1,8,18,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:20}
 .load-ring{width:52px;height:52px;border:1.5px solid rgba(0,200,255,0.15);border-top-color:var(--blue);border-radius:50%;animation:spin 1.2s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .load-text{font-family:'Orbitron',monospace;font-size:0.48rem;letter-spacing:0.3em;color:rgba(0,200,255,0.6)}
 .load-bar-wrap{width:200px;height:2px;background:rgba(0,200,255,0.1);border-radius:2px;overflow:hidden}
-.load-bar{height:100%;background:var(--blue);width:0%;transition:width 0.3s}
+.load-bar{height:100%;background:var(--blue);width:0%;transition:width 0.3s;box-shadow:0 0 8px var(--blue)}
+
 #no-model{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:5}
 .no-model-ring{width:100px;height:100px;border:1px solid rgba(0,200,255,0.15);border-radius:50%;display:flex;align-items:center;justify-content:center;animation:breathe 4s ease-in-out infinite}
 @keyframes breathe{0%,100%{box-shadow:0 0 20px rgba(0,200,255,0.05)}50%{box-shadow:0 0 40px rgba(0,200,255,0.15)}}
 .no-model-icon{font-size:2.2rem;opacity:0.35}
 .no-model-text{font-family:'Orbitron',monospace;font-size:0.48rem;letter-spacing:0.3em;color:rgba(0,200,255,0.35)}
-.no-model-hint{font-size:0.6rem;color:rgba(0,200,255,0.25);letter-spacing:0.08em;text-align:center;line-height:2.4}
+.no-model-hint{font-size:0.6rem;color:rgba(0,200,255,0.25);letter-spacing:0.08em;text-align:center;line-height:2.2}
 
-/* SEARCH BAR */
+/* ── SEARCH BAR ── */
 #search-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid rgba(0,200,255,0.1);flex-shrink:0;background:rgba(1,8,18,0.8);position:relative;z-index:10}
 #search-input{flex:1;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.2);color:var(--blue);font-family:'Share Tech Mono',monospace;font-size:0.68rem;padding:8px 12px;border-radius:2px;outline:none;letter-spacing:0.06em}
 #search-input:focus{border-color:rgba(0,200,255,0.5)}
@@ -92,42 +137,47 @@ html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:
 .bar-btn:hover{background:rgba(0,200,255,0.1);border-color:var(--blue)}
 .bar-btn.active{border-color:var(--red);color:var(--red);animation:micPulse 1s ease-in-out infinite}
 @keyframes micPulse{0%,100%{opacity:1}50%{opacity:0.4}}
-.bar-btn.grab-mode{border-color:var(--green);color:var(--green);background:rgba(0,255,136,0.08)}
 
-/* RIGHT PANEL */
+/* ── RIGHT PANEL ── */
 #info-panel{width:200px;flex-shrink:0;display:flex;flex-direction:column;gap:5px;padding:14px 10px;border-left:1px solid rgba(0,200,255,0.1);z-index:10;background:rgba(1,12,20,0.85);overflow-y:auto}
 .info-card{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.1);border-radius:2px;padding:9px 10px}
 .info-card-key{font-family:'Orbitron',monospace;font-size:0.36rem;letter-spacing:0.26em;color:rgba(0,200,255,0.4);margin-bottom:4px}
 .info-card-val{font-size:0.64rem;color:var(--blue);letter-spacing:0.08em;line-height:1.5}
 .info-card-val.dim{font-size:0.56rem;color:rgba(0,200,255,0.55)}
 
-/* GRABBED STATE PANEL */
-#grabbed-panel{background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.2);border-radius:2px;padding:9px 10px;display:none}
-#grabbed-panel.active{display:block}
-.gp-label{font-family:'Orbitron',monospace;font-size:0.36rem;letter-spacing:0.26em;color:rgba(0,255,136,0.6);margin-bottom:4px}
-.gp-val{font-size:0.62rem;color:var(--green);letter-spacing:0.08em}
+/* ── DUAL HAND LEGEND ── */
+#dual-legend{margin-top:auto;padding-top:8px;border-top:1px solid rgba(0,200,255,0.08)}
+.dl-title{font-family:'Orbitron',monospace;font-size:0.36rem;letter-spacing:0.22em;color:rgba(0,200,255,0.3);margin-bottom:6px}
+.dl-section{font-family:'Orbitron',monospace;font-size:0.32rem;letter-spacing:0.18em;color:var(--amber);margin:5px 0 3px;opacity:0.8}
+.dl-row{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:0.5rem;color:rgba(0,200,255,0.45)}
+.dl-row .di{font-size:0.8rem;width:18px;text-align:center;flex-shrink:0}
+.dl-row.dual .di{font-size:0.7rem;letter-spacing:-2px}
 
-/* PINNED ATOMS LIST */
-#pinned-list{flex:1;overflow-y:auto}
-.pinned-item{background:rgba(255,170,0,0.05);border:1px solid rgba(255,170,0,0.2);border-radius:2px;padding:6px 8px;margin-bottom:4px;cursor:pointer;transition:all 0.2s}
-.pinned-item:hover{background:rgba(255,170,0,0.1);border-color:var(--amber)}
-.pinned-item-name{font-size:0.58rem;color:var(--amber);letter-spacing:0.1em}
-.pinned-item-pos{font-size:0.48rem;color:rgba(255,170,0,0.4);margin-top:2px}
-.pi-unpin{float:right;color:rgba(255,170,0,0.4);cursor:pointer;font-size:0.7rem}
-.pi-unpin:hover{color:var(--red)}
+/* ── CAM FEED ── */
+#cam-wrap{border-top:1px solid rgba(0,200,255,0.08);padding-top:8px}
+#gesture-cam{width:100%;aspect-ratio:4/3;object-fit:cover;border:1px solid rgba(0,200,255,0.2);border-radius:2px;opacity:0.8;background:#000;display:block;transform:scaleX(-1)}
+.cam-label{font-family:'Orbitron',monospace;font-size:0.36rem;letter-spacing:0.2em;color:rgba(0,200,255,0.3);text-align:center;margin-top:3px}
+#cam-status{font-size:0.56rem;color:rgba(0,200,255,0.35);text-align:center;margin-top:3px;letter-spacing:0.08em;transition:color 0.3s}
+#cam-status.online{color:var(--green)}
+#cam-status.tracking{color:var(--amber);animation:blink 0.8s step-end infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
+#hand-count{font-size:0.5rem;color:rgba(0,200,255,0.3);text-align:center;letter-spacing:0.1em;margin-top:2px}
 
-/* TICKER */
+/* ── TICKER ── */
 #ticker{position:fixed;bottom:0;left:0;right:0;height:19px;background:rgba(1,8,18,0.92);border-top:1px solid rgba(0,200,255,0.07);overflow:hidden;display:flex;align-items:center;z-index:40;pointer-events:none}
 #ticker::before{content:'▶';font-size:0.44rem;color:var(--blue);padding:0 10px;flex-shrink:0;opacity:0.5}
 .ticker-track{display:flex;white-space:nowrap;animation:tickerScroll 50s linear infinite;font-size:0.5rem;color:rgba(0,200,255,0.35);letter-spacing:0.12em}
 .ticker-item{padding:0 34px}.ticker-item.blue{color:rgba(0,200,255,0.65)}
 @keyframes tickerScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
 #toast{position:fixed;top:56px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.3);color:var(--blue);font-family:'Orbitron',monospace;font-size:0.42rem;letter-spacing:0.2em;padding:7px 18px;border-radius:2px;z-index:100;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap}
 #toast.show{opacity:1}
+
 #viewer-wrap::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at 50% 50%,rgba(0,200,255,0.04) 0%,transparent 70%);pointer-events:none;z-index:0}
 </style>
 </head>
 <body>
+
 <div class="scanline"></div>
 <div class="corner tl"><div class="pip"></div></div>
 <div class="corner tr"><div class="pip"></div></div>
@@ -142,58 +192,41 @@ html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:
     <div style="font-family:'Orbitron',monospace;font-size:0.52rem;font-weight:700;letter-spacing:0.32em;color:var(--blue);margin-bottom:6px">J.A.R.V.I.S</div>
     <div style="font-size:0.46rem;letter-spacing:0.18em;color:rgba(0,200,255,0.35);margin-bottom:10px">HOLOGRAPHIC VIEWER</div>
 
-    <div class="sidebar-label">Atoms & Molecules</div>
+    <div class="sidebar-label">Quick Load</div>
     <button class="obj-btn" onclick="quickLoad('carbon_atom')"><span class="ico">⬡</span>Carbon Atom</button>
-    <button class="obj-btn" onclick="quickLoad('hydrogen')"><span class="ico">◉</span>Hydrogen</button>
-    <button class="obj-btn" onclick="quickLoad('oxygen')"><span class="ico">◎</span>Oxygen</button>
-    <button class="obj-btn" onclick="quickLoad('iron')"><span class="ico">◆</span>Iron Atom</button>
-    <button class="obj-btn" onclick="quickLoad('water')"><span class="ico">◌</span>H₂O Molecule</button>
-    <button class="obj-btn" onclick="quickLoad('co2')"><span class="ico">◈</span>CO₂</button>
-    <button class="obj-btn" onclick="quickLoad('methane')"><span class="ico">◇</span>Methane CH₄</button>
     <button class="obj-btn" onclick="quickLoad('dna')"><span class="ico">⚬</span>DNA Helix</button>
-
-    <div class="sidebar-label">Structures</div>
+    <button class="obj-btn" onclick="quickLoad('molecule')"><span class="ico">◉</span>Water Molecule</button>
+    <button class="obj-btn" onclick="quickLoad('torus_knot')"><span class="ico">◈</span>Torus Knot</button>
     <button class="obj-btn" onclick="quickLoad('crystal')"><span class="ico">◊</span>Crystal Lattice</button>
     <button class="obj-btn" onclick="quickLoad('sphere_wire')"><span class="ico">◎</span>Neural Sphere</button>
+    <button class="obj-btn" onclick="quickLoad('tetra')"><span class="ico">△</span>Tetrahedron</button>
+    <button class="obj-btn" onclick="quickLoad('helix')"><span class="ico">∿</span>Helix Strand</button>
+    <button class="obj-btn" onclick="quickLoad('icosa')"><span class="ico">⬢</span>Icosahedron</button>
+    <button class="obj-btn" onclick="quickLoad('saturn')"><span class="ico">○</span>Orbital Ring</button>
+    <button class="obj-btn" onclick="quickLoad('brain')"><span class="ico">⚡</span>Neural Network</button>
     <button class="obj-btn" onclick="quickLoad('reactor')"><span class="ico">◉</span>Arc Reactor</button>
-    <button class="obj-btn" onclick="quickLoad('torus_knot')"><span class="ico">◈</span>Torus Knot</button>
-
-    <div class="sidebar-label" style="margin-top:12px">Grab Controls</div>
-    <div style="font-size:0.5rem;color:rgba(0,200,255,0.3);line-height:2.2;padding:4px 0">
-      <div>Click atom → grab</div>
-      <div>Drag → move it</div>
-      <div>Release → drop it</div>
-      <div>G key → grab mode</div>
-      <div>P key → pin atom</div>
-      <div>R key → release all</div>
-      <div>Throw → flick fast</div>
-    </div>
   </div>
 
   <!-- CENTER VIEWER -->
   <div id="viewer-wrap">
-    <div id="grab-hud">
-      <div class="gh-item" id="gh-grab">
-        <div class="gh-dot"></div>
-        <span>GRAB MODE</span>
-        <span class="gh-key">G</span>
+    <!-- Gesture HUD bar -->
+    <div id="gesture-hud" class="hidden">
+      <div class="gh-hand" id="gh-left">
+        <div class="gh-icon" id="gh-left-icon">✋</div>
+        <div class="gh-label">LEFT</div>
+        <div class="gh-action" id="gh-left-action">—</div>
       </div>
-      <div class="gh-item" id="gh-pin">
-        <div class="gh-dot"></div>
-        <span>PIN</span>
-        <span class="gh-key">P</span>
+      <div class="gh-divider"></div>
+      <div class="gh-center">
+        <div class="gh-both-label">BOTH HANDS</div>
+        <div class="gh-both-action" id="gh-both-action">—</div>
       </div>
-      <div class="gh-item" id="gh-release">
-        <div class="gh-dot"></div>
-        <span>RELEASE ALL</span>
-        <span class="gh-key">R</span>
+      <div class="gh-divider"></div>
+      <div class="gh-hand" id="gh-right">
+        <div class="gh-icon" id="gh-right-icon">🤚</div>
+        <div class="gh-label">RIGHT</div>
+        <div class="gh-action" id="gh-right-action">—</div>
       </div>
-      <div class="gh-item" id="gh-freeze">
-        <div class="gh-dot"></div>
-        <span>FREEZE</span>
-        <span class="gh-key">F</span>
-      </div>
-      <div style="color:rgba(0,200,255,0.3);font-size:0.5rem" id="gh-status">NO ATOM SELECTED</div>
     </div>
 
     <div id="hud-top">
@@ -202,8 +235,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:
         <div class="hud-val" id="hud-objname">— AWAITING SCAN —</div>
       </div>
       <div style="text-align:center">
-        <div class="hud-key">GRABBED ATOMS</div>
-        <div class="hud-val" id="hud-grabbed" style="font-size:0.58rem;color:var(--green)">0 / 0</div>
+        <div class="hud-key">RENDER MODE</div>
+        <div class="hud-val" id="hud-mode" style="font-size:0.58rem;color:rgba(0,200,255,0.55)">HOLOGRAPHIC</div>
       </div>
       <div style="text-align:right">
         <div class="hud-key">STATUS</div>
@@ -212,7 +245,6 @@ html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:
     </div>
 
     <canvas id="three-canvas"></canvas>
-    <canvas id="mag-canvas"></canvas>
 
     <div id="holo-rings">
       <div class="holo-ring"></div>
@@ -224,23 +256,26 @@ html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:
     <div class="data-stream" style="left:75%;animation-delay:-2s"></div>
     <div id="scan-overlay"></div>
 
-    <!-- Grab crosshair -->
-    <div id="grab-crosshair">
-      <div class="crosshair-ring" style="width:32px;height:32px;left:0;top:0;"></div>
-      <div class="crosshair-ring" style="width:16px;height:16px;left:8px;top:8px;animation-delay:0.3s;border-color:rgba(0,255,136,0.5)"></div>
+    <!-- Hand tracking canvas -->
+    <canvas id="hand-canvas"></canvas>
+
+    <!-- Gesture announce -->
+    <div id="gesture-announce"></div>
+
+    <!-- Momentum indicator -->
+    <div id="momentum-bar">
+      <div class="momentum-seg" id="ms0"></div>
+      <div class="momentum-seg" id="ms1"></div>
+      <div class="momentum-seg" id="ms2"></div>
+      <div class="momentum-seg" id="ms3"></div>
+      <div class="momentum-seg" id="ms4"></div>
+      <div class="momentum-seg" id="ms5"></div>
+      <div class="momentum-seg" id="ms6"></div>
+      <div class="momentum-seg" id="ms7"></div>
     </div>
 
-    <!-- Snap indicator -->
-    <div id="snap-indicator"><div class="snap-ring"></div></div>
-
-    <!-- Atom tooltip -->
-    <div id="atom-tooltip">
-      <div class="tt-name" id="tt-name">—</div>
-      <div class="tt-prop">Symbol: <span class="tt-val" id="tt-symbol">—</span></div>
-      <div class="tt-prop">Mass: <span class="tt-val" id="tt-mass">—</span></div>
-      <div class="tt-prop">Protons: <span class="tt-val" id="tt-protons">—</span></div>
-      <div class="tt-prop">State: <span class="tt-val" id="tt-state">FREE</span></div>
-    </div>
+    <!-- Gesture overlay -->
+    <div id="gesture-overlay"></div>
 
     <!-- Loading -->
     <div id="loading">
@@ -254,21 +289,19 @@ html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:
       <div class="no-model-ring"><div class="no-model-icon">⬡</div></div>
       <div class="no-model-text">HOLOGRAPHIC PROJECTOR READY</div>
       <div class="no-model-hint">
-        Select a molecule from the library<br>
-        · Click any atom to grab it ·<br>
-        · Drag to move · Release to drop ·<br>
-        · Flick to throw · P to pin ·
+        Select an object from the library<br>
+        · Use hands to interact ·<br>
+        · Swipe · Pinch · Throw ·
       </div>
     </div>
 
     <!-- Search bar -->
     <div id="search-bar">
-      <input type="text" id="search-input" placeholder='Search… "carbon" · "water" · "dna" · "crystal"' onkeydown="handleKey(event)"/>
+      <input type="text" id="search-input" placeholder='Search… "dna" · "crystal" · "atom" · "helix"' onkeydown="handleKey(event)"/>
       <button class="bar-btn" onclick="doSearch()">⚡ LOAD</button>
-      <button class="bar-btn grab-mode" id="grab-toggle-btn" onclick="toggleGrabMode()">✋ GRAB</button>
+      <button class="bar-btn" id="mic-btn" onclick="toggleMic()">🎙 VOICE</button>
       <button class="bar-btn" id="wireframe-btn" onclick="toggleWireframe()">WIRE</button>
       <button class="bar-btn" id="rotate-btn" onclick="toggleAutoRotate()">AUTO ◷</button>
-      <button class="bar-btn" onclick="releaseAll()" style="border-color:rgba(255,51,51,0.4);color:var(--red)">RELEASE</button>
     </div>
   </div>
 
@@ -279,94 +312,119 @@ html,body{width:100%;height:100%;overflow:hidden;background:#010c14;font-family:
       <div class="info-card-val" id="inf-name">—</div>
     </div>
     <div class="info-card">
-      <div class="info-card-key">GRABBABLE ATOMS</div>
-      <div class="info-card-val" id="inf-atoms">0</div>
+      <div class="info-card-key">VERTICES</div>
+      <div class="info-card-val" id="inf-verts">—</div>
     </div>
     <div class="info-card">
-      <div class="info-card-key">PINNED</div>
-      <div class="info-card-val dim" id="inf-pinned">0 atoms</div>
+      <div class="info-card-key">ROTATION</div>
+      <div class="info-card-val dim" id="inf-rot">X: 0° Y: 0° Z: 0°</div>
     </div>
     <div class="info-card">
-      <div class="info-card-key">VELOCITY</div>
-      <div class="info-card-val dim" id="inf-vel">0.00 u/s</div>
+      <div class="info-card-key">SCALE</div>
+      <div class="info-card-val dim" id="inf-scale">1.00×</div>
     </div>
     <div class="info-card">
-      <div class="info-card-key">GRAB RADIUS</div>
-      <div class="info-card-val dim" id="inf-radius">0.6 u</div>
+      <div class="info-card-key">HANDS DETECTED</div>
+      <div class="info-card-val dim" id="inf-hands">0 / 2</div>
+    </div>
+    <div class="info-card">
+      <div class="info-card-key">GESTURE</div>
+      <div class="info-card-val dim" id="inf-gesture">INACTIVE</div>
+    </div>
+    <div class="info-card">
+      <div class="info-card-key">MOMENTUM</div>
+      <div class="info-card-val dim" id="inf-momentum">0.00</div>
     </div>
 
-    <!-- Grabbed atom info -->
-    <div id="grabbed-panel">
-      <div class="gp-label">GRABBED ATOM</div>
-      <div class="gp-val" id="gp-name">—</div>
-      <div style="font-size:0.5rem;color:rgba(0,255,136,0.4);margin-top:3px" id="gp-pos">—</div>
+    <!-- Dual hand legend -->
+    <div id="dual-legend">
+      <div class="dl-title">DUAL HAND CONTROLS</div>
+
+      <div class="dl-section">— SINGLE HAND —</div>
+      <div class="dl-row"><span class="di">✋</span>Open palm → rotate</div>
+      <div class="dl-row"><span class="di">👊</span>Fist → zoom out</div>
+      <div class="dl-row"><span class="di">☝️</span>1 finger → pan X/Y</div>
+      <div class="dl-row"><span class="di">✌️</span>2 fingers → zoom in</div>
+      <div class="dl-row"><span class="di">🤏</span>Pinch → spin fast</div>
+      <div class="dl-row"><span class="di">🤙</span>Shaka → reset</div>
+
+      <div class="dl-section" style="color:var(--purple)">— DUAL HAND —</div>
+      <div class="dl-row dual"><span class="di">🤲</span>Both open → orbit</div>
+      <div class="dl-row dual"><span class="di">🤌🤌</span>Both pinch → zoom</div>
+      <div class="dl-row dual"><span class="di">👋➡</span>Swipe right → next</div>
+      <div class="dl-row dual"><span class="di">👋⬅</span>Swipe left → prev</div>
+      <div class="dl-row dual"><span class="di">👋⬆</span>Swipe up → tilt</div>
+      <div class="dl-row dual"><span class="di">🤜🤛</span>Push together → explode</div>
+      <div class="dl-row dual"><span class="di">🙌</span>Spread apart → expand</div>
+      <div class="dl-row dual"><span class="di">🔄</span>Twist → roll Z axis</div>
     </div>
 
-    <!-- Pinned atoms -->
-    <div class="info-card" style="margin-top:4px">
-      <div class="info-card-key">PINNED ATOMS</div>
-    </div>
-    <div id="pinned-list" style="max-height:200px;overflow-y:auto"></div>
-
-    <!-- Legend -->
-    <div style="margin-top:8px;padding:8px 10px;border:1px solid rgba(0,200,255,0.08);border-radius:2px">
-      <div style="font-family:'Orbitron',monospace;font-size:0.36rem;letter-spacing:0.22em;color:rgba(0,200,255,0.3);margin-bottom:6px">ATOM STATES</div>
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <div style="width:8px;height:8px;border-radius:50%;background:#00c8ff;box-shadow:0 0 4px #00c8ff;flex-shrink:0"></div>
-        <span style="font-size:0.5rem;color:rgba(0,200,255,0.5)">Free / orbiting</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <div style="width:8px;height:8px;border-radius:50%;background:#00ff88;box-shadow:0 0 4px #00ff88;flex-shrink:0"></div>
-        <span style="font-size:0.5rem;color:rgba(0,200,255,0.5)">Grabbed</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-        <div style="width:8px;height:8px;border-radius:50%;background:#ffaa00;box-shadow:0 0 4px #ffaa00;flex-shrink:0"></div>
-        <span style="font-size:0.5rem;color:rgba(0,200,255,0.5)">Pinned in space</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:6px">
-        <div style="width:8px;height:8px;border-radius:50%;background:#ff3333;box-shadow:0 0 4px #ff3333;flex-shrink:0"></div>
-        <span style="font-size:0.5rem;color:rgba(0,200,255,0.5)">Thrown / moving</span>
-      </div>
+    <!-- Cam feed -->
+    <div id="cam-wrap">
+      <video id="gesture-cam" autoplay muted playsinline></video>
+      <div class="cam-label">GESTURE CAMERA</div>
+      <div id="cam-status">● OFFLINE</div>
+      <div id="hand-count">0 hands tracked</div>
     </div>
   </div>
 
 </div>
 
+<!-- Ticker -->
 <div id="ticker">
   <div class="ticker-track" id="ticker-track"></div>
 </div>
 
+<!-- Three.js r128 -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
 <script>
-const TICKERS=[{t:'GRAB PHYSICS ENGINE ACTIVE',b:true},{t:'CLICK ANY ATOM TO GRAB'},{t:'DRAG · DROP · PIN · THROW',b:true},{t:'MOLECULAR HOLOGRAPHIC VIEWER'},{t:'PRESS G FOR GRAB MODE · P TO PIN · R TO RELEASE ALL',b:true}];
+// ═══════════════════════════════════════════════════════════════
+// J.A.R.V.I.S HOLOGRAM VIEWER — DUAL HAND GESTURE ENGINE v2.0
+// ═══════════════════════════════════════════════════════════════
+
+// ── TICKER ──
+const TICKERS=[{t:'DUAL HAND GESTURE ENGINE ACTIVE',b:true},{t:'MEDIAPIPE HANDS · 2-HAND TRACKING'},{t:'SWIPE · PINCH · THROW · ORBIT · EXPLODE',b:true},{t:'THREE.JS WEBGL RENDERER'},{t:'J.A.R.V.I.S HOLOGRAPHIC PROJECTOR ONLINE',b:true}];
 (()=>{const t=document.getElementById('ticker-track');const all=[...TICKERS,...TICKERS];t.innerHTML=all.map(i=>`<span class="ticker-item${i.b?' blue':''}">${i.t}</span><span class="ticker-item" style="opacity:.25">·</span>`).join('')})();
 
-// THREE.JS SETUP
+// ── THREE.JS SETUP ──
 const canvas = document.getElementById('three-canvas');
-const magCanvas = document.getElementById('mag-canvas');
-const magCtx = magCanvas.getContext('2d');
-const renderer = new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setClearColor(0x000000, 0);
 renderer.shadowMap.enabled = true;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
-camera.position.set(0, 0, 7);
+camera.position.set(0, 0, 5);
 
 function resizeRenderer() {
   const w = canvas.parentElement.clientWidth;
   const h = canvas.parentElement.clientHeight;
   renderer.setSize(w, h, false);
-  magCanvas.width = w;
-  magCanvas.height = h;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 resizeRenderer();
 window.addEventListener('resize', resizeRenderer);
 
-// LIGHTING
+// ── HOLOGRAM MATERIAL ──
+function createHologramMaterial(color = 0x00c8ff, wireframe = false) {
+  return new THREE.MeshBasicMaterial({ color, wireframe, transparent: true, opacity: wireframe ? 0.55 : 0.75, side: THREE.DoubleSide });
+}
+function createGlowMaterial(color = 0x00c8ff) {
+  return new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.08, side: THREE.BackSide });
+}
+
+// ── SCENE STATE ──
+const state = {
+  model: null, autoRotate: true, wireframe: false,
+  scale: 1.0, targetScale: 1.0,
+  momentumX: 0, momentumY: 0, momentumZ: 0,
+  exploded: false, explodeScale: 1,
+};
+
+// ── LIGHTING ──
 const ambientLight = new THREE.AmbientLight(0x003344, 0.8);
 scene.add(ambientLight);
 const dirLight = new THREE.DirectionalLight(0x00c8ff, 1.5);
@@ -379,1108 +437,913 @@ const pointLight = new THREE.PointLight(0x00ffff, 2, 20);
 pointLight.position.set(0, 0, 3);
 scene.add(pointLight);
 
-// PARTICLES
+// ── PARTICLE FIELD ──
 function createParticles() {
   if (state.particles) scene.remove(state.particles);
   const geo = new THREE.BufferGeometry();
-  const count = 400;
+  const count = 600;
   const pos = new Float32Array(count * 3);
-  for (let i = 0; i < count * 3; i++) pos[i] = (Math.random() - 0.5) * 14;
+  for (let i = 0; i < count * 3; i++) pos[i] = (Math.random() - 0.5) * 12;
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-  const mat = new THREE.PointsMaterial({color:0x00c8ff, size:0.02, transparent:true, opacity:0.25});
+  const mat = new THREE.PointsMaterial({ color: 0x00c8ff, size: 0.025, transparent: true, opacity: 0.35 });
   state.particles = new THREE.Points(geo, mat);
   scene.add(state.particles);
 }
+createParticles();
 
-// ELEMENT DATA
-const ELEMENTS = {
-  H:  {name:'Hydrogen',  symbol:'H',  mass:1.008,  protons:1,  color:0xffffff, radius:0.22},
-  C:  {name:'Carbon',    symbol:'C',  mass:12.011, protons:6,  color:0x333333, radius:0.32},
-  N:  {name:'Nitrogen',  symbol:'N',  mass:14.007, protons:7,  color:0x4444ff, radius:0.30},
-  O:  {name:'Oxygen',    symbol:'O',  mass:15.999, protons:8,  color:0xff2222, radius:0.28},
-  Fe: {name:'Iron',      symbol:'Fe', mass:55.845, protons:26, color:0xcc6622, radius:0.42},
-  Au: {name:'Gold',      symbol:'Au', mass:196.97, protons:79, color:0xffdd00, radius:0.40},
-  nucleus: {name:'Nucleus', symbol:'Nu', mass:0, protons:0, color:0x00ff88, radius:0.18},
-};
-
-// ═══════════════════════════════════════════════════════════════
-// GRAB PHYSICS SYSTEM
-// ═══════════════════════════════════════════════════════════════
-
-const grab = {
-  mode: true,
-  grabbed: null,          // currently dragged atom mesh
-  hovered: null,          // currently hovered atom
-  pinned: [],             // array of pinned atoms {mesh, pinnedPos, id}
-  frozen: [],             // frozen atoms
-  atoms: [],              // all grab-able atom meshes
-  mouse: new THREE.Vector2(),
-  mouseWorld: new THREE.Vector3(),
-  prevMouseWorld: new THREE.Vector3(),
-  velocity: new THREE.Vector3(),
-  raycaster: new THREE.Raycaster(),
-  plane: new THREE.Plane(),
-  planeNormal: new THREE.Vector3(0, 0, 1),
-  grabOffset: new THREE.Vector3(),
-  throwVelocity: new THREE.Vector3(),
-  isDragging: false,
-  dragStartPos: new THREE.Vector3(),
-  snapTarget: null,
-  frame: 0,
-  pinnedIdCounter: 0,
-
-  // Atom original positions for spring-return
-  atomOriginals: new Map(),
-
-  init() {
-    const el = canvas;
-    el.addEventListener('mousemove', e => this.onMouseMove(e));
-    el.addEventListener('mousedown', e => this.onMouseDown(e));
-    el.addEventListener('mouseup',   e => this.onMouseUp(e));
-    el.addEventListener('dblclick',  e => this.onDblClick(e));
-    el.addEventListener('contextmenu', e => { e.preventDefault(); this.onRightClick(e); });
-
-    document.addEventListener('keydown', e => {
-      if (e.key === 'g' || e.key === 'G') toggleGrabMode();
-      if (e.key === 'p' || e.key === 'P') this.pinGrabbed();
-      if (e.key === 'r' || e.key === 'R') releaseAll();
-      if (e.key === 'f' || e.key === 'F') this.freezeGrabbed();
-    });
-  },
-
-  setAtoms(meshList, originalPositions) {
-    this.atoms = meshList;
-    this.pinned = [];
-    this.grabbed = null;
-    this.frozen = [];
-    this.atomOriginals = originalPositions || new Map();
-    updatePinnedList();
-    document.getElementById('inf-atoms').textContent = meshList.length;
-  },
-
-  screenToWorld(x, y) {
-    const rect = canvas.getBoundingClientRect();
-    const nx = ((x - rect.left) / rect.width) * 2 - 1;
-    const ny = -((y - rect.top) / rect.height) * 2 + 1;
-    this.mouse.set(nx, ny);
-    this.raycaster.setFromCamera(this.mouse, camera);
-    this.plane.setFromNormalAndCoplanarPoint(
-      this.planeNormal,
-      this.grabbed ? this.grabbed.position : new THREE.Vector3()
-    );
-    const pt = new THREE.Vector3();
-    this.raycaster.ray.intersectPlane(this.plane, pt);
-    return pt;
-  },
-
-  getHoveredAtom(x, y) {
-    const rect = canvas.getBoundingClientRect();
-    const nx = ((x - rect.left) / rect.width) * 2 - 1;
-    const ny = -((y - rect.top) / rect.height) * 2 + 1;
-    this.raycaster.setFromCamera(new THREE.Vector2(nx, ny), camera);
-    const hits = this.raycaster.intersectObjects(this.atoms, false);
-    return hits.length > 0 ? hits[0].object : null;
-  },
-
-  onMouseMove(e) {
-    const pt = this.screenToWorld(e.clientX, e.clientY);
-    if (pt) {
-      this.prevMouseWorld.copy(this.mouseWorld);
-      this.mouseWorld.copy(pt);
-      this.velocity.subVectors(pt, this.prevMouseWorld);
-    }
-
-    // Update crosshair
-    const ch = document.getElementById('grab-crosshair');
-    const rect = canvas.getBoundingClientRect();
-    ch.style.left = (e.clientX - rect.left) + 'px';
-    ch.style.top  = (e.clientY - rect.top) + 'px';
-
-    if (this.grabbed) {
-      const targetPos = pt.clone().sub(this.grabOffset);
-      this.grabbed.position.lerp(targetPos, 0.3);
-      this.grabbed.userData.velocity = this.velocity.clone().multiplyScalar(8);
-      document.getElementById('gp-pos').textContent =
-        `X:${this.grabbed.position.x.toFixed(2)} Y:${this.grabbed.position.y.toFixed(2)} Z:${this.grabbed.position.z.toFixed(2)}`;
-      this.findSnapTarget();
-    } else if (this.mode) {
-      const atom = this.getHoveredAtom(e.clientX, e.clientY);
-      this.setHovered(atom);
-    }
-  },
-
-  onMouseDown(e) {
-    if (!this.mode) return;
-    if (e.button !== 0) return;
-    const atom = this.getHoveredAtom(e.clientX, e.clientY);
-    if (atom && !this.isPinned(atom)) {
-      this.grab(atom, e.clientX, e.clientY);
-      canvas.style.cursor = 'grabbing';
-    }
-  },
-
-  onMouseUp(e) {
-    if (this.grabbed) {
-      const vel = this.velocity.clone().multiplyScalar(12);
-      const speed = vel.length();
-      if (speed > 0.04) {
-        this.throw(this.grabbed, vel);
-      } else {
-        this.drop(this.grabbed);
-      }
-      this.grabbed = null;
-      document.getElementById('grab-crosshair').style.display = 'none';
-      document.getElementById('grabbed-panel').classList.remove('active');
-    }
-    canvas.style.cursor = this.mode ? 'crosshair' : 'default';
-    this.snapTarget = null;
-    document.getElementById('snap-indicator').style.display = 'none';
-  },
-
-  onDblClick(e) {
-    // Double click = pin immediately
-    const atom = this.getHoveredAtom(e.clientX, e.clientY);
-    if (atom) {
-      if (this.isPinned(atom)) {
-        this.unpinAtom(atom);
-        toast('ATOM UNPINNED');
-      } else {
-        this.pinAtom(atom);
-        toast('ATOM PINNED — DOUBLE CLICK TO UNPIN');
-      }
-    }
-  },
-
-  onRightClick(e) {
-    const atom = this.getHoveredAtom(e.clientX, e.clientY);
-    if (atom) {
-      if (this.isPinned(atom)) this.unpinAtom(atom);
-      else this.pinAtom(atom);
-    }
-  },
-
-  grab(atom, cx, cy) {
-    this.grabbed = atom;
-    atom.userData.grabbed = true;
-    atom.userData.originalOrbit = atom.userData.orbiting;
-    atom.userData.orbiting = false;
-
-    const pt = this.screenToWorld(cx, cy);
-    if (pt) {
-      this.grabOffset.subVectors(pt, atom.position);
-      this.mouseWorld.copy(pt);
-      this.prevMouseWorld.copy(pt);
-    }
-
-    // Glow green
-    if (atom.material) {
-      atom.userData.originalColor = atom.material.color.getHex();
-      atom.material = new THREE.MeshBasicMaterial({color:0x00ff88, transparent:true, opacity:0.95});
-      if (atom.userData.glowMesh) atom.userData.glowMesh.material.color.set(0x00ff88);
-    }
-
-    document.getElementById('grab-crosshair').style.display = 'block';
-    const panel = document.getElementById('grabbed-panel');
-    panel.classList.add('active');
-    const el = atom.userData.element || {};
-    document.getElementById('gp-name').textContent = (el.name || 'Atom') + ' (' + (el.symbol || '?') + ')';
-
-    this.showTooltip(atom, cx, cy);
-    document.getElementById('tt-state').textContent = 'GRABBED';
-    document.getElementById('hud-status').textContent = 'GRABBING';
-    updateGrabHUD('grab');
-  },
-
-  drop(atom) {
-    atom.userData.grabbed = false;
-    atom.userData.orbiting = atom.userData.originalOrbit;
-
-    // Restore colour
-    const origCol = atom.userData.originalColor;
-    if (origCol !== undefined) {
-      atom.material = new THREE.MeshBasicMaterial({
-        color: origCol, transparent:true, opacity: atom.userData.isPinned ? 0.95 : 0.85
-      });
-      if (atom.userData.glowMesh) atom.userData.glowMesh.material.color.setHex(origCol);
-    }
-
-    // Snap to nearest pinned slot if close
-    if (this.snapTarget) {
-      atom.position.copy(this.snapTarget.position);
-      this.snapTarget = null;
-    }
-
-    hideTooltip();
-    document.getElementById('hud-status').textContent = 'READY';
-    updateGrabHUD('none');
-    updateGrabCount();
-  },
-
-  throw(atom, velocity) {
-    this.drop(atom);
-    atom.userData.velocity = velocity.clone();
-    atom.userData.throwing = true;
-    atom.userData.throwDecay = 0.96;
-
-    // Red flash
-    if (atom.material) {
-      atom.material.color.set(0xff3333);
-      setTimeout(() => {
-        if (!atom.userData.grabbed && !atom.userData.isPinned) {
-          atom.material.color.setHex(atom.userData.originalColor || 0x00c8ff);
-        }
-      }, 600);
-    }
-
-    // Trail effect
-    this.createThrowTrail(atom.position.clone());
-    toast('THROWN AT ' + (velocity.length() * 8).toFixed(1) + ' u/s');
-  },
-
-  createThrowTrail(pos) {
-    const rect = canvas.getBoundingClientRect();
-    const projected = pos.clone().project(camera);
-    const sx = (projected.x * 0.5 + 0.5) * rect.width;
-    const sy = (-(projected.y) * 0.5 + 0.5) * rect.height;
-    for (let i = 0; i < 6; i++) {
-      setTimeout(() => {
-        const trail = document.createElement('div');
-        trail.className = 'throw-trail';
-        const size = 4 + Math.random() * 8;
-        trail.style.cssText = `width:${size}px;height:${size}px;background:var(--red);border-radius:50%;left:${sx + (Math.random()-0.5)*20}px;top:${sy + (Math.random()-0.5)*20}px;box-shadow:0 0 6px var(--red);`;
-        canvas.parentElement.appendChild(trail);
-        setTimeout(() => trail.remove(), 800);
-      }, i * 30);
-    }
-  },
-
-  findSnapTarget() {
-    if (!this.grabbed) return;
-    let nearest = null, nearestDist = Infinity;
-    for (const atom of this.atoms) {
-      if (atom === this.grabbed) continue;
-      const d = atom.position.distanceTo(this.grabbed.position);
-      const snap = atom.userData.snapRadius || (atom.userData.element?.radius || 0.3) * 3;
-      if (d < snap && d < nearestDist) {
-        nearestDist = d;
-        nearest = atom;
-      }
-    }
-    this.snapTarget = nearest;
-    const si = document.getElementById('snap-indicator');
-    if (nearest) {
-      const rect = canvas.getBoundingClientRect();
-      const p = nearest.position.clone().project(camera);
-      const sx = (p.x * 0.5 + 0.5) * rect.width;
-      const sy = (-p.y * 0.5 + 0.5) * rect.height;
-      si.style.display = 'block';
-      si.style.left = (sx - 20) + 'px';
-      si.style.top  = (sy - 20) + 'px';
-    } else {
-      si.style.display = 'none';
-    }
-  },
-
-  isPinned(atom) {
-    return this.pinned.some(p => p.mesh === atom);
-  },
-
-  pinAtom(atom) {
-    if (this.isPinned(atom)) return;
-    atom.userData.isPinned = true;
-    atom.userData.orbiting = false;
-    atom.userData.velocity = new THREE.Vector3();
-
-    // Amber colour for pinned
-    const origCol = atom.userData.originalColor || atom.material?.color.getHex();
-    atom.material = new THREE.MeshBasicMaterial({color:0xffaa00, transparent:true, opacity:0.95});
-    if (atom.userData.glowMesh) atom.userData.glowMesh.material.color.set(0xffaa00);
-    atom.userData.originalColor = origCol;
-
-    const id = ++this.pinnedIdCounter;
-    this.pinned.push({ mesh:atom, pinnedPos:atom.position.clone(), id });
-    updatePinnedList();
-    document.getElementById('inf-pinned').textContent = this.pinned.length + ' atoms';
-    document.getElementById('tt-state').textContent = 'PINNED';
-  },
-
-  pinGrabbed() {
-    if (this.grabbed) { this.pinAtom(this.grabbed); this.onMouseUp(); }
-    else if (this.hovered) this.pinAtom(this.hovered);
-  },
-
-  unpinAtom(atom) {
-    this.pinned = this.pinned.filter(p => p.mesh !== atom);
-    atom.userData.isPinned = false;
-    atom.userData.orbiting = atom.userData.originalOrbit;
-    atom.material = new THREE.MeshBasicMaterial({
-      color: atom.userData.originalColor || 0x00c8ff,
-      transparent:true, opacity:0.85
-    });
-    if (atom.userData.glowMesh) atom.userData.glowMesh.material.color.setHex(atom.userData.originalColor || 0x00c8ff);
-    updatePinnedList();
-    document.getElementById('inf-pinned').textContent = this.pinned.length + ' atoms';
-    toast('ATOM RELEASED FROM PIN');
-  },
-
-  unpinById(id) {
-    const entry = this.pinned.find(p => p.id === id);
-    if (entry) this.unpinAtom(entry.mesh);
-  },
-
-  freezeGrabbed() {
-    const atom = this.grabbed || this.hovered;
-    if (!atom) return;
-    atom.userData.velocity = new THREE.Vector3();
-    atom.userData.orbiting = false;
-    toast('ATOM FROZEN IN PLACE');
-  },
-
-  setHovered(atom) {
-    if (this.hovered && this.hovered !== atom && !this.hovered.userData.grabbed && !this.hovered.userData.isPinned) {
-      // Restore hover
-      const c = this.hovered.userData.originalColor;
-      if (c !== undefined) this.hovered.material.color.setHex(c);
-    }
-    this.hovered = atom;
-    if (atom && !atom.userData.grabbed) {
-      canvas.style.cursor = 'grab';
-      // Slight highlight
-      const hc = atom.userData.originalColor || 0x00c8ff;
-      const col = new THREE.Color(hc);
-      col.lerp(new THREE.Color(0xffffff), 0.25);
-      atom.material.color.set(col);
-    } else if (!atom) {
-      canvas.style.cursor = this.mode ? 'crosshair' : 'default';
-    }
-  },
-
-  showTooltip(atom, cx, cy) {
-    const el = atom.userData.element || {};
-    document.getElementById('tt-name').textContent = el.name || 'Atom';
-    document.getElementById('tt-symbol').textContent = el.symbol || '?';
-    document.getElementById('tt-mass').textContent = el.mass ? el.mass + ' u' : '—';
-    document.getElementById('tt-protons').textContent = el.protons || '—';
-    const tt = document.getElementById('atom-tooltip');
-    tt.style.display = 'block';
-    const rect = canvas.getBoundingClientRect();
-    const x = cx - rect.left + 16;
-    const y = cy - rect.top - 40;
-    tt.style.left = Math.min(x, rect.width - 140) + 'px';
-    tt.style.top  = Math.max(0, y) + 'px';
-  },
-
-  tick() {
-    this.frame++;
-
-    for (const atom of this.atoms) {
-      if (atom.userData.grabbed || atom.userData.isPinned) continue;
-
-      const vel = atom.userData.velocity;
-      if (vel && vel.length() > 0.001) {
-        atom.position.add(vel);
-        vel.multiplyScalar(atom.userData.throwDecay || 0.94);
-
-        // Bounce off invisible sphere boundary
-        if (atom.position.length() > 3.5) {
-          const normal = atom.position.clone().normalize();
-          vel.reflect(normal);
-          vel.multiplyScalar(0.6);
-          atom.position.clampLength(0, 3.5);
-        }
-
-        // Spring return to original position
-        const orig = this.atomOriginals.get(atom);
-        if (orig && !atom.userData.throwing) {
-          const toOrig = orig.clone().sub(atom.position);
-          vel.addScaledVector(toOrig, 0.015);
-        }
-
-        if (vel.length() < 0.001) {
-          vel.set(0, 0, 0);
-          atom.userData.throwing = false;
-        }
-      }
-
-      // Keep pinned atoms locked
-      if (atom.userData.isPinned) {
-        const pe = this.pinned.find(p => p.mesh === atom);
-        if (pe) atom.position.lerp(pe.pinnedPos, 0.5);
-      }
-    }
-
-    // Update velocity display
-    if (this.grabbed) {
-      const v = this.velocity.length() * 60;
-      document.getElementById('inf-vel').textContent = v.toFixed(2) + ' u/s';
-    }
-
-    updateGrabCount();
-    drawMagneticLines();
-  },
-};
-
-// MAGNETIC LINES BETWEEN CLOSE ATOMS
-function drawMagneticLines() {
-  const W = magCanvas.width, H = magCanvas.height;
-  magCtx.clearRect(0, 0, W, H);
-  if (!grab.atoms.length) return;
-
-  const atoms = grab.atoms;
-  for (let i = 0; i < atoms.length; i++) {
-    for (let j = i+1; j < atoms.length; j++) {
-      const a = atoms[i], b = atoms[j];
-      const d = a.position.distanceTo(b.position);
-      if (d > 2.0) continue;
-
-      const pa = a.position.clone().project(camera);
-      const pb = b.position.clone().project(camera);
-      const ax = (pa.x * 0.5 + 0.5) * W;
-      const ay = (-pa.y * 0.5 + 0.5) * H;
-      const bx = (pb.x * 0.5 + 0.5) * W;
-      const by = (-pb.y * 0.5 + 0.5) * H;
-
-      const alpha = Math.max(0, (2.0 - d) / 2.0 * 0.35);
-      const col = (a.userData.grabbed || b.userData.grabbed) ? `rgba(0,255,136,${alpha})` :
-                  (a.userData.isPinned || b.userData.isPinned) ? `rgba(255,170,0,${alpha * 0.7})` :
-                  `rgba(0,200,255,${alpha * 0.5})`;
-
-      magCtx.beginPath();
-      magCtx.moveTo(ax, ay);
-      magCtx.lineTo(bx, by);
-      magCtx.strokeStyle = col;
-      magCtx.lineWidth = a.userData.grabbed || b.userData.grabbed ? 1.5 : 0.7;
-      magCtx.setLineDash(d > 1.2 ? [4, 4] : []);
-      magCtx.stroke();
-      magCtx.setLineDash([]);
-    }
-  }
-}
-
-function updateGrabCount() {
-  const n = grab.grabbed ? 1 : 0;
-  document.getElementById('hud-grabbed').textContent = n + ' / ' + grab.atoms.length;
-}
-
-function updatePinnedList() {
-  const list = document.getElementById('pinned-list');
-  list.innerHTML = grab.pinned.length === 0
-    ? '<div style="font-size:0.5rem;color:rgba(0,200,255,0.2);padding:6px;text-align:center">No pinned atoms</div>'
-    : grab.pinned.map(p => {
-        const el = p.mesh.userData.element || {};
-        return `<div class="pinned-item" onclick="focusPinned(${p.id})">
-          <span class="pi-unpin" onclick="event.stopPropagation();grab.unpinById(${p.id})">✕</span>
-          <div class="pinned-item-name">${el.name || 'Atom'} (${el.symbol || '?'})</div>
-          <div class="pinned-item-pos">x:${p.pinnedPos.x.toFixed(2)} y:${p.pinnedPos.y.toFixed(2)}</div>
-        </div>`;
-      }).join('');
-}
-
-function focusPinned(id) {
-  const entry = grab.pinned.find(p => p.id === id);
-  if (!entry) return;
-  camera.position.lerp(
-    new THREE.Vector3(entry.mesh.position.x * 0.8, entry.mesh.position.y * 0.8, 5),
-    0.4
-  );
-}
-
-function updateGrabHUD(state) {
-  const ghGrab = document.getElementById('gh-grab');
-  const ghPin  = document.getElementById('gh-pin');
-  ghGrab.classList.toggle('active', state === 'grab');
-  ghPin.classList.toggle('active', state === 'pin');
-  document.getElementById('gh-status').textContent =
-    state === 'grab' ? 'ATOM IN HAND' :
-    state === 'pin'  ? 'ATOM PINNED' : 'NO ATOM SELECTED';
-}
-
-// ═══════════════════════════════════════════════════════════════
-// MOLECULE BUILDERS — with grab-able atom meshes
-// ═══════════════════════════════════════════════════════════════
-
-function makeAtom(element, pos, radius, orbitData) {
-  const el = ELEMENTS[element] || {name:element, symbol:element, mass:0, protons:0, color:0x00c8ff, radius: radius || 0.25};
-  const r = radius || el.radius || 0.25;
-
-  const geo = new THREE.SphereGeometry(r, 16, 16);
-  const mat = new THREE.MeshBasicMaterial({color:el.color, transparent:true, opacity:0.9});
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.copy(pos);
-
-  // Glow shell
-  const glowGeo = new THREE.SphereGeometry(r * 1.35, 12, 12);
-  const glowMat = new THREE.MeshBasicMaterial({color:el.color, transparent:true, opacity:0.07, side:THREE.BackSide});
-  const glow = new THREE.Mesh(glowGeo, glowMat);
-  mesh.add(glow);
-
-  mesh.userData = {
-    element: el,
-    grabbable: true,
-    glowMesh: glow,
-    originalColor: el.color,
-    velocity: new THREE.Vector3(),
-    orbiting: !!orbitData,
-    orbitData: orbitData || null,
-    throwing: false,
-    throwDecay: 0.94,
-    grabbed: false,
-    isPinned: false,
-  };
-
-  return mesh;
-}
-
-function makeBond(posA, posB, color) {
-  const dir = new THREE.Vector3().subVectors(posB, posA);
-  const len = dir.length();
-  const geo = new THREE.CylinderGeometry(0.025, 0.025, len, 6);
-  const mat = new THREE.MeshBasicMaterial({color: color||0xffffff, transparent:true, opacity:0.35});
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.copy(posA).add(posB).multiplyScalar(0.5);
-  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.normalize());
-  return mesh;
-}
-
+// ── MODEL GENERATORS ──
 const MODELS = {
   carbon_atom: () => {
     const group = new THREE.Group();
-    const atoms = [];
-    const originals = new Map();
-
-    // Nucleus
-    const nuc = makeAtom('nucleus', new THREE.Vector3(0,0,0), 0.3);
-    group.add(nuc); atoms.push(nuc);
-    originals.set(nuc, nuc.position.clone());
-
-    // Orbital rings
-    [1.1, 1.7, 2.3].forEach((r, ri) => {
-      const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(r, 0.015, 8, 64),
-        new THREE.MeshBasicMaterial({color:0x00c8ff, transparent:true, opacity:0.3-ri*0.05})
-      );
-      ring.rotation.x = Math.random()*Math.PI;
-      ring.rotation.y = Math.random()*Math.PI;
+    const nucGeo = new THREE.SphereGeometry(0.3, 16, 16);
+    group.add(new THREE.Mesh(nucGeo, new THREE.MeshBasicMaterial({ color: 0x00ffaa, transparent: true, opacity: 0.9 })));
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.38, 16, 16), createGlowMaterial(0x00ffaa)));
+    [1.2, 2.0, 2.8].forEach((r, i) => {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.02, 8, 64), new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.5 - i * 0.1 }));
+      ring.rotation.x = Math.random() * Math.PI; ring.rotation.y = Math.random() * Math.PI;
       group.add(ring);
-
-      const eCount = [2,4,6][ri];
-      for (let e=0; e<eCount; e++) {
-        const angle = (e/eCount)*Math.PI*2;
-        const epos = new THREE.Vector3(r*Math.cos(angle), r*Math.sin(angle)*0.3, r*Math.sin(angle));
-        const electron = makeAtom('H', epos, 0.07, {ring, radius:r, angle, speed:0.8+ri*0.3, axis:ring.rotation.clone()});
-        electron.userData.element = {name:'Electron', symbol:'e⁻', mass:0.0005, protons:0, color:0xffffff};
-        electron.userData.originalColor = 0xffffff;
-        electron.material.color.set(0xffffff);
-        electron.userData.glowMesh.material.color.set(0xffffff);
+      const eCount = [2, 4, 6][i];
+      for (let e = 0; e < eCount; e++) {
+        const electron = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9 }));
+        const angle = (e / eCount) * Math.PI * 2;
+        electron.position.set(r * Math.cos(angle), r * Math.sin(angle) * 0.2, r * Math.sin(angle));
         group.add(electron);
-        atoms.push(electron);
-        originals.set(electron, electron.position.clone());
       }
     });
-
-    return {group, atoms, originals, name:'CARBON ATOM C-12'};
+    return { group, name: 'CARBON ATOM', verts: 3200 };
   },
-
-  hydrogen: () => {
-    const group = new THREE.Group();
-    const atoms = [];
-    const originals = new Map();
-
-    const nuc = makeAtom('nucleus', new THREE.Vector3(0,0,0), 0.25);
-    nuc.userData.element = {name:'Proton', symbol:'p⁺', mass:1.007, protons:1, color:0x00ff88};
-    group.add(nuc); atoms.push(nuc);
-    originals.set(nuc, nuc.position.clone());
-
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(1.0, 0.012, 8, 64),
-      new THREE.MeshBasicMaterial({color:0x00c8ff, transparent:true, opacity:0.4}));
-    group.add(ring);
-
-    const e = makeAtom('H', new THREE.Vector3(1.0, 0, 0), 0.09, {radius:1.0, angle:0, speed:1.2});
-    e.userData.element = {name:'Electron', symbol:'e⁻', mass:0.0005, protons:0, color:0xffffff};
-    e.material.color.set(0xffffff);
-    group.add(e); atoms.push(e);
-    originals.set(e, e.position.clone());
-
-    return {group, atoms, originals, name:'HYDROGEN ATOM H-1'};
-  },
-
-  oxygen: () => {
-    const group = new THREE.Group();
-    const atoms = [];
-    const originals = new Map();
-
-    const nuc = makeAtom('O', new THREE.Vector3(0,0,0), 0.35);
-    nuc.userData.element = {name:'Oxygen Nucleus', symbol:'O', mass:15.999, protons:8, color:0xff4444};
-    group.add(nuc); atoms.push(nuc);
-    originals.set(nuc, nuc.position.clone());
-
-    [1.0, 1.6].forEach((r, ri) => {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.012, 8, 64),
-        new THREE.MeshBasicMaterial({color:0xff4444, transparent:true, opacity:0.3}));
-      ring.rotation.x = ri * 0.8;
-      group.add(ring);
-      const eCount = [2,6][ri];
-      for (let e=0; e<eCount; e++) {
-        const angle = (e/eCount)*Math.PI*2;
-        const epos = new THREE.Vector3(r*Math.cos(angle), r*Math.sin(angle), 0);
-        const electron = makeAtom('H', epos, 0.08, {radius:r, angle, speed:1.1+ri*0.4});
-        electron.userData.element = {name:'Electron', symbol:'e⁻', mass:0.0005, protons:0, color:0xffaaaa};
-        electron.material.color.set(0xffaaaa);
-        group.add(electron); atoms.push(electron);
-        originals.set(electron, electron.position.clone());
-      }
-    });
-
-    return {group, atoms, originals, name:'OXYGEN ATOM O-16'};
-  },
-
-  iron: () => {
-    const group = new THREE.Group();
-    const atoms = [];
-    const originals = new Map();
-
-    const nuc = makeAtom('Fe', new THREE.Vector3(0,0,0), 0.45);
-    group.add(nuc); atoms.push(nuc);
-    originals.set(nuc, nuc.position.clone());
-
-    [0.9, 1.4, 1.9, 2.4, 2.9].forEach((r, ri) => {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.013, 8, 64),
-        new THREE.MeshBasicMaterial({color:0xcc6622, transparent:true, opacity:0.25}));
-      ring.rotation.x = ri * 0.5;
-      ring.rotation.y = ri * 0.3;
-      group.add(ring);
-      const eCount = [2,8,14,2,6][ri];
-      for (let e=0; e<eCount; e++) {
-        const angle = (e/eCount)*Math.PI*2;
-        const epos = new THREE.Vector3(r*Math.cos(angle), r*Math.sin(angle)*0.4, r*Math.sin(angle));
-        const electron = makeAtom('H', epos, 0.06, {radius:r, angle, speed:0.6+ri*0.25});
-        electron.userData.element = {name:'Electron', symbol:'e⁻', mass:0.0005, protons:0, color:0xffbb77};
-        electron.material.color.set(0xffbb77);
-        group.add(electron); atoms.push(electron);
-        originals.set(electron, electron.position.clone());
-      }
-    });
-
-    return {group, atoms, originals, name:'IRON ATOM Fe-56'};
-  },
-
-  water: () => {
-    const group = new THREE.Group();
-    const atoms = [];
-    const originals = new Map();
-
-    const O = makeAtom('O', new THREE.Vector3(0, 0.3, 0), 0.35);
-    O.userData.element = ELEMENTS.O;
-    group.add(O); atoms.push(O);
-    originals.set(O, O.position.clone());
-
-    const H1 = makeAtom('H', new THREE.Vector3(-1.0, -0.5, 0), 0.22);
-    H1.userData.element = ELEMENTS.H;
-    group.add(H1); atoms.push(H1);
-    originals.set(H1, H1.position.clone());
-
-    const H2 = makeAtom('H', new THREE.Vector3(1.0, -0.5, 0), 0.22);
-    H2.userData.element = ELEMENTS.H;
-    group.add(H2); atoms.push(H2);
-    originals.set(H2, H2.position.clone());
-
-    group.add(makeBond(O.position, H1.position, 0xffffff));
-    group.add(makeBond(O.position, H2.position, 0xffffff));
-
-    // Angle label arc
-    const arc = new THREE.Mesh(new THREE.TorusGeometry(0.4, 0.008, 8, 32, Math.PI * 0.56),
-      new THREE.MeshBasicMaterial({color:0xffaa00, transparent:true, opacity:0.5}));
-    arc.position.set(0, 0.3, 0);
-    arc.rotation.z = -Math.PI * 0.22;
-    group.add(arc);
-
-    return {group, atoms, originals, name:'WATER MOLECULE H₂O'};
-  },
-
-  co2: () => {
-    const group = new THREE.Group();
-    const atoms = [];
-    const originals = new Map();
-
-    const C = makeAtom('C', new THREE.Vector3(0, 0, 0), 0.3);
-    C.userData.element = ELEMENTS.C;
-    group.add(C); atoms.push(C);
-    originals.set(C, C.position.clone());
-
-    const O1 = makeAtom('O', new THREE.Vector3(-1.3, 0, 0), 0.28);
-    O1.userData.element = ELEMENTS.O;
-    group.add(O1); atoms.push(O1);
-    originals.set(O1, O1.position.clone());
-
-    const O2 = makeAtom('O', new THREE.Vector3(1.3, 0, 0), 0.28);
-    O2.userData.element = ELEMENTS.O;
-    group.add(O2); atoms.push(O2);
-    originals.set(O2, O2.position.clone());
-
-    // Double bonds
-    [-0.05, 0.05].forEach(offset => {
-      group.add(makeBond(
-        new THREE.Vector3(0, offset, 0),
-        new THREE.Vector3(-1.3, offset, 0),
-        0xff6644
-      ));
-      group.add(makeBond(
-        new THREE.Vector3(0, offset, 0),
-        new THREE.Vector3(1.3, offset, 0),
-        0xff6644
-      ));
-    });
-
-    return {group, atoms, originals, name:'CO₂ CARBON DIOXIDE'};
-  },
-
-  methane: () => {
-    const group = new THREE.Group();
-    const atoms = [];
-    const originals = new Map();
-
-    const C = makeAtom('C', new THREE.Vector3(0, 0, 0), 0.32);
-    C.userData.element = ELEMENTS.C;
-    group.add(C); atoms.push(C);
-    originals.set(C, C.position.clone());
-
-    const tetrahedral = [
-      new THREE.Vector3( 1.1,  1.1,  1.1),
-      new THREE.Vector3(-1.1, -1.1,  1.1),
-      new THREE.Vector3(-1.1,  1.1, -1.1),
-      new THREE.Vector3( 1.1, -1.1, -1.1),
-    ].map(v => v.normalize().multiplyScalar(1.1));
-
-    tetrahedral.forEach(pos => {
-      const H = makeAtom('H', pos, 0.20);
-      H.userData.element = ELEMENTS.H;
-      group.add(H); atoms.push(H);
-      originals.set(H, H.position.clone());
-      group.add(makeBond(new THREE.Vector3(0,0,0), pos, 0xaaaaaa));
-    });
-
-    return {group, atoms, originals, name:'METHANE CH₄'};
-  },
-
   dna: () => {
     const group = new THREE.Group();
-    const atoms = [];
-    const originals = new Map();
-    const segments = 20;
-
-    for (let i=0; i<segments; i++) {
-      const t = i/segments, angle = t*Math.PI*6, y = (t-0.5)*6, r = 0.9;
-      const pos1 = new THREE.Vector3(r*Math.cos(angle), y, r*Math.sin(angle));
-      const pos2 = new THREE.Vector3(r*Math.cos(angle+Math.PI), y, r*Math.sin(angle+Math.PI));
-
-      const s1 = makeAtom('C', pos1, 0.12);
-      const s2 = makeAtom('O', pos2, 0.12);
-      group.add(s1); group.add(s2);
-      atoms.push(s1); atoms.push(s2);
-      originals.set(s1, pos1.clone());
-      originals.set(s2, pos2.clone());
-
-      if (i > 0) {
-        const prevAngle = ((i-1)/segments)*Math.PI*6;
-        const prevY = ((i-1)/segments-0.5)*6;
-        group.add(makeBond(
-          new THREE.Vector3(r*Math.cos(prevAngle), prevY, r*Math.sin(prevAngle)),
-          pos1, 0x00c8ff
-        ));
-        group.add(makeBond(
-          new THREE.Vector3(r*Math.cos(prevAngle+Math.PI), prevY, r*Math.sin(prevAngle+Math.PI)),
-          pos2, 0x00ff88
-        ));
-      }
-
+    const segments = 40;
+    for (let i = 0; i < segments; i++) {
+      const t = i / segments, angle = t * Math.PI * 6, y = (t - 0.5) * 8, r = 0.8;
+      const s1 = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.85 }));
+      s1.position.set(r * Math.cos(angle), y, r * Math.sin(angle)); group.add(s1);
+      const s2 = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 8), new THREE.MeshBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.85 }));
+      s2.position.set(r * Math.cos(angle + Math.PI), y, r * Math.sin(angle + Math.PI)); group.add(s2);
       if (i % 3 === 0) {
-        group.add(makeBond(pos1, pos2, 0xffffff));
-        const mid = makeAtom('N', pos1.clone().add(pos2).multiplyScalar(0.5), 0.09);
-        mid.userData.element = {name:'Base Pair', symbol:'BP', mass:0, protons:0, color:0xffaa00};
-        mid.material.color.set(0xffaa00);
-        group.add(mid); atoms.push(mid);
-        originals.set(mid, mid.position.clone());
+        const bridge = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, r * 2, 4), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.3 }));
+        bridge.position.set(0, y, 0); bridge.rotation.z = Math.PI / 2; bridge.rotation.y = angle; group.add(bridge);
       }
     }
-
-    return {group, atoms, originals, name:'DNA DOUBLE HELIX'};
+    return { group, name: 'DNA DOUBLE HELIX', verts: segments * 400 };
   },
-
+  molecule: () => {
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 16), new THREE.MeshBasicMaterial({ color: 0xff4444, transparent: true, opacity: 0.85 })));
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.55, 16, 16), createGlowMaterial(0xff4444)));
+    [[-1.2, -0.8, 0], [1.2, -0.8, 0]].forEach(pos => {
+      const h = new THREE.Mesh(new THREE.SphereGeometry(0.28, 12, 12), new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.85 }));
+      h.position.set(...pos); group.add(h);
+      const bond = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2, 6), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 }));
+      bond.position.set(pos[0] * 0.55, pos[1] * 0.55, 0);
+      bond.rotation.z = Math.atan2(pos[1], pos[0]) + Math.PI / 2; group.add(bond);
+    });
+    return { group, name: 'WATER MOLECULE H₂O', verts: 1600 };
+  },
+  torus_knot: () => {
+    const geo = new THREE.TorusKnotGeometry(1.2, 0.3, 120, 16, 3, 5);
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(new THREE.TorusKnotGeometry(1.2, 0.28, 100, 12, 3, 5), new THREE.MeshBasicMaterial({ color: 0x003355, transparent: true, opacity: 0.4 })));
+    group.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x00c8ff, wireframe: true, transparent: true, opacity: 0.6 })));
+    return { group, name: 'TORUS KNOT', verts: geo.attributes.position.count };
+  },
   crystal: () => {
     const group = new THREE.Group();
-    const atoms = [];
-    const originals = new Map();
     const positions = [];
     for (let x=-2;x<=2;x++) for (let y=-2;y<=2;y++) for (let z=-2;z<=2;z++)
       if (Math.abs(x)+Math.abs(y)+Math.abs(z)<=4) positions.push([x,y,z]);
-
     positions.forEach(([x,y,z]) => {
-      const pos = new THREE.Vector3(x*0.85, y*0.85, z*0.85);
-      const el = (x+y+z)%2===0 ? 'Fe' : 'O';
-      const atom = makeAtom(el, pos, 0.18);
-      atom.userData.element = ELEMENTS[el];
-      group.add(atom); atoms.push(atom);
-      originals.set(atom, pos.clone());
+      const s = new THREE.Mesh(new THREE.OctahedronGeometry(0.22, 0), new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.5+Math.random()*0.4, wireframe: Math.random()>0.7 }));
+      s.position.set(x*0.9, y*0.9, z*0.9); group.add(s);
     });
-
-    // Connect neighbours
-    for (let i=0;i<atoms.length;i++) {
-      for (let j=i+1;j<atoms.length;j++) {
-        const d = atoms[i].position.distanceTo(atoms[j].position);
-        if (d < 0.95) group.add(makeBond(atoms[i].position, atoms[j].position, 0x00c8ff));
-      }
-    }
-
-    return {group, atoms, originals, name:'CRYSTAL LATTICE'};
+    return { group, name: 'CRYSTAL LATTICE', verts: positions.length * 6 };
   },
-
   sphere_wire: () => {
     const group = new THREE.Group();
-    const atoms = [];
-    const originals = new Map();
-
-    group.add(new THREE.Mesh(new THREE.SphereGeometry(1.8,24,16),
-      new THREE.MeshBasicMaterial({color:0x00c8ff, wireframe:true, transparent:true, opacity:0.15})));
-
-    for (let i=0;i<60;i++) {
-      const phi = Math.acos(-1+(2*i)/60), theta = Math.sqrt(60*Math.PI)*phi;
-      const pos = new THREE.Vector3().setFromSphericalCoords(1.8, phi, theta);
-      const atom = makeAtom('H', pos, 0.06);
-      atom.userData.element = {name:'Node', symbol:'N', mass:0, protons:0, color:0x00ffff};
-      atom.material.color.set(0x00ffff);
-      group.add(atom); atoms.push(atom);
-      originals.set(atom, pos.clone());
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(1.8, 24, 16), new THREE.MeshBasicMaterial({ color: 0x00c8ff, wireframe: true, transparent: true, opacity: 0.25 })));
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.8, 16, 16), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.15 })));
+    for (let i=0;i<80;i++) {
+      const phi=Math.acos(-1+(2*i)/80), theta=Math.sqrt(80*Math.PI)*phi;
+      const node = new THREE.Mesh(new THREE.SphereGeometry(0.04,6,6), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.9 }));
+      node.position.setFromSphericalCoords(1.8, phi, theta); group.add(node);
     }
-
-    return {group, atoms, originals, name:'NEURAL SPHERE'};
+    return { group, name: 'NEURAL SPHERE', verts: 80*12 };
   },
-
+  tetra: () => {
+    const group = new THREE.Group();
+    for (let i=0;i<3;i++) {
+      const s=1-i*0.25, geo=new THREE.TetrahedronGeometry(1.5*s, 0);
+      const sub=new THREE.Group();
+      sub.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x003355, transparent: true, opacity: 0.2 })));
+      sub.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x00c8ff, wireframe: true, transparent: true, opacity: 0.7-i*0.15 })));
+      sub.rotation.y=i*(Math.PI*2/3); group.add(sub);
+    }
+    return { group, name: 'TETRAHEDRON STACK', verts: 12 };
+  },
+  helix: () => {
+    const group = new THREE.Group();
+    const segments=200, pts1=[], pts2=[];
+    for (let i=0;i<=segments;i++) {
+      const t=i/segments, angle=t*Math.PI*10, y=(t-0.5)*6;
+      pts1.push(new THREE.Vector3(Math.cos(angle), y, Math.sin(angle)));
+      pts2.push(new THREE.Vector3(Math.cos(angle+Math.PI), y, Math.sin(angle+Math.PI)));
+    }
+    [pts1,pts2].forEach((pts,ci) => {
+      const geo=new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 200, 0.05, 6, false);
+      group.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: ci===0?0x00c8ff:0x00ff88, transparent: true, opacity: 0.8 })));
+    });
+    return { group, name: 'HELIX STRAND', verts: segments*2 };
+  },
+  icosa: () => {
+    const group = new THREE.Group();
+    for (let i=0;i<4;i++) {
+      group.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1.8-i*0.35, i<2?0:1), new THREE.MeshBasicMaterial({ color: 0x00c8ff, wireframe: true, transparent: true, opacity: 0.6-i*0.1 })));
+    }
+    return { group, name: 'ICOSAHEDRON', verts: 80 };
+  },
+  saturn: () => {
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(1.0,24,16), new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.6 })));
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(1.1,24,16), createGlowMaterial()));
+    [1.6,2.0,2.4,2.7].forEach((r,i) => {
+      const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.035-i*0.004,4,80), new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.4-i*0.07 }));
+      ring.rotation.x=Math.PI*0.3; group.add(ring);
+    });
+    return { group, name: 'ORBITAL RING', verts: 3200 };
+  },
+  brain: () => {
+    const group = new THREE.Group();
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.3,12,12), new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.9 })));
+    const nodes=[];
+    for (let i=0;i<60;i++) {
+      const node=new THREE.Mesh(new THREE.SphereGeometry(0.05+Math.random()*0.07,6,6), new THREE.MeshBasicMaterial({ color: Math.random()>0.5?0x00c8ff:0x00ff88, transparent: true, opacity: 0.8 }));
+      const phi=Math.random()*Math.PI, theta=Math.random()*Math.PI*2, r=0.8+Math.random()*1.4;
+      node.position.setFromSphericalCoords(r, phi, theta); nodes.push(node.position.clone()); group.add(node);
+    }
+    for (let i=0;i<80;i++) {
+      const a=nodes[Math.floor(Math.random()*nodes.length)], b=nodes[Math.floor(Math.random()*nodes.length)];
+      if (a.distanceTo(b)<1.2) {
+        group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([a,b]), new THREE.LineBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.2 })));
+      }
+    }
+    return { group, name: 'NEURAL NETWORK', verts: 60*12 };
+  },
   reactor: () => {
     const group = new THREE.Group();
-    const atoms = [];
-    const originals = new Map();
-
-    const core = makeAtom('nucleus', new THREE.Vector3(0,0,0), 0.28);
-    core.material.color.set(0xffffff);
-    group.add(core); atoms.push(core);
-    originals.set(core, core.position.clone());
-
-    const torusGeo = new THREE.TorusGeometry(0.42, 0.14, 8, 32);
-    group.add(new THREE.Mesh(torusGeo, new THREE.MeshBasicMaterial({color:0x00ffff, transparent:true, opacity:0.85})));
-
-    [0.9,1.3,1.7,2.1].forEach((r, i) => {
-      const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.02, 6, 60),
-        new THREE.MeshBasicMaterial({color:0x00c8ff, transparent:true, opacity:0.5-i*0.08}));
-      ring.rotation.x = (i%2===0) ? Math.PI/4 : -Math.PI/4;
-      group.add(ring);
-      for (let j=0;j<8;j++) {
-        const angle = (j/8)*Math.PI*2;
-        const pos = new THREE.Vector3(r*Math.cos(angle), 0, r*Math.sin(angle));
-        pos.applyEuler(ring.rotation);
-        const atom = makeAtom('Fe', pos, 0.07);
-        atom.material.color.set(0x00c8ff);
-        group.add(atom); atoms.push(atom);
-        originals.set(atom, pos.clone());
-      }
+    group.add(new THREE.Mesh(new THREE.TorusGeometry(0.4,0.15,8,32), new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.9 })));
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.25,12,12), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 })));
+    group.add(new THREE.Mesh(new THREE.SphereGeometry(0.35,12,12), createGlowMaterial(0x00ffff)));
+    [0.9,1.3,1.6,2.0].forEach((r,i) => {
+      const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.02,6,60), new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.55-i*0.08 }));
+      ring.rotation.x=(i%2===0)?Math.PI/4:-Math.PI/4; group.add(ring);
     });
-
-    return {group, atoms, originals, name:'ARC REACTOR'};
-  },
-
-  torus_knot: () => {
-    const group = new THREE.Group();
-    const atoms = [];
-    const originals = new Map();
-
-    const geo = new THREE.TorusKnotGeometry(1.2, 0.3, 100, 12, 3, 5);
-    group.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({color:0x00c8ff, wireframe:true, transparent:true, opacity:0.5})));
-
-    const pos3 = geo.attributes.position;
-    const step = Math.floor(pos3.count / 40);
-    for (let i=0; i<pos3.count; i+=step) {
-      const pos = new THREE.Vector3(pos3.getX(i), pos3.getY(i), pos3.getZ(i));
-      const atom = makeAtom('C', pos, 0.08);
-      atom.material.color.set(0xaa44ff);
-      atom.userData.element = {name:'Knot Node', symbol:'K', mass:0, protons:0, color:0xaa44ff};
-      group.add(atom); atoms.push(atom);
-      originals.set(atom, pos.clone());
+    for (let i=0;i<8;i++) {
+      const angle=(i/8)*Math.PI*2;
+      const spoke=new THREE.Mesh(new THREE.CylinderGeometry(0.01,0.01,1.6,4), new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.4 }));
+      spoke.rotation.z=Math.PI/2; spoke.rotation.y=angle; spoke.position.set(0.8*Math.cos(angle),0,0.8*Math.sin(angle)); group.add(spoke);
     }
-
-    return {group, atoms, originals, name:'TORUS KNOT'};
+    return { group, name: 'ARC REACTOR', verts: 2400 };
   },
 };
 
-// SCENE STATE
-const state = {
-  model: null,
-  atoms: [],
-  autoRotate: false,
-  wireframe: false,
-  scale: 1.0, targetScale: 1.0,
-  particles: null,
-  frame: 0,
-};
+// ── MODEL LOADING ──
+const MODEL_KEYS = Object.keys(MODELS);
+let currentModelIndex = 0;
 
 function loadModel(key) {
   const factory = MODELS[key];
-  if (!factory) { const m = Object.keys(MODELS).find(k=>k.includes(key)||key.includes(k)); if(m) {loadModel(m);return;} showNoModel(); return; }
+  if (!factory) {
+    const match = MODEL_KEYS.find(k => k.includes(key) || key.includes(k));
+    if (match) { loadModel(match); return; }
+    showNoModel(); return;
+  }
 
   showLoading();
   let progress = 0;
   const bar = document.getElementById('load-bar');
-  const interval = setInterval(()=>{progress=Math.min(progress+Math.random()*25,90);bar.style.width=progress+'%';}, 80);
+  const interval = setInterval(() => { progress = Math.min(progress + Math.random() * 25, 90); bar.style.width = progress + '%'; }, 80);
 
-  setTimeout(()=>{
-    clearInterval(interval); bar.style.width='100%';
+  setTimeout(() => {
+    clearInterval(interval); bar.style.width = '100%';
     if (state.model) { scene.remove(state.model); state.model = null; }
-    grab.atoms = [];
-
     const result = factory();
     state.model = result.group;
     scene.add(state.model);
-
-    grab.setAtoms(result.atoms, result.originals);
+    currentModelIndex = MODEL_KEYS.indexOf(key);
 
     document.getElementById('hud-objname').textContent = result.name;
     document.getElementById('inf-name').textContent = result.name;
-    document.getElementById('hud-status').textContent = 'GRAB READY';
+    document.getElementById('inf-verts').textContent = (result.verts || 0).toLocaleString() + ' pts';
+    document.getElementById('hud-status').textContent = 'SCANNING';
+    document.getElementById('hud-mode').textContent = state.wireframe ? 'WIREFRAME' : 'HOLOGRAPHIC';
     state.scale = 1; state.targetScale = 1;
+    state.momentumX = 0; state.momentumY = 0; state.momentumZ = 0;
+    state.exploded = false;
 
     hideLoading();
-    toast('SCAN COMPLETE — CLICK ANY ATOM TO GRAB');
-    document.querySelectorAll('.obj-btn').forEach(b=>b.classList.remove('active'));
-    document.querySelectorAll('.obj-btn').forEach(b=>{if(b.getAttribute('onclick')?.includes(key))b.classList.add('active');});
-  }, 500);
+    toast('SCAN COMPLETE — ' + result.name);
+    document.querySelectorAll('.obj-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.obj-btn').forEach(b => { if (b.getAttribute('onclick')?.includes(key)) b.classList.add('active'); });
+  }, 600);
 }
 
-function showLoading(){document.getElementById('loading').style.display='flex';document.getElementById('no-model').style.display='none';document.getElementById('load-bar').style.width='0%';}
-function hideLoading(){document.getElementById('loading').style.display='none';}
-function showNoModel(){document.getElementById('no-model').style.display='flex';hideLoading();}
-function quickLoad(key){loadModel(key);}
+function loadNextModel() { currentModelIndex = (currentModelIndex + 1) % MODEL_KEYS.length; loadModel(MODEL_KEYS[currentModelIndex]); }
+function loadPrevModel() { currentModelIndex = (currentModelIndex - 1 + MODEL_KEYS.length) % MODEL_KEYS.length; loadModel(MODEL_KEYS[currentModelIndex]); }
 
-function toggleWireframe(){
-  state.wireframe=!state.wireframe;
-  document.getElementById('wireframe-btn').style.borderColor=state.wireframe?'var(--blue)':'';
-  if(!state.model)return;
-  state.model.traverse(obj=>{if(obj.isMesh&&obj.material&&!obj.userData.grabbable)obj.material.wireframe=state.wireframe;});
-}
-function toggleAutoRotate(){state.autoRotate=!state.autoRotate;document.getElementById('rotate-btn').style.borderColor=state.autoRotate?'var(--blue)':'';}
-function toggleGrabMode(){
-  grab.mode=!grab.mode;
-  const btn=document.getElementById('grab-toggle-btn');
-  btn.textContent=grab.mode?'✋ GRAB':'○ ORBIT';
-  btn.style.borderColor=grab.mode?'var(--green)':'rgba(0,200,255,0.3)';
-  btn.style.color=grab.mode?'var(--green)':'var(--blue)';
-  btn.style.background=grab.mode?'rgba(0,255,136,0.08)':'transparent';
-  canvas.style.cursor=grab.mode?'crosshair':'default';
-  toast(grab.mode?'GRAB MODE ON — CLICK ANY ATOM':'GRAB MODE OFF');
-}
-function releaseAll(){
-  for(const atom of grab.atoms){
-    if(atom.userData.grabbed||atom.userData.isPinned){
-      atom.userData.grabbed=false;
-      atom.userData.isPinned=false;
-      atom.userData.orbiting=atom.userData.originalOrbit;
-      if(atom.userData.originalColor!==undefined)
-        atom.material.color.setHex(atom.userData.originalColor);
-    }
-  }
-  grab.grabbed=null;
-  grab.pinned=[];
-  updatePinnedList();
-  document.getElementById('grabbed-panel').classList.remove('active');
-  document.getElementById('grab-crosshair').style.display='none';
-  document.getElementById('inf-pinned').textContent='0 atoms';
-  toast('ALL ATOMS RELEASED');
-}
-function hideTooltip(){document.getElementById('atom-tooltip').style.display='none';}
+function showLoading() { document.getElementById('loading').style.display='flex'; document.getElementById('no-model').style.display='none'; document.getElementById('load-bar').style.width='0%'; document.getElementById('load-text').textContent='GENERATING HOLOGRAM'; }
+function hideLoading() { document.getElementById('loading').style.display='none'; }
+function showNoModel() { document.getElementById('no-model').style.display='flex'; hideLoading(); }
+function quickLoad(key) { loadModel(key); }
 
-// MOUSE ORBIT (when not grabbing)
-let mouse={down:false,lastX:0,lastY:0};
-canvas.addEventListener('mousedown',e=>{if(!grab.mode){mouse.down=true;mouse.lastX=e.clientX;mouse.lastY=e.clientY;}});
-window.addEventListener('mouseup',()=>{mouse.down=false;});
-window.addEventListener('mousemove',e=>{
-  if(mouse.down&&!grab.mode&&state.model){
-    state.model.rotation.y+=(e.clientX-mouse.lastX)*0.012;
-    state.model.rotation.x+=(e.clientY-mouse.lastY)*0.012;
-    mouse.lastX=e.clientX;mouse.lastY=e.clientY;
-  }
+function toggleWireframe() {
+  state.wireframe = !state.wireframe;
+  document.getElementById('wireframe-btn').style.borderColor = state.wireframe ? 'var(--blue)' : '';
+  document.getElementById('hud-mode').textContent = state.wireframe ? 'WIREFRAME' : 'HOLOGRAPHIC';
+  if (!state.model) return;
+  state.model.traverse(obj => { if (obj.isMesh && obj.material) obj.material.wireframe = state.wireframe; });
+}
+
+function toggleAutoRotate() {
+  state.autoRotate = !state.autoRotate;
+  document.getElementById('rotate-btn').style.borderColor = state.autoRotate ? 'var(--blue)' : '';
+}
+
+// ── MOUSE CONTROLS ──
+let mouse = { down: false, lastX: 0, lastY: 0 };
+canvas.addEventListener('mousedown', e => { mouse.down=true; mouse.lastX=e.clientX; mouse.lastY=e.clientY; });
+window.addEventListener('mouseup', () => { mouse.down=false; });
+window.addEventListener('mousemove', e => {
+  if (!mouse.down || !state.model) return;
+  state.model.rotation.y += (e.clientX - mouse.lastX) * 0.012;
+  state.model.rotation.x += (e.clientY - mouse.lastY) * 0.012;
+  mouse.lastX=e.clientX; mouse.lastY=e.clientY;
 });
-canvas.addEventListener('wheel',e=>{state.targetScale=Math.max(0.2,Math.min(4,state.targetScale-e.deltaY*0.001));});
+canvas.addEventListener('wheel', e => {
+  if (!state.model) return;
+  state.targetScale = Math.max(0.2, Math.min(4, state.targetScale - e.deltaY * 0.001));
+});
 
-// ORBITAL ANIMATION
-let frame=0;
-function animate(){
+// ── ANIMATION LOOP ──
+let frame = 0;
+function animate() {
   requestAnimationFrame(animate);
   frame++;
-  state.scale+=(state.targetScale-state.scale)*0.08;
-  if(state.model){
+  state.scale += (state.targetScale - state.scale) * 0.08;
+  if (state.model) {
     state.model.scale.setScalar(state.scale);
-    if(state.autoRotate&&!grab.grabbed)state.model.rotation.y+=0.004;
-
-    // Animate orbital electrons
-    for(const atom of grab.atoms){
-      if(atom.userData.grabbed||atom.userData.isPinned)continue;
-      const od=atom.userData.orbitData;
-      if(od&&atom.userData.orbiting){
-        od.angle+=od.speed*0.012;
-        const r=od.radius;
-        atom.position.x=r*Math.cos(od.angle);
-        atom.position.z=r*Math.sin(od.angle);
-        // Apply ring's rotation to the orbit position
-        if(od.ring){
-          const rp=new THREE.Vector3(r*Math.cos(od.angle),r*Math.sin(od.angle)*0.3,r*Math.sin(od.angle));
-          rp.applyEuler(od.ring.rotation);
-          atom.position.copy(rp);
-        }
-      }
+    if (state.autoRotate) state.model.rotation.y += 0.005;
+    // Apply momentum
+    if (Math.abs(state.momentumX) > 0.0001 || Math.abs(state.momentumY) > 0.0001) {
+      state.model.rotation.x += state.momentumX;
+      state.model.rotation.y += state.momentumY;
+      state.momentumX *= 0.94;
+      state.momentumY *= 0.94;
+    }
+    if (Math.abs(state.momentumZ) > 0.0001) {
+      state.model.rotation.z += state.momentumZ;
+      state.momentumZ *= 0.94;
     }
   }
-  if(state.particles){state.particles.rotation.y+=0.0008;state.particles.rotation.x+=0.0002;}
-  pointLight.intensity=2+Math.sin(frame*0.04)*0.5;
+  if (state.particles) { state.particles.rotation.y += 0.001; state.particles.rotation.x += 0.0003; }
+  pointLight.intensity = 2 + Math.sin(frame * 0.04) * 0.5;
 
-  grab.tick();
+  // Update momentum bar
+  const totalMom = Math.min(1, (Math.abs(state.momentumX) + Math.abs(state.momentumY) + Math.abs(state.momentumZ)) / 0.05);
+  const segs = 8;
+  for (let i=0;i<segs;i++) {
+    const seg = document.getElementById('ms'+i);
+    if (seg) { seg.classList.toggle('active', i < Math.round(totalMom * segs)); }
+  }
+  document.getElementById('inf-momentum').textContent = totalMom.toFixed(2);
+
+  if (state.model && frame % 10 === 0) {
+    const r = state.model.rotation;
+    document.getElementById('inf-rot').textContent = `X:${(r.x*180/Math.PI%360).toFixed(0)}° Y:${(r.y*180/Math.PI%360).toFixed(0)}° Z:${(r.z*180/Math.PI%360).toFixed(0)}°`;
+    document.getElementById('inf-scale').textContent = state.scale.toFixed(2) + '×';
+  }
   renderer.render(scene, camera);
 }
+animate();
 
-// SEARCH
-function doSearch(q){
-  const query=q||document.getElementById('search-input').value.trim().toLowerCase();
-  if(!query)return;
-  const cleaned=query.replace(/\b(jarvis|show me|load|display|scan|a|an|the|3d|model|hologram)\b/gi,'').trim();
+// ═══════════════════════════════════════════════════════════════
+// ── DUAL HAND GESTURE ENGINE v2.0 ─────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+const handCanvas = document.getElementById('hand-canvas');
+const handCtx = handCanvas.getContext('2d');
+
+// Resize hand canvas
+function resizeHandCanvas() { handCanvas.width = canvas.parentElement.clientWidth; handCanvas.height = canvas.parentElement.clientHeight; }
+resizeHandCanvas();
+window.addEventListener('resize', resizeHandCanvas);
+
+// ── HAND STATE ──
+const hands = {
+  left: null, right: null,
+  leftPrev: null, rightPrev: null,
+  leftGesture: 'NONE', rightGesture: 'NONE',
+  leftHistory: [], rightHistory: [],   // position history for swipe detection
+  bothPrevDist: null,                  // previous distance between hands
+  bothPrevAngle: null,                 // previous angle between hands (for twist)
+  swipeVelocityX: 0, swipeVelocityY: 0,
+  throwThreshold: 0.04,
+};
+
+// ── LANDMARK INDICES ──
+const FINGER_TIPS = [4, 8, 12, 16, 20];
+
+function isFingerExtended(lm, tip, mid) { return lm[tip].y < lm[mid].y * 0.98; }
+function thumbExtended(lm) { return Math.abs(lm[4].x - lm[3].x) > 0.06; }
+
+function classifyGesture(lm) {
+  const extended = [
+    thumbExtended(lm),
+    isFingerExtended(lm, 8, 7),
+    isFingerExtended(lm, 12, 11),
+    isFingerExtended(lm, 16, 15),
+    isFingerExtended(lm, 20, 19),
+  ];
+  const extCount = extended.filter(Boolean).length;
+  const pinchDist = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
+  if (pinchDist < 0.06 && !extended[2] && !extended[3] && !extended[4]) return 'PINCH';
+  if (extCount === 0) return 'FIST';
+  if (extCount >= 5) return 'OPEN';
+  if (extCount === 1 && extended[1]) return 'ONE_FINGER';
+  if (extCount === 2 && extended[1] && extended[2]) return 'TWO_FINGERS';
+  if (extCount === 3 && extended[1] && extended[2] && extended[3]) return 'THREE_FINGERS';
+  if (extended[0] && extended[4] && !extended[1] && !extended[2] && !extended[3]) return 'SHAKA';
+  return 'PARTIAL';
+}
+
+function palmCenter(lm) { return { x: lm[0].x, y: lm[0].y, z: lm[0].z || 0 }; }
+
+// ── SWIPE DETECTION ──
+function detectSwipe(history) {
+  if (history.length < 4) return null;
+  const old = history[0], curr = history[history.length - 1];
+  const dx = curr.x - old.x, dy = curr.y - old.y;
+  const speed = Math.sqrt(dx*dx + dy*dy) / history.length;
+  if (speed < 0.004) return null;
+  const adx = Math.abs(dx), ady = Math.abs(dy);
+  if (adx > ady && adx > 0.06) return dx > 0 ? 'SWIPE_LEFT' : 'SWIPE_RIGHT'; // mirrored cam
+  if (ady > adx && ady > 0.06) return dy > 0 ? 'SWIPE_DOWN' : 'SWIPE_UP';
+  return null;
+}
+
+// ── APPLY SINGLE HAND GESTURE ──
+function applySingleHandGesture(gesture, lm, side, dx, dy) {
+  if (!state.model) return;
+  const ghEl = document.getElementById(side === 'left' ? 'gh-left' : 'gh-right');
+  const ghAction = document.getElementById(side === 'left' ? 'gh-left-action' : 'gh-right-action');
+  const ghIcon = document.getElementById(side === 'left' ? 'gh-left-icon' : 'gh-right-icon');
+  const isActive = (dx !== 0 || dy !== 0);
+
+  if (ghEl) { if (isActive) ghEl.classList.add('active'); else ghEl.classList.remove('active'); }
+
+  switch (gesture) {
+    case 'OPEN':
+      state.model.rotation.y += dx * 6;
+      state.model.rotation.x += dy * 6;
+      // Build momentum from velocity
+      state.momentumY = dx * 4;
+      state.momentumX = dy * 4;
+      if (ghAction) ghAction.textContent = 'ROTATING';
+      if (ghIcon) ghIcon.textContent = '✋';
+      break;
+    case 'FIST':
+      state.targetScale = Math.max(0.15, state.targetScale - 0.03);
+      if (ghAction) ghAction.textContent = 'ZOOM OUT';
+      if (ghIcon) ghIcon.textContent = '👊';
+      break;
+    case 'TWO_FINGERS':
+      state.targetScale = Math.min(4.5, state.targetScale + 0.03);
+      if (ghAction) ghAction.textContent = 'ZOOM IN';
+      if (ghIcon) ghIcon.textContent = '✌️';
+      break;
+    case 'ONE_FINGER':
+      state.model.position.x += dx * 0.08;
+      state.model.position.y -= dy * 0.08;
+      if (ghAction) ghAction.textContent = 'PAN';
+      if (ghIcon) ghIcon.textContent = '☝️';
+      break;
+    case 'PINCH':
+      state.momentumY += dx * 0.3;
+      state.model.rotation.y += dx * 8;
+      if (ghAction) ghAction.textContent = 'SPIN';
+      if (ghIcon) ghIcon.textContent = '🤏';
+      break;
+    case 'THREE_FINGERS':
+      state.model.rotation.z += dx * 4;
+      state.momentumZ = dx * 3;
+      if (ghAction) ghAction.textContent = 'TILT Z';
+      if (ghIcon) ghIcon.textContent = '🤟';
+      break;
+    case 'SHAKA':
+      state.model.rotation.set(0,0,0);
+      state.model.position.set(0,0,0);
+      state.targetScale = 1;
+      state.momentumX = 0; state.momentumY = 0; state.momentumZ = 0;
+      if (ghAction) ghAction.textContent = 'RESET';
+      if (ghIcon) ghIcon.textContent = '🤙';
+      announce('POSITION RESET');
+      toast('POSITION RESET');
+      break;
+    default:
+      state.model.rotation.y += dx * 3;
+      if (ghAction) ghAction.textContent = '—';
+  }
+}
+
+// ── APPLY DUAL HAND GESTURES ──
+function applyDualHandGestures(leftLm, rightLm) {
+  if (!state.model) return;
+  const lp = palmCenter(leftLm), rp = palmCenter(rightLm);
+  const lg = hands.leftGesture, rg = hands.rightGesture;
+  const ghBoth = document.getElementById('gh-both-action');
+
+  // Distance between palms
+  const dist = Math.hypot(rp.x - lp.x, rp.y - lp.y);
+  // Angle between palms (for twist detection)
+  const angle = Math.atan2(rp.y - lp.y, rp.x - lp.x);
+  // Midpoint
+  const mid = { x: (lp.x + rp.x) / 2, y: (lp.y + rp.y) / 2 };
+
+  // ── PINCH WITH BOTH → ZOOM ──
+  if (lg === 'PINCH' && rg === 'PINCH') {
+    if (hands.bothPrevDist !== null) {
+      const delta = dist - hands.bothPrevDist;
+      state.targetScale = Math.max(0.1, Math.min(5, state.targetScale + delta * 4));
+      if (ghBoth) ghBoth.textContent = delta > 0 ? 'EXPAND ↔' : 'CONTRACT ↔';
+    }
+    hands.bothPrevDist = dist;
+    hands.bothPrevAngle = angle;
+    return;
+  }
+
+  // ── BOTH OPEN → ORBIT (move mid to rotate around scene) ──
+  if (lg === 'OPEN' && rg === 'OPEN') {
+    if (hands.leftPrev && hands.rightPrev) {
+      const lDx = lp.x - hands.leftPrev.x, lDy = lp.y - hands.leftPrev.y;
+      const rDx = rp.x - hands.rightPrev.x, rDy = rp.y - hands.rightPrev.y;
+      const avgDx = (lDx + rDx) * 0.5, avgDy = (lDy + rDy) * 0.5;
+      state.model.rotation.y += avgDx * 8;
+      state.model.rotation.x += avgDy * 8;
+      state.momentumY = avgDx * 5;
+      state.momentumX = avgDy * 5;
+      if (ghBoth) ghBoth.textContent = 'ORBIT';
+    }
+    // Twist detection
+    if (hands.bothPrevAngle !== null) {
+      const angleDelta = angle - hands.bothPrevAngle;
+      if (Math.abs(angleDelta) > 0.01 && Math.abs(angleDelta) < 0.3) {
+        state.model.rotation.z += angleDelta * 2;
+        state.momentumZ = angleDelta * 1.5;
+        if (ghBoth) ghBoth.textContent = 'TWIST';
+        announce('TWIST');
+      }
+    }
+    hands.bothPrevDist = dist;
+    hands.bothPrevAngle = angle;
+    return;
+  }
+
+  // ── ONE FIST + ONE OPEN → SCALE ANCHOR ──
+  if ((lg === 'FIST' && rg === 'OPEN') || (lg === 'OPEN' && rg === 'FIST')) {
+    const openHand = lg === 'OPEN' ? lp : rp;
+    if (hands.bothPrevDist !== null) {
+      const delta = dist - hands.bothPrevDist;
+      state.targetScale = Math.max(0.1, Math.min(5, state.targetScale + delta * 3));
+    }
+    if (ghBoth) ghBoth.textContent = 'SCALE LOCK';
+    hands.bothPrevDist = dist;
+    return;
+  }
+
+  // ── SPREAD APART (hands moving away) → EXPLODE ──
+  if (hands.bothPrevDist !== null) {
+    const delta = dist - hands.bothPrevDist;
+    if (delta > 0.02 && dist > 0.4) {
+      // "Explode" the model outward
+      if (state.model && !state.exploding) {
+        state.exploding = true;
+        explodeModel();
+        if (ghBoth) ghBoth.textContent = 'EXPLODE!';
+        announce('EXPLODE');
+        setTimeout(() => { state.exploding = false; }, 1500);
+      }
+    }
+    // PUSH TOGETHER → CONTRACT
+    if (delta < -0.02 && dist < 0.2) {
+      state.targetScale = Math.max(0.3, state.targetScale * 0.95);
+      if (ghBoth) ghBoth.textContent = 'CONTRACT';
+    }
+  }
+
+  hands.bothPrevDist = dist;
+  hands.bothPrevAngle = angle;
+}
+
+// ── EXPLODE MODEL ──
+function explodeModel() {
+  if (!state.model) return;
+  const children = [];
+  state.model.traverse(obj => { if (obj.isMesh) children.push(obj); });
+  children.forEach(child => {
+    const dir = child.position.clone().normalize();
+    if (dir.length() < 0.01) dir.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+    const dist = 0.8 + Math.random() * 1.2;
+    const startPos = child.position.clone();
+    const endPos = startPos.clone().add(dir.multiplyScalar(dist));
+    let t = 0;
+    const anim = () => {
+      t += 0.03;
+      if (t < 1) {
+        child.position.lerpVectors(startPos, endPos, Math.sin(t * Math.PI * 0.5));
+        requestAnimationFrame(anim);
+      } else {
+        // Return
+        const ret = () => {
+          t -= 0.02;
+          if (t > 0) { child.position.lerpVectors(startPos, endPos, Math.sin(t * Math.PI * 0.5)); requestAnimationFrame(ret); }
+          else { child.position.copy(startPos); }
+        };
+        setTimeout(ret, 400);
+      }
+    };
+    anim();
+  });
+}
+
+// ── SWIPE GESTURES ──
+function handleSwipe(dir, side) {
+  if (!state.model) return;
+  switch (dir) {
+    case 'SWIPE_RIGHT':
+      loadNextModel();
+      announce('→ NEXT MODEL');
+      addSwipeTrail('right');
+      break;
+    case 'SWIPE_LEFT':
+      loadPrevModel();
+      announce('← PREV MODEL');
+      addSwipeTrail('left');
+      break;
+    case 'SWIPE_UP':
+      state.momentumY = 0.12;
+      announce('↑ LAUNCH');
+      break;
+    case 'SWIPE_DOWN':
+      state.momentumX = 0.1;
+      state.model.rotation.x = 0;
+      announce('↓ RESET X');
+      break;
+  }
+}
+
+// ── SWIPE TRAIL VISUAL ──
+function addSwipeTrail(dir) {
+  const vw = canvas.parentElement.clientWidth;
+  const vh = canvas.parentElement.clientHeight;
+  for (let i=0; i<8; i++) {
+    setTimeout(() => {
+      const el = document.createElement('div');
+      el.className = 'swipe-trail';
+      const size = 6 + Math.random() * 10;
+      el.style.cssText = `width:${size}px;height:${size}px;background:var(--blue);left:${(dir==='right'?0.2+i*0.08:0.8-i*0.08)*100}%;top:${40+Math.random()*20}%;box-shadow:0 0 8px var(--blue);`;
+      document.getElementById('gesture-overlay').appendChild(el);
+      setTimeout(() => el.remove(), 600);
+    }, i * 40);
+  }
+}
+
+// ── DRAW HAND LANDMARKS ──
+function drawHandLandmarks(lm, gesture, side) {
+  const W = handCanvas.width, H = handCanvas.height;
+  const toScreen = pt => ({ x: (1 - pt.x) * W, y: pt.y * H });
+
+  const gestureColors = {
+    OPEN: '#00ff88', FIST: '#ff3333', TWO_FINGERS: '#00c8ff',
+    ONE_FINGER: '#ffaa00', PINCH: '#ff88ff', SHAKA: '#ffffff',
+    THREE_FINGERS: '#88ffff', PARTIAL: '#00c8ff', NONE: '#00c8ff',
+  };
+  const col = gestureColors[gesture] || '#00c8ff';
+
+  const connections = [
+    [0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],
+    [0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],
+    [0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17],
+  ];
+
+  connections.forEach(([a,b]) => {
+    const pa = toScreen(lm[a]), pb = toScreen(lm[b]);
+    handCtx.beginPath();
+    handCtx.moveTo(pa.x, pa.y); handCtx.lineTo(pb.x, pb.y);
+    handCtx.strokeStyle = col + '88'; handCtx.lineWidth = 1.5; handCtx.stroke();
+  });
+
+  lm.forEach((pt, i) => {
+    const s = toScreen(pt);
+    const isTip = FINGER_TIPS.includes(i);
+    handCtx.beginPath();
+    handCtx.arc(s.x, s.y, isTip ? 6 : 3.5, 0, Math.PI * 2);
+    handCtx.fillStyle = isTip ? col : col + 'aa'; handCtx.fill();
+    if (isTip) {
+      handCtx.beginPath();
+      handCtx.arc(s.x, s.y, 11, 0, Math.PI * 2);
+      handCtx.strokeStyle = col + '44'; handCtx.lineWidth = 1.5; handCtx.stroke();
+    }
+  });
+
+  // Label
+  const palm = toScreen(lm[0]);
+  handCtx.font = '700 10px Orbitron,monospace';
+  handCtx.fillStyle = col;
+  handCtx.fillText(side.toUpperCase() + ': ' + gesture, palm.x - 40, palm.y - 38);
+
+  // Draw velocity trail for swipe tracking
+  const history = side === 'left' ? hands.leftHistory : hands.rightHistory;
+  if (history.length > 2) {
+    handCtx.beginPath();
+    history.forEach((pt, i) => {
+      const sp = { x: (1 - pt.x) * W, y: pt.y * H };
+      if (i === 0) handCtx.moveTo(sp.x, sp.y); else handCtx.lineTo(sp.x, sp.y);
+    });
+    handCtx.strokeStyle = col + '55'; handCtx.lineWidth = 2; handCtx.stroke();
+  }
+}
+
+// ── ANNOUNCE ──
+let announceTimer = null;
+function announce(text) {
+  const el = document.getElementById('gesture-announce');
+  el.textContent = text; el.classList.add('show');
+  clearTimeout(announceTimer);
+  announceTimer = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+// ── MEDIAPIPE HANDS ──
+let handsModel = null;
+let handCamStream = null;
+let frameCount = 0;
+
+async function initMediaPipe() {
+  const video = document.getElementById('gesture-cam');
+  const statusEl = document.getElementById('cam-status');
+  statusEl.textContent = '● LOADING…';
+
+  const script1 = document.createElement('script');
+  script1.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js';
+  document.head.appendChild(script1);
+  const script2 = document.createElement('script');
+  script2.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js';
+  document.head.appendChild(script2);
+
+  await new Promise(r => { script2.onload = r; script2.onerror = r; });
+  await new Promise(r => setTimeout(r, 500));
+
+  if (typeof Hands === 'undefined') { startFallbackGesture(video); return; }
+
+  try {
+    handsModel = new Hands({
+      locateFile: file => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`
+    });
+    handsModel.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.55,
+    });
+
+    handsModel.onResults(results => {
+      frameCount++;
+      const W = handCanvas.width, H = handCanvas.height;
+      handCtx.clearRect(0, 0, W, H);
+
+      const lms = results.multiHandLandmarks || [];
+      const handedness = results.multiHandedness || [];
+
+      // Reset hand states
+      hands.leftPrev = hands.left ? { ...palmCenter(hands.left) } : null;
+      hands.rightPrev = hands.right ? { ...palmCenter(hands.right) } : null;
+      hands.left = null; hands.right = null;
+
+      document.getElementById('inf-hands').textContent = lms.length + ' / 2';
+      document.getElementById('hand-count').textContent = lms.length + ' hand' + (lms.length !== 1 ? 's' : '') + ' tracked';
+
+      // Assign hands by label from MediaPipe (it uses camera-relative labels)
+      lms.forEach((lm, idx) => {
+        const label = handedness[idx]?.label;
+        // MediaPipe returns mirrored labels (Right hand in camera = Left in screen)
+        if (label === 'Left') { hands.right = lm; hands.rightGesture = classifyGesture(lm); }
+        else { hands.left = lm; hands.leftGesture = classifyGesture(lm); }
+      });
+
+      // Update gesture HUD
+      const hudEl = document.getElementById('gesture-hud');
+      if (lms.length > 0) {
+        hudEl.classList.remove('hidden');
+        statusEl.textContent = lms.length === 2 ? '● DUAL TRACKED' : '● SINGLE TRACKED';
+        statusEl.className = 'tracking';
+      } else {
+        statusEl.textContent = '● SCANNING…';
+        statusEl.className = '';
+        // Apply momentum decay only
+        document.getElementById('gh-left-action').textContent = '—';
+        document.getElementById('gh-right-action').textContent = '—';
+        document.getElementById('gh-both-action').textContent = '—';
+        document.getElementById('gh-left').classList.remove('active');
+        document.getElementById('gh-right').classList.remove('active');
+        hands.bothPrevDist = null;
+        hands.bothPrevAngle = null;
+      }
+
+      // Update history & detect swipes
+      if (hands.left) {
+        const lp = palmCenter(hands.left);
+        hands.leftHistory.push(lp);
+        if (hands.leftHistory.length > 8) hands.leftHistory.shift();
+        const swipe = detectSwipe(hands.leftHistory);
+        if (swipe && frameCount % 3 === 0) { handleSwipe(swipe, 'left'); hands.leftHistory = []; }
+      } else { hands.leftHistory = []; }
+
+      if (hands.right) {
+        const rp = palmCenter(hands.right);
+        hands.rightHistory.push(rp);
+        if (hands.rightHistory.length > 8) hands.rightHistory.shift();
+        const swipe = detectSwipe(hands.rightHistory);
+        if (swipe && frameCount % 3 === 0) { handleSwipe(swipe, 'right'); hands.rightHistory = []; }
+      } else { hands.rightHistory = []; }
+
+      // Apply gestures
+      if (hands.left && hands.right) {
+        // DUAL HAND MODE
+        applyDualHandGestures(hands.left, hands.right);
+
+        // Still apply individual hand gestures for feedback
+        if (hands.leftPrev) {
+          const lp = palmCenter(hands.left);
+          applySingleHandGesture(hands.leftGesture, hands.left, 'left', lp.x - hands.leftPrev.x, lp.y - hands.leftPrev.y);
+        }
+        if (hands.rightPrev) {
+          const rp = palmCenter(hands.right);
+          applySingleHandGesture(hands.rightGesture, hands.right, 'right', rp.x - hands.rightPrev.x, rp.y - hands.rightPrev.y);
+        }
+
+        document.getElementById('inf-gesture').textContent = 'DUAL: ' + hands.leftGesture + '+' + hands.rightGesture;
+
+      } else if (hands.left) {
+        // SINGLE LEFT
+        hands.bothPrevDist = null; hands.bothPrevAngle = null;
+        if (hands.leftPrev) {
+          const lp = palmCenter(hands.left);
+          applySingleHandGesture(hands.leftGesture, hands.left, 'left', lp.x - hands.leftPrev.x, lp.y - hands.leftPrev.y);
+        }
+        document.getElementById('inf-gesture').textContent = 'L: ' + hands.leftGesture;
+        document.getElementById('gh-right-action').textContent = '—';
+        document.getElementById('gh-right').classList.remove('active');
+
+      } else if (hands.right) {
+        // SINGLE RIGHT
+        hands.bothPrevDist = null; hands.bothPrevAngle = null;
+        if (hands.rightPrev) {
+          const rp = palmCenter(hands.right);
+          applySingleHandGesture(hands.rightGesture, hands.right, 'right', rp.x - hands.rightPrev.x, rp.y - hands.rightPrev.y);
+        }
+        document.getElementById('inf-gesture').textContent = 'R: ' + hands.rightGesture;
+        document.getElementById('gh-left-action').textContent = '—';
+        document.getElementById('gh-left').classList.remove('active');
+
+      } else {
+        document.getElementById('inf-gesture').textContent = 'INACTIVE';
+        hands.bothPrevDist = null; hands.bothPrevAngle = null;
+      }
+
+      // Draw landmarks
+      if (hands.left) drawHandLandmarks(hands.left, hands.leftGesture, 'left');
+      if (hands.right) drawHandLandmarks(hands.right, hands.rightGesture, 'right');
+
+      // Draw connection line between hands if both present
+      if (hands.left && hands.right) {
+        const lp = palmCenter(hands.left), rp = palmCenter(hands.right);
+        const lScreen = { x: (1-lp.x)*W, y: lp.y*H };
+        const rScreen = { x: (1-rp.x)*W, y: rp.y*H };
+        handCtx.beginPath();
+        handCtx.moveTo(lScreen.x, lScreen.y); handCtx.lineTo(rScreen.x, rScreen.y);
+        handCtx.strokeStyle = 'rgba(170,68,255,0.4)'; handCtx.lineWidth = 2;
+        handCtx.setLineDash([6, 4]); handCtx.stroke(); handCtx.setLineDash([]);
+        // Midpoint dot
+        const mx=(lScreen.x+rScreen.x)/2, my=(lScreen.y+rScreen.y)/2;
+        handCtx.beginPath(); handCtx.arc(mx, my, 5, 0, Math.PI*2);
+        handCtx.fillStyle = 'rgba(170,68,255,0.8)'; handCtx.fill();
+      }
+    });
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 320, height: 240, facingMode: 'user', frameRate: 30 }, audio: false
+      });
+      video.srcObject = stream; handCamStream = stream;
+      await video.play();
+      statusEl.textContent = '● CAM ONLINE'; statusEl.className = 'online';
+
+      if (typeof Camera !== 'undefined') {
+        new Camera(video, {
+          onFrame: async () => { if (handsModel) await handsModel.send({ image: video }); },
+          width: 320, height: 240
+        }).start();
+      } else {
+        setInterval(async () => { if (handsModel && video.readyState >= 2) await handsModel.send({ image: video }); }, 50);
+      }
+    } catch (e) {
+      statusEl.textContent = '● NO CAMERA';
+    }
+  } catch (e) {
+    startFallbackGesture(video);
+  }
+}
+
+// ── FALLBACK ──
+function startFallbackGesture(video) {
+  const statusEl = document.getElementById('cam-status');
+  navigator.mediaDevices.getUserMedia({ video: { width: 160, height: 120 }, audio: false })
+    .then(stream => {
+      video.srcObject = stream; video.play();
+      statusEl.textContent = '● PIXEL MODE'; statusEl.className = 'online';
+      const fb = document.createElement('canvas'); fb.width=80; fb.height=60;
+      const fc = fb.getContext('2d');
+      setInterval(() => {
+        if (video.readyState < 2 || !state.model) return;
+        fc.drawImage(video, 0, 0, 80, 60);
+        const d = fc.getImageData(0, 0, 80, 60).data;
+        let skin=0, topSkin=0, leftSkin=0;
+        for (let i=0;i<d.length;i+=4) {
+          const r=d[i],g=d[i+1],b=d[i+2];
+          if (r>95&&g>40&&b>20&&r>g&&r-b>15) {
+            skin++; const py=Math.floor((i/4)/80); const px=(i/4)%80;
+            if (py<30) topSkin++; if (px<40) leftSkin++;
+          }
+        }
+        const ratio=skin/(80*60);
+        if (ratio<0.04) return;
+        const gesture=ratio>0.28?'OPEN':ratio<0.08?'FIST':'PARTIAL';
+        const lm=Array.from({length:21},()=>({x:leftSkin>skin*0.5?0.3:0.7,y:topSkin>skin*0.5?0.3:0.7}));
+        applySingleHandGesture(gesture, lm, 'right', (Math.random()-0.5)*0.005, (Math.random()-0.5)*0.005);
+      }, 80);
+    })
+    .catch(() => { document.getElementById('cam-status').textContent = '● NO CAMERA'; });
+}
+
+// ── SEARCH ──
+function doSearch(q) {
+  const query = q || document.getElementById('search-input').value.trim().toLowerCase();
+  if (!query) return;
+  const cleaned = query.replace(/\b(jarvis|show me|load|display|scan|a|an|the|3d|model|hologram)\b/gi,'').trim();
   loadModel(cleaned.replace(/\s+/g,'_'));
 }
-function handleKey(e){if(e.key==='Enter')doSearch();}
+function handleKey(e) { if (e.key==='Enter') doSearch(); }
 
-function toast(msg,dur=2500){
+// ── VOICE ──
+let recognition=null, isListening=false;
+function toggleMic() {
+  if (!('SpeechRecognition' in window||'webkitSpeechRecognition' in window)) { toast('SPEECH NOT AVAILABLE'); return; }
+  if (isListening) { recognition?.stop(); return; }
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  recognition=new SR(); recognition.lang='en-US'; recognition.continuous=false;
+  const btn=document.getElementById('mic-btn');
+  recognition.onstart=()=>{isListening=true;btn.classList.add('active');btn.textContent='🔴 LISTENING';toast('LISTENING…')};
+  recognition.onresult=e=>{const t=e.results[0][0].transcript;document.getElementById('search-input').value=t;doSearch(t)};
+  recognition.onend=()=>{isListening=false;btn.classList.remove('active');btn.textContent='🎙 VOICE'};
+  recognition.start();
+}
+
+// ── TOAST ──
+function toast(msg, dur=2500) {
   const t=document.getElementById('toast');
   t.textContent=msg;t.classList.add('show');
   clearTimeout(t._timer);t._timer=setTimeout(()=>t.classList.remove('show'),dur);
 }
 
-window.addEventListener('message',e=>{
-  const{type,query}=e.data||{};
-  if(type==='HOLOGRAM_SEARCH'&&query){document.getElementById('search-input').value=query;doSearch(query);}
+// ── JARVIS INTEGRATION ──
+window.addEventListener('message', e => {
+  const { type, query } = e.data || {};
+  if (type==='HOLOGRAM_SEARCH'&&query) { document.getElementById('search-input').value=query; doSearch(query); }
 });
 
-// BOOT
-window.addEventListener('load',()=>{
-  const loadText=document.getElementById('load-text'),bar=document.getElementById('load-bar');
-  const steps=['LOADING THREE.JS ENGINE','COMPILING GRAB PHYSICS ENGINE','INITIALISING ATOM FIELD','READY'];
+// ── BOOT ──
+window.addEventListener('load', () => {
+  const loadText=document.getElementById('load-text'), bar=document.getElementById('load-bar');
+  const steps=['LOADING THREE.JS ENGINE','COMPILING HOLOGRAPHIC SHADERS','LOADING MEDIAPIPE DUAL HAND ENGINE','READY'];
   let si=0;
   const stepInterval=setInterval(()=>{
     if(si>=steps.length){clearInterval(stepInterval);return;}
-    loadText.textContent=steps[si];bar.style.width=((si+1)/steps.length*100)+'%';si++;
-  },350);
+    loadText.textContent=steps[si]; bar.style.width=((si+1)/steps.length*100)+'%'; si++;
+  },400);
   setTimeout(()=>{
-    hideLoading();document.getElementById('no-model').style.display='flex';
-    createParticles();
-    grab.init();
-    animate();
-    toast('GRAB PHYSICS ONLINE — SELECT A MOLECULE');
-  },1500);
-  if(location.hash){
-    setTimeout(()=>{const q=decodeURIComponent(location.hash.slice(1));document.getElementById('search-input').value=q;doSearch(q);},2000);
+    hideLoading(); document.getElementById('no-model').style.display='flex';
+    initMediaPipe(); toast('DUAL HAND GESTURE ENGINE ONLINE');
+  },1800);
+  if (location.hash) {
+    setTimeout(()=>{const q=decodeURIComponent(location.hash.slice(1));document.getElementById('search-input').value=q;doSearch(q);},2200);
   }
 });
 </script>
