@@ -1,5 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Client Brain v4.2
+// J.A.R.V.I.S — Client Brain v4.3
+// Auth v2: unified Login + Create Account screen
 // Fixed: face recognition threshold 0.55 → 0.72
 // Added: intruder detection enable/disable voice command
 // ═══════════════════════════════════════════════════════════════
@@ -26,7 +27,7 @@ const state = {
   faceDescriptors: null,
   faceEnrolled: false,
   faceEnrollPending: false,
-  intruderDetectionEnabled: true,   // NEW: can be toggled via voice
+  intruderDetectionEnabled: true,
   intruderActive: false,
   intruderChunks: [],
   intruderRecorder: null,
@@ -191,19 +192,6 @@ async function loadServerProfiles() {
     const data = await res.json();
     return data.profiles || [];
   } catch { return []; }
-}
-
-async function restoreProfileFromBackend() {
-  const nameHint = localStorage.getItem("jarvis_name_hint");
-  if (!nameHint) return null;
-  try {
-    const res = await fetch(`/api/profile/${encodeURIComponent(nameHint)}`);
-    const data = await res.json();
-    if (data.found) {
-      return { ...data.profile, passwordHash: localStorage.getItem("jarvis_pw_hash") || "" };
-    }
-  } catch (e) { console.warn("[JARVIS] Backend restore failed:", e); }
-  return null;
 }
 
 async function hashPassword(pw) {
@@ -473,253 +461,362 @@ function matchesUser(text, profile) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── SETUP FLOW ──
+// ── AUTH v2 — Login + Create Account in one screen ─────────────
 // ═══════════════════════════════════════════════════════════════
-function showSetup() {
-  $("setup-screen").classList.add("active");
-  $("auth-screen").classList.remove("active");
-  if ($("main-screen")) $("main-screen").classList.remove("active");
 
-  $("btn-next-profile").addEventListener("click", async () => {
-    const name  = $("setup-name").value.trim();
-    const pw    = $("setup-password").value.trim();
-    const title = $("setup-title").value;
-    if (!name || !pw) { alert("Please enter your name and a password."); return; }
-    const hash = await hashPassword(pw);
-    window._pendingProfile = { name, passwordHash: hash, title, voiceAliases: [] };
-    $("step-profile").classList.add("hidden");
-    $("step-voice").classList.remove("hidden");
-  });
+// ── INTERNAL AUTH VARS ──
+let _authMode        = "login";   // "login" | "create"
+let _selectedUser    = null;      // name key of tile-selected account
+let _voiceSamples    = [];        // collected voice alias strings
+let _voiceSamplesDone = 0;
 
-  let samplesDone = 0;
-  $("btn-record-sample").addEventListener("click", () => {
-    if (samplesDone >= 3) return;
-    $("voice-sample-status").textContent = "Recording… say your name now";
-    $("record-bars").classList.remove("hidden");
-    const r = new SR();
-    r.continuous = false; r.interimResults = false; r.lang = "en-US";
-    r.onresult = (e) => {
-      const heard = e.results[0][0].transcript.trim();
-      window._pendingProfile.voiceAliases.push(heard);
-      samplesDone++;
-      $("sample-count").textContent = `${samplesDone} / 3 samples recorded`;
-      $("voice-sample-status").textContent = `Got it: "${heard}"`;
-      $("record-bars").classList.add("hidden");
-      if (samplesDone >= 3) { $("btn-record-sample").textContent = "✓ SAMPLES RECORDED"; $("btn-record-sample").disabled = true; setTimeout(() => completeSetup(), 800); }
-    };
-    r.onerror = () => { $("voice-sample-status").textContent = "Didn't catch that — try again"; $("record-bars").classList.add("hidden"); };
-    r.onend   = () => $("record-bars").classList.add("hidden");
-    r.start();
-  });
-  $("btn-skip-voice").addEventListener("click", () => completeSetup());
+// ── FEEDBACK HELPER ──
+function showAuthFeedback(msg, type = "error") {
+  const el = $("auth-feedback");
+  if (!el) return;
+  el.textContent = msg;
+  el.className   = `auth-feedback ${type}`;
+  el.classList.remove("hidden");
+  if (type !== "error") setTimeout(() => el.classList.add("hidden"), 3500);
+}
+function hideAuthFeedback() {
+  const el = $("auth-feedback");
+  if (el) el.classList.add("hidden");
 }
 
-function completeSetup() {
-  const p = window._pendingProfile;
-  $("step-voice").classList.add("hidden"); $("step-done").classList.remove("hidden");
-  const aliases = p.voiceAliases.length ? `Voice aliases: ${p.voiceAliases.join(", ")}` : "No voice aliases.";
-  $("setup-summary").textContent = `Profile created for ${p.name} (${p.title}). ${aliases}`;
-  $("btn-launch").addEventListener("click", async () => {
-    saveProfileLocal(p);
-    localStorage.setItem("jarvis_name_hint", p.name.toLowerCase());
-    localStorage.setItem("jarvis_pw_hash", p.passwordHash);
-    await saveProfileRemote(p);
-    $("setup-screen").classList.remove("active");
-    showAuthScreen();
+// ── MODE SWITCH ──
+function switchAuthMode(mode) {
+  _authMode = mode;
+  hideAuthFeedback();
+
+  const loginBtn    = $("mode-login-btn");
+  const createBtn   = $("mode-create-btn");
+  const loginPanel  = $("auth-login-panel");
+  const createPanel = $("auth-create-panel");
+  const savedWrap   = $("saved-accounts-wrap");
+  const statusEl    = $("auth-status");
+
+  if (mode === "login") {
+    loginBtn?.classList.add("active");
+    createBtn?.classList.remove("active");
+    loginPanel?.classList.remove("hidden");
+    createPanel?.classList.add("hidden");
+    if (savedWrap)  savedWrap.style.display = "";
+    if (statusEl)   statusEl.style.display  = "";
+  } else {
+    createBtn?.classList.add("active");
+    loginBtn?.classList.remove("active");
+    createPanel?.classList.remove("hidden");
+    loginPanel?.classList.add("hidden");
+    if (savedWrap)  savedWrap.style.display = "none";
+    if (statusEl)   statusEl.style.display  = "none";
+    // reset voice sample state
+    _voiceSamples     = [];
+    _voiceSamplesDone = 0;
+    updateVoiceSampleUI();
+  }
+}
+
+// ── RENDER SAVED ACCOUNT TILES ──
+function renderSavedAccounts(profiles) {
+  const wrap = $("saved-accounts-wrap");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  if (!profiles || profiles.length === 0) return;
+
+  const lastUsed = localStorage.getItem("jarvis_name_hint") || "";
+
+  profiles.forEach(p => {
+    const tile = document.createElement("button");
+    tile.className = "account-tile";
+    if (p.name.toLowerCase() === lastUsed) {
+      tile.classList.add("selected");
+      _selectedUser = p.name.toLowerCase();
+    }
+
+    tile.innerHTML = `
+      <span class="tile-name">${p.name.toUpperCase()}</span>
+      <span class="tile-title">${p.title || ""}</span>
+    `;
+    tile.addEventListener("click", () => {
+      wrap.querySelectorAll(".account-tile").forEach(t => t.classList.remove("selected"));
+      tile.classList.add("selected");
+      _selectedUser = p.name.toLowerCase();
+      $("auth-password-input")?.focus();
+    });
+    wrap.appendChild(tile);
   });
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── AUTH SCREEN ──
-// ═══════════════════════════════════════════════════════════════
+// ── SHOW AUTH SCREEN ──
 async function showAuthScreen() {
-  $("auth-screen").classList.add("active");
-  $("setup-screen").classList.remove("active");
-  if ($("main-screen")) $("main-screen").classList.remove("active");
+  $("auth-screen")?.classList.add("active");
+  $("setup-screen")?.classList.remove("active");
+  $("main-screen")?.classList.remove("active");
+
   await mic.requestPerm();
 
   const profiles = await loadServerProfiles();
   renderSavedAccounts(profiles);
 
-  const pwInput    = $("auth-password-input");
-  const newPwInput = pwInput.cloneNode(true);
-  pwInput.parentNode.replaceChild(newPwInput, pwInput);
+  // Default to login if profiles exist, create if none
+  switchAuthMode(profiles.length > 0 ? "login" : "create");
 
-  newPwInput.addEventListener("keydown", async (e) => {
-    if (e.key !== "Enter") return;
-    const typedPw = newPwInput.value;
-    newPwInput.value = "";
-
-    const selectedName = $("auth-selected-name")?.value || localStorage.getItem("jarvis_name_hint");
-    const hash = await hashPassword(typedPw);
-
-    if (selectedName) {
-      try {
-        const res  = await fetch("/api/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: selectedName, passwordHash: hash }) });
-        const data = await res.json();
-        if (data.authorized) {
-          const restored = { ...data.profile, passwordHash: hash };
-          saveProfileLocal(restored);
-          localStorage.setItem("jarvis_name_hint", data.profile.name.toLowerCase());
-          localStorage.setItem("jarvis_pw_hash", hash);
-          state.user = data.profile.name; state.userTitle = data.profile.title;
-          speak(`Welcome back, ${data.profile.title}.`, launchMain); return;
-        }
-      } catch {}
-    }
-
-    const profile = loadProfile();
-    if (profile && hash === profile.passwordHash) {
-      state.user = profile.name; state.userTitle = profile.title;
-      speak(`Welcome back, ${profile.title}.`, launchMain); return;
-    }
-
-    const as = $("auth-status");
-    as.innerHTML = `<span style="color:var(--red)">Wrong password.</span>`;
-    setTimeout(() => { as.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> or type password`; }, 2000);
-  });
+  // Wire password field Enter key
+  const pwInput = $("auth-password-input");
+  if (pwInput) {
+    const newPw = pwInput.cloneNode(true);
+    pwInput.parentNode.replaceChild(newPw, pwInput);
+    newPw.addEventListener("keydown", e => {
+      if (e.key === "Enter") submitLogin();
+    });
+  }
 
   startAuthListening();
 }
 
-function renderSavedAccounts(profiles) {
-  const old = $("saved-accounts-wrap"); if (old) old.remove();
-  if (!profiles || profiles.length === 0) return;
+// Alias — old boot code calls showSetup when no profile exists
+// but we now send everyone to showAuthScreen which auto-switches to create
+function showSetup() { showAuthScreen(); }
 
-  const wrap = document.createElement("div");
-  wrap.id = "saved-accounts-wrap";
-  wrap.style.cssText = `
-    display:flex; gap:10px; flex-wrap:wrap; justify-content:center;
-    margin-bottom:12px;
-  `;
+// ── LOGIN SUBMIT ──
+async function submitLogin() {
+  const pwEl = $("auth-password-input");
+  if (!pwEl) return;
+  const typedPw = pwEl.value.trim();
+  pwEl.value = "";
+  if (!typedPw) { showAuthFeedback("Enter your password."); return; }
 
-  const hiddenInput = document.createElement("input");
-  hiddenInput.type = "hidden"; hiddenInput.id = "auth-selected-name";
-  hiddenInput.value = localStorage.getItem("jarvis_name_hint") || "";
-  wrap.appendChild(hiddenInput);
+  hideAuthFeedback();
+  setOrb("thinking");
 
-  profiles.forEach(p => {
-    const tile = document.createElement("button");
-    tile.style.cssText = `
-      background: rgba(0,200,255,0.06);
-      border: 1px solid rgba(0,200,255,0.25);
-      color: var(--blue);
-      font-family: var(--hud, 'Orbitron', monospace);
-      font-size: 0.58rem;
-      letter-spacing: 0.2em;
-      padding: 10px 18px;
-      border-radius: 3px;
-      cursor: pointer;
-      display: flex; flex-direction: column; align-items: center; gap: 4px;
-      transition: all 0.2s;
-      min-width: 100px;
-    `;
-    const nameEl = document.createElement("span");
-    nameEl.textContent = p.name.toUpperCase();
-    nameEl.style.cssText = "font-size:0.72rem; font-weight:700;";
-    const titleEl = document.createElement("span");
-    titleEl.textContent = p.title || "";
-    titleEl.style.cssText = "font-size:0.48rem; color:var(--text-dim); letter-spacing:0.18em;";
-    tile.appendChild(nameEl);
-    tile.appendChild(titleEl);
+  const hash = await hashPassword(typedPw);
 
-    const isSelected = (hiddenInput.value === p.name.toLowerCase());
-    if (isSelected) {
-      tile.style.borderColor = "var(--blue)";
-      tile.style.background = "rgba(0,200,255,0.14)";
-      tile.style.boxShadow = "0 0 16px rgba(0,200,255,0.2)";
-    }
+  // Try selected account from tiles first, then fall back to last-used hint
+  const nameKey = _selectedUser || localStorage.getItem("jarvis_name_hint") || "";
 
-    tile.addEventListener("click", () => {
-      hiddenInput.value = p.name.toLowerCase();
-      localStorage.setItem("jarvis_name_hint", p.name.toLowerCase());
-      wrap.querySelectorAll("button").forEach(b => {
-        b.style.borderColor = "rgba(0,200,255,0.25)";
-        b.style.background = "rgba(0,200,255,0.06)";
-        b.style.boxShadow = "none";
+  if (nameKey) {
+    try {
+      const res  = await fetch("/api/verify", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ name: nameKey, passwordHash: hash }),
       });
-      tile.style.borderColor = "var(--blue)";
-      tile.style.background = "rgba(0,200,255,0.14)";
-      tile.style.boxShadow = "0 0 16px rgba(0,200,255,0.2)";
-      $("auth-password-input")?.focus();
-    });
-
-    tile.addEventListener("mouseenter", () => {
-      if (hiddenInput.value !== p.name.toLowerCase()) {
-        tile.style.borderColor = "rgba(0,200,255,0.5)";
-        tile.style.background = "rgba(0,200,255,0.1)";
+      const data = await res.json();
+      if (data.authorized) {
+        localStorage.setItem("jarvis_name_hint", data.profile.name.toLowerCase());
+        localStorage.setItem("jarvis_pw_hash",   hash);
+        saveProfileLocal({ ...data.profile, passwordHash: hash });
+        state.user      = data.profile.name;
+        state.userTitle = data.profile.title;
+        setOrb("idle");
+        speak(`Welcome back, ${data.profile.title}.`, launchMain);
+        return;
       }
-    });
-    tile.addEventListener("mouseleave", () => {
-      if (hiddenInput.value !== p.name.toLowerCase()) {
-        tile.style.borderColor = "rgba(0,200,255,0.25)";
-        tile.style.background = "rgba(0,200,255,0.06)";
-      }
-    });
-
-    wrap.appendChild(tile);
-  });
-
-  const authContainer = $("auth-screen")?.querySelector(".auth-container");
-  if (authContainer) {
-    const status = authContainer.querySelector(".auth-status");
-    authContainer.insertBefore(wrap, status);
+    } catch {}
   }
+
+  // Try all profiles (handles case where user typed without selecting tile)
+  try {
+    const res  = await fetch("/api/profiles");
+    const data = await res.json();
+    for (const p of (data.profiles || [])) {
+      const vRes = await fetch("/api/verify", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ name: p.name, passwordHash: hash }),
+      });
+      const vData = await vRes.json();
+      if (vData.authorized) {
+        localStorage.setItem("jarvis_name_hint", vData.profile.name.toLowerCase());
+        localStorage.setItem("jarvis_pw_hash",   hash);
+        saveProfileLocal({ ...vData.profile, passwordHash: hash });
+        state.user      = vData.profile.name;
+        state.userTitle = vData.profile.title;
+        setOrb("idle");
+        speak(`Welcome back, ${vData.profile.title}.`, launchMain);
+        return;
+      }
+    }
+  } catch {}
+
+  setOrb("idle");
+  showAuthFeedback("Wrong password — try again.");
 }
 
+// ── VOICE SAMPLE HELPERS ──
+function updateVoiceSampleUI() {
+  const countEl  = $("create-sample-count");
+  const statusEl = $("create-sample-status");
+  if (countEl)  countEl.textContent  = `${_voiceSamplesDone} / 3 samples`;
+  if (statusEl) statusEl.textContent = _voiceSamplesDone >= 3
+    ? "✓ Voice training complete"
+    : "Ready to record";
+}
+
+function recordVoiceSample() {
+  if (_voiceSamplesDone >= 3) return;
+  const statusEl = $("create-sample-status");
+  const bars     = $("create-record-bars");
+  if (statusEl) statusEl.textContent = "Recording… say your name now";
+  bars?.classList.remove("hidden");
+
+  const r = new SR();
+  r.continuous = false; r.interimResults = false; r.lang = "en-US";
+  r.onresult = e => {
+    const heard = e.results[0][0].transcript.trim();
+    _voiceSamples.push(heard);
+    _voiceSamplesDone++;
+    bars?.classList.add("hidden");
+    updateVoiceSampleUI();
+  };
+  r.onerror = () => {
+    if (statusEl) statusEl.textContent = "Didn't catch that — try again";
+    bars?.classList.add("hidden");
+  };
+  r.onend = () => bars?.classList.add("hidden");
+  r.start();
+}
+
+function skipVoice() {
+  _voiceSamples     = [];
+  _voiceSamplesDone = 0;
+  const block = $("voice-sample-block");
+  if (block) block.style.opacity = "0.4";
+}
+
+// ── CREATE ACCOUNT SUBMIT ──
+async function submitCreateAccount() {
+  const name  = ($("create-name")?.value     || "").trim();
+  const title = $("create-title")?.value      || "Sir";
+  const pw    = ($("create-password")?.value  || "").trim();
+  const pw2   = ($("create-password2")?.value || "").trim();
+
+  if (!name)         { showAuthFeedback("Enter your name.");              return; }
+  if (!pw)           { showAuthFeedback("Choose a password.");            return; }
+  if (pw !== pw2)    { showAuthFeedback("Passwords don't match.");        return; }
+  if (pw.length < 4) { showAuthFeedback("Password too short (min 4 chars)."); return; }
+
+  hideAuthFeedback();
+  const hash = await hashPassword(pw);
+
+  const profile = {
+    name,
+    passwordHash: hash,
+    title,
+    voiceAliases: _voiceSamples,
+  };
+
+  try {
+    const res = await fetch("/api/register", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(profile),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error("Server rejected registration");
+  } catch (e) {
+    showAuthFeedback("Server error — check that JARVIS is running.");
+    return;
+  }
+
+  saveProfileLocal(profile);
+  localStorage.setItem("jarvis_name_hint", name.toLowerCase());
+  localStorage.setItem("jarvis_pw_hash",   hash);
+
+  showAuthFeedback(`Account created for ${name}. Logging you in…`, "success");
+
+  state.user      = name;
+  state.userTitle = title;
+
+  setTimeout(() => {
+    speak(`Welcome, ${title}. Your account is ready.`, launchMain);
+  }, 900);
+}
+
+// ── VOICE AUTH (wake word "Jarvis log in") ──
 function startAuthListening() {
   state.phase = "idle";
   mic.start((text) => {
+    if (state.phase !== "idle") return;
     const lower = text.toLowerCase();
-    if (state.phase === "idle") {
-      const hasLogin = /\blog\s*in\b|\blogin\b|\bsign\s*in\b|\bopen\b|\bidentify\b|\baccess\b/.test(lower);
-      if (hasWakeWord(lower) && hasLogin) startVoiceAuth();
-    }
+    const hasLogin = /\blog\s*in\b|\blogin\b|\bsign\s*in\b|\bopen\b|\bidentify\b|\baccess\b/.test(lower);
+    if (hasWakeWord(lower) && hasLogin) startVoiceAuth();
   }, null, true);
 }
 
 function startVoiceAuth() {
-  state.phase = "awaiting_name"; mic.suspend();
-  const as = $("auth-status"), ap = $("auth-prompt"), al = $("auth-listening"), ht = $("heard-text");
-  as.style.display = "none"; ap.classList.remove("hidden"); al.classList.remove("hidden"); ht.textContent = "Listening…";
+  state.phase = "awaiting_name";
+  mic.suspend();
+  const as = $("auth-status"), ap = $("auth-prompt"),
+        al = $("auth-listening"), ht = $("heard-text");
+  if (as) as.style.display = "none";
+  ap?.classList.remove("hidden");
+  al?.classList.remove("hidden");
+  if (ht) ht.textContent = "Listening…";
+
   speak("Identify yourself.", () => {
     const r = new SR();
     r.continuous = false; r.interimResults = true; r.lang = "en-US"; r.maxAlternatives = 5;
-    r.onresult = (e) => {
-      const result = e.results[0]; const text = result[0].transcript.trim(); ht.textContent = text;
-      if (result.isFinal) { ap.classList.add("hidden"); al.classList.add("hidden"); as.style.display = ""; checkVoiceAuth(text); }
+    r.onresult = e => {
+      const result = e.results[0];
+      const text   = result[0].transcript.trim();
+      if (ht) ht.textContent = text;
+      if (result.isFinal) {
+        ap?.classList.add("hidden");
+        al?.classList.add("hidden");
+        if (as) as.style.display = "";
+        checkVoiceAuth(text);
+      }
     };
     r.onerror = () => {
-      ht.textContent = "Couldn't hear you — try again."; state.phase = "idle";
-      setTimeout(() => { ap.classList.add("hidden"); al.classList.add("hidden"); as.style.display = ""; startAuthListening(); }, 1500);
+      if (ht) ht.textContent = "Couldn't hear you — try again.";
+      state.phase = "idle";
+      setTimeout(() => {
+        ap?.classList.add("hidden");
+        al?.classList.add("hidden");
+        if (as) as.style.display = "";
+        startAuthListening();
+      }, 1500);
     };
-    setOrb("listening"); r.start();
+    setOrb("listening");
+    r.start();
   });
 }
 
 async function checkVoiceAuth(spokenText) {
-  const profile = loadProfile(); const as = $("auth-status");
-  as.textContent = `Heard: "${spokenText}" — verifying…`; setOrb("thinking");
+  const as = $("auth-status");
+  if (as) as.textContent = `Heard: "${spokenText}" — verifying…`;
+  setOrb("thinking");
+
+  const profile = loadProfile();
   if (profile && matchesUser(spokenText, profile)) {
     state.user = profile.name; state.userTitle = profile.title;
-    setOrb("idle"); speak(`Welcome back, ${profile.title}.`, launchMain); return;
+    setOrb("idle");
+    speak(`Welcome back, ${profile.title}.`, launchMain);
+    return;
   }
   try {
-    const res  = await fetch("/api/profiles"); const data = await res.json();
+    const res  = await fetch("/api/profiles");
+    const data = await res.json();
     for (const p of (data.profiles || [])) {
       if (matchesUser(spokenText, p)) {
         localStorage.setItem("jarvis_name_hint", p.name.toLowerCase());
         state.user = p.name; state.userTitle = p.title;
-        setOrb("idle"); speak(`Welcome back, ${p.title}. Identity confirmed.`, launchMain); return;
+        setOrb("idle");
+        speak(`Welcome back, ${p.title}. Identity confirmed.`, launchMain);
+        return;
       }
     }
   } catch {}
+
   setOrb("idle");
-  as.innerHTML = `<span style="color:var(--red)">Access denied.</span>`;
+  if (as) as.innerHTML = `<span style="color:var(--red)">Access denied.</span>`;
   speak("Access denied. Identity not recognised.", () => {
     setTimeout(() => {
-      as.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> or type password`;
-      state.phase = "idle"; startAuthListening();
+      if (as) as.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> or type below`;
+      state.phase = "idle";
+      startAuthListening();
     }, 1800);
   });
 }
@@ -821,11 +918,10 @@ function handleChatCommand(text) {
 
   const cleanedLower = cleaned.toLowerCase();
 
-  // ── NEW: Intruder detection toggle ──────────────────────────
+  // ── Intruder detection toggle ──
   if (/\b(disable|turn off|deactivate|stop)\b/.test(cleanedLower) &&
       /\b(intruder|face detection|face recognition|facial recognition|facial|unknown face)\b/.test(cleanedLower)) {
     state.intruderDetectionEnabled = false;
-    // Also stop any active intruder recording
     if (state.intruderActive) {
       stopIntruderRecord();
       state.intruderActive = false;
@@ -843,7 +939,7 @@ function handleChatCommand(text) {
     addMsg("jarvis", r); speak(r); updateMood(2); return;
   }
 
-  // ── Re-enroll face command ───────────────────────────────────
+  // ── Re-enroll face command ──
   if (/\b(re-?enroll|enroll again|re-?scan|scan again|re-?register)\b/.test(cleanedLower) &&
       /\b(face|facial|me)\b/.test(cleanedLower)) {
     state.faceEnrolled = false;
@@ -1280,7 +1376,7 @@ async function readScreen(question) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── CAMERA / FACE — fixed enrollment + raised threshold ──
+// ── CAMERA / FACE ──
 // ═══════════════════════════════════════════════════════════════
 async function requestCameraAccess() {
   try {
@@ -1323,7 +1419,6 @@ async function loadFaceModels() {
   }
 }
 
-// ── ENROLLMENT — retries for up to 30 seconds ──
 async function enrollUserFace() {
   if (!faceApiLoaded || !state.cameraStream) return;
   if (state.faceEnrollPending) return;
@@ -1378,7 +1473,6 @@ async function enrollUserFace() {
   }
 }
 
-// ── Enrollment badge UI ──
 function showEnrollBadge(text) {
   let badge = $("face-enroll-badge");
   if (!badge) {
@@ -1414,7 +1508,6 @@ function startFaceWatch() {
 }
 
 async function checkFace() {
-  // ── FIXED: respect the intruderDetectionEnabled toggle ──
   if (!state.intruderDetectionEnabled) return;
   if (!faceApiLoaded || !state.cameraStream || state.phase !== "chatting") return;
   if (!state.faceEnrolled || !state.faceDescriptors) return;
@@ -1428,7 +1521,6 @@ async function checkFace() {
     if (detections.length > 0) {
       let userPresent = false;
       for (const d of detections) {
-        // ── FIXED: raised threshold from 0.55 → 0.72 for better recognition ──
         const dist = faceapi.euclideanDistance(d.descriptor, state.faceDescriptors);
         if (dist < 0.72) { userPresent = true; break; }
       }
@@ -1608,15 +1700,16 @@ function handleLogout() {
     state.phase = "idle"; state.user = null; state.userTitle = null;
     state.sessionId = crypto.randomUUID(); state.awayMode = false; state.intruderActive = false;
     state.faceEnrolled = false; state.faceDescriptors = null; state.faceEnrollPending = false;
-    state.intruderDetectionEnabled = true; // reset to default on logout
+    state.intruderDetectionEnabled = true;
+    _selectedUser = null; _voiceSamples = []; _voiceSamplesDone = 0;
     $("transcript").innerHTML = "";
     $("main-screen").classList.remove("active");
     $("auth-screen").classList.add("active");
-    $("auth-status").innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> or type password`;
     setOrb("idle"); stopScreenRecord();
 
     const profiles = await loadServerProfiles();
     renderSavedAccounts(profiles);
+    switchAuthMode(profiles.length > 0 ? "login" : "create");
     startAuthListening();
   });
 }
@@ -1648,20 +1741,7 @@ window.addEventListener("load", async () => {
     w.volume = 0; speechSynthesis.speak(w); speechSynthesis.getVoices();
   }, 500);
 
-  let profile = null;
-  const nameHint = localStorage.getItem("jarvis_name_hint");
-  if (nameHint) {
-    try {
-      const res = await fetch(`/api/profile/${encodeURIComponent(nameHint)}`);
-      const data = await res.json();
-      if (data.found) {
-        profile = { ...data.profile, passwordHash: localStorage.getItem("jarvis_pw_hash") || "" };
-        saveProfileLocal(profile);
-      }
-    } catch {}
-  }
-  if (!profile) profile = loadProfile();
-
-  if (!profile) showSetup();
-  else showAuthScreen();
+  // Always go straight to auth screen — showAuthScreen auto-switches
+  // to "create" mode if no profiles exist, "login" mode if they do.
+  showAuthScreen();
 });
