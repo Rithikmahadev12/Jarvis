@@ -1,7 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Client Brain v4.0
-// Full semantic AI integration, action-based routing,
-// natural language clip/timer/link/camera control
+// J.A.R.V.I.S — Client Brain v4.1
+// Fixed: account persistence + face recognition enrollment
 // ═══════════════════════════════════════════════════════════════
 
 // ── STATE ──
@@ -22,7 +21,10 @@ const state = {
   cameraClipChunks: [],
   cameraClipTimestamps: [],
   voiceSamples: [],
+  // ── Face recognition ──
   faceDescriptors: null,
+  faceEnrolled: false,          // NEW: must be true before intruder detection fires
+  faceEnrollPending: false,     // NEW: enrollment in progress
   intruderActive: false,
   intruderChunks: [],
   intruderRecorder: null,
@@ -40,6 +42,7 @@ const state = {
   tesseractWorker: null,
   tesseractReady: false,
   activeTimers: [],
+  memories: [],
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -163,23 +166,45 @@ setInterval(() => {
   if (Date.now() - state.lastInteraction > 300000) updateMood(-2);
 }, 10000);
 
-// ── PROFILE ──
-function loadProfile() { try { return JSON.parse(localStorage.getItem("jarvis_profile")) || null; } catch { return null; } }
-function saveProfileLocal(p) { localStorage.setItem("jarvis_profile", JSON.stringify(p)); }
-async function saveProfileRemote(p) {
-  try { await fetch("/api/register", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(p) }); }
-  catch (e) { console.warn("[JARVIS] Could not save profile:", e); }
+// ── PROFILE — server-first, localStorage fallback ──
+function loadProfile() {
+  try { return JSON.parse(localStorage.getItem("jarvis_profile")) || null; }
+  catch { return null; }
 }
+function saveProfileLocal(p) { localStorage.setItem("jarvis_profile", JSON.stringify(p)); }
+
+async function saveProfileRemote(p) {
+  try {
+    await fetch("/api/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(p),
+    });
+  } catch (e) { console.warn("[JARVIS] Could not save profile:", e); }
+}
+
+// ── Load profiles list from server for auth screen ──
+async function loadServerProfiles() {
+  try {
+    const res = await fetch("/api/profiles");
+    const data = await res.json();
+    return data.profiles || [];
+  } catch { return []; }
+}
+
 async function restoreProfileFromBackend() {
   const nameHint = localStorage.getItem("jarvis_name_hint");
   if (!nameHint) return null;
   try {
     const res = await fetch(`/api/profile/${encodeURIComponent(nameHint)}`);
     const data = await res.json();
-    if (data.found) return { ...data.profile, passwordHash: localStorage.getItem("jarvis_pw_hash") || "" };
+    if (data.found) {
+      return { ...data.profile, passwordHash: localStorage.getItem("jarvis_pw_hash") || "" };
+    }
   } catch (e) { console.warn("[JARVIS] Backend restore failed:", e); }
   return null;
 }
+
 async function hashPassword(pw) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
@@ -315,7 +340,10 @@ async function switchCamera(deviceId) {
     state.cameraStream = stream; state.selectedCameraId = deviceId;
     const vid = $("camera-feed"); if (vid) { vid.srcObject = stream; vid.play(); }
     startCameraBuffer(stream);
-    state.faceDescriptors = null; await enrollUserFace();
+    // Re-enroll face on camera switch
+    state.faceDescriptors = null;
+    state.faceEnrolled = false;
+    await enrollUserFace();
     const reply = `Camera switched, ${state.userTitle}. Visual sensors updated.`;
     addMsg("jarvis", reply); speak(reply); updateMood(2);
   } catch {
@@ -450,7 +478,7 @@ function matchesUser(text, profile) {
 function showSetup() {
   $("setup-screen").classList.add("active");
   $("auth-screen").classList.remove("active");
-  $("main-screen")?.classList.remove("active");
+  if ($("main-screen")) $("main-screen").classList.remove("active");
 
   $("btn-next-profile").addEventListener("click", async () => {
     const name  = $("setup-name").value.trim();
@@ -502,13 +530,17 @@ function completeSetup() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── AUTH SCREEN ──
+// ── AUTH SCREEN — shows saved accounts from server ──
 // ═══════════════════════════════════════════════════════════════
 async function showAuthScreen() {
   $("auth-screen").classList.add("active");
   $("setup-screen").classList.remove("active");
-  $("main-screen")?.classList.remove("active");
+  if ($("main-screen")) $("main-screen").classList.remove("active");
   await mic.requestPerm();
+
+  // ── Load and display saved accounts ──
+  const profiles = await loadServerProfiles();
+  renderSavedAccounts(profiles);
 
   const pwInput    = $("auth-password-input");
   const newPwInput = pwInput.cloneNode(true);
@@ -516,31 +548,132 @@ async function showAuthScreen() {
 
   newPwInput.addEventListener("keydown", async (e) => {
     if (e.key !== "Enter") return;
-    const profile = loadProfile();
-    const hash    = await hashPassword(newPwInput.value);
+    const typedPw = newPwInput.value;
     newPwInput.value = "";
+
+    // Try selected account first, then all profiles
+    const selectedName = $("auth-selected-name")?.value || localStorage.getItem("jarvis_name_hint");
+    const hash = await hashPassword(typedPw);
+
+    if (selectedName) {
+      try {
+        const res  = await fetch("/api/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: selectedName, passwordHash: hash }) });
+        const data = await res.json();
+        if (data.authorized) {
+          const restored = { ...data.profile, passwordHash: hash };
+          saveProfileLocal(restored);
+          localStorage.setItem("jarvis_name_hint", data.profile.name.toLowerCase());
+          localStorage.setItem("jarvis_pw_hash", hash);
+          state.user = data.profile.name; state.userTitle = data.profile.title;
+          speak(`Welcome back, ${data.profile.title}.`, launchMain); return;
+        }
+      } catch {}
+    }
+
+    // Try local profile
+    const profile = loadProfile();
     if (profile && hash === profile.passwordHash) {
       state.user = profile.name; state.userTitle = profile.title;
       speak(`Welcome back, ${profile.title}.`, launchMain); return;
     }
-    const nameHint = localStorage.getItem("jarvis_name_hint");
-    if (nameHint) {
-      try {
-        const res  = await fetch("/api/verify", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nameHint, passwordHash: hash }) });
-        const data = await res.json();
-        if (data.authorized) {
-          const restored = { ...data.profile, passwordHash: hash };
-          saveProfileLocal(restored); localStorage.setItem("jarvis_pw_hash", hash);
-          state.user = data.profile.name; state.userTitle = data.profile.title;
-          speak(`Welcome back, ${data.profile.title}. Profile restored.`, launchMain); return;
-        }
-      } catch {}
-    }
+
+    // Wrong password
     const as = $("auth-status");
     as.innerHTML = `<span style="color:var(--red)">Wrong password.</span>`;
     setTimeout(() => { as.innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> or type password`; }, 2000);
   });
+
   startAuthListening();
+}
+
+// ── Render clickable saved account tiles on auth screen ──
+function renderSavedAccounts(profiles) {
+  // Remove existing
+  const old = $("saved-accounts-wrap"); if (old) old.remove();
+  if (!profiles || profiles.length === 0) return;
+
+  const wrap = document.createElement("div");
+  wrap.id = "saved-accounts-wrap";
+  wrap.style.cssText = `
+    display:flex; gap:10px; flex-wrap:wrap; justify-content:center;
+    margin-bottom:12px;
+  `;
+
+  // Hidden field to track selected account
+  const hiddenInput = document.createElement("input");
+  hiddenInput.type = "hidden"; hiddenInput.id = "auth-selected-name";
+  hiddenInput.value = localStorage.getItem("jarvis_name_hint") || "";
+  wrap.appendChild(hiddenInput);
+
+  profiles.forEach(p => {
+    const tile = document.createElement("button");
+    tile.style.cssText = `
+      background: rgba(0,200,255,0.06);
+      border: 1px solid rgba(0,200,255,0.25);
+      color: var(--blue);
+      font-family: var(--hud, 'Orbitron', monospace);
+      font-size: 0.58rem;
+      letter-spacing: 0.2em;
+      padding: 10px 18px;
+      border-radius: 3px;
+      cursor: pointer;
+      display: flex; flex-direction: column; align-items: center; gap: 4px;
+      transition: all 0.2s;
+      min-width: 100px;
+    `;
+    const nameEl = document.createElement("span");
+    nameEl.textContent = p.name.toUpperCase();
+    nameEl.style.cssText = "font-size:0.72rem; font-weight:700;";
+    const titleEl = document.createElement("span");
+    titleEl.textContent = p.title || "";
+    titleEl.style.cssText = "font-size:0.48rem; color:var(--text-dim); letter-spacing:0.18em;";
+    tile.appendChild(nameEl);
+    tile.appendChild(titleEl);
+
+    const isSelected = (hiddenInput.value === p.name.toLowerCase());
+    if (isSelected) {
+      tile.style.borderColor = "var(--blue)";
+      tile.style.background = "rgba(0,200,255,0.14)";
+      tile.style.boxShadow = "0 0 16px rgba(0,200,255,0.2)";
+    }
+
+    tile.addEventListener("click", () => {
+      hiddenInput.value = p.name.toLowerCase();
+      localStorage.setItem("jarvis_name_hint", p.name.toLowerCase());
+      // Reset all tiles
+      wrap.querySelectorAll("button").forEach(b => {
+        b.style.borderColor = "rgba(0,200,255,0.25)";
+        b.style.background = "rgba(0,200,255,0.06)";
+        b.style.boxShadow = "none";
+      });
+      tile.style.borderColor = "var(--blue)";
+      tile.style.background = "rgba(0,200,255,0.14)";
+      tile.style.boxShadow = "0 0 16px rgba(0,200,255,0.2)";
+      $("auth-password-input")?.focus();
+    });
+
+    tile.addEventListener("mouseenter", () => {
+      if (hiddenInput.value !== p.name.toLowerCase()) {
+        tile.style.borderColor = "rgba(0,200,255,0.5)";
+        tile.style.background = "rgba(0,200,255,0.1)";
+      }
+    });
+    tile.addEventListener("mouseleave", () => {
+      if (hiddenInput.value !== p.name.toLowerCase()) {
+        tile.style.borderColor = "rgba(0,200,255,0.25)";
+        tile.style.background = "rgba(0,200,255,0.06)";
+      }
+    });
+
+    wrap.appendChild(tile);
+  });
+
+  // Insert before auth-status
+  const authContainer = $("auth-screen")?.querySelector(".auth-container");
+  if (authContainer) {
+    const status = authContainer.querySelector(".auth-status");
+    authContainer.insertBefore(wrap, status);
+  }
 }
 
 function startAuthListening() {
@@ -764,21 +897,14 @@ function openHologram(query) {
   const panel  = $("hologram-panel");
   const iframe = $("hologram-iframe");
   if (!panel || !iframe) return;
-
   panel.style.display = "block";
   mic.suspend();
-
   if (query) {
     const send = () => {
-      try {
-        iframe.contentWindow.postMessage({ type: "HOLOGRAM_SEARCH", query }, "*");
-      } catch (e) {}
+      try { iframe.contentWindow.postMessage({ type: "HOLOGRAM_SEARCH", query }, "*"); } catch (e) {}
     };
-    if (iframe.contentDocument?.readyState === "complete") {
-      send();
-    } else {
-      iframe.onload = send;
-    }
+    if (iframe.contentDocument?.readyState === "complete") send();
+    else iframe.onload = send;
   }
 }
 
@@ -795,44 +921,32 @@ async function handleAction(action, meta, replyText) {
   const T = state.userTitle || "Sir";
 
   switch (action) {
-
     case "SHOW_HOLOGRAM": {
       const query = meta?.query || "";
-      speak(replyText, () => {
-        openHologram(query);
-        mic.resume();
-      });
+      speak(replyText, () => { openHologram(query); mic.resume(); });
       break;
     }
-
     case "SHOW_LINKS": {
       speak(replyText, () => mic.resume());
       if (meta.linkGroups && meta.linkGroups.length > 0) {
         const wrap = document.createElement("div"); wrap.className = "msg system";
         let html = `<div class="msg-label">J.A.R.V.I.S — LINK BANK (${meta.total} total)</div><div class="msg-text link-bank-display">`;
         for (const group of meta.linkGroups) {
-          html += `<div class="link-group">`;
-          html += `<div class="link-group-name">${group.name.toUpperCase()} <span class="link-count">(${group.count})</span></div>`;
+          html += `<div class="link-group"><div class="link-group-name">${group.name.toUpperCase()} <span class="link-count">(${group.count})</span></div>`;
           if (group.count <= 5) {
-            for (const url of group.urls) {
-              html += `<a href="${url}" target="_blank" rel="noopener" class="jarvis-link link-item">${url}</a>`;
-            }
+            for (const url of group.urls) html += `<a href="${url}" target="_blank" rel="noopener" class="jarvis-link link-item">${url}</a>`;
           } else {
-            for (const url of group.urls.slice(0, 3)) {
-              html += `<a href="${url}" target="_blank" rel="noopener" class="jarvis-link link-item">${url}</a>`;
-            }
+            for (const url of group.urls.slice(0, 3)) html += `<a href="${url}" target="_blank" rel="noopener" class="jarvis-link link-item">${url}</a>`;
             html += `<span class="link-more">… and ${group.count - 3} more. Say "${group.name}" to open a random one.</span>`;
           }
           html += `</div>`;
         }
         html += `</div>`;
         wrap.innerHTML = html;
-        $("transcript").appendChild(wrap);
-        $("transcript").scrollTop = $("transcript").scrollHeight;
+        $("transcript").appendChild(wrap); $("transcript").scrollTop = $("transcript").scrollHeight;
       }
       break;
     }
-
     case "OPEN_LINK": {
       if (meta.found) {
         const wrap = document.createElement("div"); wrap.className = "msg jarvis";
@@ -844,7 +958,6 @@ async function handleAction(action, meta, replyText) {
       }
       break;
     }
-
     case "CLIP_SAVE": {
       speak(replyText, () => {
         const clipType = meta.clipType || "both";
@@ -867,18 +980,15 @@ async function handleAction(action, meta, replyText) {
       });
       break;
     }
-
     case "SHOW_CLIPS": {
       speak(replyText, () => { showIntruderClips(); mic.resume(); });
       break;
     }
-
     case "READ_SCREEN": {
       speak(replyText, () => {});
       await readScreen(meta.question || "What's on my screen?");
       break;
     }
-
     case "SWITCH_CAMERA": {
       if (meta.switchCamera && meta.cameraIndex >= 0) {
         speak(replyText, () => {});
@@ -893,7 +1003,6 @@ async function handleAction(action, meta, replyText) {
       }
       break;
     }
-
     case "TIMER": {
       if (meta.action === "TIMER_SET" && meta.duration) {
         speak(replyText, () => mic.resume());
@@ -915,52 +1024,19 @@ async function handleAction(action, meta, replyText) {
       }
       break;
     }
-
-    case "NOTIF_SETTINGS": {
-      speak(replyText, () => {}); showNotifSettings(); break;
-    }
-
-    case "LOGOUT": {
-      speak(replyText, () => {}); setTimeout(() => handleLogout(), 800); break;
-    }
-
+    case "NOTIF_SETTINGS": { speak(replyText, () => {}); showNotifSettings(); break; }
+    case "LOGOUT": { speak(replyText, () => {}); setTimeout(() => handleLogout(), 800); break; }
     case "SHOW_HUD": {
       speak(replyText, () => mic.resume());
-      if (window.PiPWidgets) {
-        window.PiPWidgets.handleVoiceCommand("SHOW_HUD", {
-          query: meta?.query || replyText
-        });
-      }
+      if (window.PiPWidgets) window.PiPWidgets.handleVoiceCommand("SHOW_HUD", { query: meta?.query || replyText });
       break;
     }
-
     case "HIDE_HUD": {
       speak(replyText, () => mic.resume());
-      if (window.PiPWidgets) {
-        window.PiPWidgets.handleVoiceCommand("HIDE_HUD", {
-          query: meta?.query || replyText
-        });
-      }
+      if (window.PiPWidgets) window.PiPWidgets.handleVoiceCommand("HIDE_HUD", { query: meta?.query || replyText });
       break;
     }
-
-    case "MEMORY_SAVE":
-    case "MEMORY_FORGET":
-    case "MEMORY_RECALL":
-    case "SYSTEM_STATUS":
-    case "CAPABILITIES":
-    case "IDENTITY":
-    case "GREETING":
-    case "THANKS":
-    case "MOOD_QUERY":
-    case "PERSONAL":
-    case "KNOWLEDGE":
-    case "MATH":
-    case "COMPARISON":
-    case "OPINION":
-    default: {
-      speak(replyText, () => mic.resume()); break;
-    }
+    default: { speak(replyText, () => mic.resume()); break; }
   }
 }
 
@@ -989,9 +1065,7 @@ function hideTimerBadge(timerId) {
 }
 
 function formatDurationClient(ms) {
-  const h = Math.floor(ms / 3600000);
-  const m = Math.floor((ms % 3600000) / 60000);
-  const s = Math.floor((ms % 60000) / 1000);
+  const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), s = Math.floor((ms % 60000) / 1000);
   const parts = [];
   if (h) parts.push(`${h}h`);
   if (m) parts.push(`${m}m`);
@@ -1024,22 +1098,10 @@ function showNotifSettings() {
         </div>
         <div class="notif-section">
           <div class="notif-section-label">ALERT CHANNELS</div>
-          <div class="notif-row">
-            <div class="notif-row-info"><span class="notif-row-dot red"></span><div><div class="notif-row-title">Intruder detection</div><div class="notif-row-sub">Push + alarm tone</div></div></div>
-            <label class="notif-toggle"><input type="checkbox" id="nt-intruder" ${notif.cfg.intruder ? "checked" : ""}><span class="notif-slider"></span></label>
-          </div>
-          <div class="notif-row">
-            <div class="notif-row-info"><span class="notif-row-dot amber"></span><div><div class="notif-row-title">Away mode</div><div class="notif-row-sub">Push + descending chime</div></div></div>
-            <label class="notif-toggle"><input type="checkbox" id="nt-away" ${notif.cfg.away ? "checked" : ""}><span class="notif-slider"></span></label>
-          </div>
-          <div class="notif-row">
-            <div class="notif-row-info"><span class="notif-row-dot blue"></span><div><div class="notif-row-title">User return</div><div class="notif-row-sub">Push + ascending welcome tone</div></div></div>
-            <label class="notif-toggle"><input type="checkbox" id="nt-return" ${notif.cfg.return ? "checked" : ""}><span class="notif-slider"></span></label>
-          </div>
-          <div class="notif-row">
-            <div class="notif-row-info"><span class="notif-row-dot green"></span><div><div class="notif-row-title">System events</div><div class="notif-row-sub">Subtle ping</div></div></div>
-            <label class="notif-toggle"><input type="checkbox" id="nt-system" ${notif.cfg.system ? "checked" : ""}><span class="notif-slider"></span></label>
-          </div>
+          <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot red"></span><div><div class="notif-row-title">Intruder detection</div><div class="notif-row-sub">Push + alarm tone</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-intruder" ${notif.cfg.intruder ? "checked" : ""}><span class="notif-slider"></span></label></div>
+          <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot amber"></span><div><div class="notif-row-title">Away mode</div><div class="notif-row-sub">Push + descending chime</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-away" ${notif.cfg.away ? "checked" : ""}><span class="notif-slider"></span></label></div>
+          <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot blue"></span><div><div class="notif-row-title">User return</div><div class="notif-row-sub">Push + ascending welcome tone</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-return" ${notif.cfg.return ? "checked" : ""}><span class="notif-slider"></span></label></div>
+          <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot green"></span><div><div class="notif-row-title">System events</div><div class="notif-row-sub">Subtle ping</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-system" ${notif.cfg.system ? "checked" : ""}><span class="notif-slider"></span></label></div>
         </div>
         <div class="notif-section">
           <div class="notif-section-label">TEST ALERTS</div>
@@ -1052,23 +1114,17 @@ function showNotifSettings() {
         </div>
       </div>`;
     document.body.appendChild(overlay);
-
     $("notif-close-btn").addEventListener("click", hideNotifSettings);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) hideNotifSettings(); });
     $("notif-perm-btn")?.addEventListener("click", () => notif.requestPerm());
-
     const toggleMap = { "nt-intruder":"intruder","nt-away":"away","nt-return":"return","nt-system":"system" };
-    for (const [id, key] of Object.entries(toggleMap)) {
-      $(id)?.addEventListener("change", (e) => { notif.cfg[key] = e.target.checked; });
-    }
-
+    for (const [id, key] of Object.entries(toggleMap)) $(id)?.addEventListener("change", (e) => { notif.cfg[key] = e.target.checked; });
     const testT = state.userTitle || "Sir";
     $("ntest-intruder").addEventListener("click", () => { notif.tone("intruder"); notif.push("⚠ J.A.R.V.I.S — TEST", `Test: intruder alert, ${testT}.`, "test-intruder"); });
     $("ntest-away").addEventListener("click",     () => { notif.tone("away");     notif.push("J.A.R.V.I.S — TEST", `Test: away mode, ${testT}.`, "test-away"); });
     $("ntest-return").addEventListener("click",   () => { notif.tone("return");   notif.push("J.A.R.V.I.S — TEST", `Test: welcome back, ${testT}.`, "test-return"); });
     $("ntest-system").addEventListener("click",   () => { notif.tone("system");   notif.push("J.A.R.V.I.S — TEST", "Test: system ping.", "test-system"); });
   }
-
   overlay.classList.remove("hidden");
   updateNotifPermDisplay();
   addMsg("system", "Notification settings open.");
@@ -1199,7 +1255,7 @@ async function readScreen(question) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── CAMERA / FACE ──
+// ── CAMERA / FACE — FIXED enrollment flow ──
 // ═══════════════════════════════════════════════════════════════
 async function requestCameraAccess() {
   try {
@@ -1216,8 +1272,10 @@ async function requestCameraAccess() {
     if (cameraStatus) { cameraStatus.textContent = "● ONLINE"; cameraStatus.classList.add("online"); }
     startCameraBuffer(stream);
     await enumerateCameras();
+    addMsg("system", `Camera online. ${state.availableCameras.length} camera(s) detected.`);
+    updateMood(5);
+    // Load face models then enroll — intruder detection only starts after enrollment
     await loadFaceModels();
-    addMsg("system", `Camera online. ${state.availableCameras.length} camera(s) detected.`); updateMood(5);
   } catch { addMsg("system", "Camera declined — face recognition unavailable."); }
 }
 
@@ -1231,45 +1289,126 @@ async function loadFaceModels() {
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
     ]);
-    faceApiLoaded = true; await enrollUserFace(); startFaceWatch();
-  } catch (e) { console.warn("[JARVIS] Face-api failed:", e); }
+    faceApiLoaded = true;
+    addMsg("system", "Face recognition engine loaded. Enrolling your face — please look at the camera.");
+    speak(`Face recognition active, ${state.userTitle}. Please look at the camera while I scan your face.`);
+    await enrollUserFace();
+  } catch (e) {
+    console.warn("[JARVIS] Face-api failed:", e);
+    addMsg("system", "Face recognition unavailable — intruder detection disabled.");
+  }
 }
 
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
-    const s = document.createElement("script"); s.src = src; s.onload = resolve; s.onerror = reject;
-    document.head.appendChild(s);
-  });
-}
-
+// ── ENROLLMENT — retries for up to 30 seconds, shows status ──
 async function enrollUserFace() {
   if (!faceApiLoaded || !state.cameraStream) return;
-  const vid = $("camera-feed"); if (!vid) return;
-  for (let i = 0; i < 5; i++) {
-    await delay(1000);
+  if (state.faceEnrollPending) return; // already running
+  state.faceEnrollPending = true;
+  state.faceEnrolled = false;
+  state.faceDescriptors = null;
+
+  const vid = $("camera-feed"); if (!vid) { state.faceEnrollPending = false; return; }
+
+  // Show enrollment status badge
+  showEnrollBadge("SCANNING YOUR FACE…");
+
+  const MAX_ATTEMPTS = 20;
+  const WAIT_PER_ATTEMPT_MS = 1500;
+  let attempts = 0;
+  let success = false;
+
+  while (attempts < MAX_ATTEMPTS && !success) {
+    await delay(WAIT_PER_ATTEMPT_MS);
+    attempts++;
+
+    // Make sure video is ready
+    if (vid.readyState < 2) { updateEnrollBadge(`WAITING FOR CAMERA… (${attempts}/${MAX_ATTEMPTS})`); continue; }
+
     try {
-      const d = await faceapi.detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
-      if (d) { state.faceDescriptors = d.descriptor; addMsg("system", "Your face enrolled for recognition."); return; }
-    } catch {}
+      const detection = await faceapi
+        .detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.35 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (detection && detection.descriptor) {
+        state.faceDescriptors = detection.descriptor;
+        state.faceEnrolled = true;
+        success = true;
+        hideEnrollBadge();
+        addMsg("system", `✓ Your face has been enrolled, ${state.userTitle}. Intruder detection is now active.`);
+        speak(`Face enrolled, ${state.userTitle}. I'll alert you if anyone else appears on camera.`);
+        // Start watching now that we have a descriptor
+        startFaceWatch();
+        break;
+      } else {
+        updateEnrollBadge(`SCANNING… look at camera (${attempts}/${MAX_ATTEMPTS})`);
+      }
+    } catch (e) {
+      updateEnrollBadge(`SCAN ERROR — retrying (${attempts}/${MAX_ATTEMPTS})`);
+      console.warn("[JARVIS] Enroll attempt error:", e.message);
+    }
   }
+
+  state.faceEnrollPending = false;
+
+  if (!success) {
+    hideEnrollBadge();
+    addMsg("system", "Face enrollment failed — couldn't detect a face. Intruder detection disabled. Say 're-enroll face' to try again.");
+    // Don't start face watch — intruder detection stays off
+  }
+}
+
+// ── Enrollment badge UI ──
+function showEnrollBadge(text) {
+  let badge = $("face-enroll-badge");
+  if (!badge) {
+    badge = document.createElement("div");
+    badge.id = "face-enroll-badge";
+    badge.style.cssText = `
+      position:fixed; top:20px; left:50%; transform:translateX(-50%);
+      background:rgba(0,200,255,0.1); border:1px solid rgba(0,200,255,0.5);
+      color:var(--blue,#00c8ff); font-family:'Share Tech Mono',monospace;
+      font-size:0.7rem; letter-spacing:0.18em; padding:8px 20px;
+      border-radius:3px; z-index:90; display:flex; align-items:center; gap:10px;
+      box-shadow:0 0 20px rgba(0,200,255,0.15);
+    `;
+    const dot = document.createElement("span");
+    dot.style.cssText = "width:7px;height:7px;border-radius:50%;background:var(--blue,#00c8ff);animation:blink 1s step-end infinite;flex-shrink:0;";
+    const txt = document.createElement("span"); txt.id = "face-enroll-badge-text"; txt.textContent = text;
+    badge.appendChild(dot); badge.appendChild(txt);
+    document.body.appendChild(badge);
+  }
+  badge.style.display = "flex";
+  const t = $("face-enroll-badge-text"); if (t) t.textContent = text;
+}
+function updateEnrollBadge(text) {
+  const t = $("face-enroll-badge-text"); if (t) t.textContent = text;
+}
+function hideEnrollBadge() {
+  const badge = $("face-enroll-badge"); if (badge) badge.style.display = "none";
 }
 
 function startFaceWatch() {
   if (state.faceCheckInterval) clearInterval(state.faceCheckInterval);
-  state.faceCheckInterval = setInterval(checkFace, 2000);
+  state.faceCheckInterval = setInterval(checkFace, 2500);
 }
 
 async function checkFace() {
+  // CRITICAL: do not run intruder detection unless face is enrolled
   if (!faceApiLoaded || !state.cameraStream || state.phase !== "chatting") return;
+  if (!state.faceEnrolled || !state.faceDescriptors) return; // enrollment not done yet
+  if (state.faceEnrollPending) return;
+
   const vid = $("camera-feed"); if (!vid || vid.readyState < 2) return;
   try {
     const detections = await faceapi.detectAllFaces(vid, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptors();
     if (detections.length > 0) state.lastSeenUser = Date.now();
-    if (state.faceDescriptors && detections.length > 0) {
+
+    if (detections.length > 0) {
       let userPresent = false;
       for (const d of detections) {
-        if (faceapi.euclideanDistance(d.descriptor, state.faceDescriptors) < 0.55) { userPresent = true; break; }
+        const dist = faceapi.euclideanDistance(d.descriptor, state.faceDescriptors);
+        if (dist < 0.55) { userPresent = true; break; }
       }
       if (userPresent) {
         if (state.awayMode) {
@@ -1278,12 +1417,19 @@ async function checkFace() {
           const msg = msgs[Math.floor(Math.random() * msgs.length)];
           addMsg("jarvis", msg); speak(msg, () => setTimeout(() => checkIntruderClips(), 1500)); updateMood(15);
         }
-      } else if (detections.length > 0 && !state.intruderActive) { handleUnknownFace(); }
+      } else if (!state.intruderActive) {
+        // Unknown face detected — only fire if enrollment is solid
+        handleUnknownFace();
+      }
     }
+
     if (Date.now() - state.lastSeenUser > 60000 && !state.awayMode && state.phase === "chatting") {
-      state.awayMode = true; notif.away(state.userTitle); addMsg("system", "User not detected — away mode active. Monitoring.");
+      state.awayMode = true; notif.away(state.userTitle);
+      addMsg("system", "User not detected — away mode active. Monitoring.");
     }
-  } catch {}
+  } catch (e) {
+    console.warn("[JARVIS] checkFace error:", e.message);
+  }
 }
 
 function handleUnknownFace() {
@@ -1435,15 +1581,22 @@ function handleLogout() {
   for (const t of state.activeTimers) clearTimeout(t.id);
   state.activeTimers = [];
   const badge = $("timer-badge-el"); if (badge) badge.classList.add("hidden");
+  hideEnrollBadge();
 
-  speak(`Goodbye, ${state.userTitle}. Initiating shutdown.`, () => {
+  speak(`Goodbye, ${state.userTitle}. Initiating shutdown.`, async () => {
     state.phase = "idle"; state.user = null; state.userTitle = null;
     state.sessionId = crypto.randomUUID(); state.awayMode = false; state.intruderActive = false;
+    state.faceEnrolled = false; state.faceDescriptors = null; state.faceEnrollPending = false;
     $("transcript").innerHTML = "";
     $("main-screen").classList.remove("active");
     $("auth-screen").classList.add("active");
     $("auth-status").innerHTML = `Say <span class="highlight">"Jarvis, log in"</span> or type password`;
-    setOrb("idle"); stopScreenRecord(); startAuthListening();
+    setOrb("idle"); stopScreenRecord();
+
+    // Refresh profiles list on auth screen
+    const profiles = await loadServerProfiles();
+    renderSavedAccounts(profiles);
+    startAuthListening();
   });
 }
 
@@ -1457,6 +1610,14 @@ function addMsg(type, text) {
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+    const s = document.createElement("script"); s.src = src; s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ── BOOT ──
 // ═══════════════════════════════════════════════════════════════
@@ -1465,7 +1626,22 @@ window.addEventListener("load", async () => {
     const w = new SpeechSynthesisUtterance(" ");
     w.volume = 0; speechSynthesis.speak(w); speechSynthesis.getVoices();
   }, 500);
-  let profile = loadProfile();
-  if (!profile) { profile = await restoreProfileFromBackend(); if (profile) saveProfileLocal(profile); }
-  if (!profile) showSetup(); else showAuthScreen();
+
+  // Always check server first, then localStorage
+  let profile = null;
+  const nameHint = localStorage.getItem("jarvis_name_hint");
+  if (nameHint) {
+    try {
+      const res = await fetch(`/api/profile/${encodeURIComponent(nameHint)}`);
+      const data = await res.json();
+      if (data.found) {
+        profile = { ...data.profile, passwordHash: localStorage.getItem("jarvis_pw_hash") || "" };
+        saveProfileLocal(profile); // keep local in sync
+      }
+    } catch {}
+  }
+  if (!profile) profile = loadProfile();
+
+  if (!profile) showSetup();
+  else showAuthScreen();
 });
