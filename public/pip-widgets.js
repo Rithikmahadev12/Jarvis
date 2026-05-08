@@ -1,10 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Picture-in-Picture HUD Widgets v2.2
-// Each HUD panel becomes its own floating PiP window
-// stays on top of ANY tab, zero extensions needed
-// FIX: SOLVE widget screen-read now uses ImageCapture API
-// (instant frame grab from already-playing stream) with a
-// persistent video element fallback — no more blank reads.
+// J.A.R.V.I.S — Picture-in-Picture HUD Widgets v2.3
+// FIX: SOLVE widget now takes a FRESH screenshot via getDisplayMedia
+// instead of relying on a stale stored stream reference.
 // ═══════════════════════════════════════════════════════════════
 
 window.PiPWidgets = (function () {
@@ -37,105 +34,159 @@ window.PiPWidgets = (function () {
   let _solveState = {
     answer:   'AWAITING QUERY',
     category: 'STANDBY',
-    sub:      'State your problem — Jarvis will solve it.',
+    sub:      'Say "Jarvis solve [problem]" or "Jarvis solve" to scan screen.',
     steps:    [],
     extra:    '',
     processing: false,
   };
 
-  // ── SCREEN FRAME GRABBER ─────────────────────────────────────
-  // Uses the already-playing screen stream track.
-  // Tries ImageCapture first (fastest, no video element needed).
-  // Falls back to a persistent <video> element that stays loaded.
-  let _screenVideo = null; // reuse across calls to avoid re-load delay
+  // ═══════════════════════════════════════════════════════════════
+  // ── SCREENSHOT ENGINE ─────────────────────────────────────────
+  // Takes a FRESH screenshot every time — no stale stream issues.
+  // Strategy:
+  //   1. Try existing screen stream (fastest, no prompt)
+  //   2. If that fails, call getDisplayMedia() for a one-shot capture
+  //   3. Run Tesseract OCR on the captured frame
+  // ═══════════════════════════════════════════════════════════════
+
+  async function captureScreenToDataUrl() {
+    // ── Method A: Use existing stream track via ImageCapture ──
+    const existingStream = window.state && window.state.screenStream;
+    if (existingStream) {
+      const tracks = existingStream.getVideoTracks();
+      const liveTrack = tracks.find(t => t.readyState === 'live');
+      if (liveTrack) {
+        try {
+          if (typeof ImageCapture !== 'undefined') {
+            const capture = new ImageCapture(liveTrack);
+            const bitmap  = await capture.grabFrame();
+            const canvas  = document.createElement('canvas');
+            canvas.width  = bitmap.width;
+            canvas.height = bitmap.height;
+            canvas.getContext('2d').drawImage(bitmap, 0, 0);
+            return canvas.toDataURL('image/png');
+          }
+        } catch (e) {
+          console.warn('[SOLVE] ImageCapture from existing stream failed:', e.message);
+        }
+
+        // Fallback: video element with existing stream
+        try {
+          const video = document.createElement('video');
+          video.srcObject = existingStream;
+          video.muted = true;
+          video.playsInline = true;
+          await new Promise((resolve) => {
+            video.onloadeddata = resolve;
+            video.onerror = resolve;
+            video.play().catch(resolve);
+            setTimeout(resolve, 3000);
+          });
+          await new Promise(r => setTimeout(r, 300));
+          const canvas = document.createElement('canvas');
+          canvas.width  = video.videoWidth  || 1280;
+          canvas.height = video.videoHeight || 720;
+          canvas.getContext('2d').drawImage(video, 0, 0);
+          video.pause();
+          video.srcObject = null;
+          const dataUrl = canvas.toDataURL('image/png');
+          if (canvas.width > 100) return dataUrl;
+        } catch (e) {
+          console.warn('[SOLVE] Video fallback from existing stream failed:', e.message);
+        }
+      }
+    }
+
+    // ── Method B: Fresh getDisplayMedia capture ──
+    // User will see a "Share your screen" prompt — one-shot, stops immediately after.
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: 'never', displaySurface: 'monitor' },
+        audio: false,
+      });
+
+      const track = stream.getVideoTracks()[0];
+      let dataUrl = null;
+
+      if (typeof ImageCapture !== 'undefined') {
+        try {
+          const capture = new ImageCapture(track);
+          // grabFrame works immediately on a fresh stream
+          const bitmap  = await capture.grabFrame();
+          const canvas  = document.createElement('canvas');
+          canvas.width  = bitmap.width;
+          canvas.height = bitmap.height;
+          canvas.getContext('2d').drawImage(bitmap, 0, 0);
+          dataUrl = canvas.toDataURL('image/png');
+        } catch (e) {
+          console.warn('[SOLVE] ImageCapture on fresh stream failed:', e.message);
+        }
+      }
+
+      if (!dataUrl) {
+        // Video element fallback on fresh stream
+        const video = document.createElement('video');
+        video.srcObject = stream;
+        video.muted = true;
+        video.playsInline = true;
+        await new Promise((resolve) => {
+          video.onloadeddata = resolve;
+          video.onerror = resolve;
+          video.play().catch(resolve);
+          setTimeout(resolve, 3000);
+        });
+        await new Promise(r => setTimeout(r, 400));
+        const canvas = document.createElement('canvas');
+        canvas.width  = video.videoWidth  || 1280;
+        canvas.height = video.videoHeight || 720;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+        video.pause();
+        video.srcObject = null;
+        dataUrl = canvas.toDataURL('image/png');
+      }
+
+      // Stop the stream immediately — we only needed one frame
+      stream.getTracks().forEach(t => t.stop());
+
+      return dataUrl;
+    } catch (e) {
+      console.warn('[SOLVE] getDisplayMedia failed:', e.message);
+      return null;
+    }
+  }
 
   async function grabScreenText() {
-    const stream = window.state && window.state.screenStream;
-    if (!stream) return '';
-
-    const tracks = stream.getVideoTracks();
-    if (!tracks.length) return '';
-    const track = tracks[0];
-
-    // Check track is still live
-    if (track.readyState === 'ended') return '';
-
-    let dataUrl = null;
-
-    // ── Method 1: ImageCapture (Chrome/Edge, instant) ──────
-    if (typeof ImageCapture !== 'undefined') {
-      try {
-        const capture = new ImageCapture(track);
-        const bitmap  = await capture.grabFrame();
-        const canvas  = document.createElement('canvas');
-        canvas.width  = bitmap.width;
-        canvas.height = bitmap.height;
-        canvas.getContext('2d').drawImage(bitmap, 0, 0);
-        dataUrl = canvas.toDataURL('image/png');
-      } catch (e) {
-        console.warn('[SOLVE] ImageCapture failed, trying video fallback:', e.message);
-      }
-    }
-
-    // ── Method 2: Persistent video element ──────────────────
-    if (!dataUrl) {
-      try {
-        // Reuse video element if already loaded with this stream
-        if (!_screenVideo || _screenVideo.srcObject !== stream) {
-          _screenVideo = document.createElement('video');
-          _screenVideo.srcObject = stream;
-          _screenVideo.muted      = true;
-          _screenVideo.playsInline = true;
-
-          await new Promise((resolve) => {
-            _screenVideo.onloadeddata = resolve;
-            _screenVideo.onerror = resolve; // don't hang on error
-            _screenVideo.play().catch(resolve);
-            setTimeout(resolve, 2500); // safety timeout
-          });
-
-          // Extra wait for a real frame to be painted
-          await new Promise(r => setTimeout(r, 500));
-        }
-
-        if (_screenVideo.readyState < 2) {
-          await new Promise(r => setTimeout(r, 600));
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width  = _screenVideo.videoWidth  || 1280;
-        canvas.height = _screenVideo.videoHeight || 720;
-        canvas.getContext('2d').drawImage(_screenVideo, 0, 0);
-        dataUrl = canvas.toDataURL('image/png');
-      } catch (e) {
-        console.warn('[SOLVE] Video fallback failed:', e.message);
-        return '';
-      }
-    }
-
+    const dataUrl = await captureScreenToDataUrl();
     if (!dataUrl) return '';
 
-    // ── Run Tesseract OCR ──────────────────────────────────
-    // Use the already-initialised worker from jarvis.js if available
+    // ── Run Tesseract OCR ──
+    // Try shared worker first (fastest, already warmed up)
     if (window.state && window.state.tesseractWorker && window.state.tesseractReady) {
       try {
         const result = await window.state.tesseractWorker.recognize(dataUrl);
         return result.data.text || '';
       } catch (e) {
-        console.warn('[SOLVE] Tesseract (shared worker) failed:', e.message);
+        console.warn('[SOLVE] Tesseract shared worker failed:', e.message);
       }
     }
 
-    // Tesseract not ready yet — spin up a one-shot worker
-    if (window.Tesseract) {
-      try {
-        const worker = await Tesseract.createWorker('eng', 1, { logger: () => {} });
-        const result = await worker.recognize(dataUrl);
-        await worker.terminate();
-        return result.data.text || '';
-      } catch (e) {
-        console.warn('[SOLVE] On-demand Tesseract failed:', e.message);
+    // Load Tesseract and spin up a one-shot worker
+    try {
+      if (!window.Tesseract) {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+          s.onload = resolve;
+          s.onerror = reject;
+          document.head.appendChild(s);
+        });
       }
+      const worker = await Tesseract.createWorker('eng', 1, { logger: () => {} });
+      const result = await worker.recognize(dataUrl);
+      await worker.terminate();
+      return result.data.text || '';
+    } catch (e) {
+      console.warn('[SOLVE] On-demand Tesseract failed:', e.message);
     }
 
     return '';
@@ -448,7 +499,7 @@ window.PiPWidgets = (function () {
       ctx.font = '700 10px Orbitron,monospace';
       ctx.fillStyle = C.amber;
       ctx.textAlign = 'center';
-      ctx.fillText('PROCESSING', cx, cy + 36);
+      ctx.fillText(st.processingLabel || 'PROCESSING', cx, cy + 36);
       ctx.textAlign = 'left';
       return;
     }
@@ -519,7 +570,7 @@ window.PiPWidgets = (function () {
 
     ctx.font = '700 7px Orbitron,monospace';
     ctx.fillStyle = 'rgba(0,200,255,0.18)';
-    ctx.fillText('SAY "JARVIS SOLVE [PROBLEM]" TO UPDATE FROM ANY TAB', 14, h - 10);
+    ctx.fillText('SAY "JARVIS SOLVE [PROBLEM]" TO UPDATE', 14, h - 10);
   }
 
   // ── WIDGET RENDERERS ────────────────────────────────────────
@@ -809,36 +860,44 @@ window.PiPWidgets = (function () {
       const problem = extractSolveProblem(query);
 
       if (!problem) {
-        // No problem spoken — read the screen
-
-        _solveState = {
-          answer:     'Reading your screen…',
-          category:   'SCREEN SCAN',
-          sub:        'Scanning for equations and maths',
-          steps:      [],
-          extra:      '',
-          processing: true,
-        };
+        // No problem spoken — take a screenshot and scan it
 
         // Open widget immediately so user sees feedback
         if (!widgets.has('solve')) await openWidget('solve');
 
-        // Grab frame using ImageCapture from the already-playing stream
-        const screenText = await grabScreenText();
+        _solveState = {
+          answer:         'Taking screenshot…',
+          category:       'SCREEN SCAN',
+          sub:            'Select your screen when prompted',
+          steps:          [],
+          extra:          '',
+          processing:     true,
+          processingLabel:'CAPTURING SCREEN',
+        };
+
+        notify('Taking a screenshot of your screen — select the screen/window when prompted.');
+
+        let screenText = '';
+        try {
+          screenText = await grabScreenText();
+        } catch (e) {
+          console.warn('[SOLVE] grabScreenText error:', e.message);
+        }
 
         if (screenText && screenText.trim().length > 3) {
           const result = computeSolve(screenText.trim());
           if (result) {
             _solveState = { ...result, processing: false };
-            notify('Solved from screen: ' + result.answer);
+            notify('Solved from screenshot: ' + result.answer);
           } else {
             const preview = screenText.trim().slice(0, 80);
             _solveState = {
-              answer:   'No equation found',
+              answer:   'No equation found on screen',
               category: 'SCREEN SCAN',
               sub:      `Read: "${preview}${preview.length < screenText.trim().length ? '…' : ''}"`,
               steps: [
-                'Say "Jarvis solve [equation]" to solve directly',
+                'Make sure an equation is visible on screen',
+                'Or say "Jarvis solve [equation]" directly',
                 'e.g. "Jarvis solve x squared minus 5x plus 6 equals 0"',
                 'e.g. "Jarvis solve 15 percent of 200"',
               ],
@@ -847,15 +906,12 @@ window.PiPWidgets = (function () {
             };
           }
         } else {
-          const hasStream = !!(window.state && window.state.screenStream);
           _solveState = {
-            answer:   hasStream ? 'Nothing readable found' : 'Screen not shared',
+            answer:   'Could not read screen',
             category: 'SCREEN SCAN',
-            sub:      hasStream
-              ? 'Make sure an equation is visible — or say it aloud'
-              : 'Share your screen first (click the screen-share prompt), or say the equation',
+            sub:      'Screenshot failed or returned no text',
             steps: [
-              'Say "Jarvis solve [equation]" to solve without screen reading',
+              'Say "Jarvis solve [equation]" to solve directly without screenshot',
               'e.g. "Jarvis solve 25 percent of 80"',
               'e.g. "Jarvis solve is 97 prime"',
               'e.g. "Jarvis solve 72 fahrenheit to celsius"',
@@ -869,7 +925,7 @@ window.PiPWidgets = (function () {
       }
 
       // Problem was spoken — solve immediately
-      _solveState = { ..._solveState, processing: true };
+      _solveState = { ..._solveState, processing: true, processingLabel: 'COMPUTING' };
       if (!widgets.has('solve')) await openWidget('solve');
       await new Promise(r => setTimeout(r, 300));
 
