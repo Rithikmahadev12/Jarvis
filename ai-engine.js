@@ -1856,6 +1856,7 @@ function isMathQuery(text) {
 // ── INTENT TAXONOMY — UPGRADED ────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 const INTENTS = [
+  { id:"diy_project", signals:["build","make","design","construct","fabricate","diy","i want to build","can you make","help me build","how to build","how do i build","smart glasses","ar glasses","drone","quadcopter","exoskeleton","laser","repulsor","robot arm","plasma","wearable","gadget","circuit board","3d print","arduino project","raspberry pi project","budget","under $","dollars"], action:"DIY_PROJECT", weight:2.3 },
   { id:"coding",        signals:["write","create","build","make","generate","code","script","program","function","class","implement","develop","snippet","example","how to code","how to program","how to implement","how to build","html page","css","react component","api endpoint","database","query","bash script","python script","node server","express","flask","django","sql table","rust function","go function","automation","automate","scraper","scrape","scheduler","schedule","cron","watcher","watch files"], action:"CODE", weight:2.2 },
   { id:"terminal",      signals:["terminal","command","cmd","bash command","shell command","how do i","what command","linux command","windows command","powershell command","how to install","how to run","how to start","how to stop","open ports","check ip","scan network","running processes","disk usage","cpu usage","memory usage","git","docker","npm install","pip install"], action:"TERMINAL", weight:2.0 },
   { id:"debug",         signals:["debug","fix","error","bug","issue","problem","broken","wrong","failing","not working","crash","exception","traceback","undefined","null","cannot read","is not a function","syntax error","type error","reference error","why is","what's wrong","help me fix"], action:"DEBUG", weight:1.9 },
@@ -2265,7 +2266,10 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
     ctx.lastCodeLang = detectLanguage(resolved);
     return { reply, action: "CODE", intent: "coding" };
   }
-
+// 2b. Fast-path: DIY project request
+if (isAutomationRequest(resolved) || (typeof isDIYRequest !== "undefined" && isDIYRequest(resolved))) {
+  // handled via intent routing below — fall through
+}
   // 3. Fast-path: terminal command
   if (isTerminalRequest(resolved)) {
     const termReply = genTerminalCommand(resolved, ctx);
@@ -2372,6 +2376,15 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
         }
         break;
       }
+      case "DIY_PROJECT": {
+  const diyReply = pick([
+    `On it, ${T}. Running your build specs through Reddit, Hackaday, and Instructables now.`,
+    `DIY project incoming, ${T}. Pulling real parts lists and build guides from live sources.`,
+    `Locking in the build plan, ${T}. Cross-referencing community builds and pricing now.`,
+  ]);
+  ctx.addTurn(message, diyReply, action, "diy"); ctx.updateMood(8);
+  return { reply: diyReply, action, intent: intent.id, needsFetch: true, fetchType: "diy", meta: { query: resolved } };
+}
       case "SHOW_HOLOGRAM": {
         const objQuery = extractHologramQuery(resolved);
         const reply = pick([
