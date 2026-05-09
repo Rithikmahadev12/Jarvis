@@ -1018,12 +1018,24 @@ function openHologram(query) {
   if (!panel || !iframe) return;
   panel.style.display = "block";
   mic.suspend();
-  if (query) {
-    const send = () => {
-      try { iframe.contentWindow.postMessage({ type: "HOLOGRAM_SEARCH", query }, "*"); } catch (e) {}
-    };
-    if (iframe.contentDocument?.readyState === "complete") send();
-    else iframe.onload = send;
+
+  const lower = (query || "").toLowerCase();
+  const isBuildMode = /build mode|launcher|build me|make me|design|create/i.test(lower);
+
+  const sendMsg = () => {
+    try {
+      if (isBuildMode) {
+        iframe.contentWindow.postMessage({ type: "HOLOGRAM_SEARCH", query: "build mode" }, "*");
+      } else if (query) {
+        iframe.contentWindow.postMessage({ type: "HOLOGRAM_SEARCH", query }, "*");
+      }
+    } catch (e) {}
+  };
+
+  if (iframe.contentDocument?.readyState === "complete") {
+    setTimeout(sendMsg, 300);
+  } else {
+    iframe.onload = () => setTimeout(sendMsg, 300);
   }
 }
 
@@ -1046,6 +1058,8 @@ async function handleAction(action, meta, replyText) {
     openHologram(query);
     mic.resume();
   });
+  break;
+}
   // Also route "build me" voice commands into the hologram
   if (/build me|build|make me|design/i.test(query)) {
     const panel = $("hologram-panel");
