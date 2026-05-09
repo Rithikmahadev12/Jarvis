@@ -564,13 +564,11 @@ async function showAuthScreen() {
 
   // Wire password field Enter key
   const pwInput = $("auth-password-input");
-  if (pwInput) {
-    const newPw = pwInput.cloneNode(true);
-    pwInput.parentNode.replaceChild(newPw, pwInput);
-    newPw.addEventListener("keydown", e => {
-      if (e.key === "Enter") submitLogin();
-    });
-  }
+if (pwInput) {
+  pwInput.addEventListener("keydown", e => {
+    if (e.key === "Enter") submitLogin();
+  });
+}
 
   startAuthListening();
 }
