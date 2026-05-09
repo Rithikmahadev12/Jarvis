@@ -1153,6 +1153,21 @@ if ('Notification' in window && Notification.permission === 'default') {
   Notification.requestPermission();
 }
 boot();
+function checkAutoCall() {
+  const params = new URLSearchParams(window.location.search);
+  const callTarget = params.get('call');
+  if (!callTarget) return;
+  const attempt = setInterval(() => {
+    const match = state.users.find(u => u.username.toLowerCase().includes(callTarget.toLowerCase()));
+    if (match) {
+      clearInterval(attempt);
+      openDM(match.username);
+      setTimeout(() => startCall('video'), 800);
+    }
+  }, 800);
+  setTimeout(() => clearInterval(attempt), 10000);
+}
+setTimeout(checkAutoCall, 2000);
 </script>
 </body>
 </html>
