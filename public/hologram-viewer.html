@@ -1777,16 +1777,16 @@ function toggleMic(){
   recognition.start();
 }
 
-function handleVoiceCommand(text){
-  const lower=text.toLowerCase();
+function handleVoiceCommand(text) {
+  const lower = text.toLowerCase();
 
-  // BUILD MODE trigger — "Jarvis build mode"
-  if(/\b(build mode|launcher mode|arc mode|arc launcher)\b/i.test(lower)){
+  // BUILD MODE trigger — "Jarvis build mode" OR routed from jarvis.js
+  if(lower.trim() === 'build mode' || /\b(build mode|launcher mode|arc mode|arc launcher)\b/i.test(lower)){
     openLauncher();
     toast('⬡ BUILD MODE ACTIVATED');
+    announce('BUILD MODE');
     return;
   }
-
   // "show me this in 3d"
   if(/\b(show(?: me)? (?:this |it )?in 3d|switch to 3d|3d mode|view in 3d|convert to 3d)\b/i.test(lower)){
     blueprintTo3D();toast('CONVERTING TO 3D HOLOGRAM');return;
