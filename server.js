@@ -11,6 +11,7 @@ const Personality = require("./personality");
 const Weather     = require("./weather");
 const Spotify     = require("./spotify");
 const Google      = require("./google");
+const DIY         = require("./diy-builder");
 
 const app        = express();
 const httpServer = http.createServer(app);
@@ -551,6 +552,14 @@ app.post("/api/chat", async (req, res) => {
           return res.json({ reply: gmailReply, action: "GMAIL", intent: "gmail", meta: { gmailData } });
         } catch (e) { return res.json({ reply: `Gmail fetch failed, ${T}. ${e.message}`, action: "GMAIL", intent: "gmail" }); }
       }
+      case "diy": {
+  try {
+    const diyResult = await DIY.buildDIYProject(message, userTitle);
+    return res.json({ reply: diyResult.reply, action: "DIY_PROJECT", intent: "diy_project", meta: { images: diyResult.images, links: diyResult.links, budget: diyResult.budget, project: diyResult.project } });
+  } catch (e) {
+    return res.json({ reply: `DIY lookup failed, ${T}. ${e.message}`, action: "DIY_PROJECT", intent: "diy_project" });
+  }
+}
       case "calendar": {
         if (!Google.isConfigured()) return res.json({ reply: `Google Calendar isn't configured, ${T}. Add your Google credentials to .env, then visit /api/google/auth.`, action: "CALENDAR", intent: "calendar" });
         if (!Google.hasToken())     return res.json({ reply: `Google Calendar needs to be authorised first, ${T}. Visit http://localhost:3000/api/google/auth.`, action: "CALENDAR", intent: "calendar" });
