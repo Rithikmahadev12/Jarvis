@@ -1053,26 +1053,13 @@ async function handleAction(action, meta, replyText) {
 
   switch (action) {
     case "SHOW_HOLOGRAM": {
-  const query = meta?.query || "";
-  speak(replyText, () => {
-    openHologram(query);
-    mic.resume();
-  });
-  break;
-}
-  // Also route "build me" voice commands into the hologram
-  if (/build me|build|make me|design/i.test(query)) {
-    const panel = $("hologram-panel");
-    const iframe = $("hologram-iframe");
-    if (panel) panel.style.display = "block";
-    if (iframe && iframe.contentWindow) {
-      setTimeout(() => {
-        iframe.contentWindow.postMessage({ type: "HOLOGRAM_SEARCH", query }, "*");
-      }, 800);
+      const query = meta?.query || "";
+      speak(replyText, () => {
+        openHologram(query);
+        mic.resume();
+      });
+      break;
     }
-  }
-  break;
-}
     case "SHOW_LINKS": {
       speak(replyText, () => mic.resume());
       if (meta.linkGroups && meta.linkGroups.length > 0) {
