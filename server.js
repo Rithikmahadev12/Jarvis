@@ -3,6 +3,7 @@ const express     = require("express");
 const cors        = require("cors");
 const path        = require("path");
 const fs          = require("fs");
+const http        = require("http");
 const archiver    = require("archiver");
 const AI          = require("./ai-engine");
 const Research    = require("./research");
@@ -11,7 +12,9 @@ const Weather     = require("./weather");
 const Spotify     = require("./spotify");
 const Google      = require("./google");
 
-const app = express();
+const app        = express();
+const httpServer = http.createServer(app);
+
 app.use(cors());
 app.use(express.json({ limit: "30mb" }));
 
@@ -23,6 +26,17 @@ app.use(express.static(path.join(__dirname, "public"), {
     if (filePath.endsWith(".ico"))  res.setHeader("Content-Type", "image/x-icon");
   }
 }));
+
+// ══════════════════════════════════════════════════════════════════
+// ── COMMS — Socket.IO real-time layer ────────────────────────────
+// ══════════════════════════════════════════════════════════════════
+const attachComms = require("./comms-server");
+const io          = attachComms(httpServer);
+
+// Serve the comms panel
+app.get("/comms", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "comms.html"));
+});
 
 // ── LINKS BANK ──────────────────────────────────────────────────
 const LINKS = {
@@ -130,9 +144,6 @@ function loadMemories() { ensureDataDir(); try { return JSON.parse(fs.readFileSy
 function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON.stringify(m, null, 2), "utf8"); }
 
 // ── BOOTSTRAP OWNER ACCOUNT ──────────────────────────────────────
-// Seeds the owner account from config.json into data/profiles.json
-// if it doesn't already exist. This means the owner defined in
-// config.json is always available without a manual sign-up step.
 function bootstrapOwnerAccount() {
   const configPath = path.join(__dirname, "config.json");
   if (!fs.existsSync(configPath)) return;
@@ -144,7 +155,6 @@ function bootstrapOwnerAccount() {
   const profiles = loadProfiles();
   const key      = owner.username.toLowerCase().trim();
   if (profiles[key]) {
-    // Already exists — update passwordHash in case config.json changed
     if (profiles[key].passwordHash !== owner.passwordHash) {
       profiles[key].passwordHash = owner.passwordHash;
       saveProfiles(profiles);
@@ -152,7 +162,6 @@ function bootstrapOwnerAccount() {
     }
     return;
   }
-  // Create owner account from config
   profiles[key] = {
     name:         owner.username,
     passwordHash: owner.passwordHash,
@@ -353,37 +362,29 @@ app.post("/api/calendar", async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-// ── PERSONALITY — camera-triggered proactive comment ─────────────
+// ── PERSONALITY ───────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════
 app.post("/api/personality/comment", (req, res) => {
   const { scene, userTitle, sessionMinutes, previousScene } = req.body;
   const T = userTitle || "Sir";
-
-  if (scene === previousScene && scene === "idle") {
-    return res.json({ reply: null });
-  }
-
+  if (scene === previousScene && scene === "idle") return res.json({ reply: null });
   const reply = Personality.getCameraComment(scene, T, sessionMinutes);
   res.json({ reply: reply || null });
 });
 
-// ── PERSONALITY — smalltalk ───────────────────────────────────────
 app.post("/api/personality/smalltalk", (req, res) => {
   const { message, userTitle } = req.body;
   const T = userTitle || "Sir";
   if (!message) return res.status(400).json({ reply: null });
-
-  // Check personal news first (higher priority than generic smalltalk)
   const personalNewsReply = Personality.routePersonalNews(message, T);
   if (personalNewsReply) return res.json({ reply: personalNewsReply });
-
   const reply = Personality.routeSmallTalk(message, T);
   res.json({ reply: reply || null });
 });
 
-// ═══════════════════════════════════════════════════════════════════
-// ── EXTENSION API
-// ═══════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// ── EXTENSION API ─────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════
 const extensionQueue  = [];
 let   extensionStatus = { phase: "idle", user: null, userTitle: null, mood: "neutral" };
 
@@ -417,17 +418,14 @@ app.get("/api/extension/download", (req, res) => {
   res.setHeader("Content-Type", "application/zip");
   res.setHeader("Content-Disposition", 'attachment; filename="jarvis-extension.zip"');
   const archive = archiver("zip", { zlib: { level: 9 } });
-  archive.on("error", (err) => {
-    console.error("[EXT] Archive error:", err);
-    res.status(500).end();
-  });
+  archive.on("error", (err) => { console.error("[EXT] Archive error:", err); res.status(500).end(); });
   archive.pipe(res);
   archive.directory(extDir, "jarvis-extension");
   archive.finalize();
 });
 
 // ══════════════════════════════════════════════════════════════════
-// ── RESEARCH ENDPOINT (direct) ────────────────────────────────────
+// ── RESEARCH ──────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════
 app.post("/api/research", async (req, res) => {
   const { query, userTitle } = req.body;
@@ -440,7 +438,6 @@ app.post("/api/research", async (req, res) => {
   }
 });
 
-// ── PERSON LOOKUP ENDPOINT (direct) ──────────────────────────────
 app.post("/api/research/person", async (req, res) => {
   const { name, userTitle } = req.body;
   if (!name) return res.status(400).json({ error: "Missing name" });
@@ -459,24 +456,13 @@ app.post("/api/research/person", async (req, res) => {
 app.post("/api/screen", (req, res) => {
   const { ocrText, question, userName, userTitle, memories } = req.body;
   const T = userTitle || "Sir";
-
   if (!ocrText || ocrText.trim().length < 5) {
-    return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}. Make sure the content is visible.` });
+    return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}.` });
   }
-
   const screenContext = `The user's screen contains: "${ocrText.trim().slice(0, 800)}". The user asked: "${question || "What is on my screen?"}"`;
   try {
-    const result = AI.process({
-      message:    screenContext,
-      sessionId:  `screen_${userName || "user"}`,
-      userName,
-      userTitle,
-      memories,
-      serverData: getLinksSummary(),
-    });
-    const reply = result.reply.length > 20
-      ? `I can see your screen, ${T}. ${result.reply}`
-      : `Your screen shows: ${ocrText.trim().slice(0, 200)}`;
+    const result = AI.process({ message: screenContext, sessionId: `screen_${userName || "user"}`, userName, userTitle, memories, serverData: getLinksSummary() });
+    const reply  = result.reply.length > 20 ? `I can see your screen, ${T}. ${result.reply}` : `Your screen shows: ${ocrText.trim().slice(0, 200)}`;
     return res.json({ reply });
   } catch {
     const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0, 5);
@@ -493,25 +479,17 @@ app.post("/api/chat", async (req, res) => {
 
   const T = userTitle || "Sir";
 
-  // ── Fast path: personal news ──
   const personalNewsReply = Personality.routePersonalNews(message, T);
-  if (personalNewsReply) {
-    return res.json({ reply: personalNewsReply, action: "PERSONAL_NEWS", intent: "personal_news" });
-  }
+  if (personalNewsReply) return res.json({ reply: personalNewsReply, action: "PERSONAL_NEWS", intent: "personal_news" });
 
-  // ── Fast path: smalltalk ──
   const smalltalkReply = Personality.routeSmallTalk(message, T);
-  if (smalltalkReply) {
-    return res.json({ reply: smalltalkReply, action: "SMALLTALK", intent: "smalltalk" });
-  }
+  if (smalltalkReply) return res.json({ reply: smalltalkReply, action: "SMALLTALK", intent: "smalltalk" });
 
-  // ── Build server context ──
   const linkSummary = getLinksSummary();
   const serverData  = { ...linkSummary, allLinks: getAllLinksFormatted() };
   const linkResult  = lookupLink(message);
   if (linkResult.found) Object.assign(serverData, linkResult);
 
-  // ── Run local AI engine ──
   let aiResult;
   try {
     aiResult = AI.process({ message, sessionId, userName, userTitle, memories, moodContext, serverData });
@@ -522,212 +500,90 @@ app.post("/api/chat", async (req, res) => {
 
   const { reply, action, meta, intent, topic, needsFetch, fetchType } = aiResult;
 
-  // ══════════════════════════════════════════════════════════════
-  // ── PERSON LOOKUP — runs research in parallel, returns intel ──
-  // ══════════════════════════════════════════════════════════════
   if (action === "LOOKUP_PERSON" && needsFetch && meta?.personName) {
-    const personName = meta.personName;
-    console.log(`[SERVER] Person lookup: "${personName}"`);
     try {
-      const lookupData = await Research.lookupPerson(personName);
+      const lookupData  = await Research.lookupPerson(meta.personName);
       const intelReport = Research.buildPersonIntelReport(lookupData, T);
-      return res.json({
-        reply:  intelReport,
-        action: "LOOKUP_PERSON",
-        intent: "lookup_person",
-        meta:   { personName, raw: lookupData },
-      });
+      return res.json({ reply: intelReport, action: "LOOKUP_PERSON", intent: "lookup_person", meta: { personName: meta.personName, raw: lookupData } });
     } catch (e) {
-      console.error("[SERVER] Person lookup failed:", e.message);
-      const fallback = `I ran ${personName} through the public databases, ${T}, but hit an error mid-sweep. The network may be blocking a source. Try again in a moment.`;
+      const fallback = `I ran ${meta.personName} through the public databases, ${T}, but hit an error mid-sweep. Try again in a moment.`;
       return res.json({ reply: fallback, action: "LOOKUP_PERSON", intent: "lookup_person" });
     }
   }
 
-  // ══════════════════════════════════════════════════════════════
-  // ── INTEGRATION FETCHES ──────────────────────────────────────
-  // ══════════════════════════════════════════════════════════════
   if (needsFetch) {
     switch (fetchType) {
-
       case "weather": {
         try {
           const weatherData = await Weather.handleWeatherCommand(message);
-          if (weatherData.error) {
-            const errReply = `Couldn't pull weather right now, ${T}. ${weatherData.error}`;
-            return res.json({ reply: errReply, action: "WEATHER", intent: "weather" });
-          }
+          if (weatherData.error) return res.json({ reply: `Couldn't pull weather right now, ${T}. ${weatherData.error}`, action: "WEATHER", intent: "weather" });
           const { city, temp, feels_like, description, humidity, wind_speed, high, low } = weatherData;
           const tempDesc = temp > 30 ? "quite warm" : temp > 20 ? "pleasant" : temp > 10 ? "cool" : temp > 0 ? "cold" : "freezing";
-          const weatherReply = [
-            `Current conditions in ${city}, ${T}: ${temp}°C — ${description}.`,
-            `Feels like ${feels_like}°C, which is ${tempDesc}.`,
-            `Humidity at ${humidity}%, wind ${wind_speed} m/s.`,
-            `Today's range: ${low}–${high}°C.`,
-          ].join(" ");
-          return res.json({
-            reply:  weatherReply,
-            action: "WEATHER",
-            intent: "weather",
-            meta:   { weatherData, type: "integration", integrationType: "weather" },
-          });
+          const weatherReply = `Current conditions in ${city}, ${T}: ${temp}°C — ${description}. Feels like ${feels_like}°C, which is ${tempDesc}. Humidity at ${humidity}%, wind ${wind_speed} m/s. Today's range: ${low}–${high}°C.`;
+          return res.json({ reply: weatherReply, action: "WEATHER", intent: "weather", meta: { weatherData } });
         } catch (e) {
-          const errReply = `Weather fetch failed, ${T}. Check your OpenWeatherMap API key in .env.`;
-          return res.json({ reply: errReply, action: "WEATHER", intent: "weather" });
+          return res.json({ reply: `Weather fetch failed, ${T}. Check your OpenWeatherMap API key in .env.`, action: "WEATHER", intent: "weather" });
         }
       }
-
       case "spotify": {
-        if (!Spotify.isConfigured()) {
-          const authReply = `Spotify isn't configured yet, ${T}. Add your SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to .env, then visit /api/spotify/auth to connect.`;
-          return res.json({ reply: authReply, action: "SPOTIFY", intent: "spotify" });
-        }
-        if (!Spotify.hasToken()) {
-          const authReply = `Spotify needs to be authorised first, ${T}. Visit http://localhost:3000/api/spotify/auth to connect your account.`;
-          return res.json({ reply: authReply, action: "SPOTIFY", intent: "spotify", meta: { needsAuth: true, authUrl: "/api/spotify/auth" } });
-        }
+        if (!Spotify.isConfigured()) return res.json({ reply: `Spotify isn't configured yet, ${T}. Add your SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET to .env, then visit /api/spotify/auth to connect.`, action: "SPOTIFY", intent: "spotify" });
+        if (!Spotify.hasToken())      return res.json({ reply: `Spotify needs to be authorised first, ${T}. Visit http://localhost:3000/api/spotify/auth to connect your account.`, action: "SPOTIFY", intent: "spotify" });
         try {
           const spotifyData = await Spotify.handleSpotifyCommand(message);
-          if (spotifyData.needsAuth) {
-            const authReply = `Spotify needs re-authorisation, ${T}. Visit http://localhost:3000/api/spotify/auth.`;
-            return res.json({ reply: authReply, action: "SPOTIFY", intent: "spotify", meta: spotifyData });
-          }
-          let spotifyReply;
-          if (spotifyData.action === "now_playing") {
-            if (!spotifyData.track) {
-              spotifyReply = `Nothing playing on Spotify right now, ${T}.`;
-            } else {
-              spotifyReply = `${spotifyData.is_playing ? "Currently playing" : "Paused on"}: "${spotifyData.track}" by ${spotifyData.artist}${spotifyData.album ? ` from ${spotifyData.album}` : ""}, ${T}.${spotifyData.progress ? ` ${spotifyData.progress} in.` : ""}`;
-            }
-          } else if (spotifyData.action === "played")  { spotifyReply = `Playing "${spotifyData.track}" by ${spotifyData.artist} on Spotify, ${T}.`; }
-          else if (spotifyData.action === "paused")    { spotifyReply = `Spotify paused, ${T}.`; }
-          else if (spotifyData.action === "resumed")   { spotifyReply = `Spotify resumed, ${T}.`; }
-          else if (spotifyData.action === "next")      { spotifyReply = spotifyData.track ? `Skipped to "${spotifyData.track}" by ${spotifyData.artist}, ${T}.` : `Skipped to next track, ${T}.`; }
-          else if (spotifyData.action === "volume")    { spotifyReply = `Volume set to ${spotifyData.volume}%, ${T}.`; }
-          else { spotifyReply = `Spotify command processed, ${T}.`; }
+          if (spotifyData.needsAuth) return res.json({ reply: `Spotify needs re-authorisation, ${T}. Visit http://localhost:3000/api/spotify/auth.`, action: "SPOTIFY", intent: "spotify" });
+          let spotifyReply = `Spotify command processed, ${T}.`;
+          if (spotifyData.action === "now_playing") spotifyReply = spotifyData.track ? `${spotifyData.is_playing ? "Currently playing" : "Paused on"}: "${spotifyData.track}" by ${spotifyData.artist}, ${T}.` : `Nothing playing on Spotify right now, ${T}.`;
+          else if (spotifyData.action === "played")  spotifyReply = `Playing "${spotifyData.track}" by ${spotifyData.artist} on Spotify, ${T}.`;
+          else if (spotifyData.action === "paused")  spotifyReply = `Spotify paused, ${T}.`;
+          else if (spotifyData.action === "resumed") spotifyReply = `Spotify resumed, ${T}.`;
+          else if (spotifyData.action === "next")    spotifyReply = spotifyData.track ? `Skipped to "${spotifyData.track}" by ${spotifyData.artist}, ${T}.` : `Skipped to next track, ${T}.`;
+          else if (spotifyData.action === "volume")  spotifyReply = `Volume set to ${spotifyData.volume}%, ${T}.`;
           return res.json({ reply: spotifyReply, action: "SPOTIFY", intent: "spotify", meta: { spotifyData } });
-        } catch (e) {
-          const errReply = `Spotify command failed, ${T}. ${e.message}`;
-          return res.json({ reply: errReply, action: "SPOTIFY", intent: "spotify" });
-        }
+        } catch (e) { return res.json({ reply: `Spotify command failed, ${T}. ${e.message}`, action: "SPOTIFY", intent: "spotify" }); }
       }
-
       case "gmail": {
-        if (!Google.isConfigured()) {
-          const authReply = `Gmail isn't configured, ${T}. Add your GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env, then visit /api/google/auth to connect.`;
-          return res.json({ reply: authReply, action: "GMAIL", intent: "gmail" });
-        }
-        if (!Google.hasToken()) {
-          const authReply = `Gmail needs to be authorised first, ${T}. Visit http://localhost:3000/api/google/auth to connect your account.`;
-          return res.json({ reply: authReply, action: "GMAIL", intent: "gmail", meta: { needsAuth: true, authUrl: "/api/google/auth" } });
-        }
+        if (!Google.isConfigured()) return res.json({ reply: `Gmail isn't configured, ${T}. Add your Google credentials to .env, then visit /api/google/auth.`, action: "GMAIL", intent: "gmail" });
+        if (!Google.hasToken())     return res.json({ reply: `Gmail needs to be authorised first, ${T}. Visit http://localhost:3000/api/google/auth.`, action: "GMAIL", intent: "gmail" });
         try {
           const gmailData = await Google.handleGmailCommand(message);
-          if (gmailData.needsAuth) {
-            const authReply = `Gmail needs re-authorisation, ${T}. Visit http://localhost:3000/api/google/auth.`;
-            return res.json({ reply: authReply, action: "GMAIL", intent: "gmail", meta: gmailData });
-          }
-          let gmailReply;
-          if (gmailData.unread === 0) {
-            gmailReply = `Inbox clear, ${T}. No unread messages.`;
-          } else if (gmailData.unread !== undefined) {
-            const preview = gmailData.messages?.slice(0, 3).map(m => `"${m.subject}" from ${m.from}`).join("; ");
-            gmailReply = `You have ${gmailData.unread} unread email${gmailData.unread > 1 ? "s" : ""}, ${T}.${preview ? ` Latest: ${preview}.` : ""}`;
-          } else {
-            gmailReply = `Gmail checked, ${T}.`;
-          }
+          if (gmailData.needsAuth) return res.json({ reply: `Gmail needs re-authorisation, ${T}. Visit http://localhost:3000/api/google/auth.`, action: "GMAIL", intent: "gmail" });
+          let gmailReply = gmailData.unread === 0 ? `Inbox clear, ${T}. No unread messages.` : gmailData.unread !== undefined ? `You have ${gmailData.unread} unread email${gmailData.unread > 1 ? "s" : ""}, ${T}.${gmailData.messages?.slice(0, 3).map(m => `"${m.subject}" from ${m.from}`).join("; ") ? ` Latest: ${gmailData.messages.slice(0,3).map(m=>`"${m.subject}" from ${m.from}`).join("; ")}.` : ""}` : `Gmail checked, ${T}.`;
           return res.json({ reply: gmailReply, action: "GMAIL", intent: "gmail", meta: { gmailData } });
-        } catch (e) {
-          const errReply = `Gmail fetch failed, ${T}. ${e.message}`;
-          return res.json({ reply: errReply, action: "GMAIL", intent: "gmail" });
-        }
+        } catch (e) { return res.json({ reply: `Gmail fetch failed, ${T}. ${e.message}`, action: "GMAIL", intent: "gmail" }); }
       }
-
       case "calendar": {
-        if (!Google.isConfigured()) {
-          const authReply = `Google Calendar isn't configured, ${T}. Add your Google credentials to .env, then visit /api/google/auth.`;
-          return res.json({ reply: authReply, action: "CALENDAR", intent: "calendar" });
-        }
-        if (!Google.hasToken()) {
-          const authReply = `Google Calendar needs to be authorised first, ${T}. Visit http://localhost:3000/api/google/auth.`;
-          return res.json({ reply: authReply, action: "CALENDAR", intent: "calendar", meta: { needsAuth: true, authUrl: "/api/google/auth" } });
-        }
+        if (!Google.isConfigured()) return res.json({ reply: `Google Calendar isn't configured, ${T}. Add your Google credentials to .env, then visit /api/google/auth.`, action: "CALENDAR", intent: "calendar" });
+        if (!Google.hasToken())     return res.json({ reply: `Google Calendar needs to be authorised first, ${T}. Visit http://localhost:3000/api/google/auth.`, action: "CALENDAR", intent: "calendar" });
         try {
           const calData = await Google.handleCalendarCommand(message);
-          if (calData.needsAuth) {
-            const authReply = `Calendar needs re-authorisation, ${T}. Visit http://localhost:3000/api/google/auth.`;
-            return res.json({ reply: authReply, action: "CALENDAR", intent: "calendar", meta: calData });
-          }
-          let calReply;
-          if (!calData.events || calData.events.length === 0) {
-            calReply = `Nothing on the calendar ${calData.period || "today"}, ${T}. Schedule is clear.`;
-          } else {
-            const eventList = calData.events.slice(0, 4).map(e => `${e.time ? e.time + " — " : ""}${e.title}`).join("; ");
-            calReply = `${calData.events.length} event${calData.events.length > 1 ? "s" : ""} ${calData.period || "today"}, ${T}: ${eventList}.`;
-          }
+          if (calData.needsAuth) return res.json({ reply: `Calendar needs re-authorisation, ${T}. Visit http://localhost:3000/api/google/auth.`, action: "CALENDAR", intent: "calendar" });
+          let calReply = !calData.events?.length ? `Nothing on the calendar ${calData.period || "today"}, ${T}. Schedule is clear.` : `${calData.events.length} event${calData.events.length > 1 ? "s" : ""} ${calData.period || "today"}, ${T}: ${calData.events.slice(0, 4).map(e => `${e.time ? e.time + " — " : ""}${e.title}`).join("; ")}.`;
           return res.json({ reply: calReply, action: "CALENDAR", intent: "calendar", meta: { calData } });
-        } catch (e) {
-          const errReply = `Calendar fetch failed, ${T}. ${e.message}`;
-          return res.json({ reply: errReply, action: "CALENDAR", intent: "calendar" });
-        }
+        } catch (e) { return res.json({ reply: `Calendar fetch failed, ${T}. ${e.message}`, action: "CALENDAR", intent: "calendar" }); }
       }
     }
   }
 
-  // ══════════════════════════════════════════════════════════════
-  // ── HUD PiP intents — client handles directly ─────────────────
-  // ══════════════════════════════════════════════════════════════
   if (action === "SHOW_HUD" || action === "HIDE_HUD") {
     return res.json({ reply, action, intent, meta: { query: message } });
   }
 
-  // ══════════════════════════════════════════════════════════════
-  // ── RESEARCH FALLBACK ─────────────────────────────────────────
-  // ══════════════════════════════════════════════════════════════
-  const shouldTryResearch = (
-    action === "FALLBACK" ||
-    (action === "KNOWLEDGE" && reply.length < 200) ||
-    Research.shouldResearch(message)
-  );
-
+  const shouldTryResearch = (action === "FALLBACK" || (action === "KNOWLEDGE" && reply.length < 200) || Research.shouldResearch(message));
   if (shouldTryResearch) {
     try {
       const researched = await Research.research(message, userTitle);
-      if (researched && researched.reply) {
-        console.log(`[RESEARCH] Upgraded response for: "${message.slice(0, 50)}"`);
-        return res.json({
-          reply:  researched.reply,
-          action: action === "FALLBACK" ? "RESEARCH" : action,
-          intent: "research",
-          topic:  researched.query,
-          meta:   { researched: true, sources: researched.sources },
-        });
+      if (researched?.reply) {
+        return res.json({ reply: researched.reply, action: action === "FALLBACK" ? "RESEARCH" : action, intent: "research", topic: researched.query, meta: { researched: true, sources: researched.sources } });
       }
-    } catch (researchErr) {
-      console.warn("[RESEARCH] Failed, falling back to local answer:", researchErr.message);
-    }
+    } catch {}
   }
-
-  // ══════════════════════════════════════════════════════════════
-  // ── LOCAL ACTION SIDE EFFECTS ─────────────────────────────────
-  // ══════════════════════════════════════════════════════════════
 
   if (action === "SHOW_LINKS") {
-    return res.json({
-      reply, action, intent,
-      meta: {
-        requestLinks: true,
-        linkGroups:   getAllLinksFormatted(),
-        total:        linkSummary.total,
-      },
-    });
+    return res.json({ reply, action, intent, meta: { requestLinks: true, linkGroups: getAllLinksFormatted(), total: linkSummary.total } });
   }
-
   if (action === "OPEN_LINK") {
-    const link = lookupLink(message);
-    return res.json({ reply, action, intent, meta: { ...meta, ...link } });
+    return res.json({ reply, action, intent, meta: { ...meta, ...lookupLink(message) } });
   }
-
   if (action === "MEMORY_SAVE" && meta?.saveFact) {
     const mem = loadMemories();
     const key = (userName || "user").toLowerCase().trim();
@@ -737,7 +593,6 @@ app.post("/api/chat", async (req, res) => {
     saveMemories(mem);
     return res.json({ reply, action, intent, meta: { saved: true, fact: meta.saveFact } });
   }
-
   if (action === "MEMORY_FORGET" && meta?.forgetHint) {
     const mem    = loadMemories();
     const key    = (userName || "user").toLowerCase().trim();
@@ -745,24 +600,13 @@ app.post("/api/chat", async (req, res) => {
     const before = mem[key].length;
     mem[key] = mem[key].filter(m => !m.fact.toLowerCase().includes(meta.forgetHint.toLowerCase()));
     saveMemories(mem);
-    const removed    = before - mem[key].length;
-    const finalReply = removed > 0
-      ? `Done, ${T}. ${removed} memory entry removed.`
-      : `Nothing matching that on file, ${T}.`;
-    return res.json({ reply: finalReply, action, intent });
+    const removed = before - mem[key].length;
+    return res.json({ reply: removed > 0 ? `Done, ${T}. ${removed} memory entry removed.` : `Nothing matching that on file, ${T}.`, action, intent });
   }
-
   if (action === "SYSTEM_STATUS") {
     const uptime = Math.floor(process.uptime());
     const mem    = process.memoryUsage();
-    const mins   = Math.floor(uptime / 60);
-    const secs   = uptime % 60;
-    const used   = (mem.heapUsed  / 1024 / 1024).toFixed(1);
-    const total  = (mem.heapTotal / 1024 / 1024).toFixed(1);
-    return res.json({
-      reply, action, intent,
-      meta: { uptime, uptimeLabel: `${mins}m ${secs}s`, heapUsed: used, heapTotal: total },
-    });
+    return res.json({ reply, action, intent, meta: { uptime, uptimeLabel: `${Math.floor(uptime/60)}m ${uptime%60}s`, heapUsed: (mem.heapUsed/1024/1024).toFixed(1), heapTotal: (mem.heapTotal/1024/1024).toFixed(1) } });
   }
 
   return res.json({ reply, action, intent, topic, meta });
@@ -770,12 +614,11 @@ app.post("/api/chat", async (req, res) => {
 
 // ── BOOT ──────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
-
-// Seed owner account from config.json before accepting connections
 bootstrapOwnerAccount();
 
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`J.A.R.V.I.S online → http://localhost:${PORT}`);
+  console.log(`  Comms panel   → http://localhost:${PORT}/comms`);
   console.log(`  Spotify: ${Spotify.isConfigured() ? "configured" : "not configured (add SPOTIFY_CLIENT_ID to .env)"}`);
   console.log(`  Google:  ${Google.isConfigured()  ? "configured" : "not configured (add GOOGLE_CLIENT_ID to .env)"}`);
   console.log(`  Weather: ${process.env.OPENWEATHER_API_KEY ? "configured" : "not configured (add OPENWEATHER_API_KEY to .env)"}`);
