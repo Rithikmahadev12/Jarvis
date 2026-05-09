@@ -1147,6 +1147,18 @@ async function handleAction(action, meta, replyText) {
     }
     case "NOTIF_SETTINGS": { speak(replyText, () => {}); showNotifSettings(); break; }
     case "LOGOUT": { speak(replyText, () => {}); setTimeout(() => handleLogout(), 800); break; }
+    case "CALL": {
+  const targetName = meta?.targetName || null;
+  speak(replyText, () => {
+    if (targetName) {
+      window.open(`/comms?call=${encodeURIComponent(targetName)}`, '_blank');
+    } else {
+      window.open('/comms', '_blank');
+    }
+    mic.resume();
+  });
+  break;
+}
     case "SHOW_HUD": {
       speak(replyText, () => mic.resume());
       if (window.PiPWidgets) window.PiPWidgets.handleVoiceCommand("SHOW_HUD", { query: meta?.query || replyText });
