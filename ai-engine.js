@@ -605,6 +605,7 @@ const INTENTS = [
       "show all widgets","show all hud","hud display","open all widgets",
       "launch all widgets",
     ], action:"SHOW_HUD", weight:1.5 },
+  { id:"call", signals:["call","ring","facetime","video call","voice call","call up","phone","dial","contact","comms","open comms"], action:"CALL", weight:1.6 },
   { id:"hide_hud", signals:["hide hud","close hud","remove hud","hud off","turn off hud","dismiss hud","close all widgets","hide all widgets","close clock widget","close mood widget","close system widget","close memory widget","close neural widget","close audio widget","close user widget","shut down hud","hud down"], action:"HIDE_HUD", weight:1.5 },
   { id:"knowledge_science",    signals:["physics","chemistry","biology","quantum","atom","molecule","energy","force","wave","particle","experiment","theory","evolution","genetics","cell","planet","star","galaxy","universe","space","gravity","relativity","nuclear","element","reaction"], action:"KNOWLEDGE", domain:"science",       weight:1.0 },
   { id:"knowledge_tech",       signals:["computer","software","hardware","network","internet","ai","machine learning","robot","system","web","server","database","processor","api","blockchain","cryptocurrency","neural"], action:"KNOWLEDGE", domain:"technology",    weight:1.0 },
@@ -1565,6 +1566,16 @@ function process({ message, sessionId, userName, userTitle, memories, moodContex
         ctx.addTurn(message, reply, action, null);
         return { reply, action, intent:intent.id, meta:{ query: resolved } };
       }
+      case "CALL": {
+  const nameMatch = resolved.match(/(?:call|ring|phone|dial|reach|contact|facetime)\s+(.+?)(?:\s+(?:for me|please))?\s*$/i);
+  const targetName = nameMatch ? nameMatch[1].trim() : null;
+  const reply = targetName
+    ? pick([`Connecting you to ${targetName} now, ${T}. Opening comms.`, `Calling ${targetName}, ${T}. Stand by.`, `Initiating call to ${targetName}, ${T}.`])
+    : pick([`Opening comms panel, ${T}.`, `Launching communications, ${T}.`, `Comms coming up, ${T}.`]);
+  ctx.addTurn(message, reply, action, targetName || "comms");
+  ctx.updateMood(3);
+  return { reply, action:"CALL", intent: intent.id, meta: { targetName } };
+}
       case "HIDE_HUD": {
         const reply = pick([`HUD dismissed, ${T}.`,`Closing the overlay, ${T}.`,`HUD off, ${T}.`]);
         ctx.addTurn(message, reply, action, null);
