@@ -437,16 +437,7 @@ app.post("/api/personality/comment", (req, res) => {
   const reply = Personality.getCameraComment(scene, T, sessionMinutes);
   res.json({ reply: reply || null });
 });
-if (Home.isHomeCommand(message) || Home.isHomePanelRequest(message)) {
-  if (Home.isHomePanelRequest(message)) {
-    const reply = `Opening home control panel, ${T}.`;
-    return res.json({ reply, action: "OPEN_HOME", intent: "home", meta: { openHome: true } });
-  }
-  return Home.executeVoiceCommand(message, T).then(reply => {
-    Home.refreshStates();
-    return res.json({ reply, action: "HOME_COMMAND", intent: "home" });
-  }).catch(e => res.json({ reply: `Home command failed, ${T}.`, action: "HOME_COMMAND", intent: "home" }));
-}
+
 app.post("/api/personality/smalltalk", (req, res) => {
   const { message, userTitle } = req.body;
   const T = userTitle || "Sir";
@@ -551,7 +542,16 @@ app.post("/api/screen", (req, res) => {
 app.post("/api/chat", async (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
-
+  if (Home.isHomeCommand(message) || Home.isHomePanelRequest(message)) {
+  if (Home.isHomePanelRequest(message)) {
+    const reply = `Opening home control panel, ${T}.`;
+    return res.json({ reply, action: "OPEN_HOME", intent: "home", meta: { openHome: true } });
+  }
+  return Home.executeVoiceCommand(message, T).then(reply => {
+    Home.refreshStates();
+    return res.json({ reply, action: "HOME_COMMAND", intent: "home" });
+  }).catch(e => res.json({ reply: `Home command failed, ${T}.`, action: "HOME_COMMAND", intent: "home" }));
+}
   const T = userTitle || "Sir";
 
   const personalNewsReply = Personality.routePersonalNews(message, T);
