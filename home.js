@@ -80,7 +80,7 @@ function tcpProbe(host, port, timeout = 800) {
     s.setTimeout(timeout);
     s.connect(port, host, () => { s.destroy(); resolve(true); });
     s.on("error",   () => resolve(false));
-    s.on("timeout", () => { s.destroy(); resolve(false)); });
+    s.on("timeout", () => { s.destroy(); resolve(false); });
   });
 }
 
