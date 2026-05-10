@@ -1172,6 +1172,13 @@ async function handleAction(action, meta, replyText) {
   });
   break;
 }
+   case "OPEN_HOME": {
+  speak(replyText, () => {
+    window.open('/home', '_blank');
+    mic.resume();
+  });
+  break;
+}
     case "SHOW_HUD": {
       speak(replyText, () => mic.resume());
       if (window.PiPWidgets) window.PiPWidgets.handleVoiceCommand("SHOW_HUD", { query: meta?.query || replyText });
