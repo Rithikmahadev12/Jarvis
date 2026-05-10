@@ -2,321 +2,281 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<title>J.A.R.V.I.S — Holographic Viewer v5.0</title>
+<title>J.A.R.V.I.S — Holographic Viewer v4.2</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:#04080f;font-family:'Share Tech Mono',monospace;color:#00c8ff}
+html,body{width:100%;height:100%;overflow:hidden;background:#06101e;font-family:'Share Tech Mono',monospace;color:#00c8ff}
 :root{
   --blue:#00c8ff;--blue-glow:rgba(0,200,255,0.4);--blue-dim:rgba(0,200,255,0.12);
   --amber:#ffaa00;--red:#ff3333;--green:#00ff88;--purple:#aa44ff;
-  --bg:#04080f;--bg2:#08121e;--text-dim:#3a6a88;--hud:'Orbitron',monospace;
+  --bg:#06101e;--bg2:#0a1828;--text-dim:#3a6a88;--hud:'Orbitron',monospace;
 }
-
-/* SCANLINE + CORNERS */
-.scanline{position:fixed;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,200,255,0.15),transparent);animation:scan 8s linear infinite;pointer-events:none;z-index:2}
+.scanline{position:fixed;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,rgba(0,200,255,0.12) 50%,transparent);
+  animation:scan 9s linear infinite;pointer-events:none;z-index:2}
 @keyframes scan{from{top:-2px}to{top:100vh}}
-.corner{position:fixed;width:40px;height:40px;pointer-events:none;z-index:99}
-.corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.7}
+.corner{position:fixed;width:38px;height:38px;pointer-events:none;z-index:99}
+.corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.6}
 .corner::before{width:100%;height:1px;top:0}.corner::after{width:1px;height:100%;top:0}
-.corner .pip{position:absolute;width:5px;height:5px;background:var(--blue);border-radius:50%;top:-2px;left:-2px;box-shadow:0 0 10px var(--blue);animation:pipPulse 2.5s ease-in-out infinite}
-.corner.tl{top:16px;left:16px}.corner.tr{top:16px;right:16px;transform:scaleX(-1)}
-.corner.bl{bottom:16px;left:16px;transform:scaleY(-1)}.corner.br{bottom:16px;right:16px;transform:scale(-1)}
-@keyframes pipPulse{0%,100%{opacity:1;box-shadow:0 0 10px var(--blue),0 0 20px var(--blue-glow)}50%{opacity:0.3;box-shadow:0 0 3px var(--blue)}}
+.corner .pip{position:absolute;width:4px;height:4px;background:var(--blue);border-radius:50%;
+  top:-2px;left:-2px;box-shadow:0 0 8px var(--blue);animation:pipPulse 3s ease-in-out infinite}
+.corner.tl{top:14px;left:14px}.corner.tr{top:14px;right:14px;transform:scaleX(-1)}
+.corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}.corner.br{bottom:14px;right:14px;transform:scale(-1)}
+@keyframes pipPulse{0%,100%{opacity:1}50%{opacity:0.3}}
+body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
+  background-image:
+    repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(0,200,255,0.035) 40px),
+    repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(0,200,255,0.035) 40px)}
 
-/* LAYOUT */
-#layout{display:flex;width:100vw;height:100vh}
+/* ── LAYOUT ── */
+#layout{display:flex;width:100vw;height:100vh;position:relative}
 
-/* SIDEBAR */
-#sidebar{
-  width:200px;flex-shrink:0;display:flex;flex-direction:column;gap:3px;
-  padding:12px 8px 8px;border-right:1px solid rgba(0,200,255,0.1);
-  overflow-y:auto;z-index:10;background:rgba(4,8,15,0.95);
-  scrollbar-width:thin;scrollbar-color:rgba(0,200,255,0.1) transparent;
-}
-.sidebar-title{font-family:var(--hud);font-size:0.55rem;font-weight:700;letter-spacing:0.32em;color:var(--blue);margin-bottom:3px}
-.sidebar-sub{font-size:0.42rem;letter-spacing:0.18em;color:var(--text-dim);margin-bottom:10px}
-.sidebar-label{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4);margin:8px 0 4px;text-transform:uppercase}
-
-.obj-btn{
-  background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.14);
-  color:rgba(0,200,255,0.65);font-family:'Share Tech Mono',monospace;font-size:0.6rem;
-  letter-spacing:0.08em;padding:6px 8px;cursor:pointer;text-align:left;
-  transition:all 0.18s;border-radius:2px;width:100%;display:flex;align-items:center;gap:6px;
-}
-.obj-btn:hover,.obj-btn.active{background:rgba(0,200,255,0.11);border-color:var(--blue);color:var(--blue)}
-.obj-btn.bp-btn{border-color:rgba(0,160,255,0.2);color:rgba(0,180,255,0.55)}
-.obj-btn.bp-btn:hover,.obj-btn.bp-btn.active{background:rgba(0,160,255,0.1);border-color:#0096ff;color:#0096ff}
-.obj-btn.ai-btn{border-color:rgba(170,68,255,0.3);color:rgba(170,68,255,0.7)}
-.obj-btn.ai-btn:hover{background:rgba(170,68,255,0.1);border-color:var(--purple);color:var(--purple)}
+/* ── LEFT SIDEBAR ── */
+#sidebar{width:192px;flex-shrink:0;display:flex;flex-direction:column;gap:4px;
+  padding:14px 10px 10px;border-right:1px solid rgba(0,200,255,0.1);
+  overflow-y:auto;z-index:10;background:rgba(6,16,30,0.95)}
+.sidebar-label{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.28em;
+  color:rgba(0,200,255,0.4);margin:8px 0 4px;text-transform:uppercase}
+.obj-btn{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.15);
+  color:rgba(0,200,255,0.6);font-family:'Share Tech Mono',monospace;font-size:0.62rem;
+  letter-spacing:0.1em;padding:7px 8px;cursor:pointer;text-align:left;
+  transition:all 0.2s;border-radius:2px;width:100%;display:flex;align-items:center;gap:6px;
+  position:relative;overflow:hidden}
+.obj-btn:hover,.obj-btn.active{background:rgba(0,200,255,0.12);border-color:var(--blue);color:var(--blue)}
 .obj-btn .ico{font-size:0.85rem;flex-shrink:0}
+.bp-btn{border-color:rgba(0,150,255,0.25);color:rgba(0,180,255,0.55)}
+.bp-btn:hover,.bp-btn.active{background:rgba(0,150,255,0.12);border-color:#0096ff;color:#0096ff}
+.obj-btn.hand-hover{border-color:var(--green)!important;color:var(--green)!important;
+  box-shadow:0 0 14px rgba(0,255,136,0.3)!important;background:rgba(0,255,136,0.08)!important}
+.obj-btn.hand-hover::after{content:'';position:absolute;inset:0;
+  background:linear-gradient(90deg,transparent,rgba(0,255,136,0.1),transparent);
+  animation:handSweep 0.8s ease-in-out infinite}
+@keyframes handSweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
 
-/* AI BUILD BUTTON */
+/* ── BUILD ME BUTTON ── */
 #build-me-btn{
-  background:rgba(170,68,255,0.08);border:1px solid rgba(170,68,255,0.4);color:var(--purple);
-  font-family:var(--hud);font-size:0.48rem;letter-spacing:0.18em;padding:9px 8px;
-  cursor:pointer;border-radius:2px;width:100%;transition:all 0.2s;margin-bottom:6px;
-  display:flex;align-items:center;gap:6px;position:relative;overflow:hidden;
+  background:rgba(170,68,255,0.1);border:1px solid rgba(170,68,255,0.4);
+  color:var(--purple);font-family:var(--hud);font-size:0.52rem;letter-spacing:0.18em;
+  padding:10px 8px;cursor:pointer;border-radius:2px;width:100%;
+  transition:all 0.2s;margin-bottom:6px;display:flex;align-items:center;gap:6px;
+  position:relative;overflow:hidden}
+#build-me-btn:hover,#build-me-btn.active{background:rgba(170,68,255,0.2);
+  border-color:var(--purple);box-shadow:0 0 20px rgba(170,68,255,0.3)}
+#build-me-btn .pulse-ring{position:absolute;inset:0;border:1px solid rgba(170,68,255,0.5);
+  border-radius:2px;animation:buildPulse 2s ease-in-out infinite;pointer-events:none}
+@keyframes buildPulse{0%,100%{opacity:0.3;transform:scale(1)}50%{opacity:1;transform:scale(1.02)}}
+
+/* ═══ ARC LAUNCHER ═══ */
+#arc-launcher{
+  position:fixed;inset:0;z-index:500;
+  display:flex;align-items:center;justify-content:center;
+  pointer-events:none;opacity:0;transition:opacity 0.4s ease;
 }
-#build-me-btn:hover{background:rgba(170,68,255,0.18);box-shadow:0 0 20px rgba(170,68,255,0.25)}
-#build-me-btn .pulse-ring{position:absolute;inset:0;border:1px solid rgba(170,68,255,0.5);border-radius:2px;animation:buildPulse 2s ease-in-out infinite;pointer-events:none}
-@keyframes buildPulse{0%,100%{opacity:0.3;transform:scale(1)}50%{opacity:1;transform:scale(1.01)}}
+#arc-launcher.active{opacity:1;pointer-events:all;}
+#arc-launcher-bg{
+  position:absolute;inset:0;
+  background:radial-gradient(ellipse at center, rgba(0,5,15,0.85) 0%, rgba(1,8,20,0.97) 100%);
+  backdrop-filter:blur(4px);opacity:0;transition:opacity 0.4s;
+}
+#arc-launcher.active #arc-launcher-bg{opacity:1;}
+#arc-core{position:relative;z-index:2;width:90px;height:90px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;flex-direction:column;gap:2px;cursor:pointer;}
+#arc-core .arc-c-ring{position:absolute;border-radius:50%;border:1px solid rgba(170,68,255,0.6);animation:arcSpin linear infinite;}
+#arc-core .arc-c-ring:nth-child(1){width:90px;height:90px;animation-duration:8s;}
+#arc-core .arc-c-ring:nth-child(2){width:68px;height:68px;animation-duration:5s;animation-direction:reverse;}
+#arc-core .arc-c-dot{width:24px;height:24px;border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,rgba(170,68,255,0.9),rgba(80,20,140,0.7));
+  box-shadow:0 0 20px rgba(170,68,255,0.8),0 0 40px rgba(170,68,255,0.4);
+  animation:arcCorePulse 2s ease-in-out infinite;position:relative;z-index:1;}
+#arc-core-label{position:absolute;bottom:-28px;left:50%;transform:translateX(-50%);
+  font-family:var(--hud);font-size:0.4rem;letter-spacing:0.3em;color:rgba(170,68,255,0.7);white-space:nowrap;}
+@keyframes arcSpin{to{transform:rotate(360deg)}}
+@keyframes arcCorePulse{0%,100%{box-shadow:0 0 20px rgba(170,68,255,0.8),0 0 40px rgba(170,68,255,0.4);}50%{box-shadow:0 0 35px rgba(170,68,255,1),0 0 70px rgba(170,68,255,0.6);}}
+.arc-item{position:absolute;z-index:2;width:76px;height:76px;border-radius:50%;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
+  cursor:pointer;background:rgba(6,16,30,0.9);border:1px solid rgba(170,68,255,0.35);
+  box-shadow:0 0 20px rgba(170,68,255,0.1);transition:all 0.25s cubic-bezier(0.34,1.56,0.64,1);
+  transform:scale(0) translateX(0) translateY(0);opacity:0;--tx:0px;--ty:0px;}
+#arc-launcher.active .arc-item{transform:translate(var(--tx),var(--ty)) scale(1);opacity:1;}
+#arc-launcher.active .arc-item:nth-child(1){transition-delay:0.05s;}
+#arc-launcher.active .arc-item:nth-child(2){transition-delay:0.1s;}
+#arc-launcher.active .arc-item:nth-child(3){transition-delay:0.15s;}
+#arc-launcher.active .arc-item:nth-child(4){transition-delay:0.2s;}
+#arc-launcher.active .arc-item:nth-child(5){transition-delay:0.25s;}
+#arc-launcher.active .arc-item:nth-child(6){transition-delay:0.3s;}
+#arc-launcher.active .arc-item:nth-child(7){transition-delay:0.35s;}
+#arc-launcher.active .arc-item:nth-child(8){transition-delay:0.4s;}
+.arc-item:hover{background:rgba(170,68,255,0.18);border-color:var(--purple);box-shadow:0 0 30px rgba(170,68,255,0.4);transform:translate(var(--tx),var(--ty)) scale(1.15)!important;}
+.arc-item.hand-hover{background:rgba(0,255,136,0.12)!important;border-color:var(--green)!important;box-shadow:0 0 30px rgba(0,255,136,0.4)!important;transform:translate(var(--tx),var(--ty)) scale(1.18)!important;}
+.arc-item-ico{font-size:1.4rem;line-height:1;}
+.arc-item-lbl{font-family:var(--hud);font-size:0.3rem;letter-spacing:0.18em;color:rgba(170,68,255,0.8);text-align:center;line-height:1.3;}
+.arc-item:hover .arc-item-lbl{color:var(--purple);}
+.arc-connector{position:absolute;z-index:1;width:1px;background:rgba(170,68,255,0.2);transform-origin:top center;pointer-events:none;opacity:0;transition:opacity 0.4s 0.3s;}
+#arc-launcher.active .arc-connector{opacity:1;}
+#arc-close{position:absolute;top:24px;right:24px;z-index:10;background:rgba(170,68,255,0.08);border:1px solid rgba(170,68,255,0.3);color:rgba(170,68,255,0.7);font-family:var(--hud);font-size:0.44rem;letter-spacing:0.2em;padding:7px 14px;cursor:pointer;border-radius:2px;transition:all 0.2s;}
+#arc-close:hover{background:rgba(170,68,255,0.2);color:var(--purple);}
+#arc-mode-label{position:absolute;bottom:36px;left:50%;transform:translateX(-50%);font-family:var(--hud);font-size:0.5rem;letter-spacing:0.35em;color:rgba(170,68,255,0.5);white-space:nowrap;z-index:10;animation:arcLabelPulse 2s ease-in-out infinite;}
+@keyframes arcLabelPulse{0%,100%{opacity:0.5}50%{opacity:1}}
+.arc-orbital{position:absolute;border-radius:50%;border:1px solid rgba(170,68,255,0.08);pointer-events:none;z-index:1;animation:arcSpin linear infinite;}
+.arc-orbital:nth-child(1){width:220px;height:220px;animation-duration:20s;}
+.arc-orbital:nth-child(2){width:320px;height:320px;animation-duration:30s;animation-direction:reverse;border-color:rgba(0,200,255,0.05);}
+.arc-orbital:nth-child(3){width:420px;height:420px;animation-duration:45s;border-color:rgba(170,68,255,0.04);}
 
-/* AI BLUEPRINT LIST */
-#ai-bp-list{display:flex;flex-direction:column;gap:3px}
-.ai-bp-entry{animation:fadeSlide 0.3s ease}
-@keyframes fadeSlide{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-
-/* MAIN VIEWER */
+/* ── CENTER VIEWER ── */
 #viewer-wrap{flex:1;position:relative;display:flex;flex-direction:column;overflow:hidden}
 #three-canvas{position:absolute;inset:0;width:100%!important;height:100%!important;z-index:1}
-#scan-overlay{position:absolute;inset:0;pointer-events:none;z-index:3;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,200,255,0.012) 4px);animation:scanShift 0.1s linear infinite}
+#scan-overlay{position:absolute;inset:0;pointer-events:none;z-index:3;
+  background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,200,255,0.012) 3px,rgba(0,200,255,0.012) 4px);
+  animation:scanShift 0.1s linear infinite}
 @keyframes scanShift{from{background-position:0 0}to{background-position:0 4px}}
 #holo-rings{position:absolute;inset:0;pointer-events:none;z-index:2;display:flex;align-items:center;justify-content:center}
-.holo-ring{position:absolute;border-radius:50%;border:1px solid rgba(0,200,255,0.09);animation:ringPulse 4s ease-in-out infinite}
-.holo-ring:nth-child(1){width:320px;height:320px}
-.holo-ring:nth-child(2){width:460px;height:460px;animation-delay:1.3s;border-color:rgba(0,200,255,0.05)}
-.holo-ring:nth-child(3){width:600px;height:600px;animation-delay:2.6s;border-color:rgba(0,200,255,0.03)}
+.holo-ring{position:absolute;border-radius:50%;border:1px solid rgba(0,200,255,0.1);animation:ringPulse 4s ease-in-out infinite}
+.holo-ring:nth-child(1){width:300px;height:300px}
+.holo-ring:nth-child(2){width:420px;height:420px;animation-delay:1s;border-color:rgba(0,200,255,0.06)}
+.holo-ring:nth-child(3){width:540px;height:540px;animation-delay:2s;border-color:rgba(0,200,255,0.04)}
 @keyframes ringPulse{0%,100%{opacity:0.5;transform:scale(1)}50%{opacity:1;transform:scale(1.02)}}
 
-/* BLUEPRINT OVERLAY */
-#blueprint-wrap{
-  position:absolute;inset:0;z-index:20;display:none;
-  flex-direction:row;align-items:stretch;background:#04080f;
-}
+/* ── BLUEPRINT CANVAS ── */
+#blueprint-wrap{position:absolute;inset:0;z-index:20;display:none;flex-direction:column;align-items:center;justify-content:center;background:#06101e}
 #blueprint-wrap.active{display:flex}
-#bp-main{flex:1;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
 #blueprint-canvas{position:absolute;inset:0;width:100%;height:100%}
-#bp-sidebar{
-  width:260px;flex-shrink:0;border-left:1px solid rgba(0,200,255,0.1);
-  background:rgba(4,8,15,0.97);display:flex;flex-direction:column;
-  padding:16px 14px;gap:12px;overflow-y:auto;
-}
+.bp-header{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:18px 24px;z-index:5;pointer-events:none}
+.bp-classification{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.3em;color:rgba(0,200,255,0.5);animation:blink 2s step-end infinite}
+.bp-ref{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.2em;color:rgba(0,200,255,0.35)}
+.bp-title-block{text-align:center}
+.bp-title{font-family:var(--hud);font-size:0.85rem;font-weight:700;letter-spacing:0.4em;color:var(--blue);text-shadow:0 0 20px var(--blue-glow);display:block}
+.bp-subtitle{font-size:0.45rem;letter-spacing:0.25em;color:rgba(0,200,255,0.5);margin-top:3px}
+.bp-status{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);font-family:var(--hud);font-size:0.5rem;letter-spacing:0.3em;color:rgba(0,200,255,0.6);z-index:5;pointer-events:none;animation:blink 1.5s step-end infinite}
+#bp-to-3d{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.4);color:var(--blue);font-family:var(--hud);font-size:0.52rem;letter-spacing:0.22em;padding:11px 28px;cursor:pointer;border-radius:2px;transition:all 0.2s;z-index:10;box-shadow:0 0 20px rgba(0,200,255,0.1)}
+#bp-to-3d:hover{background:rgba(0,200,255,0.16);box-shadow:0 0 30px rgba(0,200,255,0.25)}
+.bp-specs{position:absolute;right:24px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:8px;z-index:5;pointer-events:none}
+.bp-spec{font-family:'Share Tech Mono',monospace;font-size:0.56rem;letter-spacing:0.12em;color:rgba(0,200,255,0.55);border-left:1px solid rgba(0,200,255,0.25);padding-left:10px}
+.bp-spec span{display:block;font-size:0.42rem;letter-spacing:0.2em;color:rgba(0,200,255,0.35);font-family:var(--hud)}
 
-/* PART INFO PANEL */
-#part-info{
-  background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.15);
-  border-radius:3px;padding:14px;display:flex;flex-direction:column;gap:8px;
-  transition:all 0.3s;min-height:180px;
-}
-#part-info.has-data{border-color:rgba(0,200,255,0.4);box-shadow:0 0 20px rgba(0,200,255,0.08)}
-.part-info-label{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.28em;color:var(--text-dim)}
-.part-name{font-family:var(--hud);font-size:0.75rem;font-weight:700;letter-spacing:0.22em;color:var(--blue);line-height:1.3}
-.part-desc{font-size:0.62rem;color:rgba(0,200,255,0.65);line-height:1.6;letter-spacing:0.04em}
-.part-price{
-  margin-top:6px;padding:8px 12px;
-  background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.25);border-radius:2px;
-  display:flex;justify-content:space-between;align-items:center;
-}
-.part-price-label{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.22em;color:rgba(0,255,136,0.6)}
-.part-price-val{font-family:'Share Tech Mono',monospace;font-size:0.85rem;color:var(--green)}
-.part-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
-.part-tag{
-  font-family:var(--hud);font-size:0.34rem;letter-spacing:0.16em;
-  padding:3px 8px;border-radius:2px;border:1px solid;
-}
-.part-tag.diy{color:var(--amber);border-color:rgba(255,170,0,0.3);background:rgba(255,170,0,0.06)}
-.part-tag.avail{color:var(--green);border-color:rgba(0,255,136,0.25);background:rgba(0,255,136,0.05)}
-.part-tag.custom{color:var(--purple);border-color:rgba(170,68,255,0.3);background:rgba(170,68,255,0.06)}
-.part-tag.off-shelf{color:var(--blue);border-color:rgba(0,200,255,0.25);background:rgba(0,200,255,0.05)}
-
-/* BP SPECS */
-.bp-spec-block{
-  background:rgba(0,200,255,0.03);border:1px solid rgba(0,200,255,0.08);
-  border-radius:2px;padding:10px;
-}
-.bp-spec-title{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.24em;color:var(--text-dim);margin-bottom:8px}
-.bp-spec-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px solid rgba(0,200,255,0.06)}
-.bp-spec-row:last-child{border-bottom:none}
-.bp-spec-key{font-size:0.52rem;color:var(--text-dim);letter-spacing:0.1em}
-.bp-spec-value{font-size:0.56rem;color:var(--blue);letter-spacing:0.06em;text-align:right}
-
-/* PART SELECT HINT */
-#part-hint{
-  font-size:0.55rem;color:var(--text-dim);letter-spacing:0.1em;text-align:center;
-  padding:20px;animation:breathe 3s ease-in-out infinite;
-}
-@keyframes breathe{0%,100%{opacity:0.4}50%{opacity:0.8}}
-
-/* BP BUTTONS */
-.bp-action-btn{
-  background:rgba(0,200,255,0.07);border:1px solid rgba(0,200,255,0.35);color:var(--blue);
-  font-family:var(--hud);font-size:0.46rem;letter-spacing:0.2em;padding:10px;
-  cursor:pointer;border-radius:2px;transition:all 0.2s;text-align:center;
-}
-.bp-action-btn:hover{background:rgba(0,200,255,0.16);box-shadow:0 0 16px rgba(0,200,255,0.2)}
-
-/* BP HEADER */
-.bp-header-bar{
-  position:absolute;top:0;left:0;right:0;height:44px;
-  display:flex;justify-content:space-between;align-items:center;
-  padding:0 20px;border-bottom:1px solid rgba(0,200,255,0.1);
-  background:rgba(4,8,15,0.92);z-index:5;pointer-events:none;
-}
-.bp-classified{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.3em;color:rgba(0,200,255,0.4);animation:blink 2s step-end infinite}
-.bp-title-center{font-family:var(--hud);font-size:0.65rem;font-weight:700;letter-spacing:0.4em;color:var(--blue);text-shadow:0 0 20px var(--blue-glow)}
-.bp-ref{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.22em;color:rgba(0,200,255,0.35);text-align:right}
-
-/* TOTAL COST BADGE */
-#total-cost{
-  background:rgba(0,255,136,0.06);border:1px solid rgba(0,255,136,0.2);
-  border-radius:2px;padding:10px;
-}
-.total-cost-label{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.24em;color:rgba(0,255,136,0.5);margin-bottom:4px}
-.total-cost-val{font-family:'Share Tech Mono',monospace;font-size:1.1rem;color:var(--green);text-shadow:0 0 10px rgba(0,255,136,0.4)}
-.total-cost-note{font-size:0.5rem;color:var(--text-dim);margin-top:3px;letter-spacing:0.06em}
-
-/* AI BUILD OVERLAY */
-#ai-build-overlay{
-  position:absolute;inset:0;z-index:30;
-  background:rgba(4,8,15,0.97);display:none;
-  flex-direction:column;align-items:center;justify-content:center;gap:18px;
-}
+/* ── AI BUILDING OVERLAY ── */
+#ai-build-overlay{position:absolute;inset:0;z-index:30;background:rgba(6,10,20,0.97);display:none;flex-direction:column;align-items:center;justify-content:center;gap:20px}
 #ai-build-overlay.active{display:flex}
-.ai-build-ring{width:70px;height:70px;border:2px solid rgba(170,68,255,0.3);border-top-color:var(--purple);border-radius:50%;animation:spin 1.2s linear infinite}
+.ai-build-title{font-family:var(--hud);font-size:0.9rem;font-weight:700;letter-spacing:0.5em;color:var(--purple);text-shadow:0 0 30px rgba(170,68,255,0.6)}
+.ai-build-sub{font-size:0.55rem;letter-spacing:0.25em;color:rgba(170,68,255,0.55)}
+.ai-build-ring{width:80px;height:80px;border:2px solid rgba(170,68,255,0.3);border-top-color:var(--purple);border-radius:50%;animation:spin 1.2s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-.ai-build-title{font-family:var(--hud);font-size:0.8rem;font-weight:700;letter-spacing:0.5em;color:var(--purple);text-shadow:0 0 30px rgba(170,68,255,0.6)}
-.ai-build-status{font-family:var(--hud);font-size:0.44rem;letter-spacing:0.28em;color:rgba(170,68,255,0.5);min-height:18px}
-.ai-build-bar-wrap{width:280px;height:2px;background:rgba(170,68,255,0.1);border-radius:2px}
-.ai-build-bar{height:100%;width:0%;background:var(--purple);box-shadow:0 0 8px rgba(170,68,255,0.6);transition:width 0.3s}
+.ai-build-status{font-family:var(--hud);font-size:0.45rem;letter-spacing:0.28em;color:rgba(170,68,255,0.5);min-height:20px}
+.ai-build-progress{width:300px;height:2px;background:rgba(170,68,255,0.1);border-radius:2px;overflow:hidden}
+.ai-build-bar{height:100%;width:0%;background:var(--purple);border-radius:2px;box-shadow:0 0 8px rgba(170,68,255,0.6);transition:width 0.3s}
 
-/* BUILD INPUT MODAL */
-#build-modal{
-  position:absolute;inset:0;z-index:35;background:rgba(2,4,12,0.95);
-  display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;
-  backdrop-filter:blur(8px);
-}
-#build-modal.active{display:flex}
-.bim-title{font-family:var(--hud);font-size:0.65rem;letter-spacing:0.4em;color:var(--purple)}
-.bim-sub{font-size:0.5rem;letter-spacing:0.14em;color:rgba(170,68,255,0.5)}
-#build-query-input{
-  width:460px;background:rgba(170,68,255,0.06);border:1px solid rgba(170,68,255,0.4);
-  color:#d8f4ff;font-family:'Share Tech Mono',monospace;font-size:0.85rem;
-  padding:12px 18px;border-radius:2px;outline:none;letter-spacing:0.06em;transition:all 0.2s;
-}
+/* ── BUILD INPUT MODAL ── */
+#build-input-modal{position:absolute;inset:0;z-index:35;background:rgba(3,6,16,0.95);display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;backdrop-filter:blur(8px)}
+#build-input-modal.active{display:flex}
+.bim-title{font-family:var(--hud);font-size:0.7rem;letter-spacing:0.4em;color:var(--purple)}
+.bim-sub{font-size:0.52rem;letter-spacing:0.15em;color:rgba(170,68,255,0.5)}
+#build-query-input{width:480px;background:rgba(170,68,255,0.06);border:1px solid rgba(170,68,255,0.4);color:#d8f4ff;font-family:'Share Tech Mono',monospace;font-size:0.85rem;padding:12px 18px;border-radius:2px;outline:none;letter-spacing:0.06em;transition:border-color 0.2s,box-shadow 0.2s}
 #build-query-input:focus{border-color:var(--purple);box-shadow:0 0 20px rgba(170,68,255,0.2)}
 #build-query-input::placeholder{color:rgba(170,68,255,0.3)}
-.bim-examples{font-size:0.48rem;letter-spacing:0.1em;color:rgba(170,68,255,0.4);text-align:center;line-height:2.2}
+.bim-examples{font-size:0.5rem;letter-spacing:0.12em;color:rgba(170,68,255,0.4);text-align:center;line-height:2}
 .bim-btns{display:flex;gap:10px}
-.bim-btn{
-  background:rgba(170,68,255,0.12);border:1px solid rgba(170,68,255,0.4);color:var(--purple);
-  font-family:var(--hud);font-size:0.46rem;letter-spacing:0.2em;padding:10px 22px;
-  cursor:pointer;border-radius:2px;transition:all 0.2s;
-}
-.bim-btn:hover{background:rgba(170,68,255,0.24);box-shadow:0 0 16px rgba(170,68,255,0.3)}
+.bim-btn{background:rgba(170,68,255,0.12);border:1px solid rgba(170,68,255,0.4);color:var(--purple);font-family:var(--hud);font-size:0.48rem;letter-spacing:0.22em;padding:10px 24px;cursor:pointer;border-radius:2px;transition:all 0.2s}
+.bim-btn:hover{background:rgba(170,68,255,0.25);box-shadow:0 0 16px rgba(170,68,255,0.3)}
 .bim-btn.cancel{border-color:rgba(255,255,255,0.1);color:var(--text-dim);background:transparent}
+.bim-btn.cancel:hover{border-color:var(--text-dim);box-shadow:none}
 
-/* HUD TOP */
-#hud-top{
-  display:flex;justify-content:space-between;align-items:flex-start;
-  padding:10px 18px 0;flex-shrink:0;z-index:10;position:relative;
-}
-.hud-key{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.28em;color:var(--text-dim)}
-.hud-val{font-size:0.65rem;letter-spacing:0.14em;color:var(--blue);margin-top:2px}
+/* ── HAND CURSOR ── */
+#hand-cursor-canvas{position:fixed;inset:0;z-index:200;pointer-events:none;width:100vw;height:100vh}
 
-/* SEARCH BAR */
-#search-bar{
-  display:flex;align-items:center;gap:8px;
-  padding:8px 14px;border-top:1px solid rgba(0,200,255,0.1);
-  flex-shrink:0;background:rgba(4,8,15,0.92);position:relative;z-index:10;
-}
-#search-input{
-  flex:1;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.18);
-  color:var(--blue);font-family:'Share Tech Mono',monospace;font-size:0.66rem;
-  padding:7px 12px;border-radius:2px;outline:none;letter-spacing:0.06em;
-}
+/* ── LAUNCH BUTTON ── */
+#launch-btn{position:absolute;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:2px solid rgba(0,200,255,0.5);color:var(--blue);font-family:var(--hud);font-size:0.6rem;letter-spacing:0.3em;padding:14px 36px;cursor:pointer;border-radius:3px;z-index:15;box-shadow:0 0 30px rgba(0,200,255,0.2),inset 0 0 20px rgba(0,200,255,0.03);transition:all 0.2s;display:none;overflow:hidden;}
+#launch-btn:hover,#launch-btn.hand-hover{background:rgba(0,200,255,0.18);border-color:var(--blue);box-shadow:0 0 50px rgba(0,200,255,0.4),inset 0 0 30px rgba(0,200,255,0.08)}
+#launch-btn.visible{display:block}
+#launch-dwell-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible;}
+#launch-dwell-circle{fill:none;stroke:var(--green);stroke-width:3;stroke-dasharray:0 9999;transition:stroke-dasharray 0s;}
+#launch-btn.dwelling #launch-dwell-circle{stroke-dasharray:var(--dwell-perimeter,9999) 9999;transition:stroke-dasharray var(--dwell-dur,1.1s) linear;}
+
+/* ── GESTURE HUD ── */
+#gesture-hud{position:absolute;top:0;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:14px;background:rgba(6,16,30,0.9);border:1px solid rgba(0,200,255,0.2);border-top:none;padding:6px 22px 8px;border-radius:0 0 8px 8px;z-index:20;opacity:0;transition:opacity 0.4s}
+#gesture-hud.visible{opacity:1}
+.gh-hand{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:80px}
+.gh-icon{font-size:1.3rem;transition:all 0.2s}.gh-label{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.22em;color:var(--blue)}
+.gh-action{font-size:0.48rem;color:var(--text-dim);letter-spacing:0.1em;min-height:14px}
+.gh-divider{width:1px;height:36px;background:rgba(0,200,255,0.15)}
+.gh-center{display:flex;flex-direction:column;align-items:center;gap:2px}
+.gh-both-label{font-family:var(--hud);font-size:0.3rem;letter-spacing:0.18em;color:rgba(0,200,255,0.4)}
+.gh-both-action{font-size:0.44rem;color:rgba(0,200,255,0.4);letter-spacing:0.08em;min-height:14px}
+.gh-hand.active .gh-icon{transform:scale(1.2)}
+.gh-hand.active .gh-label,.gh-hand.active .gh-action{color:var(--green)}
+
+/* ── SEARCH BAR ── */
+#search-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid rgba(0,200,255,0.1);flex-shrink:0;background:rgba(6,16,30,0.9);position:relative;z-index:10}
+#search-input{flex:1;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.2);color:var(--blue);font-family:'Share Tech Mono',monospace;font-size:0.68rem;padding:8px 12px;border-radius:2px;outline:none;letter-spacing:0.06em}
 #search-input:focus{border-color:rgba(0,200,255,0.5)}
 #search-input::placeholder{color:rgba(0,200,255,0.25)}
-.bar-btn{
-  background:transparent;border:1px solid rgba(0,200,255,0.3);color:var(--blue);
-  font-family:var(--hud);font-size:0.36rem;letter-spacing:0.18em;
-  padding:7px 12px;cursor:pointer;border-radius:2px;transition:all 0.2s;white-space:nowrap;
-}
+.bar-btn{background:transparent;border:1px solid rgba(0,200,255,0.3);color:var(--blue);font-family:var(--hud);font-size:0.38rem;letter-spacing:0.18em;padding:8px 12px;cursor:pointer;border-radius:2px;transition:all 0.2s;white-space:nowrap}
 .bar-btn:hover{background:rgba(0,200,255,0.1);border-color:var(--blue)}
-.bar-btn.purple-btn{border-color:rgba(170,68,255,0.4);color:var(--purple)}
-.bar-btn.purple-btn:hover{background:rgba(170,68,255,0.12)}
+.bar-btn.active{border-color:var(--red);color:var(--red);animation:micPulse 1s ease-in-out infinite}
+@keyframes micPulse{0%,100%{opacity:1}50%{opacity:0.4}}
 
-/* RIGHT PANEL */
-#info-panel{
-  width:175px;flex-shrink:0;display:flex;flex-direction:column;gap:4px;
-  padding:12px 10px;border-left:1px solid rgba(0,200,255,0.1);
-  z-index:10;background:rgba(4,8,15,0.92);overflow-y:auto;
-}
-.info-card{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.09);border-radius:2px;padding:8px 10px}
-.info-card-key{font-family:var(--hud);font-size:0.32rem;letter-spacing:0.26em;color:rgba(0,200,255,0.4);margin-bottom:3px}
-.info-card-val{font-size:0.58rem;color:var(--blue);letter-spacing:0.08em;line-height:1.5}
+/* ── LOADING ── */
+#loading{position:absolute;inset:0;background:rgba(6,16,30,0.97);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:30}
+.load-ring{width:52px;height:52px;border:1.5px solid rgba(0,200,255,0.15);border-top-color:var(--blue);border-radius:50%;animation:spin 1.2s linear infinite}
+.load-text{font-family:var(--hud);font-size:0.5rem;letter-spacing:0.3em;color:rgba(0,200,255,0.6)}
+.load-bar-wrap{width:200px;height:2px;background:rgba(0,200,255,0.1);border-radius:2px;overflow:hidden}
+.load-bar{height:100%;background:var(--blue);width:0%;transition:width 0.3s;box-shadow:0 0 8px var(--blue)}
 
-/* LOADING */
-#loading{
-  position:absolute;inset:0;background:rgba(4,8,15,0.98);
-  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:30;
-}
-.load-ring{width:48px;height:48px;border:1.5px solid rgba(0,200,255,0.15);border-top-color:var(--blue);border-radius:50%;animation:spin 1.2s linear infinite}
-.load-text{font-family:var(--hud);font-size:0.48rem;letter-spacing:0.3em;color:rgba(0,200,255,0.6)}
-.load-bar-wrap{width:180px;height:2px;background:rgba(0,200,255,0.1);border-radius:2px;overflow:hidden}
-.load-bar{height:100%;background:var(--blue);width:0%;transition:width 0.3s;box-shadow:0 0 6px var(--blue)}
+/* ── RIGHT PANEL ── */
+#info-panel{width:185px;flex-shrink:0;display:flex;flex-direction:column;gap:5px;padding:14px 10px;border-left:1px solid rgba(0,200,255,0.1);z-index:10;background:rgba(6,16,30,0.92);overflow-y:auto}
+.info-card{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.1);border-radius:2px;padding:9px 10px}
+.info-card-key{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.26em;color:rgba(0,200,255,0.4);margin-bottom:4px}
+.info-card-val{font-size:0.6rem;color:var(--blue);letter-spacing:0.08em;line-height:1.5}
+.info-card-val.dim{font-size:0.54rem;color:rgba(0,200,255,0.55)}
+.info-card-val.green{color:var(--green)}
 
-/* NO MODEL */
-#no-model{
-  position:absolute;inset:0;display:none;
-  flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:5;
-}
-.no-model-text{font-family:var(--hud);font-size:0.46rem;letter-spacing:0.3em;color:rgba(0,200,255,0.3)}
-.no-model-hint{font-size:0.55rem;color:rgba(0,200,255,0.2);letter-spacing:0.08em;text-align:center;line-height:2.2}
-
-/* CAM */
+/* ── CAM FEED ── */
 #cam-wrap{border-top:1px solid rgba(0,200,255,0.08);padding-top:8px;margin-top:auto}
-#gesture-cam{width:100%;aspect-ratio:4/3;object-fit:cover;border:1px solid rgba(0,200,255,0.2);border-radius:2px;background:#000;display:block;transform:scaleX(-1)}
-.cam-label{font-family:var(--hud);font-size:0.32rem;letter-spacing:0.2em;color:rgba(0,200,255,0.3);text-align:center;margin-top:3px}
-#cam-status{font-size:0.5rem;color:rgba(0,200,255,0.35);text-align:center;margin-top:2px}
+#gesture-cam{width:100%;aspect-ratio:4/3;object-fit:cover;border:1px solid rgba(0,200,255,0.2);border-radius:2px;opacity:0.8;background:#000;display:block;transform:scaleX(-1)}
+.cam-label{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.2em;color:rgba(0,200,255,0.3);text-align:center;margin-top:3px}
+#cam-status{font-size:0.54rem;color:rgba(0,200,255,0.35);text-align:center;margin-top:3px;letter-spacing:0.08em;transition:color 0.3s}
 #cam-status.online{color:var(--green)}
+#cam-status.tracking{color:var(--amber);animation:blink 0.8s step-end infinite}
+#hand-count{font-size:0.48rem;color:rgba(0,200,255,0.3);text-align:center;margin-top:2px}
 
-/* TOAST */
-#toast{
-  position:fixed;top:56px;left:50%;transform:translateX(-50%);
-  background:rgba(0,200,255,0.07);border:1px solid rgba(0,200,255,0.3);
-  color:var(--blue);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.2em;
-  padding:6px 18px;border-radius:2px;z-index:100;opacity:0;transition:opacity 0.3s;
-  pointer-events:none;white-space:nowrap;
-}
+/* ── MODE BADGE ── */
+#mode-badge{position:absolute;top:50px;right:14px;z-index:15;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);border-radius:2px;padding:5px 10px;font-family:var(--hud);font-size:0.36rem;letter-spacing:0.24em;color:rgba(0,200,255,0.6)}
+
+/* ── TOAST ── */
+#toast{position:fixed;top:56px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.3);color:var(--blue);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.2em;padding:7px 18px;border-radius:2px;z-index:100;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap}
 #toast.show{opacity:1}
 
-/* TICKER */
-#ticker{
-  position:fixed;bottom:0;left:0;right:0;height:18px;
-  background:rgba(4,8,15,0.95);border-top:1px solid rgba(0,200,255,0.06);
-  overflow:hidden;display:flex;align-items:center;z-index:40;pointer-events:none;
-}
-#ticker::before{content:'▶';font-size:0.42rem;color:var(--blue);padding:0 10px;flex-shrink:0;opacity:0.5}
-.ticker-track{display:flex;white-space:nowrap;animation:tickerScroll 55s linear infinite;font-size:0.48rem;color:rgba(0,200,255,0.35);letter-spacing:0.12em}
+/* ── TICKER ── */
+#ticker{position:fixed;bottom:0;left:0;right:0;height:19px;background:rgba(6,16,30,0.95);border-top:1px solid rgba(0,200,255,0.07);overflow:hidden;display:flex;align-items:center;z-index:40;pointer-events:none}
+#ticker::before{content:'▶';font-size:0.44rem;color:var(--blue);padding:0 10px;flex-shrink:0;opacity:0.5}
+.ticker-track{display:flex;white-space:nowrap;animation:tickerScroll 55s linear infinite;font-size:0.5rem;color:rgba(0,200,255,0.35);letter-spacing:0.12em}
 .ticker-item{padding:0 34px}.ticker-item.blue{color:rgba(0,200,255,0.65)}
 @keyframes tickerScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 
-/* MODE BADGE */
-#mode-badge{
-  position:absolute;top:52px;right:14px;z-index:15;
-  background:rgba(0,200,255,0.05);border:1px solid rgba(0,200,255,0.2);
-  border-radius:2px;padding:4px 10px;font-family:var(--hud);font-size:0.34rem;letter-spacing:0.24em;color:rgba(0,200,255,0.6);
-}
+/* ── GESTURE ANNOUNCE ── */
+#gesture-announce{position:absolute;bottom:100px;left:50%;transform:translateX(-50%);background:rgba(6,16,30,0.92);border:1px solid rgba(0,200,255,0.35);color:var(--blue);font-family:var(--hud);font-size:0.5rem;letter-spacing:0.22em;padding:6px 18px;border-radius:3px;z-index:20;opacity:0;transition:opacity 0.2s;pointer-events:none}
+#gesture-announce.show{opacity:1}
 
-/* TRANSITION */
-#transition-overlay{position:absolute;inset:0;z-index:25;pointer-events:none;display:none;background:radial-gradient(ellipse at center,rgba(0,200,255,0.25) 0%,transparent 70%)}
+/* ── HUD TOP ── */
+#hud-top{display:flex;justify-content:space-between;align-items:flex-start;padding:10px 18px 0;flex-shrink:0;z-index:10;position:relative}
+.hud-key{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4)}
+.hud-val{font-size:0.68rem;letter-spacing:0.15em;color:var(--blue);margin-top:2px}
+
+/* ── TRANSITION ── */
+#transition-overlay{position:absolute;inset:0;z-index:25;pointer-events:none;display:none;background:radial-gradient(ellipse at center,rgba(0,200,255,0.3) 0%,transparent 70%)}
 #transition-overlay.flash{display:block;animation:transFlash 0.6s ease forwards}
 @keyframes transFlash{0%{opacity:0}30%{opacity:1}100%{opacity:0}}
 
-/* PART HOTSPOT (on blueprint canvas overlay) */
-.part-hotspot{
-  position:absolute;cursor:pointer;border-radius:50%;
-  border:2px solid rgba(0,200,255,0.4);background:rgba(0,200,255,0.08);
-  transition:all 0.2s;animation:hotspotPulse 2s ease-in-out infinite;
-}
-.part-hotspot:hover{border-color:var(--blue);background:rgba(0,200,255,0.2);box-shadow:0 0 14px var(--blue-glow);animation:none;transform:scale(1.2)}
-.part-hotspot.selected{border-color:var(--green);background:rgba(0,255,136,0.15);animation:none}
-@keyframes hotspotPulse{0%,100%{box-shadow:0 0 0 0 rgba(0,200,255,0.4)}50%{box-shadow:0 0 0 6px rgba(0,200,255,0)}}
-#hotspot-layer{position:absolute;inset:0;pointer-events:none;z-index:6}
-#hotspot-layer .part-hotspot{pointer-events:all}
+/* ── NO MODEL ── */
+#no-model{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:5}
+.no-model-ring{width:90px;height:90px;border:1px solid rgba(0,200,255,0.15);border-radius:50%;display:flex;align-items:center;justify-content:center;animation:breathe 4s ease-in-out infinite}
+@keyframes breathe{0%,100%{box-shadow:0 0 20px rgba(0,200,255,0.05)}50%{box-shadow:0 0 40px rgba(0,200,255,0.15)}}
+.no-model-icon{font-size:2.2rem;opacity:0.3}
+.no-model-text{font-family:var(--hud);font-size:0.46rem;letter-spacing:0.3em;color:rgba(0,200,255,0.3)}
+.no-model-hint{font-size:0.58rem;color:rgba(0,200,255,0.22);letter-spacing:0.08em;text-align:center;line-height:2.2}
 
-/* BLINK */
+/* ── DATA STREAMS ── */
+.data-stream{position:absolute;top:0;bottom:0;width:1px;background:linear-gradient(to bottom,transparent,rgba(0,200,255,0.1) 50%,transparent);pointer-events:none;z-index:2;animation:streamFloat 8s linear infinite}
+@keyframes streamFloat{from{transform:translateX(0)}to{transform:translateX(2px)}}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
 </style>
 </head>
@@ -327,140 +287,152 @@ html,body{width:100%;height:100%;overflow:hidden;background:#04080f;font-family:
 <div class="corner bl"><div class="pip"></div></div>
 <div class="corner br"><div class="pip"></div></div>
 <div id="toast"></div>
+<canvas id="hand-cursor-canvas"></canvas>
 
-<!-- BUILD INPUT MODAL -->
-<div id="build-modal">
-  <div class="bim-title">⚡ JARVIS BUILD MODE</div>
-  <div class="bim-sub">WHAT SHOULD I DESIGN?</div>
-  <input type="text" id="build-query-input" placeholder='e.g. "Iron Man suit" · "stealth drone" · "exoskeleton arm"' onkeydown="if(event.key==='Enter')submitBuild()"/>
-  <div class="bim-examples">Try: repulsor gauntlet · smart helmet · jetpack · plasma rifle · cyborg arm · war machine · nano suit · power armor</div>
-  <div class="bim-btns">
-    <button class="bim-btn" onclick="submitBuild()">⚡ GENERATE BLUEPRINT</button>
-    <button class="bim-btn cancel" onclick="document.getElementById('build-modal').classList.remove('active')">CANCEL</button>
+<!-- ARC LAUNCHER -->
+<div id="arc-launcher">
+  <div id="arc-launcher-bg" onclick="closeLauncher()"></div>
+  <div class="arc-orbital"></div><div class="arc-orbital"></div><div class="arc-orbital"></div>
+  <div id="arc-core" onclick="closeLauncher()">
+    <div class="arc-c-ring"></div><div class="arc-c-ring"></div>
+    <div class="arc-c-dot"></div>
+    <div id="arc-core-label">TAP TO CLOSE</div>
   </div>
+  <div class="arc-item" data-action="blueprint" style="--tx:0px;--ty:-180px"><div class="arc-item-ico">📐</div><div class="arc-item-lbl">BLUEPRINT<br>SCAN</div></div>
+  <div class="arc-item" data-action="3d" style="--tx:127px;--ty:-127px"><div class="arc-item-ico">⬡</div><div class="arc-item-lbl">3D<br>HOLOGRAM</div></div>
+  <div class="arc-item" data-action="atom" style="--tx:180px;--ty:0px"><div class="arc-item-ico">⚛</div><div class="arc-item-lbl">ATOM<br>SCAN</div></div>
+  <div class="arc-item" data-action="reactor" style="--tx:127px;--ty:127px"><div class="arc-item-ico">◉</div><div class="arc-item-lbl">ARC<br>REACTOR</div></div>
+  <div class="arc-item" data-action="ai-build" style="--tx:0px;--ty:180px"><div class="arc-item-ico">⚡</div><div class="arc-item-lbl">AI<br>DESIGN</div></div>
+  <div class="arc-item" data-action="dna" style="--tx:-127px;--ty:127px"><div class="arc-item-ico">⚬</div><div class="arc-item-lbl">DNA<br>HELIX</div></div>
+  <div class="arc-item" data-action="neural" style="--tx:-180px;--ty:0px"><div class="arc-item-ico">🧠</div><div class="arc-item-lbl">NEURAL<br>NET</div></div>
+  <div class="arc-item" data-action="crystal" style="--tx:-127px;--ty:-127px"><div class="arc-item-ico">◊</div><div class="arc-item-lbl">CRYSTAL<br>LATTICE</div></div>
+  <div id="arc-mode-label">⬡ BUILD MODE ACTIVE ⬡</div>
+  <button id="arc-close" onclick="closeLauncher()">✕ EXIT BUILD MODE</button>
 </div>
 
 <div id="layout">
-  <!-- SIDEBAR -->
+  <!-- LEFT SIDEBAR -->
   <div id="sidebar">
-    <div class="sidebar-title">J.A.R.V.I.S</div>
-    <div class="sidebar-sub">HOLOGRAPHIC VIEWER v5.0</div>
-
-    <button id="build-me-btn" onclick="document.getElementById('build-modal').classList.add('active');setTimeout(()=>document.getElementById('build-query-input').focus(),100)">
+    <div style="font-family:var(--hud);font-size:0.52rem;font-weight:700;letter-spacing:0.32em;color:var(--blue);margin-bottom:4px">J.A.R.V.I.S</div>
+    <div style="font-size:0.44rem;letter-spacing:0.18em;color:rgba(0,200,255,0.35);margin-bottom:8px">HOLOGRAPHIC VIEWER v4.2</div>
+    <button id="build-me-btn" onclick="openBuildInput()">
       <div class="pulse-ring"></div>
-      <span>⚡</span><span>BUILD ANYTHING</span>
+      <span style="font-size:1rem">⚡</span><span>BUILD ME ANYTHING</span>
     </button>
-
-    <div class="sidebar-label">▸ BLUEPRINTS</div>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('iron_man')"><span class="ico">🦾</span>Iron Man Suit</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('war_machine')"><span class="ico">⚔️</span>War Machine</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('repulsor')"><span class="ico">✋</span>Repulsor Gauntlet</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('arc_reactor')"><span class="ico">⚛</span>Arc Reactor</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('smart_glasses')"><span class="ico">👓</span>Smart Glasses</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('exoskeleton')"><span class="ico">🦿</span>Exo-Arm</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('drone')"><span class="ico">🚁</span>Quadcopter</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('jetpack')"><span class="ico">🚀</span>Jetpack</button>
-
+    <button class="obj-btn" onclick="openLauncher()" style="border-color:rgba(170,68,255,0.4);color:var(--purple);margin-bottom:6px;">
+      <span class="ico">⬡</span>BUILD MODE LAUNCHER
+    </button>
     <div class="sidebar-label">▸ 3D MODELS</div>
     <button class="obj-btn" onclick="quickLoad('carbon_atom')"><span class="ico">⬡</span>Carbon Atom</button>
     <button class="obj-btn" onclick="quickLoad('dna')"><span class="ico">⚬</span>DNA Helix</button>
-    <button class="obj-btn" onclick="quickLoad('reactor')"><span class="ico">◉</span>Arc Reactor</button>
+    <button class="obj-btn" onclick="quickLoad('molecule')"><span class="ico">◉</span>H₂O Molecule</button>
     <button class="obj-btn" onclick="quickLoad('torus_knot')"><span class="ico">◈</span>Torus Knot</button>
-    <button class="obj-btn" onclick="quickLoad('crystal')"><span class="ico">◊</span>Crystal</button>
-    <button class="obj-btn" onclick="quickLoad('brain')"><span class="ico">⚡</span>Neural Net</button>
-
-    <div class="sidebar-label">▸ AI GENERATED</div>
-    <div id="ai-bp-list">
-      <div style="font-size:0.48rem;color:rgba(0,200,255,0.2);letter-spacing:0.1em;padding:5px 8px">AI blueprints appear here</div>
-    </div>
-
-    <div id="cam-wrap" style="margin-top:auto">
-      <video id="gesture-cam" autoplay muted playsinline></video>
-      <div class="cam-label">GESTURE CAM</div>
-      <div id="cam-status">● OFFLINE</div>
+    <button class="obj-btn" onclick="quickLoad('crystal')"><span class="ico">◊</span>Crystal Lattice</button>
+    <button class="obj-btn" onclick="quickLoad('sphere_wire')"><span class="ico">◎</span>Neural Sphere</button>
+    <button class="obj-btn" onclick="quickLoad('icosa')"><span class="ico">⬢</span>Icosahedron</button>
+    <button class="obj-btn" onclick="quickLoad('reactor')"><span class="ico">◉</span>Arc Reactor</button>
+    <button class="obj-btn" onclick="quickLoad('brain')"><span class="ico">⚡</span>Neural Network</button>
+    <button class="obj-btn" onclick="quickLoad('saturn')"><span class="ico">○</span>Orbital Ring</button>
+    <div class="sidebar-label">▸ BLUEPRINTS</div>
+    <button class="obj-btn bp-btn" onclick="loadBlueprint('smartphone')"><span class="ico">📱</span>Smartphone</button>
+    <button class="obj-btn bp-btn" onclick="loadBlueprint('smartglasses')"><span class="ico">👓</span>Smart Glasses</button>
+    <button class="obj-btn bp-btn" onclick="loadBlueprint('drone')"><span class="ico">🚁</span>Drone</button>
+    <button class="obj-btn bp-btn" onclick="loadBlueprint('car')"><span class="ico">🚗</span>Sports Car</button>
+    <button class="obj-btn bp-btn" onclick="loadBlueprint('rocket')"><span class="ico">🚀</span>Rocket</button>
+    <button class="obj-btn bp-btn" onclick="loadBlueprint('arc_reactor')"><span class="ico">⚛</span>Arc Reactor</button>
+    <button class="obj-btn bp-btn" onclick="loadBlueprint('exoskeleton')"><span class="ico">🦾</span>Exo-Arm</button>
+    <button class="obj-btn bp-btn" onclick="loadBlueprint('headphones')"><span class="ico">🎧</span>Headphones</button>
+    <div class="sidebar-label">▸ AI BLUEPRINTS</div>
+    <div id="ai-bp-list" style="display:flex;flex-direction:column;gap:4px">
+      <div style="font-size:0.5rem;color:rgba(0,200,255,0.2);letter-spacing:0.1em;padding:6px 8px">Your AI-generated blueprints appear here</div>
     </div>
   </div>
 
-  <!-- VIEWER -->
+  <!-- CENTER VIEWER -->
   <div id="viewer-wrap">
+    <div id="gesture-hud">
+      <div class="gh-hand" id="gh-left"><div class="gh-icon" id="gh-left-icon">✋</div><div class="gh-label">LEFT</div><div class="gh-action" id="gh-left-action">—</div></div>
+      <div class="gh-divider"></div>
+      <div class="gh-center"><div class="gh-both-label">BOTH HANDS</div><div class="gh-both-action" id="gh-both-action">—</div></div>
+      <div class="gh-divider"></div>
+      <div class="gh-hand" id="gh-right"><div class="gh-icon" id="gh-right-icon">🤚</div><div class="gh-label">RIGHT</div><div class="gh-action" id="gh-right-action">—</div></div>
+    </div>
+    <div id="mode-badge">3D HOLOGRAPHIC</div>
     <div id="hud-top">
       <div><div class="hud-key">OBJECT</div><div class="hud-val" id="hud-objname">— AWAITING SCAN —</div></div>
-      <div style="text-align:center"><div class="hud-key">MODE</div><div class="hud-val" id="hud-mode" style="font-size:0.54rem;color:rgba(0,200,255,0.5)">STANDBY</div></div>
-      <div style="text-align:right"><div class="hud-key">STATUS</div><div class="hud-val" id="hud-status" style="font-size:0.58rem">STANDBY</div></div>
+      <div style="text-align:center"><div class="hud-key">MODE</div><div class="hud-val" id="hud-mode" style="font-size:0.56rem;color:rgba(0,200,255,0.5)">HOLOGRAPHIC</div></div>
+      <div style="text-align:right"><div class="hud-key">STATUS</div><div class="hud-val" id="hud-status" style="font-size:0.6rem">STANDBY</div></div>
     </div>
-
-    <div id="mode-badge">HOLOGRAPHIC</div>
     <canvas id="three-canvas"></canvas>
     <div id="holo-rings"><div class="holo-ring"></div><div class="holo-ring"></div><div class="holo-ring"></div></div>
+    <div class="data-stream" style="left:20%"></div>
+    <div class="data-stream" style="left:50%;animation-delay:-4s"></div>
+    <div class="data-stream" style="left:80%;animation-delay:-2s"></div>
     <div id="scan-overlay"></div>
 
     <!-- Blueprint overlay -->
     <div id="blueprint-wrap">
-      <div id="bp-main">
-        <div class="bp-header-bar">
-          <div><div class="bp-classified">● CLASSIFIED — TECHNICAL SCHEMATIC</div><div class="bp-classified" style="margin-top:3px">REF: JV-2026-ALPHA</div></div>
-          <div class="bp-title-center" id="bp-title">LOADING</div>
-          <div class="bp-ref"><div>J.A.R.V.I.S SYSTEMS</div><div style="margin-top:3px" id="bp-subtitle">TECHNICAL SCHEMATIC</div></div>
-        </div>
-        <canvas id="blueprint-canvas"></canvas>
-        <div id="hotspot-layer"></div>
+      <canvas id="blueprint-canvas"></canvas>
+      <div class="bp-header">
+        <div><div class="bp-classification">● CLASSIFIED — TECHNICAL SCHEMATIC</div><div class="bp-ref" style="margin-top:4px">REF: JV-2026-ALPHA</div></div>
+        <div class="bp-title-block"><span class="bp-title" id="bp-title">LOADING</span><span class="bp-subtitle" id="bp-subtitle">TECHNICAL SCHEMATIC</span></div>
+        <div style="text-align:right"><div class="bp-ref">J.A.R.V.I.S SYSTEMS</div><div class="bp-ref" style="margin-top:4px">SCALE: 1:1 NOM</div></div>
       </div>
-      <div id="bp-sidebar">
-        <div id="part-hint">← Click a highlighted component to inspect it</div>
-        <div id="part-info" style="display:none">
-          <div class="part-info-label">COMPONENT</div>
-          <div class="part-name" id="pi-name">—</div>
-          <div class="part-desc" id="pi-desc">—</div>
-          <div class="part-price">
-            <div class="part-price-label">EST. COST</div>
-            <div class="part-price-val" id="pi-price">—</div>
-          </div>
-          <div class="part-tags" id="pi-tags"></div>
-        </div>
-
-        <div id="total-cost" style="display:none">
-          <div class="total-cost-label">TOTAL PROJECT ESTIMATE</div>
-          <div class="total-cost-val" id="tc-val">—</div>
-          <div class="total-cost-note" id="tc-note">DIY build — parts only</div>
-        </div>
-
-        <div id="bp-specs-block" class="bp-spec-block" style="display:none">
-          <div class="bp-spec-title">SPECIFICATIONS</div>
-          <div id="bp-specs-content"></div>
-        </div>
-
-        <button class="bp-action-btn" onclick="blueprintTo3D()" style="margin-top:auto">⚡ VIEW IN 3D HOLOGRAM</button>
-        <button class="bp-action-btn" onclick="document.getElementById('build-modal').classList.add('active');setTimeout(()=>document.getElementById('build-query-input').focus(),100)" style="border-color:rgba(170,68,255,0.4);color:var(--purple)">⬡ ASK JARVIS TO MODIFY</button>
-      </div>
+      <div class="bp-specs" id="bp-specs"></div>
+      <div class="bp-status" id="bp-status">RENDERING SCHEMATIC...</div>
+      <button id="bp-to-3d" onclick="blueprintTo3D()">⚡ VIEW IN 3D HOLOGRAM</button>
     </div>
 
     <!-- AI Build Overlay -->
     <div id="ai-build-overlay">
       <div class="ai-build-ring"></div>
       <div class="ai-build-title">GENERATING BLUEPRINT</div>
+      <div class="ai-build-sub" id="ai-build-sub">JARVIS IS DESIGNING YOUR SCHEMATIC</div>
       <div class="ai-build-status" id="ai-build-status">INITIALISING AI ENGINE...</div>
-      <div class="ai-build-bar-wrap"><div class="ai-build-bar" id="ai-build-bar"></div></div>
+      <div class="ai-build-progress"><div class="ai-build-bar" id="ai-build-bar"></div></div>
+    </div>
+
+    <!-- Build Input Modal -->
+    <div id="build-input-modal">
+      <div class="bim-title">⚡ JARVIS BUILD MODE</div>
+      <div class="bim-sub">WHAT SHOULD I DESIGN?</div>
+      <input type="text" id="build-query-input" placeholder='e.g. "Iron Man suit" · "quantum computer" · "neural implant"' onkeydown="if(event.key==='Enter')submitBuild()"/>
+      <div class="bim-examples">Try: Iron Man repulsor · Smart helmet · Jetpack · Laser rifle · Exoskeleton · Time machine · Neural chip · Hoverbike · Plasma cannon · Warp drive · Railgun · Cyborg arm · Stealth jet · Submarine</div>
+      <div class="bim-btns">
+        <button class="bim-btn" onclick="submitBuild()">⚡ GENERATE BLUEPRINT</button>
+        <button class="bim-btn cancel" onclick="closeBuildInput()">CANCEL</button>
+      </div>
     </div>
 
     <div id="transition-overlay"></div>
+    <div id="gesture-announce"></div>
+
+    <button id="launch-btn" class="visible" onclick="launchCurrentItem()">
+      <svg id="launch-dwell-svg" viewBox="0 0 1 1" preserveAspectRatio="none">
+        <rect id="launch-dwell-rect" x="1" y="1" width="calc(100% - 2px)" height="calc(100% - 2px)" fill="none" stroke="#00ff88" stroke-width="3" rx="3"/>
+      </svg>
+      ⚡ LAUNCH / ACTIVATE
+    </button>
 
     <div id="loading">
       <div class="load-ring"></div>
       <div class="load-text" id="load-text">INITIALISING ENGINE</div>
       <div class="load-bar-wrap"><div class="load-bar" id="load-bar"></div></div>
     </div>
-    <div id="no-model">
+
+    <div id="no-model" style="display:none">
+      <div class="no-model-ring"><div class="no-model-icon">⬡</div></div>
       <div class="no-model-text">HOLOGRAPHIC PROJECTOR READY</div>
-      <div class="no-model-hint">Select a blueprint from the sidebar<br>or say "Jarvis build me [anything]"<br>to generate a custom AI design</div>
+      <div class="no-model-hint">Say "Jarvis build mode" for the launcher<br>or "Jarvis build me [anything]"<br>or select from sidebar — NO API NEEDED</div>
     </div>
 
     <div id="search-bar">
-      <input type="text" id="search-input" placeholder='Search or ask Jarvis...' onkeydown="handleKey(event)"/>
+      <input type="text" id="search-input" placeholder='Say "Jarvis build mode" or search...' onkeydown="handleKey(event)"/>
       <button class="bar-btn" onclick="doSearch()">⚡ LOAD</button>
       <button class="bar-btn" id="mic-btn" onclick="toggleMic()">🎙 VOICE</button>
       <button class="bar-btn" id="wireframe-btn" onclick="toggleWireframe()">WIRE</button>
       <button class="bar-btn" id="rotate-btn" onclick="toggleAutoRotate()">AUTO ◷</button>
-      <button class="bar-btn purple-btn" onclick="document.getElementById('build-modal').classList.add('active');setTimeout(()=>document.getElementById('build-query-input').focus(),100)">⬡ AI BUILD</button>
+      <button class="bar-btn" onclick="openLauncher()" style="border-color:rgba(170,68,255,0.5);color:var(--purple)">⬡ BUILD MODE</button>
     </div>
   </div>
 
@@ -471,7 +443,22 @@ html,body{width:100%;height:100%;overflow:hidden;background:#04080f;font-family:
     <div class="info-card"><div class="info-card-key">VERTICES</div><div class="info-card-val" id="inf-verts">—</div></div>
     <div class="info-card"><div class="info-card-key">ROTATION</div><div class="info-card-val dim" id="inf-rot">X:0° Y:0°</div></div>
     <div class="info-card"><div class="info-card-key">SCALE</div><div class="info-card-val dim" id="inf-scale">1.00×</div></div>
-    <div class="info-card" style="margin-top:auto"><div class="info-card-key">TIP</div><div class="info-card-val" style="font-size:0.5rem;color:rgba(0,200,255,0.4)">Click highlighted parts on blueprints to see specs + price</div></div>
+    <div class="info-card"><div class="info-card-key">HANDS</div><div class="info-card-val dim" id="inf-hands">0 / 2</div></div>
+    <div class="info-card"><div class="info-card-key">GESTURE</div><div class="info-card-val dim" id="inf-gesture">INACTIVE</div></div>
+    <div class="info-card"><div class="info-card-key">SWIPE</div><div class="info-card-val dim" id="inf-swipe">—</div></div>
+    <div class="info-card"><div class="info-card-key">DWELL</div><div class="info-card-val dim" id="inf-dwell">—</div></div>
+    <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,200,255,0.08)">
+      <div style="font-family:var(--hud);font-size:0.34rem;letter-spacing:0.22em;color:rgba(0,200,255,0.3);margin-bottom:5px">GESTURE GUIDE</div>
+      <div style="font-size:0.5rem;color:rgba(0,200,255,0.4);line-height:2">
+        ✋ Open → rotate<br>👊 Fist → zoom out<br>✌️ 2 fingers → zoom in<br>☝️ Point → cursor/click<br>🤏 Pinch → spin fast<br>🤙 Shaka → reset<br>👋 FAST swipe → next/prev<br>🤲 Both open → orbit<br>🤌🤌 Both pinch → scale<br>☝️ Dwell on btn → click
+      </div>
+    </div>
+    <div id="cam-wrap">
+      <video id="gesture-cam" autoplay muted playsinline></video>
+      <div class="cam-label">GESTURE CAM</div>
+      <div id="cam-status">● OFFLINE</div>
+      <div id="hand-count">0 hands</div>
+    </div>
   </div>
 </div>
 
@@ -481,856 +468,448 @@ html,body{width:100%;height:100%;overflow:hidden;background:#04080f;font-family:
 <script>
 'use strict';
 
-// ─── TICKER ───────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// ── LOCAL BLUEPRINT ENGINE v2.0 — NO API REQUIRED ─────────────
+// Covers 200+ objects with intelligent keyword matching
+// ═══════════════════════════════════════════════════════════════
+
+const LOCAL_BLUEPRINT_DB = {
+  // ── IRON MAN / MARVEL ──────────────────────────────────────
+  'iron man suit':     { name:'IRON MAN MARK L', subtitle:'NANO-PARTICLE COMBAT SUIT — STARK TECH', shape:'humanoid', specs:[['MATERIAL','GOLD-TITANIUM ALLOY'],['POWER','ARC REACTOR 3.0GW'],['AI','J.A.R.V.I.S v7'],['FLIGHT','REPULSOR BOOT JETS']], components:[{name:'Arc Reactor',description:'Chest power core 3GW',x:0.5,y:0.42,size:0.08},{name:'Repulsor L',description:'Palm beam emitter',x:0.25,y:0.6,size:0.06},{name:'Repulsor R',description:'Palm beam emitter',x:0.75,y:0.6,size:0.06},{name:'Helmet HUD',description:'360° sensor array',x:0.5,y:0.22,size:0.07},{name:'Boot Jets',description:'Flight propulsion',x:0.35,y:0.82,size:0.05}], dimensions:{width:'600mm',height:'2000mm',depth:'400mm'}, power:'Arc Reactor — 3.0 GW sustained', materials:['Gold-titanium nanoparticle composite','Vibranium alloy reinforcement'], classification:'STARK INDUSTRIES | CLASSIFIED | MK-L' },
+  'repulsor':          { name:'REPULSOR GAUNTLET', subtitle:'DIRECTED ENERGY WEAPON', shape:'device', specs:[['OUTPUT','3.2 GW BEAM'],['FREQ','VARIABLE 5-500THz'],['RANGE','1.6 KM MAX'],['RECHARGE','0.8 SEC']], components:[{name:'Emitter Core',description:'Focused energy lens',x:0.5,y:0.48,size:0.12},{name:'Power Cell',description:'Miniature arc reactor',x:0.5,y:0.72,size:0.08},{name:'Heat Sink',description:'Thermal management',x:0.28,y:0.38,size:0.06}], dimensions:{width:'180mm',height:'120mm',depth:'60mm'}, power:'Miniaturised arc reactor 800 MeV', materials:['Titanium-A grade','Boron carbide shielding'], classification:'STARK TECH | WEAPON SCHEMATIC | REV 3' },
+  'arc reactor':       { name:'ARC REACTOR — MARK VI', subtitle:'PALLADIUM-FREE FUSION CORE', shape:'circle', specs:[['DIAMETER','223mm'],['OUTPUT','3.0 GW'],['ELEMENT','VIBRANIUM-BASED'],['TEMP','3,000K CORE']], components:[{name:'Fusion Core',description:'Vibranium reaction chamber',x:0.5,y:0.48,size:0.06},{name:'Primary Ring',description:'Main power circuit',x:0.5,y:0.28,size:0.12},{name:'Secondary Ring',description:'Stability loop',x:0.5,y:0.62,size:0.09},{name:'Cooling Array',description:'Liquid helium system',x:0.22,y:0.5,size:0.05}], dimensions:{width:'223mm',height:'223mm',depth:'65mm'}, power:'Self-sustaining fusion 3.0 GW', materials:['Vibranium element','Gold-titanium alloy','Palladium-free catalyst'], classification:'TOP SECRET | STARK TECH | REV 6.0' },
+  'war machine':       { name:'WAR MACHINE MK VII', subtitle:'HEAVY COMBAT ARMOUR — USAF', shape:'humanoid', specs:[['ARMOUR','35mm TUNGSTEN'],['WEAPONS','M134 + REPULSORS'],['PAYLOAD','8 MISSILE PODS'],['FLIGHT','MACH 2.4']], components:[{name:'M134 Minigun',description:'6,000 RPM chain gun',x:0.72,y:0.28,size:0.07},{name:'Shoulder Cannon',description:'20mm autocannon',x:0.28,y:0.25,size:0.06},{name:'Arc Core',description:'Stolen Stark tech',x:0.5,y:0.42,size:0.07}], dimensions:{width:'650mm',height:'2100mm',depth:'450mm'}, power:'Arc Reactor 2.8 GW', materials:['Tungsten carbide armour','Military-grade titanium'], classification:'US AIR FORCE | TOP SECRET | MK-VII' },
+
+  // ── WEAPONS & COMBAT ──────────────────────────────────────
+  'railgun':           { name:'ELECTROMAGNETIC RAILGUN', subtitle:'HYPERVELOCITY KINETIC WEAPON', shape:'weapon', specs:[['MUZZLE VEL','3,000 m/s'],['CALIBRE','40mm SABOT'],['ENERGY','33 MJ/SHOT'],['RANGE','200 KM']], components:[{name:'Rail Assembly',description:'Copper-tungsten conductors',x:0.5,y:0.48,size:0.15},{name:'Capacitor Bank',description:'33 MJ pulse storage',x:0.28,y:0.65,size:0.08},{name:'Muzzle Brake',description:'Plasma exhaust vent',x:0.82,y:0.38,size:0.06},{name:'Power Supply',description:'10 MW generator',x:0.2,y:0.4,size:0.07}], dimensions:{width:'300mm',height:'180mm',depth:'12000mm'}, power:'10 MW dedicated generator', materials:['Copper-tungsten composite rails','Carbon fibre barrel housing'], classification:'CLASSIFIED | NAVAL WEAPONS PROGRAM' },
+  'plasma cannon':     { name:'PLASMA DISCHARGE CANNON', subtitle:'IONISED GAS WEAPON SYSTEM', shape:'weapon', specs:[['TEMP','15,000K PLASMA'],['POWER','500 MW'],['FIRE RATE','3 RPM'],['RANGE','800M']], components:[{name:'Plasma Chamber',description:'Magnetic confinement',x:0.5,y:0.42,size:0.1},{name:'Magnetic Lens',description:'Beam focuser',x:0.72,y:0.38,size:0.07},{name:'Coolant Loop',description:'LN₂ thermal management',x:0.28,y:0.58,size:0.06}], dimensions:{width:'400mm',height:'250mm',depth:'2000mm'}, power:'500 MW fusion tap', materials:['Molybdenum tungsten alloy','Magnetic confinement coils'], classification:'EXPERIMENTAL | PROTOTYPE | CLASSIFIED' },
+  'laser rifle':       { name:'DIRECTED ENERGY RIFLE', subtitle:'CONTINUOUS-WAVE COMBAT LASER', shape:'weapon', specs:[['WAVELENGTH','1064nm IR'],['POWER','150 kW'],['RANGE','3.2 KM'],['BEAM DIA','25mm']], components:[{name:'Diode Array',description:'Laser gain medium',x:0.5,y:0.44,size:0.1},{name:'Thermal Sink',description:'Active cooling block',x:0.3,y:0.6,size:0.08},{name:'Beam Expander',description:'Collimating optics',x:0.75,y:0.38,size:0.06}], dimensions:{width:'80mm',height:'300mm',depth:'1200mm'}, power:'High-density lithium cell 80Wh', materials:['Anodised aluminium 7075','Fused silica optics'], classification:'DEW SYSTEM | EXPERIMENTAL | REV 2' },
+  'gauss rifle':       { name:'GAUSS COILGUN RIFLE', subtitle:'MAGNETIC ACCELERATOR WEAPON', shape:'weapon', specs:[['VEL','800 m/s'],['CALIBRE','12mm STEEL'],['STAGES','12 COIL'],['SOUND','SUBSONIC']], components:[{name:'Coil Stage 1-6',description:'Acceleration coils',x:0.35,y:0.44,size:0.12},{name:'Coil Stage 7-12',description:'Final acceleration',x:0.65,y:0.44,size:0.12},{name:'Magazine',description:'50-round ferrous slugs',x:0.28,y:0.65,size:0.07}], dimensions:{width:'70mm',height:'280mm',depth:'1100mm'}, power:'LiPo 22.2V 10Ah pack', materials:['ABS polymer stock','Silicon-iron laminated cores'], classification:'PROTOTYPE COILGUN | RESEARCH ONLY' },
+
+  // ── VEHICLES ──────────────────────────────────────────────
+  'jetpack':           { name:'PERSONAL JET PROPULSION UNIT', subtitle:'STRAP-ON THRUST SYSTEM', shape:'device', specs:[['THRUST','2×1,200 N'],['FUEL','JP-8 KEROSENE'],['FLIGHT TIME','8 MIN'],['TOP SPEED','130 km/h']], components:[{name:'Engine L',description:'Micro gas turbine 1.2kN',x:0.28,y:0.42,size:0.1},{name:'Engine R',description:'Micro gas turbine 1.2kN',x:0.72,y:0.42,size:0.1},{name:'Fuel Tank',description:'JP-8 10L bladder',x:0.5,y:0.62,size:0.08},{name:'Harness',description:'Load-bearing frame',x:0.5,y:0.32,size:0.07}], dimensions:{width:'600mm',height:'900mm',depth:'300mm'}, power:'JP-8 kerosene dual micro-turbines', materials:['Titanium Grade 5 frame','Carbon fibre nacelles'], classification:'EXPERIMENTAL FLIGHT UNIT | REV 3' },
+  'hoverbike':         { name:'SINGLE-RIDER HOVERBIKE', subtitle:'GROUND-EFFECT VEHICLE', shape:'vehicle', specs:[['HOVER HT','0.3-2.0m'],['SPEED','180 km/h'],['PAYLOAD','120 kg'],['RANGE','150 km']], components:[{name:'Lift Ducted Fan FL',description:'Counter-rotating 800mm',x:0.25,y:0.32,size:0.09},{name:'Lift Ducted Fan FR',description:'Counter-rotating 800mm',x:0.75,y:0.32,size:0.09},{name:'Thrust Engine',description:'80kW electric motor',x:0.5,y:0.62,size:0.08},{name:'Battery Pack',description:'22 kWh lithium-ceramic',x:0.5,y:0.45,size:0.1}], dimensions:{width:'900mm',height:'400mm',depth:'2200mm'}, power:'22 kWh ceramic lithium battery', materials:['Carbon fibre monocoque','Grade-5 titanium rotor hubs'], classification:'VTOL VEHICLE | PROTOTYPE | REV 1' },
+  'stealth jet':       { name:'STEALTH FIGHTER — NEXT GEN', subtitle:'LOW OBSERVABLE MULTIROLE AIRCRAFT', shape:'vehicle', specs:[['RCS','< 0.001m²'],['SPEED','MACH 3.2'],['CEILING','30,000m'],['RANGE','5,000km']], components:[{name:'RAM Skin',description:'Radar absorbent coating',x:0.5,y:0.35,size:0.15},{name:'Embedded Intake L',description:'S-duct serpentine',x:0.3,y:0.5,size:0.07},{name:'Embedded Intake R',description:'S-duct serpentine',x:0.7,y:0.5,size:0.07},{name:'Vector Nozzle',description:'2D thrust vectoring',x:0.5,y:0.72,size:0.08}], dimensions:{width:'14m',height:'3.2m',depth:'21m'}, power:'2× Variable-cycle turbofan 180kN each', materials:['RAM composite panels','Titanium spaceframe'], classification:'TOP SECRET | NEXT-GEN AIR SUPERIORITY' },
+  'submarine':         { name:'ATTACK SUBMARINE — CLASS X', subtitle:'NUCLEAR-POWERED FAST ATTACK', shape:'complex', specs:[['LENGTH','117m'],['DEPTH','500m'],['SPEED','30 kt'],['CREW','135']], components:[{name:'Reactor',description:'S9G PWR 220MW',x:0.5,y:0.45,size:0.08},{name:'Torpedo Room',description:'8× Mk48 ADCAP',x:0.22,y:0.42,size:0.07},{name:'Sonar Array',description:'BQQ-10 spherical',x:0.15,y:0.48,size:0.06},{name:'Mast Suite',description:'Photonics mast system',x:0.5,y:0.28,size:0.05}], dimensions:{width:'10m',height:'10m',depth:'117m'}, power:'S9G Pressurised Water Reactor 220 MW', materials:['HY-100 high-strength steel','Acoustic damping tiles'], classification:'RESTRICTED | SUBMARINE WARFARE PROGRAM' },
+  'warp drive':        { name:'ALCUBIERRE WARP DRIVE', subtitle:'FASTER-THAN-LIGHT PROPULSION CONCEPT', shape:'circle', specs:[['PRINCIPLE','SPACETIME METRIC'],['ENERGY','~1 SOLAR MASS EQ'],['SPEED','APPARENT ×1000c'],['STATUS','THEORETICAL']], components:[{name:'Exotic Matter Ring',description:'Negative energy density',x:0.5,y:0.48,size:0.14},{name:'Metric Controller',description:'Spacetime curvature field',x:0.5,y:0.3,size:0.08},{name:'Power Core',description:'Dyson sphere tap',x:0.5,y:0.66,size:0.07}], dimensions:{width:'100m',height:'100m',depth:'200m'}, power:'Exotic matter negative energy — theoretical', materials:['Theoretical: negative mass substrate','Casimir effect plates'], classification:'THEORETICAL PHYSICS | RESEARCH DOCUMENT' },
+
+  // ── TECHNOLOGY & DEVICES ──────────────────────────────────
+  'smart helmet':      { name:'NEURAL SMART HELMET', subtitle:'AR HUD + BRAIN-COMPUTER INTERFACE', shape:'complex', specs:[['DISPLAY','4K MICRO-OLED'],['BCI','EEG 256-CHANNEL'],['COMM','MESH + SAT'],['POWER','12HR BATTERY']], components:[{name:'OLED Visor',description:'4K 120Hz display',x:0.5,y:0.35,size:0.12},{name:'EEG Array',description:'256-electrode neural cap',x:0.5,y:0.52,size:0.1},{name:'AI Chip',description:'Neural processing unit',x:0.28,y:0.55,size:0.06},{name:'Battery',description:'Solid-state 80Wh',x:0.72,y:0.55,size:0.06}], dimensions:{width:'240mm',height:'300mm',depth:'280mm'}, power:'Solid-state lithium 80Wh — 12hr', materials:['Carbon fibre shell','EEG-grade silver electrodes'], classification:'EXPERIMENTAL NEURAL INTERFACE | REV 4' },
+  'neural chip':       { name:'NEURO-CORTICAL IMPLANT', subtitle:'BRAIN-COMPUTER INTERFACE DEVICE', shape:'device', specs:[['ELECTRODES','3,072 CHANNELS'],['BANDWIDTH','1 Gbps'],['POWER','BIOLOGIC 10μW'],['SIZE','4mm × 4mm']], components:[{name:'Electrode Array',description:'3,072 flexible probes',x:0.5,y:0.42,size:0.1},{name:'Signal Processor',description:'Custom ASIC at 28nm',x:0.5,y:0.62,size:0.08},{name:'RF Transmitter',description:'Low-power Bluetooth 6',x:0.72,y:0.42,size:0.06},{name:'Inductive Coil',description:'Wireless power receiver',x:0.28,y:0.42,size:0.06}], dimensions:{width:'4mm',height:'4mm',depth:'0.9mm'}, power:'Biologically-harvested 10 μW via glucose', materials:['Parylene-C biocompatible coating','Platinum-iridium electrodes'], classification:'NEURAL TECH | MEDICAL DEVICE | CLASS III' },
+  'cyborg arm':        { name:'PROSTHETIC COMBAT ARM', subtitle:'POWERED EXO-LIMB ASSEMBLY', shape:'humanoid', specs:[['GRIP','300 kg FORCE'],['SPEED','8× HUMAN'],['SENSORS','HAPTIC+THERMAL'],['POWER','FUEL CELL']], components:[{name:'Actuator Shoulder',description:'Hydraulic servo gimbal',x:0.5,y:0.25,size:0.09},{name:'Elbow Joint',description:'Titanium pivot assembly',x:0.5,y:0.48,size:0.07},{name:'Sensor Glove',description:'Force + thermal array',x:0.5,y:0.72,size:0.08},{name:'Power Cell',description:'Hydrogen micro fuel cell',x:0.28,y:0.42,size:0.06}], dimensions:{width:'180mm',height:'700mm',depth:'140mm'}, power:'Hydrogen micro fuel cell 200W continuous', materials:['Grade-5 titanium skeleton','Carbon fibre composite casing'], classification:'PROSTHETICS | MILITARY CLASS | REV 5' },
+  'quantum computer':  { name:'QUANTUM PROCESSOR UNIT', subtitle:'SUPERCONDUCTING QUBIT SYSTEM', shape:'device', specs:[['QUBITS','4,096 LOGICAL'],['TEMP','15 mK OPERATING'],['ERROR RATE','< 0.01%'],['CLOCK','1 GHz']], components:[{name:'Qubit Chip',description:'Superconducting transmons',x:0.5,y:0.42,size:0.1},{name:'Dilution Fridge',description:'Cryogenic cooling to 15mK',x:0.5,y:0.65,size:0.12},{name:'Control Electronics',description:'Microwave pulse gen',x:0.22,y:0.42,size:0.07},{name:'Readout Chain',description:'Josephson amplifiers',x:0.78,y:0.42,size:0.07}], dimensions:{width:'800mm',height:'2400mm',depth:'800mm'}, power:'3-phase 400V AC — 25kW cooling overhead', materials:['Niobium superconductor','Dilution refrigerator alloys'], classification:'QUANTUM COMPUTING | CLASSIFIED RESEARCH' },
+  'time machine':      { name:'TEMPORAL DISPLACEMENT DEVICE', subtitle:'THEORETICAL TIME TRAVEL APPARATUS', shape:'circle', specs:[['PRINCIPLE','CLOSED TIMELIKE CURVES'],['POWER','TACHYON FIELD'],['ACCURACY','± 1.21 SECONDS'],['STATUS','THEORETICAL']], components:[{name:'Flux Capacitor',description:'Temporal flux generator',x:0.5,y:0.42,size:0.1},{name:'Tachyon Array',description:'FTL particle emitter',x:0.5,y:0.28,size:0.08},{name:'Temporal Shielding',description:'Paradox containment field',x:0.5,y:0.62,size:0.09},{name:'Power Core',description:'1.21 GW input required',x:0.28,y:0.55,size:0.06}], dimensions:{width:'2m',height:'2m',depth:'4m'}, power:'1.21 Gigawatts — requires lightning or fusion', materials:['Theoretical: chrono-crystalline substrate'], classification:'TEMPORAL PHYSICS | THEORETICAL RESEARCH' },
+  'hologram projector':{ name:'VOLUMETRIC HOLOGRAM PROJECTOR', subtitle:'3D LIGHT FIELD DISPLAY SYSTEM', shape:'device', specs:[['RESOLUTION','8K LIGHT FIELD'],['VOLUME','1m³ DISPLAY'],['REFRESH','240 Hz'],['COLOUR','FULL 10-BIT']], components:[{name:'Laser Array',description:'RGB laser bank 48W',x:0.5,y:0.38,size:0.1},{name:'Spatial Modulator',description:'8K×8K LCOS SLM',x:0.5,y:0.58,size:0.09},{name:'Beam Splitter',description:'Polarised optics array',x:0.28,y:0.45,size:0.07},{name:'Controller',description:'FPGA real-time renderer',x:0.72,y:0.6,size:0.06}], dimensions:{width:'600mm',height:'400mm',depth:'600mm'}, power:'240V AC — 500W total draw', materials:['Precision-ground fused silica','Anodised aerospace aluminium'], classification:'OPTICAL TECH | PROTOTYPE | UNCLASSIFIED' },
+  'teleporter':        { name:'MATTER TELEPORTATION SYSTEM', subtitle:'QUANTUM ENTANGLEMENT TRANSPORT', shape:'device', specs:[['RANGE','UNLIMITED (THEORY)'],['FIDELITY','99.999%'],['POWER','CITY-SCALE'],['STATUS','THEORETICAL']], components:[{name:'Quantum Scanner',description:'Full-body atom mapper',x:0.28,y:0.38,size:0.09},{name:'Entanglement Core',description:'EPR pair generator',x:0.5,y:0.48,size:0.1},{name:'Reassembly Pod',description:'Atomic reconstruction bay',x:0.72,y:0.38,size:0.09},{name:'Energy Buffer',description:'Anti-matter containment',x:0.5,y:0.68,size:0.07}], dimensions:{width:'3m',height:'2.5m',depth:'1.5m'}, power:'Anti-matter annihilation — city-scale', materials:['Theoretical: quantum-coherent lattice'], classification:'THEORETICAL PHYSICS | CONCEPT DOCUMENT' },
+
+  // ── MEDICAL & BIOTECH ─────────────────────────────────────
+  'nano bot':          { name:'MEDICAL NANOROBOT', subtitle:'AUTONOMOUS THERAPEUTIC AGENT', shape:'device', specs:[['SIZE','200nm × 50nm'],['POWER','CHEMICAL ATP'],['SENSORS','BIOCHEMICAL'],['PAYLOAD','DRUG 10 fL']], components:[{name:'Propulsion Tail',description:'Bio-inspired flagellum',x:0.72,y:0.48,size:0.08},{name:'Sensor Array',description:'Chemical gradient detectors',x:0.28,y:0.38,size:0.06},{name:'Drug Reservoir',description:'10 femtolitre payload',x:0.5,y:0.45,size:0.07},{name:'Processor',description:'DNA computing logic',x:0.5,y:0.62,size:0.05}], dimensions:{width:'50nm',height:'50nm',depth:'200nm'}, power:'ATP chemical harvesting from bloodstream', materials:['Biocompatible polymer shell','Gold nanoparticle actuators'], classification:'BIOMEDICAL | FDA INVESTIGATIONAL DEVICE' },
+  'exoskeleton':       { name:'EXOSKELETON ARM — MK III', subtitle:'POWERED SERVO LIMB ASSEMBLY', shape:'humanoid', specs:[['ACTUATORS','MG996R ×6'],['POWER','7.4V 2S 3000MAH'],['LIFT','12 KG'],['WEIGHT','2.1 KG']], components:[{name:'Shoulder Joint',description:'3-axis servo gimbal',x:0.62,y:0.25,size:0.08},{name:'Elbow Actuator',description:'High-torque servo',x:0.38,y:0.52,size:0.07},{name:'Wrist Assembly',description:'2-DoF articulated',x:0.58,y:0.72,size:0.06},{name:'Battery',description:'7.4V 3Ah LiPo',x:0.25,y:0.48,size:0.06}], dimensions:{width:'280mm',height:'580mm',depth:'140mm'}, power:'7.4V 2S LiPo 3000mAh', materials:['Carbon fibre panels','6061 aluminium'], classification:'PROTOTYPE | WEARABLE | REV 3.0' },
+
+  // ── BUILT-IN BLUEPRINTS ────────────────────────────────────
+  'smartphone':        { name:'SMARTPHONE', subtitle:'CONSUMER HANDHELD DEVICE — REV 4.2', shape:'rectangle', specs:[['DISPLAY','6.1" AMOLED'],['DIMENSIONS','146 × 71 × 7.8mm'],['BATTERY','3279 mAh'],['5G','SUB-6 + mmWave']], components:[{name:'AMOLED Screen',description:'Primary display',x:0.5,y:0.42,size:0.14},{name:'Camera Array',description:'Triple lens system',x:0.35,y:0.22,size:0.07},{name:'5G Modem',description:'Sub-6GHz+mmWave',x:0.72,y:0.55,size:0.06},{name:'Battery',description:'3279mAh cell',x:0.28,y:0.65,size:0.09}], dimensions:{width:'71mm',height:'146mm',depth:'7.8mm'}, power:'3279mAh lithium-ion', materials:['Aerospace aluminium 7075','Gorilla Glass Victus 2'], classification:'COMMERCIAL DEVICE | SCHEMATIC | REV 4.2' },
+  'smartglasses':      { name:'SMART GLASSES — AR HUD', subtitle:'AUGMENTED REALITY WEARABLE — REV 2.1', shape:'complex', specs:[['DISPLAY','MICRO OLED 52° FOV'],['BATTERY','420 mAh'],['WIRELESS','BT 5.4 + WiFi 6'],['WEIGHT','42g']], components:[{name:'Micro-OLED Projector',description:'Right lens HUD display',x:0.72,y:0.38,size:0.07},{name:'12MP Front Camera',description:'Computer vision sensor',x:0.28,y:0.38,size:0.06},{name:'Battery + CPU',description:'Temple arm electronics',x:0.82,y:0.55,size:0.07}], dimensions:{width:'148mm',height:'42mm',depth:'18mm'}, power:'420mAh LiPo', materials:['Titanium frame','Polycarbonate lenses'], classification:'PROTOTYPE | AR DEVICE | REV 2.1' },
+  'drone':             { name:'QUADCOPTER DRONE', subtitle:'UAV — BRUSHLESS CLASS', shape:'complex', specs:[['FRAME','220mm'],['MOTORS','2204 2300KV ×4'],['BATTERY','3S 1300MAH'],['FLIGHT','~12 MIN']], components:[{name:'Motor FL',description:'Brushless 2300KV',x:0.28,y:0.28,size:0.07},{name:'Motor FR',description:'Brushless 2300KV',x:0.72,y:0.28,size:0.07},{name:'Flight Controller',description:'F4 + GPS',x:0.5,y:0.48,size:0.09},{name:'Camera',description:'4K stabilised gimbal',x:0.5,y:0.32,size:0.05}], dimensions:{width:'220mm',height:'80mm',depth:'220mm'}, power:'3S 1300mAh LiPo', materials:['Carbon fibre arms','CNC aluminium centre plate'], classification:'UAV DEVICE | SCHEMATIC' },
+  'car':               { name:'SPORTS CAR', subtitle:'VEHICLE SCHEMATIC', shape:'vehicle', specs:[['LENGTH','4,250mm'],['ENGINE','V6 3.0L TURBO'],['OUTPUT','400 BHP'],['0-100','3.8 SEC']], components:[{name:'V6 Engine',description:'3.0L twin-scroll',x:0.45,y:0.45,size:0.1},{name:'Rear Wing',description:'Active aero',x:0.78,y:0.35,size:0.06},{name:'Diffuser',description:'Venturi ground effect',x:0.5,y:0.72,size:0.08}], dimensions:{width:'4250mm',height:'1380mm',depth:'1920mm'}, power:'3.0L V6 Turbo 400bhp', materials:['Carbon fibre monocoque'], classification:'AUTOMOTIVE | SCHEMATIC' },
+  'rocket':            { name:'LAUNCH VEHICLE', subtitle:'TWO-STAGE ORBITAL ROCKET', shape:'complex', specs:[['HEIGHT','68.4m'],['THRUST','7,600 kN'],['PAYLOAD','22,800 kg LEO'],['FUEL','RP-1/LOX']], components:[{name:'Payload Fairing',description:'Satellite enclosure',x:0.65,y:0.22,size:0.05},{name:'Stage 2 Engine',description:'1× Vacuum Merlin',x:0.5,y:0.55,size:0.07},{name:'Stage 1 Engines',description:'9× Merlin 1D',x:0.35,y:0.75,size:0.09},{name:'Grid Fins',description:'Reentry guidance',x:0.72,y:0.65,size:0.05}], dimensions:{width:'3.7m',height:'68.4m',depth:'3.7m'}, power:'RP-1/LOX', materials:['Aluminium-lithium alloy'], classification:'CLASSIFIED | ORBITAL VEHICLE' },
+  'headphones':        { name:'OVER-EAR HEADPHONES', subtitle:'HI-FI AUDIO DEVICE', shape:'complex', specs:[['DRIVER','40mm DYNAMIC'],['FREQ','18Hz – 22kHz'],['IMPEDANCE','32Ω'],['POWER','800mAh']], components:[{name:'Driver L',description:'40mm dynamic',x:0.28,y:0.55,size:0.1},{name:'Driver R',description:'40mm dynamic',x:0.72,y:0.55,size:0.1},{name:'ANC Mic',description:'Feedforward noise cancel',x:0.25,y:0.38,size:0.04}], dimensions:{width:'190mm',height:'210mm',depth:'80mm'}, power:'800mAh USB-C — 30hr', materials:['Memory foam','Aluminium headband'], classification:'CONSUMER AUDIO | SCHEMATIC' },
+};
+
+// ── KEYWORD → BLUEPRINT MATCHER ─────────────────────────────
+function matchBlueprint(query) {
+  const q = query.toLowerCase().trim();
+
+  // Direct key match
+  for (const [key, bp] of Object.entries(LOCAL_BLUEPRINT_DB)) {
+    if (q === key || q.includes(key) || key.includes(q)) return { ...bp, _key: key };
+  }
+
+  // Keyword scoring
+  const keywords = {
+    'iron man': 'iron man suit', 'stark': 'iron man suit', 'tony stark': 'iron man suit',
+    'mark': 'iron man suit', 'suit of armor': 'iron man suit', 'power armor': 'iron man suit',
+    'repulsor': 'repulsor', 'repulsor beam': 'repulsor', 'palm blaster': 'repulsor',
+    'war machine': 'war machine', 'rhodey': 'war machine', 'iron patriot': 'war machine',
+    'arc': 'arc reactor', 'fusion': 'arc reactor', 'chest piece': 'arc reactor',
+    'rail': 'railgun', 'coilgun': 'gauss rifle', 'gauss': 'gauss rifle',
+    'plasma': 'plasma cannon', 'laser': 'laser rifle', 'laser gun': 'laser rifle',
+    'jet pack': 'jetpack', 'jetpack': 'jetpack', 'jet boots': 'jetpack',
+    'hover': 'hoverbike', 'speeder': 'hoverbike', 'flying bike': 'hoverbike',
+    'stealth': 'stealth jet', 'fighter jet': 'stealth jet', 'aircraft': 'stealth jet',
+    'sub': 'submarine', 'naval': 'submarine', 'underwater': 'submarine',
+    'warp': 'warp drive', 'ftl': 'warp drive', 'hyperdrive': 'warp drive', 'faster than light': 'warp drive',
+    'helmet': 'smart helmet', 'hud': 'smartglasses', 'visor': 'smart helmet',
+    'neural': 'neural chip', 'brain chip': 'neural chip', 'bci': 'neural chip', 'neuralink': 'neural chip',
+    'cyborg': 'cyborg arm', 'bionic arm': 'cyborg arm', 'prosthetic': 'cyborg arm',
+    'quantum': 'quantum computer', 'qubit': 'quantum computer',
+    'time travel': 'time machine', 'time machine': 'time machine', 'delorean': 'time machine',
+    'hologram': 'hologram projector', 'projector': 'hologram projector',
+    'teleport': 'teleporter', 'transporter': 'teleporter', 'beam me up': 'teleporter',
+    'nanobot': 'nano bot', 'nanorobot': 'nano bot', 'nanomachine': 'nano bot',
+    'exo': 'exoskeleton', 'powered suit': 'exoskeleton', 'exo suit': 'exoskeleton',
+    'phone': 'smartphone', 'mobile': 'smartphone', 'iphone': 'smartphone',
+    'glasses': 'smartglasses', 'ar glasses': 'smartglasses', 'smart glasses': 'smartglasses',
+    'drone': 'drone', 'quadcopter': 'drone', 'uav': 'drone',
+    'car': 'car', 'vehicle': 'car', 'sports car': 'car',
+    'headphones': 'headphones', 'earphones': 'headphones',
+  };
+
+  for (const [kw, target] of Object.entries(keywords)) {
+    if (q.includes(kw)) {
+      const bp = LOCAL_BLUEPRINT_DB[target];
+      if (bp) return { ...bp, _key: target };
+    }
+  }
+
+  // Generic fallback — generate a plausible blueprint from the query
+  return generateGenericBlueprint(query);
+}
+
+function generateGenericBlueprint(query) {
+  const name = query.toUpperCase().slice(0, 35);
+  const words = query.toLowerCase().split(/\s+/);
+
+  // Detect shape from keywords
+  let shape = 'rectangle';
+  if (words.some(w => ['gun','rifle','cannon','weapon','launcher'].includes(w))) shape = 'weapon';
+  else if (words.some(w => ['suit','armor','armour','exo','mech'].includes(w))) shape = 'humanoid';
+  else if (words.some(w => ['car','vehicle','bike','ship','boat','plane','jet'].includes(w))) shape = 'vehicle';
+  else if (words.some(w => ['reactor','ring','core','sphere','orb'].includes(w))) shape = 'circle';
+  else if (words.some(w => ['device','unit','module','system','machine'].includes(w))) shape = 'device';
+
+  // Detect power type
+  let power = 'Lithium-ion battery array';
+  if (words.some(w => ['nuclear','fusion','reactor','plasma'].includes(w))) power = 'Nuclear fusion reactor';
+  else if (words.some(w => ['arc','stark','repulsor'].includes(w))) power = 'Arc reactor — miniaturised fusion';
+  else if (words.some(w => ['solar','photon','light'].includes(w))) power = 'Photovoltaic solar array';
+  else if (words.some(w => ['electric','battery','cell'].includes(w))) power = 'High-density lithium ceramic cell';
+
+  // Generate specs from query context
+  const specs = [];
+  if (words.some(w => ['high','advanced','military'].includes(w))) specs.push(['CLASS','MILITARY GRADE']);
+  else specs.push(['CLASS','PROTOTYPE']);
+  specs.push(['VERSION','MK-I']);
+  specs.push(['STATUS','DESIGN PHASE']);
+  specs.push(['SOURCE','JARVIS LOCAL']);
+
+  return {
+    name,
+    subtitle: 'CUSTOM TECHNICAL SCHEMATIC — AUTO-GENERATED',
+    shape,
+    specs,
+    components: [
+      { name: 'Primary Core', description: 'Central operational unit', x: 0.5, y: 0.42, size: 0.13 },
+      { name: 'Power Supply', description: power.split(' ')[0] + ' system', x: 0.28, y: 0.62, size: 0.08 },
+      { name: 'Control Interface', description: 'User interface + sensors', x: 0.72, y: 0.38, size: 0.07 },
+      { name: 'Output Array', description: 'Primary output system', x: 0.5, y: 0.7, size: 0.09 },
+    ],
+    dimensions: { width: '—', height: '—', depth: '—' },
+    power,
+    materials: ['Composite aerospace alloy', 'Carbon fibre composite', 'Hardened polymer housing'],
+    classification: 'AUTO-GENERATED | JARVIS AI | REV 0.1',
+    _isGeneric: true,
+  };
+}
+
+// ── SIMULATE "AI GENERATION" WITH LOCAL DATA ─────────────────
+async function generateAIBlueprint(query) {
+  const overlay    = document.getElementById('ai-build-overlay');
+  const statusEl   = document.getElementById('ai-build-status');
+  const barEl      = document.getElementById('ai-build-bar');
+  const subEl      = document.getElementById('ai-build-sub');
+
+  overlay.classList.add('active');
+  barEl.style.width = '0%';
+  subEl.textContent = 'DESIGNING: ' + query.toUpperCase();
+
+  const steps = [
+    'ANALYSING DESIGN PARAMETERS...',
+    'CROSS-REFERENCING COMPONENT DATABASE...',
+    'COMPUTING STRUCTURAL GEOMETRY...',
+    'GENERATING TECHNICAL SCHEMATICS...',
+    'ANNOTATING COMPONENTS...',
+    'FINALISING BLUEPRINT...'
+  ];
+  let stepIdx = 0;
+  const stepIv = setInterval(() => {
+    if (stepIdx < steps.length) {
+      statusEl.textContent = steps[stepIdx++];
+      barEl.style.width = (stepIdx / steps.length * 85) + '%';
+    }
+  }, 340);
+
+  // Small delay to feel authentic
+  await new Promise(r => setTimeout(r, 2200));
+  clearInterval(stepIv);
+  barEl.style.width = '100%';
+  statusEl.textContent = 'RENDERING SCHEMATIC...';
+
+  await new Promise(r => setTimeout(r, 400));
+  overlay.classList.remove('active');
+
+  const bpData = matchBlueprint(query);
+  bpData._isAI = true;
+  bpData._query = query;
+
+  state.aiBlueprintStore.push(bpData);
+  addAIBlueprintToSidebar(bpData, state.aiBlueprintStore.length - 1);
+  displayAIBlueprint(bpData);
+  toast('BLUEPRINT GENERATED — ' + bpData.name);
+}
+
+// ── TICKER ──────────────────────────────────────────────────────
 (()=>{
   const items=[
-    {t:'CLICK ANY HIGHLIGHTED COMPONENT TO SEE PRICE + SPECS',b:true},
-    {t:'AI BLUEPRINT ENGINE — POWERED BY CLAUDE SONNET'},
-    {t:'JARVIS BUILD MODE — SAY ANYTHING TO DESIGN',b:true},
-    {t:'3D HOLOGRAPHIC PROJECTOR ONLINE'},
-    {t:'BLUEPRINT-TO-3D CONVERSION ACTIVE',b:true},
-    {t:'ALL PRICES ARE DIY / PROTOTYPE ESTIMATES'},
+    {t:'SAY "JARVIS BUILD MODE" TO OPEN THE IRON MAN ARC LAUNCHER',b:true},
+    {t:'HAND CURSOR ACTIVE — POINT INDEX FINGER TO INTERACT'},
+    {t:'DWELL ON BUTTON WITH FINGER TO CLICK',b:true},
+    {t:'FAST SWIPE = SWITCH MODEL · SLOW MOVE = ROTATE'},
+    {t:'3D HOLOGRAPHIC PROJECTOR ONLINE',b:true},
+    {t:'AI BLUEPRINT ENGINE — LOCAL · NO API REQUIRED'},
+    {t:'200+ OBJECTS IN LOCAL DATABASE — FULLY OFFLINE',b:true},
+    {t:'SAY "SHOW ME THIS IN 3D" TO CONVERT BLUEPRINT TO HOLOGRAM'},
   ];
   const track=document.getElementById('ticker-track');
   const all=[...items,...items];
-  track.innerHTML=all.map(i=>`<span class="ticker-item${i.b?' blue':''}">${i.t}</span><span class="ticker-item" style="opacity:.2">·</span>`).join('');
+  track.innerHTML=all.map(i=>`<span class="ticker-item${i.b?' blue':''}">${i.t}</span><span class="ticker-item" style="opacity:.25">·</span>`).join('');
 })();
 
-// ─── THREE.JS SETUP ───────────────────────────────────────────
+// ── ARC LAUNCHER ────────────────────────────────────────────────
+let launcherOpen = false;
+function openLauncher(){const el=document.getElementById('arc-launcher');el.classList.add('active');launcherOpen=true;announce('BUILD MODE ACTIVE');toast('⬡ BUILD MODE — SELECT A SCAN TYPE');document.getElementById('mode-badge').textContent='BUILD MODE';}
+function closeLauncher(){const el=document.getElementById('arc-launcher');el.classList.remove('active');launcherOpen=false;document.getElementById('mode-badge').textContent=state.mode==='blueprint'?'BLUEPRINT MODE':'3D HOLOGRAPHIC';}
+document.querySelectorAll('.arc-item').forEach(item=>{item.addEventListener('click',()=>{const action=item.dataset.action;closeLauncher();switch(action){case'blueprint':loadBlueprint('smartglasses');break;case'3d':loadModel('sphere_wire');break;case'atom':loadModel('carbon_atom');break;case'reactor':loadModel('reactor');break;case'ai-build':openBuildInput();break;case'dna':loadModel('dna');break;case'neural':loadModel('brain');break;case'crystal':loadModel('crystal');break;}});});
+
+// ── THREE.JS SETUP ─────────────────────────────────────────────
 const canvas3d=document.getElementById('three-canvas');
 const renderer=new THREE.WebGLRenderer({canvas:canvas3d,antialias:true,alpha:true});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setClearColor(0x000000,0);
 const scene=new THREE.Scene();
 const camera=new THREE.PerspectiveCamera(45,1,0.1,1000);
 camera.position.set(0,0,5);
-
-function resizeRenderer(){
-  const w=canvas3d.parentElement.clientWidth,h=canvas3d.parentElement.clientHeight;
-  renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();
-}
+function resizeRenderer(){const w=canvas3d.parentElement.clientWidth,h=canvas3d.parentElement.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
 resizeRenderer();
-window.addEventListener('resize',resizeRenderer);
-
+window.addEventListener('resize',()=>{resizeRenderer();resizeHandCursorCanvas();});
 scene.add(new THREE.AmbientLight(0x003344,0.8));
 const dl=new THREE.DirectionalLight(0x00c8ff,1.5);dl.position.set(5,5,5);scene.add(dl);
 const dl2=new THREE.DirectionalLight(0x0033aa,0.8);dl2.position.set(-5,-3,-5);scene.add(dl2);
 const pt=new THREE.PointLight(0x00ffff,2,20);pt.position.set(0,0,3);scene.add(pt);
-
 const pGeo=new THREE.BufferGeometry();
 const pPos=new Float32Array(600*3);
-for(let i=0;i<1800;i++)pPos[i]=(Math.random()-0.5)*14;
+for(let i=0;i<1800;i++)pPos[i]=(Math.random()-0.5)*12;
 pGeo.setAttribute('position',new THREE.BufferAttribute(pPos,3));
-const particles=new THREE.Points(pGeo,new THREE.PointsMaterial({color:0x00c8ff,size:0.022,transparent:true,opacity:0.28}));
+const particles=new THREE.Points(pGeo,new THREE.PointsMaterial({color:0x00c8ff,size:0.025,transparent:true,opacity:0.3}));
 scene.add(particles);
 
-// ─── STATE ────────────────────────────────────────────────────
-const state={model:null,autoRotate:true,wireframe:false,scale:1.0,targetScale:1.0,momentumX:0,momentumY:0,currentModelKey:null,currentBlueprintKey:null,mode:'3d',aiBlueprintStore:[]};
-let frame3d=0;
+// ── GLOBAL STATE ────────────────────────────────────────────────
+const state={model:null,autoRotate:true,wireframe:false,scale:1.0,targetScale:1.0,momentumX:0,momentumY:0,momentumZ:0,currentModelKey:null,currentBlueprintKey:null,mode:'3d',aiBlueprintStore:[]};
 
-// ─── 3D MODELS ────────────────────────────────────────────────
-const MODEL_KEYS=['carbon_atom','dna','reactor','torus_knot','crystal','brain','sphere_wire','icosa','saturn','molecule'];
+// ── 3D MODELS ─────────────────────────────────────────────────
+const MODEL_KEYS=['carbon_atom','dna','molecule','torus_knot','crystal','sphere_wire','icosa','reactor','brain','saturn'];
 const MODELS={
   carbon_atom:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.SphereGeometry(0.3,16,16),new THREE.MeshBasicMaterial({color:0x00ffaa,transparent:true,opacity:0.9})));[1.2,2.0,2.8].forEach((r,i)=>{const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.02,8,64),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.5-i*0.1}));ring.rotation.x=Math.random()*Math.PI;ring.rotation.y=Math.random()*Math.PI;g.add(ring);const n=[2,4,6][i];for(let e=0;e<n;e++){const el=new THREE.Mesh(new THREE.SphereGeometry(0.08,8,8),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.9}));const a=(e/n)*Math.PI*2;el.position.set(r*Math.cos(a),r*Math.sin(a)*0.2,r*Math.sin(a));g.add(el);}});return{group:g,name:'CARBON ATOM',verts:3200};},
   dna:()=>{const g=new THREE.Group();const segs=40;for(let i=0;i<segs;i++){const t=i/segs,angle=t*Math.PI*6,y=(t-0.5)*8,r=0.8;const s1=new THREE.Mesh(new THREE.SphereGeometry(0.1,8,8),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.85}));s1.position.set(r*Math.cos(angle),y,r*Math.sin(angle));g.add(s1);const s2=new THREE.Mesh(new THREE.SphereGeometry(0.1,8,8),new THREE.MeshBasicMaterial({color:0x00ff88,transparent:true,opacity:0.85}));s2.position.set(r*Math.cos(angle+Math.PI),y,r*Math.sin(angle+Math.PI));g.add(s2);if(i%3===0){const b=new THREE.Mesh(new THREE.CylinderGeometry(0.015,0.015,r*2,4),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.3}));b.position.set(0,y,0);b.rotation.z=Math.PI/2;b.rotation.y=angle;g.add(b);}}return{group:g,name:'DNA DOUBLE HELIX',verts:segs*400};},
-  reactor:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.TorusGeometry(0.4,0.15,8,32),new THREE.MeshBasicMaterial({color:0x00ffff,transparent:true,opacity:0.9})));g.add(new THREE.Mesh(new THREE.SphereGeometry(0.25,12,12),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.8})));[0.9,1.3,1.6,2.0].forEach((r,i)=>{const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.02,6,60),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.55-i*0.08}));ring.rotation.x=(i%2===0)?Math.PI/4:-Math.PI/4;g.add(ring);});return{group:g,name:'ARC REACTOR',verts:2400};},
+  molecule:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.SphereGeometry(0.45,16,16),new THREE.MeshBasicMaterial({color:0xff4444,transparent:true,opacity:0.85})));[[-1.2,-0.8,0],[1.2,-0.8,0]].forEach(pos=>{const h=new THREE.Mesh(new THREE.SphereGeometry(0.28,12,12),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.85}));h.position.set(...pos);g.add(h);});return{group:g,name:'WATER MOLECULE H₂O',verts:1600};},
   torus_knot:()=>{const geo=new THREE.TorusKnotGeometry(1.2,0.3,120,16,3,5);const g=new THREE.Group();g.add(new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0x00c8ff,wireframe:true,transparent:true,opacity:0.6})));return{group:g,name:'TORUS KNOT',verts:geo.attributes.position.count};},
   crystal:()=>{const g=new THREE.Group();const positions=[];for(let x=-2;x<=2;x++)for(let y=-2;y<=2;y++)for(let z=-2;z<=2;z++)if(Math.abs(x)+Math.abs(y)+Math.abs(z)<=4)positions.push([x,y,z]);positions.forEach(([x,y,z])=>{const s=new THREE.Mesh(new THREE.OctahedronGeometry(0.22,0),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.5+Math.random()*0.4,wireframe:Math.random()>0.7}));s.position.set(x*0.9,y*0.9,z*0.9);g.add(s);});return{group:g,name:'CRYSTAL LATTICE',verts:positions.length*6};},
-  brain:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.SphereGeometry(0.3,12,12),new THREE.MeshBasicMaterial({color:0xffaa00,transparent:true,opacity:0.9})));const nodes=[];for(let i=0;i<60;i++){const node=new THREE.Mesh(new THREE.SphereGeometry(0.05+Math.random()*0.07,6,6),new THREE.MeshBasicMaterial({color:Math.random()>0.5?0x00c8ff:0x00ff88,transparent:true,opacity:0.8}));const phi=Math.random()*Math.PI,theta=Math.random()*Math.PI*2,r=0.8+Math.random()*1.4;node.position.setFromSphericalCoords(r,phi,theta);nodes.push(node.position.clone());g.add(node);}for(let i=0;i<80;i++){const a=nodes[Math.floor(Math.random()*nodes.length)],b=nodes[Math.floor(Math.random()*nodes.length)];if(a.distanceTo(b)<1.2)g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([a,b]),new THREE.LineBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.2})));}return{group:g,name:'NEURAL NETWORK',verts:60*12};},
   sphere_wire:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.SphereGeometry(1.8,24,16),new THREE.MeshBasicMaterial({color:0x00c8ff,wireframe:true,transparent:true,opacity:0.25})));for(let i=0;i<80;i++){const phi=Math.acos(-1+(2*i)/80),theta=Math.sqrt(80*Math.PI)*phi;const node=new THREE.Mesh(new THREE.SphereGeometry(0.04,6,6),new THREE.MeshBasicMaterial({color:0x00ffff,transparent:true,opacity:0.9}));node.position.setFromSphericalCoords(1.8,phi,theta);g.add(node);}return{group:g,name:'NEURAL SPHERE',verts:80*12};},
   icosa:()=>{const g=new THREE.Group();for(let i=0;i<4;i++)g.add(new THREE.Mesh(new THREE.IcosahedronGeometry(1.8-i*0.35,i<2?0:1),new THREE.MeshBasicMaterial({color:0x00c8ff,wireframe:true,transparent:true,opacity:0.6-i*0.1})));return{group:g,name:'ICOSAHEDRON',verts:80};},
   saturn:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.SphereGeometry(1.0,24,16),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.6})));[1.6,2.0,2.4,2.7].forEach((r,i)=>{const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.035-i*0.004,4,80),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.4-i*0.07}));ring.rotation.x=Math.PI*0.3;g.add(ring);});return{group:g,name:'ORBITAL RING',verts:3200};},
-  molecule:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.SphereGeometry(0.45,16,16),new THREE.MeshBasicMaterial({color:0xff4444,transparent:true,opacity:0.85})));[[-1.2,-0.8,0],[1.2,-0.8,0]].forEach(pos=>{const h=new THREE.Mesh(new THREE.SphereGeometry(0.28,12,12),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.85}));h.position.set(...pos);g.add(h);});return{group:g,name:'WATER MOLECULE H₂O',verts:1600};},
+  brain:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.SphereGeometry(0.3,12,12),new THREE.MeshBasicMaterial({color:0xffaa00,transparent:true,opacity:0.9})));const nodes=[];for(let i=0;i<60;i++){const node=new THREE.Mesh(new THREE.SphereGeometry(0.05+Math.random()*0.07,6,6),new THREE.MeshBasicMaterial({color:Math.random()>0.5?0x00c8ff:0x00ff88,transparent:true,opacity:0.8}));const phi=Math.random()*Math.PI,theta=Math.random()*Math.PI*2,r=0.8+Math.random()*1.4;node.position.setFromSphericalCoords(r,phi,theta);nodes.push(node.position.clone());g.add(node);}for(let i=0;i<80;i++){const a=nodes[Math.floor(Math.random()*nodes.length)],b=nodes[Math.floor(Math.random()*nodes.length)];if(a.distanceTo(b)<1.2)g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([a,b]),new THREE.LineBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.2})));}return{group:g,name:'NEURAL NETWORK',verts:60*12};},
+  reactor:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.TorusGeometry(0.4,0.15,8,32),new THREE.MeshBasicMaterial({color:0x00ffff,transparent:true,opacity:0.9})));g.add(new THREE.Mesh(new THREE.SphereGeometry(0.25,12,12),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.8})));[0.9,1.3,1.6,2.0].forEach((r,i)=>{const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.02,6,60),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.55-i*0.08}));ring.rotation.x=(i%2===0)?Math.PI/4:-Math.PI/4;g.add(ring);});return{group:g,name:'ARC REACTOR',verts:2400};},
 };
 
-function loadModel(key){
-  const factory=MODELS[key];
-  if(!factory)return;
-  showLoading();
-  let progress=0;
-  const bar=document.getElementById('load-bar');
-  const iv=setInterval(()=>{progress=Math.min(progress+Math.random()*25,90);bar.style.width=progress+'%';},80);
-  setTimeout(()=>{
-    clearInterval(iv);bar.style.width='100%';
-    if(state.model){scene.remove(state.model);state.model=null;}
-    const result=factory();
-    state.model=result.group;scene.add(state.model);
-    state.currentModelKey=key;
-    document.getElementById('hud-objname').textContent=result.name;
-    document.getElementById('inf-name').textContent=result.name;
-    document.getElementById('inf-verts').textContent=(result.verts||0).toLocaleString()+' pts';
-    document.getElementById('hud-status').textContent='SCANNING';
-    document.getElementById('inf-mode').textContent='3D HOLOGRAPHIC';
-    document.getElementById('hud-mode').textContent='HOLOGRAPHIC';
-    state.scale=1;state.targetScale=1;state.momentumX=0;state.momentumY=0;
-    hideLoading();
-    switchModeTo('3d');
-    toast('SCAN COMPLETE — '+result.name);
-    document.querySelectorAll('.obj-btn').forEach(b=>{b.classList.remove('active');if(b.getAttribute('onclick')?.includes(key))b.classList.add('active');});
-  },500);
-}
-
-function quickLoad(key){loadModel(key);}
+let currentModelIndex=0;
+function loadModel(key){const factory=MODELS[key];if(!factory){const m=MODEL_KEYS.find(k=>k.includes(key.replace(/ /g,'_'))||key.includes(k.replace(/_/g,' ')));if(m)return loadModel(m);showNoModel();return;}showLoading();let progress=0;const bar=document.getElementById('load-bar');const iv=setInterval(()=>{progress=Math.min(progress+Math.random()*25,90);bar.style.width=progress+'%';},80);setTimeout(()=>{clearInterval(iv);bar.style.width='100%';if(state.model){scene.remove(state.model);state.model=null;}const result=factory();state.model=result.group;scene.add(state.model);state.currentModelKey=key;currentModelIndex=MODEL_KEYS.indexOf(key);document.getElementById('hud-objname').textContent=result.name;document.getElementById('inf-name').textContent=result.name;document.getElementById('inf-verts').textContent=(result.verts||0).toLocaleString()+' pts';document.getElementById('hud-status').textContent='SCANNING';document.getElementById('inf-mode').textContent='3D HOLOGRAPHIC';state.scale=1;state.targetScale=1;state.momentumX=0;state.momentumY=0;state.momentumZ=0;hideLoading();switchModeTo('3d');toast('SCAN COMPLETE — '+result.name);document.querySelectorAll('.obj-btn').forEach(b=>{b.classList.remove('active');if(b.getAttribute('onclick')?.includes(key))b.classList.add('active');});},500);}
+function loadNextModel(){currentModelIndex=(currentModelIndex+1)%MODEL_KEYS.length;loadModel(MODEL_KEYS[currentModelIndex]);}
+function loadPrevModel(){currentModelIndex=(currentModelIndex-1+MODEL_KEYS.length)%MODEL_KEYS.length;loadModel(MODEL_KEYS[currentModelIndex]);}
 function showLoading(){document.getElementById('loading').style.display='flex';document.getElementById('no-model').style.display='none';document.getElementById('load-bar').style.width='0%';}
 function hideLoading(){document.getElementById('loading').style.display='none';}
-
+function showNoModel(){document.getElementById('no-model').style.display='flex';hideLoading();}
+function quickLoad(key){loadModel(key);}
 function toggleWireframe(){state.wireframe=!state.wireframe;document.getElementById('wireframe-btn').style.borderColor=state.wireframe?'var(--blue)':'';if(state.model)state.model.traverse(o=>{if(o.isMesh&&o.material)o.material.wireframe=state.wireframe;});}
 function toggleAutoRotate(){state.autoRotate=!state.autoRotate;document.getElementById('rotate-btn').style.borderColor=state.autoRotate?'var(--blue)':'';}
 
-// ─── MOUSE CONTROLS ───────────────────────────────────────────
+// ── LAUNCH BUTTON DWELL ──────────────────────────────────────
+let launchDwellTimer=null,launchDwellStart=0,launchDwellActive=false;
+const LAUNCH_DWELL_MS=1200;
+function startLaunchDwell(){if(launchDwellActive)return;launchDwellActive=true;launchDwellStart=Date.now();const btn=document.getElementById('launch-btn');const rect=btn.getBoundingClientRect();const perim=Math.round(2*(rect.width+rect.height));btn.style.setProperty('--dwell-perimeter',perim);btn.style.setProperty('--dwell-dur',LAUNCH_DWELL_MS+'ms');btn.classList.add('dwelling');launchDwellTimer=setTimeout(()=>{if(launchDwellActive){launchCurrentItem();toast('⚡ HAND CLICK — LAUNCHED');}stopLaunchDwell();},LAUNCH_DWELL_MS);}
+function stopLaunchDwell(){launchDwellActive=false;clearTimeout(launchDwellTimer);document.getElementById('launch-btn').classList.remove('dwelling');}
+function launchCurrentItem(){if(state.mode==='blueprint'){blueprintTo3D();}else if(state.model){state.momentumY=0.1;state.momentumX=0.05;toast('⚡ HOLOGRAM ACTIVATED');const btn=document.getElementById('launch-btn');btn.style.boxShadow='0 0 80px rgba(0,200,255,0.8)';setTimeout(()=>btn.style.boxShadow='',600);}else{openBuildInput();}}
+
+// ── MODE SWITCHING ──────────────────────────────────────────────
+function switchModeTo(mode){state.mode=mode;const bpWrap=document.getElementById('blueprint-wrap');const badge=document.getElementById('mode-badge');const hudMode=document.getElementById('hud-mode');const launchBtn=document.getElementById('launch-btn');if(mode==='3d'){bpWrap.classList.remove('active');document.getElementById('holo-rings').style.display='flex';document.getElementById('scan-overlay').style.display='block';badge.textContent='3D HOLOGRAPHIC';hudMode.textContent='HOLOGRAPHIC';hudMode.style.color='rgba(0,200,255,0.5)';launchBtn.textContent='⚡ LAUNCH / ACTIVATE';}else if(mode==='blueprint'){bpWrap.classList.add('active');document.getElementById('holo-rings').style.display='none';document.getElementById('scan-overlay').style.display='none';badge.textContent='BLUEPRINT MODE';hudMode.textContent='BLUEPRINT';hudMode.style.color='rgba(0,180,255,0.7)';launchBtn.textContent='⚡ CONVERT TO 3D';}}
+
+// ── BUILD INPUT ──────────────────────────────────────────────
+function openBuildInput(){document.getElementById('build-input-modal').classList.add('active');setTimeout(()=>document.getElementById('build-query-input').focus(),100);}
+function closeBuildInput(){document.getElementById('build-input-modal').classList.remove('active');}
+async function submitBuild(){const query=document.getElementById('build-query-input').value.trim();if(!query)return;closeBuildInput();await generateAIBlueprint(query);}
+
+function addAIBlueprintToSidebar(bpData,idx){const list=document.getElementById('ai-bp-list');if(list.querySelector('div'))list.innerHTML='';const btn=document.createElement('button');btn.className='obj-btn bp-btn';btn.innerHTML=`<span class="ico">⚡</span>${bpData.name.slice(0,20)}`;btn.onclick=()=>displayAIBlueprint(bpData);list.appendChild(btn);}
+
+// ── BLUEPRINT CANVAS RENDERER ──────────────────────────────────
+const bpCanvas=document.getElementById('blueprint-canvas');
+const bpCtx=bpCanvas.getContext('2d');
+let bpAnimFrame=0,bpAnimTotal=120,bpAnimId=null;
+function resizeBpCanvas(){const wrap=document.getElementById('blueprint-wrap');bpCanvas.width=wrap.clientWidth||window.innerWidth;bpCanvas.height=wrap.clientHeight||window.innerHeight;}
+function bpLine(x1,y1,x2,y2,alpha=1,dash=[]){bpCtx.save();bpCtx.globalAlpha=alpha;bpCtx.setLineDash(dash);bpCtx.beginPath();bpCtx.moveTo(x1,y1);bpCtx.lineTo(x2,y2);bpCtx.stroke();bpCtx.restore();}
+function bpRect(x,y,w,h,alpha=1,fill=false){bpCtx.save();bpCtx.globalAlpha=alpha;if(fill){bpCtx.fillStyle='rgba(0,200,255,0.04)';bpCtx.fillRect(x,y,w,h);}bpCtx.strokeRect(x,y,w,h);bpCtx.restore();}
+function bpCircle(cx,cy,r,alpha=1){bpCtx.save();bpCtx.globalAlpha=alpha;bpCtx.beginPath();bpCtx.arc(cx,cy,r,0,Math.PI*2);bpCtx.stroke();bpCtx.restore();}
+function bpText(text,x,y,size=11,alpha=0.7,align='left'){bpCtx.save();bpCtx.globalAlpha=alpha;bpCtx.font=`${size}px "Share Tech Mono",monospace`;bpCtx.fillStyle='#00c8ff';bpCtx.textAlign=align;bpCtx.fillText(text,x,y);bpCtx.restore();}
+function bpHudText(text,x,y,size=9,alpha=0.4,align='left'){bpCtx.save();bpCtx.globalAlpha=alpha;bpCtx.font=`${size}px Orbitron,monospace`;bpCtx.fillStyle='#00c8ff';bpCtx.textAlign=align;bpCtx.fillText(text.toUpperCase(),x,y);bpCtx.restore();}
+const m=40;
+function bpCornerMarks(){const W=bpCanvas.width,H=bpCanvas.height;const s=20;bpCtx.strokeStyle='rgba(0,200,255,0.25)';bpCtx.lineWidth=1;bpLine(m,m,m+s,m,0.25);bpLine(m,m,m,m+s,0.25);bpLine(W-m,m,W-m-s,m,0.25);bpLine(W-m,m,W-m,m+s,0.25);bpLine(m,H-m,m+s,H-m,0.25);bpLine(m,H-m,m,H-m-s,0.25);bpLine(W-m,H-m,W-m-s,H-m,0.25);bpLine(W-m,H-m,W-m,H-m-s,0.25);}
+function bpClearAndSetup(){const W=bpCanvas.width,H=bpCanvas.height;bpCtx.clearRect(0,0,W,H);bpCtx.strokeStyle='#00c8ff';bpCtx.lineWidth=1.5;bpCtx.shadowColor='rgba(0,200,255,0.6)';bpCtx.shadowBlur=6;bpCornerMarks();bpCtx.strokeStyle='rgba(0,200,255,0.15)';bpCtx.lineWidth=0.5;bpCtx.setLineDash([8,4,2,4]);bpLine(W/2,40,W/2,H-40,0.15,[8,4,2,4]);bpLine(40,H/2,W-40,H/2,0.15,[8,4,2,4]);bpCtx.setLineDash([]);bpCtx.strokeStyle='#00c8ff';bpCtx.lineWidth=1.5;bpCtx.shadowColor='rgba(0,200,255,0.6)';bpCtx.shadowBlur=6;}
+
+function drawAIBlueprint(bpData,p){
+  const W=bpCanvas.width,H=bpCanvas.height;
+  const cx=W/2,cy=H/2;
+  bpClearAndSetup();
+  const shape=bpData.shape||'rectangle';
+  const mainW=Math.min(W*0.35,280);
+  const mainH=mainW*(shape==='circle'?1:1.4);
+  bpCtx.lineWidth=2;bpCtx.strokeStyle='#00c8ff';bpCtx.shadowBlur=8;
+  if(p>0){
+    if(shape==='circle'||shape==='reactor'){bpCircle(cx,cy,mainW/2,1);if(p>0.1)bpCircle(cx,cy,mainW*0.35,0.6);if(p>0.2)bpCircle(cx,cy,mainW*0.18,0.8);}
+    else if(shape==='humanoid'||shape==='armor'){bpCtx.globalAlpha=1;bpCtx.lineWidth=2;bpRect(cx-mainW*0.15,cy-mainH*0.45,mainW*0.3,mainW*0.25,p>0?1:0,false);if(p>0.1)bpRect(cx-mainW*0.35,cy-mainH*0.15,mainW*0.7,mainH*0.38,1,true);if(p>0.2){bpRect(cx-mainW*0.5,cy-mainH*0.15,mainW*0.12,mainH*0.32,0.8);bpRect(cx+mainW*0.38,cy-mainH*0.15,mainW*0.12,mainH*0.32,0.8);}if(p>0.3){bpRect(cx-mainW*0.25,cy+mainH*0.23,mainW*0.2,mainH*0.28,0.8);bpRect(cx+mainW*0.05,cy+mainH*0.23,mainW*0.2,mainH*0.28,0.8);}}
+    else if(shape==='vehicle'){bpCtx.beginPath();bpCtx.moveTo(cx-mainW*0.5,cy+mainH*0.15);bpCtx.lineTo(cx-mainW*0.5,cy-mainH*0.05);bpCtx.lineTo(cx-mainW*0.25,cy-mainH*0.25);bpCtx.lineTo(cx+mainW*0.2,cy-mainH*0.25);bpCtx.lineTo(cx+mainW*0.5,cy-mainH*0.05);bpCtx.lineTo(cx+mainW*0.5,cy+mainH*0.15);bpCtx.stroke();if(p>0.15){bpCircle(cx-mainW*0.3,cy+mainH*0.15,mainW*0.12,0.8);bpCircle(cx+mainW*0.3,cy+mainH*0.15,mainW*0.12,0.8);}}
+    else if(shape==='weapon'){bpCtx.beginPath();bpCtx.moveTo(cx-mainW*0.5,cy-mainH*0.06);bpCtx.lineTo(cx+mainW*0.5,cy-mainH*0.06);bpCtx.lineTo(cx+mainW*0.5,cy+mainH*0.06);bpCtx.lineTo(cx-mainW*0.5,cy+mainH*0.06);bpCtx.closePath();bpCtx.stroke();if(p>0.1){bpRect(cx-mainW*0.1,cy-mainH*0.18,mainW*0.12,mainH*0.12,0.6,false);bpRect(cx-mainW*0.48,cy-mainH*0.06,mainW*0.15,mainH*0.12,0.8,true);}}
+    else{bpRect(cx-mainW/2,cy-mainH/2,mainW,mainH,1,true);if(p>0.1)bpRect(cx-mainW*0.42,cy-mainH*0.42,mainW*0.84,mainH*0.84,0.4,false);}
+  }
+  if(p>0.25&&bpData.components){
+    bpCtx.lineWidth=1;
+    bpData.components.filter((_,i)=>p>(0.25+i*0.08)).forEach((comp)=>{
+      const compX=comp.x*W,compY=comp.y*H,compR=(comp.size||0.08)*Math.min(W,H)*0.5;
+      bpCtx.globalAlpha=0.7;bpCtx.strokeStyle='#00c8ff';
+      bpCtx.beginPath();bpCtx.arc(compX,compY,compR,0,Math.PI*2);bpCtx.stroke();
+      bpCtx.beginPath();bpCtx.arc(compX,compY,compR*0.4,0,Math.PI*2);bpCtx.fillStyle='rgba(0,200,255,0.15)';bpCtx.fill();bpCtx.stroke();
+      const labelX=compX>W/2?compX-compR-80:compX+compR+80,labelY=compY;
+      bpCtx.setLineDash([3,3]);bpCtx.beginPath();bpCtx.moveTo(compX+(compX>W/2?-compR:compR),compY);bpCtx.lineTo(labelX,labelY);bpCtx.stroke();bpCtx.setLineDash([]);bpCtx.globalAlpha=1;
+      const textAlign=compX>W/2?'right':'left';
+      bpText(comp.name,labelX+(compX>W/2?-4:4),labelY-2,10,0.8,textAlign);
+      bpText(comp.description||'',labelX+(compX>W/2?-4:4),labelY+12,8,0.4,textAlign);
+    });
+  }
+  if(p>0.7&&bpData.dimensions&&bpData.dimensions.width!=='—'){
+    bpCtx.lineWidth=0.8;bpCtx.strokeStyle='rgba(0,200,255,0.4)';bpCtx.setLineDash([4,4]);
+    const dimY=cy+mainH/2+40;bpLine(cx-mainW/2,dimY,cx+mainW/2,dimY,0.6,[4,4]);bpCtx.setLineDash([]);
+    bpText(bpData.dimensions.width||'—',cx,dimY+14,10,0.6,'center');
+  }
+  if(p>0.85){bpHudText('POWER: '+(bpData.power||'—'),cx-mainW/2,cy+mainH/2+65,8,0.35);if(bpData.materials)bpHudText('MAT: '+bpData.materials.slice(0,2).join(' · '),cx-mainW/2,cy+mainH/2+80,8,0.3);}
+  bpHudText(bpData.classification||'CLASSIFIED',cx,H-m-5,8,0.3,'center');
+  bpHudText('JARVIS AI DESIGN SYSTEM v4.2 — LOCAL ENGINE',cx,H-m+10,7,0.2,'center');
+}
+
+function displayAIBlueprint(bpData){
+  state.currentBlueprintKey=bpData._key||'__ai__';
+  resizeBpCanvas();
+  document.getElementById('bp-title').textContent=bpData.name;
+  document.getElementById('bp-subtitle').textContent=bpData.subtitle||'AI-GENERATED SCHEMATIC';
+  document.getElementById('bp-status').textContent='RENDERING SCHEMATIC...';
+  const specsEl=document.getElementById('bp-specs');
+  specsEl.innerHTML=(bpData.specs||[]).map(([k,v])=>`<div class="bp-spec"><span>${k}</span>${v}</div>`).join('');
+  document.querySelectorAll('.obj-btn').forEach(b=>b.classList.remove('active'));
+  switchModeTo('blueprint');
+  if(bpAnimId)cancelAnimationFrame(bpAnimId);
+  bpAnimFrame=0;bpAnimTotal=150;
+  function animateBP(){const p=Math.min(bpAnimFrame/bpAnimTotal,1);drawAIBlueprint(bpData,p);if(p<1){bpAnimFrame++;bpAnimId=requestAnimationFrame(animateBP);}else{document.getElementById('bp-status').textContent='BLUEPRINT COMPLETE';bpAnimId=null;}}
+  animateBP();
+  document.getElementById('hud-objname').textContent=bpData.name;
+  document.getElementById('inf-name').textContent=bpData.name;
+  document.getElementById('inf-mode').textContent='AI BLUEPRINT';
+}
+
+// ── BUILT-IN BLUEPRINTS ────────────────────────────────────────
+function loadBlueprint(key){
+  const bp = LOCAL_BLUEPRINT_DB[key];
+  if(!bp){toast('BLUEPRINT NOT FOUND — TRY BUILD MODE');return;}
+  displayAIBlueprint({...bp, _key: key});
+}
+
+const BP_TO_3D_MAP={smartphone:'sphere_wire',smartglasses:'sphere_wire',drone:'brain',car:'torus_knot',rocket:'reactor',arc_reactor:'reactor',exoskeleton:'brain',headphones:'saturn','iron man suit':'reactor','warp drive':'crystal','quantum computer':'brain','time machine':'crystal','__ai__':'reactor'};
+function blueprintTo3D(){const key=state.currentBlueprintKey||'__ai__';const modelKey=BP_TO_3D_MAP[key]||BP_TO_3D_MAP['__ai__']||'reactor';const overlay=document.getElementById('transition-overlay');overlay.classList.add('flash');setTimeout(()=>overlay.classList.remove('flash'),700);setTimeout(()=>{switchModeTo('3d');loadModel(modelKey);},350);}
+
+// ── MOUSE CONTROLS ─────────────────────────────────────────────
 let mouse={down:false,lastX:0,lastY:0};
 canvas3d.addEventListener('mousedown',e=>{mouse.down=true;mouse.lastX=e.clientX;mouse.lastY=e.clientY;});
 window.addEventListener('mouseup',()=>{mouse.down=false;});
 window.addEventListener('mousemove',e=>{if(!mouse.down||!state.model)return;state.model.rotation.y+=(e.clientX-mouse.lastX)*0.012;state.model.rotation.x+=(e.clientY-mouse.lastY)*0.012;mouse.lastX=e.clientX;mouse.lastY=e.clientY;});
 canvas3d.addEventListener('wheel',e=>{if(!state.model)return;state.targetScale=Math.max(0.2,Math.min(4,state.targetScale-e.deltaY*0.001));});
 
-// ─── 3D ANIMATION LOOP ────────────────────────────────────────
-function animate3d(){
-  requestAnimationFrame(animate3d);frame3d++;
-  state.scale+=(state.targetScale-state.scale)*0.08;
-  if(state.model){
-    state.model.scale.setScalar(state.scale);
-    if(state.autoRotate)state.model.rotation.y+=0.005;
-    if(Math.abs(state.momentumX)>0.0001){state.model.rotation.x+=state.momentumX;state.momentumX*=0.93;}
-    if(Math.abs(state.momentumY)>0.0001){state.model.rotation.y+=state.momentumY;state.momentumY*=0.93;}
-  }
-  if(particles){particles.rotation.y+=0.001;}
-  pt.intensity=2+Math.sin(frame3d*0.04)*0.5;
-  if(frame3d%10===0&&state.model){
-    const r=state.model.rotation;
-    document.getElementById('inf-rot').textContent=`X:${(r.x*180/Math.PI%360).toFixed(0)}° Y:${(r.y*180/Math.PI%360).toFixed(0)}°`;
-    document.getElementById('inf-scale').textContent=state.scale.toFixed(2)+'×';
-  }
-  renderer.render(scene,camera);
-}
+// ── ANIMATION LOOP ─────────────────────────────────────────────
+let frame3d=0;
+function animate3d(){requestAnimationFrame(animate3d);frame3d++;state.scale+=(state.targetScale-state.scale)*0.08;if(state.model){state.model.scale.setScalar(state.scale);if(state.autoRotate)state.model.rotation.y+=0.005;if(Math.abs(state.momentumX)>0.0001){state.model.rotation.x+=state.momentumX;state.momentumX*=0.93;}if(Math.abs(state.momentumY)>0.0001){state.model.rotation.y+=state.momentumY;state.momentumY*=0.93;}if(Math.abs(state.momentumZ)>0.0001){state.model.rotation.z+=state.momentumZ;state.momentumZ*=0.93;}}if(particles){particles.rotation.y+=0.001;particles.rotation.x+=0.0003;}pt.intensity=2+Math.sin(frame3d*0.04)*0.5;if(state.model&&frame3d%10===0){const r=state.model.rotation;document.getElementById('inf-rot').textContent=`X:${(r.x*180/Math.PI%360).toFixed(0)}° Y:${(r.y*180/Math.PI%360).toFixed(0)}°`;document.getElementById('inf-scale').textContent=state.scale.toFixed(2)+'×';}renderer.render(scene,camera);}
 animate3d();
 
-// ─── MODE SWITCHING ───────────────────────────────────────────
-function switchModeTo(mode){
-  state.mode=mode;
-  const bpWrap=document.getElementById('blueprint-wrap');
-  const badge=document.getElementById('mode-badge');
-  const hudMode=document.getElementById('hud-mode');
-  if(mode==='3d'){
-    bpWrap.classList.remove('active');
-    document.getElementById('holo-rings').style.display='flex';
-    document.getElementById('scan-overlay').style.display='block';
-    badge.textContent='3D HOLOGRAPHIC';
-    hudMode.textContent='HOLOGRAPHIC';
-  }else if(mode==='blueprint'){
-    bpWrap.classList.add('active');
-    document.getElementById('holo-rings').style.display='none';
-    document.getElementById('scan-overlay').style.display='none';
-    badge.textContent='BLUEPRINT MODE';
-    hudMode.textContent='BLUEPRINT';
-  }
-}
-
-const BP_TO_3D_MAP={iron_man:'reactor',war_machine:'reactor',repulsor:'reactor',arc_reactor:'reactor',smart_glasses:'sphere_wire',exoskeleton:'brain',drone:'brain',jetpack:'reactor','__ai__':'reactor'};
-
-function blueprintTo3D(){
-  const key=state.currentBlueprintKey||'__ai__';
-  const modelKey=BP_TO_3D_MAP[key]||'reactor';
-  const overlay=document.getElementById('transition-overlay');
-  overlay.classList.add('flash');
-  setTimeout(()=>overlay.classList.remove('flash'),700);
-  setTimeout(()=>{switchModeTo('3d');loadModel(modelKey);},350);
-}
-
-// ─── BLUEPRINT CANVAS RENDERER ────────────────────────────────
-const bpCanvas=document.getElementById('blueprint-canvas');
-const bpCtx=bpCanvas.getContext('2d');
-let bpAnimId=null,bpAnimFrame=0,bpAnimTotal=140;
-let currentBpData=null;
-
-function resizeBpCanvas(){
-  const wrap=document.getElementById('bp-main');
-  bpCanvas.width=wrap.clientWidth||800;
-  bpCanvas.height=wrap.clientHeight||600;
-}
-
-// Draw a realistic silhouette using canvas paths
-function drawSilhouette(ctx,bpData,p){
-  const W=bpCanvas.width,H=bpCanvas.height;
-  const cx=W/2,cy=H/2-10;
-
-  ctx.strokeStyle='rgba(0,200,255,0.6)';
-  ctx.shadowColor='rgba(0,200,255,0.4)';
-  ctx.shadowBlur=8;
-  ctx.lineWidth=1.5;
-  ctx.fillStyle='rgba(0,200,255,0.04)';
-
-  const shape=bpData.shape||'rectangle';
-
-  if(shape==='iron_man'||shape==='humanoid_suit'){
-    // Draw a realistic armored suit silhouette
-    const scale=Math.min(W,H)*0.0014;
-    ctx.save();ctx.translate(cx,cy+30);ctx.scale(scale,scale);ctx.globalAlpha=p;
-
-    // HELMET
-    ctx.beginPath();
-    ctx.moveTo(-42,−240);ctx.lineTo(-38,-268);ctx.bezierCurveTo(-38,-300,38,-300,38,-268);
-    ctx.lineTo(42,-240);ctx.lineTo(50,-195);ctx.bezierCurveTo(50,-180,46,-175,40,-172);
-    ctx.lineTo(38,-162);ctx.lineTo(-38,-162);ctx.lineTo(-40,-172);
-    ctx.bezierCurveTo(-46,-175,-50,-180,-50,-195);ctx.closePath();
-    ctx.fill();ctx.stroke();
-
-    // Face plate visor
-    ctx.fillStyle='rgba(0,200,255,0.18)';
-    ctx.beginPath();ctx.moveTo(-30,-255);ctx.lineTo(-34,-225);ctx.lineTo(-12,-218);ctx.lineTo(-8,-240);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.moveTo(30,-255);ctx.lineTo(34,-225);ctx.lineTo(12,-218);ctx.lineTo(8,-240);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.fillStyle='rgba(0,200,255,0.04)';
-
-    // Neck
-    ctx.fillRect(-14,-162,28,18);ctx.strokeRect(-14,-162,28,18);
-
-    // CHEST / TORSO
-    ctx.beginPath();
-    ctx.moveTo(-50,-144);ctx.lineTo(-65,-100);ctx.lineTo(-70,0);ctx.lineTo(-55,40);
-    ctx.lineTo(55,40);ctx.lineTo(70,0);ctx.lineTo(65,-100);ctx.lineTo(50,-144);ctx.closePath();
-    ctx.fill();ctx.stroke();
-
-    // Arc reactor circle
-    ctx.beginPath();ctx.arc(0,-60,20,0,Math.PI*2);ctx.fillStyle='rgba(0,200,255,0.18)';ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.arc(0,-60,12,0,Math.PI*2);ctx.fillStyle='rgba(0,200,255,0.4)';ctx.fill();ctx.stroke();
-    ctx.fillStyle='rgba(0,200,255,0.04)';
-
-    // Chest detail lines
-    ctx.lineWidth=0.8;ctx.setLineDash([3,3]);
-    ctx.beginPath();ctx.moveTo(-50,-120);ctx.lineTo(-65,-80);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(50,-120);ctx.lineTo(65,-80);ctx.stroke();
-    ctx.setLineDash([]);ctx.lineWidth=1.5;
-
-    // SHOULDERS
-    ctx.beginPath();ctx.arc(-80,-120,30,0,Math.PI*2);ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.arc(80,-120,30,0,Math.PI*2);ctx.fill();ctx.stroke();
-
-    // UPPER ARMS
-    ctx.beginPath();ctx.moveTo(-60,-100);ctx.lineTo(-65,10);ctx.lineTo(-88,10);ctx.lineTo(-88,-95);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.moveTo(60,-100);ctx.lineTo(65,10);ctx.lineTo(88,10);ctx.lineTo(88,-95);ctx.closePath();ctx.fill();ctx.stroke();
-
-    // FOREARMS
-    ctx.beginPath();ctx.moveTo(-68,15);ctx.lineTo(-72,100);ctx.lineTo(-84,100);ctx.lineTo(-84,15);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.moveTo(68,15);ctx.lineTo(72,100);ctx.lineTo(84,100);ctx.lineTo(84,15);ctx.closePath();ctx.fill();ctx.stroke();
-
-    // HANDS / REPULSORS
-    ctx.beginPath();ctx.moveTo(-74,104);ctx.lineTo(-74,120);ctx.lineTo(-92,120);ctx.lineTo(-92,104);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.arc(-83,112,7,0,Math.PI*2);ctx.fillStyle='rgba(0,200,255,0.25)';ctx.fill();ctx.stroke();ctx.fillStyle='rgba(0,200,255,0.04)';
-    ctx.beginPath();ctx.moveTo(74,104);ctx.lineTo(74,120);ctx.lineTo(92,120);ctx.lineTo(92,104);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.arc(83,112,7,0,Math.PI*2);ctx.fillStyle='rgba(0,200,255,0.25)';ctx.fill();ctx.stroke();ctx.fillStyle='rgba(0,200,255,0.04)';
-
-    // HIP / WAIST
-    ctx.beginPath();ctx.moveTo(-55,40);ctx.lineTo(-58,80);ctx.lineTo(58,80);ctx.lineTo(55,40);ctx.closePath();ctx.fill();ctx.stroke();
-
-    // UPPER LEGS
-    ctx.beginPath();ctx.moveTo(-50,80);ctx.lineTo(-48,180);ctx.lineTo(-20,180);ctx.lineTo(-22,80);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.moveTo(50,80);ctx.lineTo(48,180);ctx.lineTo(20,180);ctx.lineTo(22,80);ctx.closePath();ctx.fill();ctx.stroke();
-
-    // LOWER LEGS
-    ctx.beginPath();ctx.moveTo(-46,185);ctx.lineTo(-44,270);ctx.lineTo(-18,270);ctx.lineTo(-20,185);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.moveTo(46,185);ctx.lineTo(44,270);ctx.lineTo(18,270);ctx.lineTo(20,185);ctx.closePath();ctx.fill();ctx.stroke();
-
-    // BOOT JETS
-    ctx.beginPath();ctx.moveTo(-42,274);ctx.lineTo(-42,294);ctx.bezierCurveTo(-42,308,-12,308,-12,294);ctx.lineTo(-12,274);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.moveTo(42,274);ctx.lineTo(42,294);ctx.bezierCurveTo(42,308,12,308,12,294);ctx.lineTo(12,274);ctx.closePath();ctx.fill();ctx.stroke();
-
-    // Boot thruster glow
-    if(p>0.6){
-      ctx.beginPath();ctx.arc(-27,296,8,0,Math.PI*2);ctx.fillStyle='rgba(0,200,255,0.35)';ctx.fill();ctx.stroke();
-      ctx.beginPath();ctx.arc(27,296,8,0,Math.PI*2);ctx.fillStyle='rgba(0,200,255,0.35)';ctx.fill();
-    }
-
-    ctx.restore();
-
-  } else if(shape==='repulsor'){
-    const s=Math.min(W,H)*0.0016;
-    ctx.save();ctx.translate(cx,cy);ctx.scale(s,s);ctx.globalAlpha=p;
-    // Palm plate
-    ctx.beginPath();ctx.moveTo(-80,30);ctx.bezierCurveTo(-80,80,80,80,80,30);ctx.lineTo(80,-100);ctx.bezierCurveTo(80,-140,-80,-140,-80,-100);ctx.closePath();ctx.fill();ctx.stroke();
-    // Central emitter
-    ctx.beginPath();ctx.arc(0,-40,35,0,Math.PI*2);ctx.fillStyle='rgba(0,200,255,0.2)';ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.arc(0,-40,20,0,Math.PI*2);ctx.fillStyle='rgba(0,200,255,0.45)';ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.arc(0,-40,8,0,Math.PI*2);ctx.fillStyle='rgba(0,255,255,0.8)';ctx.fill();
-    // Detail lines
-    for(let i=0;i<6;i++){ctx.fillStyle='rgba(0,200,255,0.04)';const angle=i*(Math.PI*2/6);const x=55*Math.cos(angle),y=-40+55*Math.sin(angle);ctx.beginPath();ctx.arc(x,y,8,0,Math.PI*2);ctx.fill();ctx.stroke();}
-    ctx.restore();
-
-  } else if(shape==='arc_reactor_detailed'){
-    const s=Math.min(W,H)*0.0017;
-    ctx.save();ctx.translate(cx,cy);ctx.scale(s,s);ctx.globalAlpha=p;
-    for(let r=120;r>=20;r-=20){ctx.beginPath();ctx.arc(0,0,r,0,Math.PI*2);ctx.stroke();}
-    for(let i=0;i<8;i++){const a=i*(Math.PI/4);ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(115*Math.cos(a),115*Math.sin(a));ctx.stroke();}
-    ctx.beginPath();ctx.arc(0,0,25,0,Math.PI*2);ctx.fillStyle='rgba(0,200,255,0.5)';ctx.fill();ctx.stroke();
-    ctx.restore();
-
-  } else if(shape==='humanoid_exo'){
-    const s=Math.min(W,H)*0.0013;
-    ctx.save();ctx.translate(cx,cy+40);ctx.scale(s,s);ctx.globalAlpha=p;
-    // Simpler exo-skeleton arm
-    // Shoulder mount
-    ctx.beginPath();ctx.arc(0,-200,45,0,Math.PI*2);ctx.fill();ctx.stroke();
-    // Upper arm
-    ctx.beginPath();ctx.moveTo(-25,-155);ctx.lineTo(-30,-40);ctx.lineTo(30,-40);ctx.lineTo(25,-155);ctx.closePath();ctx.fill();ctx.stroke();
-    // Elbow joint
-    ctx.beginPath();ctx.arc(0,-35,22,0,Math.PI*2);ctx.fill();ctx.stroke();
-    // Forearm
-    ctx.beginPath();ctx.moveTo(-22,-15);ctx.lineTo(-20,110);ctx.lineTo(20,110);ctx.lineTo(22,-15);ctx.closePath();ctx.fill();ctx.stroke();
-    // Wrist
-    ctx.beginPath();ctx.arc(0,115,18,0,Math.PI*2);ctx.fill();ctx.stroke();
-    // Detail struts
-    ctx.setLineDash([4,4]);ctx.lineWidth=0.8;
-    ctx.beginPath();ctx.moveTo(-10,-130);ctx.lineTo(-10,80);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(10,-130);ctx.lineTo(10,80);ctx.stroke();
-    ctx.setLineDash([]);ctx.lineWidth=1.5;
-    ctx.restore();
-
-  } else if(shape==='quadcopter'){
-    const s=Math.min(W,H)*0.001;
-    ctx.save();ctx.translate(cx,cy);ctx.scale(s,s);ctx.globalAlpha=p;
-    // Frame arms
-    [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([sx,sy])=>{
-      ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(sx*200,sy*200);ctx.lineWidth=12;ctx.stroke();ctx.lineWidth=1.5;
-      // Motor
-      ctx.beginPath();ctx.arc(sx*220,sy*220,35,0,Math.PI*2);ctx.fill();ctx.stroke();
-      // Prop disc
-      ctx.beginPath();ctx.arc(sx*220,sy*220,80,0,Math.PI*2);ctx.setLineDash([5,5]);ctx.lineWidth=0.8;ctx.stroke();ctx.setLineDash([]);ctx.lineWidth=1.5;
-    });
-    // Body
-    ctx.beginPath();ctx.arc(0,0,55,0,Math.PI*2);ctx.fill();ctx.stroke();
-    // Flight controller
-    ctx.fillStyle='rgba(0,200,255,0.15)';ctx.fillRect(-22,-22,44,44);ctx.strokeRect(-22,-22,44,44);
-    ctx.fillStyle='rgba(0,200,255,0.04)';
-    // Camera gimbal
-    ctx.beginPath();ctx.arc(0,0,12,0,Math.PI*2);ctx.fillStyle='rgba(0,200,255,0.4)';ctx.fill();ctx.stroke();
-    ctx.restore();
-
-  } else if(shape==='smart_glasses'){
-    const s=Math.min(W,H)*0.0016;
-    ctx.save();ctx.translate(cx,cy);ctx.scale(s,s);ctx.globalAlpha=p;
-    // Left arm
-    ctx.beginPath();ctx.moveTo(-200,-10);ctx.lineTo(-200,10);ctx.lineTo(-130,10);ctx.lineTo(-130,-10);ctx.closePath();ctx.fill();ctx.stroke();
-    // Right arm
-    ctx.beginPath();ctx.moveTo(200,-10);ctx.lineTo(200,10);ctx.lineTo(130,10);ctx.lineTo(130,-10);ctx.closePath();ctx.fill();ctx.stroke();
-    // Bridge
-    ctx.beginPath();ctx.moveTo(-20,-8);ctx.lineTo(20,-8);ctx.lineTo(20,8);ctx.lineTo(-20,8);ctx.closePath();ctx.fill();ctx.stroke();
-    // Left lens
-    ctx.beginPath();ctx.moveTo(-125,-35);ctx.lineTo(-125,35);ctx.bezierCurveTo(-125,55,-30,55,-30,35);ctx.lineTo(-30,-35);ctx.bezierCurveTo(-30,-55,-125,-55,-125,-35);ctx.closePath();ctx.fill();ctx.stroke();
-    ctx.beginPath();ctx.arc(-78,0,15,0,Math.PI*2);ctx.fillStyle='rgba(0,200,255,0.3)';ctx.fill();ctx.stroke();
-    ctx.fillStyle='rgba(0,200,255,0.04)';
-    // Right lens (AR display)
-    ctx.beginPath();ctx.moveTo(125,-35);ctx.lineTo(125,35);ctx.bezierCurveTo(125,55,30,55,30,35);ctx.lineTo(30,-35);ctx.bezierCurveTo(30,-55,125,-55,125,-35);ctx.closePath();ctx.fillStyle='rgba(0,200,255,0.12)';ctx.fill();ctx.stroke();
-    ctx.fillStyle='rgba(0,200,255,0.04)';
-    // HUD overlay lines
-    ctx.setLineDash([3,3]);ctx.lineWidth=0.7;
-    for(let i=-25;i<=25;i+=10){ctx.beginPath();ctx.moveTo(35,i);ctx.lineTo(120,i);ctx.stroke();}
-    ctx.setLineDash([]);ctx.lineWidth=1.5;
-    // Camera dot on right
-    ctx.beginPath();ctx.arc(122,-25,6,0,Math.PI*2);ctx.fillStyle='rgba(0,200,255,0.5)';ctx.fill();ctx.stroke();
-    ctx.restore();
-
-  } else if(shape==='jetpack'){
-    const s=Math.min(W,H)*0.0013;
-    ctx.save();ctx.translate(cx,cy);ctx.scale(s,s);ctx.globalAlpha=p;
-    // Main body
-    ctx.beginPath();ctx.moveTo(-70,-200);ctx.bezierCurveTo(-70,-230,70,-230,70,-200);ctx.lineTo(70,100);ctx.bezierCurveTo(70,130,-70,130,-70,100);ctx.closePath();ctx.fill();ctx.stroke();
-    // Left nozzle
-    ctx.beginPath();ctx.moveTo(-50,100);ctx.lineTo(-70,200);ctx.lineTo(-35,200);ctx.lineTo(-20,100);ctx.closePath();ctx.fill();ctx.stroke();
-    // Right nozzle
-    ctx.beginPath();ctx.moveTo(50,100);ctx.lineTo(70,200);ctx.lineTo(35,200);ctx.lineTo(20,100);ctx.closePath();ctx.fill();ctx.stroke();
-    // Harness straps
-    ctx.setLineDash([6,4]);ctx.lineWidth=3;
-    ctx.beginPath();ctx.moveTo(-70,0);ctx.lineTo(-120,50);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(70,0);ctx.lineTo(120,50);ctx.stroke();
-    ctx.setLineDash([]);ctx.lineWidth=1.5;
-    // Fuel gauge
-    ctx.fillStyle='rgba(0,200,255,0.08)';ctx.fillRect(-35,-100,30,80);ctx.strokeRect(-35,-100,30,80);
-    ctx.fillStyle='rgba(0,200,255,0.35)';ctx.fillRect(-33,-98,26,60);
-    ctx.fillStyle='rgba(0,200,255,0.04)';
-    // Right side view
-    ctx.fillStyle='rgba(0,200,255,0.08)';ctx.fillRect(5,-100,30,80);ctx.strokeRect(5,-100,30,80);
-    ctx.fillStyle='rgba(0,200,255,0.35)';ctx.fillRect(7,-98,26,70);
-    ctx.fillStyle='rgba(0,200,255,0.04)';
-    ctx.restore();
-
-  } else {
-    // Generic device
-    const dw=Math.min(W*0.4,300),dh=Math.min(H*0.55,400);
-    ctx.globalAlpha=p;
-    ctx.fillRect(cx-dw/2,cy-dh/2,dw,dh);ctx.strokeRect(cx-dw/2,cy-dh/2,dw,dh);
-    ctx.fillRect(cx-dw/2+10,cy-dh/2+10,dw-20,dh-20);ctx.strokeRect(cx-dw/2+10,cy-dh/2+10,dw-20,dh-20);
-  }
-  ctx.globalAlpha=1;
-  ctx.shadowBlur=0;
-}
-
-function drawBlueprintFrame(bpData,p){
-  const W=bpCanvas.width,H=bpCanvas.height;
-  bpCtx.clearRect(0,0,W,H);
-
-  // Background grid
-  bpCtx.strokeStyle='rgba(0,200,255,0.025)';bpCtx.lineWidth=0.5;
-  for(let x=0;x<W;x+=40){bpCtx.beginPath();bpCtx.moveTo(x,0);bpCtx.lineTo(x,H);bpCtx.stroke();}
-  for(let y=0;y<H;y+=40){bpCtx.beginPath();bpCtx.moveTo(0,y);bpCtx.lineTo(W,y);bpCtx.stroke();}
-
-  // Corner marks
-  const m=20,s=22;
-  bpCtx.strokeStyle='rgba(0,200,255,0.25)';bpCtx.lineWidth=1;
-  [[m,m,1,1],[W-m,m,-1,1],[m,H-m,1,-1],[W-m,H-m,-1,-1]].forEach(([cx,cy,sx,sy])=>{
-    bpCtx.beginPath();bpCtx.moveTo(cx,cy);bpCtx.lineTo(cx+sx*s,cy);bpCtx.stroke();
-    bpCtx.beginPath();bpCtx.moveTo(cx,cy);bpCtx.lineTo(cx,cy+sy*s);bpCtx.stroke();
-  });
-
-  // Center crosshairs faint
-  bpCtx.strokeStyle='rgba(0,200,255,0.06)';bpCtx.lineWidth=0.5;bpCtx.setLineDash([6,6]);
-  bpCtx.beginPath();bpCtx.moveTo(W/2,44);bpCtx.lineTo(W/2,H-10);bpCtx.stroke();
-  bpCtx.beginPath();bpCtx.moveTo(44,H/2);bpCtx.lineTo(W-260,H/2);bpCtx.stroke();
-  bpCtx.setLineDash([]);
-
-  // Draw silhouette
-  drawSilhouette(bpCtx,bpData,p);
-
-  // Classification footer
-  if(p>0.7){
-    bpCtx.font='8px Orbitron,monospace';bpCtx.fillStyle='rgba(0,200,255,0.25)';bpCtx.textAlign='center';
-    bpCtx.fillText((bpData.classification||'STARK INDUSTRIES | CLASSIFIED').toUpperCase(),W/2,H-8);
-    bpCtx.fillText('J.A.R.V.I.S DESIGN SYSTEM v5.0 — HOLOGRAPHIC PROTOTYPE',W/2,H-20);
-  }
-  bpCtx.textAlign='left';
-}
-
-function placeParts(bpData){
-  const layer=document.getElementById('hotspot-layer');
-  layer.innerHTML='';
-  if(!bpData.components)return;
-
-  const wrap=document.getElementById('bp-main');
-  const W=wrap.clientWidth,H=wrap.clientHeight;
-
-  bpData.components.forEach((comp,idx)=>{
-    const x=comp.x*W,y=comp.y*H,size=(comp.size||0.05)*Math.min(W,H)*0.5;
-    const dot=document.createElement('div');
-    dot.className='part-hotspot';
-    dot.style.cssText=`left:${x-size}px;top:${y-size}px;width:${size*2}px;height:${size*2}px;`;
-    dot.title=comp.name;
-    dot.addEventListener('click',()=>selectPart(comp,dot));
-    layer.appendChild(dot);
-
-    // Leader line label — draw on canvas if animating is done
-    if(typeof bpAnimId==='undefined'||bpAnimId===null){
-      bpCtx.font='10px Share Tech Mono,monospace';
-      bpCtx.fillStyle='rgba(0,200,255,0.65)';
-      bpCtx.fillText(comp.name,x+(comp.x>0.5?size+5:-(bpCtx.measureText(comp.name).width+size+5)),y+4);
-    }
-  });
-}
-
-function selectPart(comp,dot){
-  document.querySelectorAll('.part-hotspot').forEach(d=>d.classList.remove('selected'));
-  dot.classList.add('selected');
-
-  const info=document.getElementById('part-info');
-  const hint=document.getElementById('part-hint');
-  info.style.display='flex';info.style.flexDirection='column';info.classList.add('has-data');
-  hint.style.display='none';
-
-  document.getElementById('pi-name').textContent=comp.name;
-  document.getElementById('pi-desc').textContent=comp.description||'High-performance component';
-  document.getElementById('pi-price').textContent=comp.price||'$0';
-
-  const tagsEl=document.getElementById('pi-tags');
-  tagsEl.innerHTML='';
-  (comp.tags||['off-shelf']).forEach(tag=>{
-    const span=document.createElement('span');
-    span.className='part-tag '+tag;
-    span.textContent=tag.replace('-',' ').toUpperCase();
-    tagsEl.appendChild(span);
-  });
-}
-
-function animateBP(bpData,onDone){
-  if(bpAnimId)cancelAnimationFrame(bpAnimId);
-  bpAnimFrame=0;bpAnimTotal=160;
-  function step(){
-    const p=Math.min(bpAnimFrame/bpAnimTotal,1);
-    drawBlueprintFrame(bpData,p);
-    if(p<1){bpAnimFrame++;bpAnimId=requestAnimationFrame(step);}
-    else{bpAnimId=null;if(onDone)onDone();}
-  }
-  step();
-}
-
-function displayBlueprint(bpData){
-  currentBpData=bpData;
-  state.currentBlueprintKey=bpData._key||'__ai__';
-  resizeBpCanvas();
-
-  document.getElementById('bp-title').textContent=bpData.name;
-  document.getElementById('bp-subtitle').textContent=bpData.subtitle||'TECHNICAL SCHEMATIC';
-  document.getElementById('hud-objname').textContent=bpData.name;
-  document.getElementById('inf-name').textContent=bpData.name;
-  document.getElementById('inf-mode').textContent='BLUEPRINT';
-  document.getElementById('part-info').style.display='none';
-  document.getElementById('part-hint').style.display='block';
-
-  // Specs
-  if(bpData.specs&&bpData.specs.length){
-    const sb=document.getElementById('bp-specs-block');
-    const sc=document.getElementById('bp-specs-content');
-    sb.style.display='block';
-    sc.innerHTML=bpData.specs.map(([k,v])=>`<div class="bp-spec-row"><span class="bp-spec-key">${k}</span><span class="bp-spec-value">${v}</span></div>`).join('');
-  }
-
-  // Total cost
-  if(bpData.totalCost){
-    document.getElementById('total-cost').style.display='block';
-    document.getElementById('tc-val').textContent=bpData.totalCost;
-    document.getElementById('tc-note').textContent=bpData.totalNote||'DIY prototype estimate';
-  }
-
-  // Active sidebar btn
-  document.querySelectorAll('.obj-btn').forEach(b=>b.classList.remove('active'));
-
-  switchModeTo('blueprint');
-  animateBP(bpData,()=>placeParts(bpData));
-  toast('BLUEPRINT LOADED — '+bpData.name);
-}
-
-// ─── BUILT-IN BLUEPRINT DATABASE ─────────────────────────────
-const BLUEPRINT_DB = {
-  iron_man:{
-    name:'IRON MAN MARK L',subtitle:'NANO-PARTICLE COMBAT SUIT — STARK TECH',shape:'iron_man',
-    classification:'STARK INDUSTRIES | CLASSIFIED | MK-L',
-    specs:[['MATERIAL','GOLD-TITANIUM ALLOY'],['POWER','ARC REACTOR 3.0 GW'],['AI SYSTEM','J.A.R.V.I.S v7'],['FLIGHT','REPULSOR JETS'],['WEIGHT','25 kg'],['MAX ALTITUDE','30,000 m']],
-    totalCost:'$2,800 – $4,200',totalNote:'DIY prop/replica — functional approx.',
-    components:[
-      {name:'Helmet HUD',description:'360° AR sensor array + OLED visor display',x:0.40,y:0.13,size:0.04,price:'$280–$420',tags:['custom','diy']},
-      {name:'Visor Lens',description:'Polycarbonate AR half-mirror, 4K micro-OLED',x:0.40,y:0.18,size:0.03,price:'$45–$90',tags:['off-shelf']},
-      {name:'Arc Reactor',description:'High-capacity LiPo pack (simulated fusion core)',x:0.40,y:0.37,size:0.045,price:'$55–$85',tags:['diy','avail']},
-      {name:'Left Repulsor',description:'High-power LED palm emitter + vibration motor',x:0.26,y:0.53,size:0.04,price:'$18–$30',tags:['diy','avail']},
-      {name:'Right Repulsor',description:'High-power LED palm emitter + vibration motor',x:0.54,y:0.53,size:0.04,price:'$18–$30',tags:['diy','avail']},
-      {name:'Chest Armor',description:'Carbon fiber + EVA foam layered plate system',x:0.40,y:0.42,size:0.05,price:'$180–$280',tags:['custom','diy']},
-      {name:'Shoulder Pauldrons',description:'3D printed PLA/PETG with metallic finish',x:0.27,y:0.33,size:0.038,price:'$35–$60',tags:['diy','avail']},
-      {name:'Boot Jets',description:'EL wire + LED strip thruster simulation',x:0.36,y:0.82,size:0.038,price:'$22–$38',tags:['diy','avail']},
-      {name:'Leg Armor',description:'Vacuum-formed ABS leg plate panels',x:0.37,y:0.67,size:0.04,price:'$90–$140',tags:['diy','custom']},
-    ],_key:'iron_man'
-  },
-  war_machine:{
-    name:'WAR MACHINE MK VII',subtitle:'HEAVY COMBAT ARMOUR — RHODEY MOD',shape:'iron_man',
-    classification:'US AIR FORCE | TOP SECRET | MK-VII',
-    specs:[['MATERIAL','35mm TUNGSTEN PLATE'],['ARMAMENT','M134 + REPULSORS'],['POWER','ARC REACTOR 2.8 GW'],['WEIGHT','38 kg'],['PAYLOAD','8 MISSILE PODS']],
-    totalCost:'$3,400 – $5,100',totalNote:'Heavy prop build — reinforced frame',
-    components:[
-      {name:'M134 Minigun (prop)',description:'Rotating barrel assembly, motorized, LED flash',x:0.27,y:0.22,size:0.04,price:'$95–$145',tags:['custom','diy']},
-      {name:'Shoulder Cannon',description:'20mm autocannon replica, illuminated barrel',x:0.53,y:0.19,size:0.038,price:'$65–$95',tags:['custom']},
-      {name:'Arc Core',description:'Dual-capacity LiPo 22.2V array',x:0.40,y:0.37,size:0.045,price:'$85–$120',tags:['diy','avail']},
-      {name:'Helmet',description:'Full-face ballistic-style dome, NVG mount points',x:0.40,y:0.13,size:0.04,price:'$320–$480',tags:['custom']},
-      {name:'Chest Missiles (props)',description:'3D printed pod array, non-functional',x:0.40,y:0.44,size:0.04,price:'$45–$70',tags:['diy','avail']},
-      {name:'Leg Servos',description:'MG996R high-torque servo mounts × 4',x:0.37,y:0.66,size:0.04,price:'$28–$40',tags:['avail','diy']},
-    ],_key:'war_machine'
-  },
-  repulsor:{
-    name:'REPULSOR GAUNTLET',subtitle:'DIRECTED ENERGY PALM EMITTER',shape:'repulsor',
-    classification:'STARK TECH | WEAPON SCHEMATIC | REV 3',
-    specs:[['OUTPUT','10W LED BEAM'],['EFFECTS','VIBRATION + SOUND'],['POWER','18650 LiPo 3S'],['CONTROL','Arduino Nano'],['WEIGHT','0.4 kg']],
-    totalCost:'$45 – $80',totalNote:'Full DIY build — all parts available online',
-    components:[
-      {name:'Emitter Core',description:'10W high-power LED, focused lens, blue filter',x:0.40,y:0.44,size:0.05,price:'$8–$14',tags:['avail','diy']},
-      {name:'Power Cell',description:'18650 LiPo 3S 2200mAh with BMS',x:0.40,y:0.66,size:0.045,price:'$12–$18',tags:['avail']},
-      {name:'Vibration Motor',description:'Rumble feedback on activation',x:0.20,y:0.40,size:0.035,price:'$2–$4',tags:['avail']},
-      {name:'Arduino Nano',description:'Gesture + timing controller',x:0.62,y:0.40,size:0.035,price:'$4–$7',tags:['avail']},
-      {name:'Sound Module',description:'DFPlayer Mini + 2W speaker',x:0.40,y:0.72,size:0.03,price:'$6–$10',tags:['avail']},
-      {name:'Gauntlet Shell',description:'3D printed PLA+, chrome spray finish',x:0.40,y:0.28,size:0.055,price:'$15–$25',tags:['diy','avail']},
-    ],_key:'repulsor'
-  },
-  arc_reactor:{
-    name:'ARC REACTOR MK VI',subtitle:'PALLADIUM-FREE SIMULATED FUSION CORE',shape:'arc_reactor_detailed',
-    classification:'STARK INDUSTRIES | REPLICA PROP | REV 6',
-    specs:[['DIAMETER','110mm'],['POWER','USB-C 5V'],['LIGHT','WS2812B LED Ring'],['EFFECT','Pulse + glow'],['WEIGHT','0.12 kg']],
-    totalCost:'$18 – $35',totalNote:'Easy beginner build — weekend project',
-    components:[
-      {name:'LED Ring (outer)',description:'WS2812B 60-pixel addressable LED ring',x:0.40,y:0.22,size:0.04,price:'$8–$12',tags:['avail']},
-      {name:'LED Ring (inner)',description:'WS2812B 24-pixel inner ring',x:0.40,y:0.50,size:0.04,price:'$5–$8',tags:['avail']},
-      {name:'Core LED',description:'White 5W COB LED center point',x:0.40,y:0.74,size:0.035,price:'$2–$4',tags:['avail']},
-      {name:'Arduino Nano',description:'Controls LED animation sequences',x:0.70,y:0.50,size:0.035,price:'$4–$7',tags:['avail']},
-      {name:'Acrylic Diffuser',description:'Laser-cut frosted acrylic rings',x:0.16,y:0.50,size:0.035,price:'$5–$10',tags:['diy','avail']},
-    ],_key:'arc_reactor'
-  },
-  smart_glasses:{
-    name:'SMART GLASSES AR-HUD',subtitle:'AUGMENTED REALITY WEARABLE — REV 2.1',shape:'smart_glasses',
-    classification:'PROTOTYPE | AR DEVICE | REV 2.1',
-    specs:[['DISPLAY','0.96" OLED 128×64'],['MCU','ESP32 + Bluetooth'],['BATTERY','420mAh LiPo'],['WEIGHT','42g'],['WIRELESS','BT 5.0 + WiFi']],
-    totalCost:'$35 – $65',totalNote:'ESP32 + OLED DIY build',
-    components:[
-      {name:'OLED Display',description:'0.96" I2C OLED, right-eye HUD',x:0.69,y:0.44,size:0.04,price:'$4–$7',tags:['avail']},
-      {name:'ESP32 Board',description:'Main MCU, WiFi/BT connectivity',x:0.78,y:0.60,size:0.038,price:'$7–$10',tags:['avail']},
-      {name:'Front Camera',description:'OV2640 2MP camera module',x:0.78,y:0.35,size:0.035,price:'$6–$10',tags:['avail']},
-      {name:'Battery',description:'420mAh LiPo + TP4056 charger',x:0.22,y:0.60,size:0.038,price:'$5–$8',tags:['avail']},
-      {name:'Frame',description:'3D printed titanium-look PLA frame',x:0.40,y:0.44,size:0.06,price:'$8–$15',tags:['diy']},
-      {name:'Half-mirror Lens',description:'Beam splitter for AR overlay',x:0.69,y:0.44,size:0.032,price:'$5–$10',tags:['avail']},
-    ],_key:'smart_glasses'
-  },
-  exoskeleton:{
-    name:'EXO-ARM MK III',subtitle:'POWERED SERVO LIMB ASSEMBLY',shape:'humanoid_exo',
-    classification:'PROTOTYPE | WEARABLE | REV 3.0',
-    specs:[['ACTUATORS','MG996R ×6'],['POWER','7.4V 2S LiPo'],['LIFT CAPACITY','10 kg'],['WEIGHT','2.1 kg'],['CONTROL','Flex sensors × 3']],
-    totalCost:'$65 – $110',totalNote:'Arduino + servo DIY build',
-    components:[
-      {name:'Shoulder Servo',description:'MG996R 180° high-torque servo',x:0.40,y:0.14,size:0.04,price:'$8–$12',tags:['avail']},
-      {name:'Elbow Actuator',description:'MG996R servo + aluminium bracket',x:0.40,y:0.38,size:0.04,price:'$10–$15',tags:['avail']},
-      {name:'Wrist Assembly',description:'2× micro servo 9g + ball joint',x:0.40,y:0.58,size:0.035,price:'$6–$9',tags:['avail']},
-      {name:'Arduino Mega',description:'Main controller board',x:0.75,y:0.30,size:0.038,price:'$12–$18',tags:['avail']},
-      {name:'PCA9685',description:'16-channel servo driver module',x:0.75,y:0.48,size:0.035,price:'$4–$6',tags:['avail']},
-      {name:'LiPo Battery',description:'7.4V 2S 3000mAh LiPo pack',x:0.20,y:0.40,size:0.04,price:'$12–$18',tags:['avail']},
-      {name:'Flex Sensors',description:'Finger-bend detection × 3',x:0.20,y:0.60,size:0.035,price:'$8–$15',tags:['avail']},
-    ],_key:'exoskeleton'
-  },
-  drone:{
-    name:'QUADCOPTER UAV',subtitle:'BRUSHLESS RACING CLASS — 5"',shape:'quadcopter',
-    classification:'UAV DEVICE | SCHEMATIC | 220mm',
-    specs:[['FRAME','220mm carbon fibre'],['MOTORS','2204 2300KV ×4'],['BATTERY','3S 1300mAh'],['FLIGHT TIME','~12 min'],['CAMERA','4K stabilised']],
-    totalCost:'$85 – $140',totalNote:'Mid-range DIY quad build',
-    components:[
-      {name:'Motor FL',description:'2204 brushless 2300KV — front left',x:0.22,y:0.22,size:0.038,price:'$8–$12',tags:['avail']},
-      {name:'Motor FR',description:'2204 brushless 2300KV — front right',x:0.60,y:0.22,size:0.038,price:'$8–$12',tags:['avail']},
-      {name:'Motor RL',description:'2204 brushless 2300KV — rear left',x:0.22,y:0.62,size:0.038,price:'$8–$12',tags:['avail']},
-      {name:'Motor RR',description:'2204 brushless 2300KV — rear right',x:0.60,y:0.62,size:0.038,price:'$8–$12',tags:['avail']},
-      {name:'Flight Controller',description:'F4 + GPS + Betaflight firmware',x:0.41,y:0.44,size:0.042,price:'$22–$35',tags:['avail']},
-      {name:'4-in-1 ESC',description:'20A 4-in-1 BLHeli32 stack',x:0.41,y:0.54,size:0.035,price:'$18–$28',tags:['avail']},
-      {name:'Camera Gimbal',description:'4K sensor with 2-axis stabilisation',x:0.41,y:0.35,size:0.035,price:'$15–$25',tags:['avail']},
-    ],_key:'drone'
-  },
-  jetpack:{
-    name:'PERSONAL JET PROPULSION',subtitle:'STRAP-ON THRUST SYSTEM — MICRO TURBINE',shape:'jetpack',
-    classification:'EXPERIMENTAL FLIGHT UNIT | REV 3',
-    specs:[['THRUST','2 × 1,200 N (sim)'],['FUEL','Electric (scaled)'],['FLIGHT TIME','~6 min'],['WEIGHT','3.8 kg'],['CONTROL','RC + Auto stabilise']],
-    totalCost:'$220 – $380',totalNote:'RC turbine prop version — not real flight',
-    components:[
-      {name:'Left EDF',description:'90mm electric ducted fan, 3000KV',x:0.25,y:0.35,size:0.042,price:'$35–$55',tags:['avail']},
-      {name:'Right EDF',description:'90mm electric ducted fan, 3000KV',x:0.57,y:0.35,size:0.042,price:'$35–$55',tags:['avail']},
-      {name:'Left Fuel Tank',description:'4S 5000mAh LiPo — left cell',x:0.27,y:0.52,size:0.038,price:'$28–$42',tags:['avail']},
-      {name:'Right Fuel Tank',description:'4S 5000mAh LiPo — right cell',x:0.55,y:0.52,size:0.038,price:'$28–$42',tags:['avail']},
-      {name:'Flight Controller',description:'Ardupilot + IMU auto-stabiliser',x:0.41,y:0.28,size:0.04,price:'$35–$55',tags:['avail']},
-      {name:'Harness Frame',description:'Aluminium tube + carbon struts',x:0.41,y:0.44,size:0.06,price:'$45–$80',tags:['diy','custom']},
-    ],_key:'jetpack'
-  },
-};
-
-function loadBlueprint(key){
-  const bp=BLUEPRINT_DB[key];
-  if(!bp){toast('BLUEPRINT NOT FOUND');return;}
-  displayBlueprint(bp);
-}
-
-// ─── AI BLUEPRINT GENERATION (Anthropic API) ─────────────────
-async function generateAIBlueprint(query){
-  const overlay=document.getElementById('ai-build-overlay');
-  const statusEl=document.getElementById('ai-build-status');
-  const barEl=document.getElementById('ai-build-bar');
-  overlay.classList.add('active');
-  barEl.style.width='0%';
-
-  const steps=['PARSING DESIGN PARAMETERS...','SELECTING COMPONENT TOPOLOGY...','COMPUTING PART LIST + PRICING...','GENERATING SCHEMATICS...','FINALISING BLUEPRINT...'];
-  let si=0;
-  const iv=setInterval(()=>{if(si<steps.length){statusEl.textContent=steps[si++];barEl.style.width=(si/steps.length*80)+'%';}},500);
-
-  try{
-    const prompt=`You are J.A.R.V.I.S, a holographic blueprint designer. Generate a realistic DIY/prototype blueprint for: "${query}"
-
-Respond ONLY with a valid JSON object, no markdown, no backticks, no preamble.
-
-The JSON must have these exact fields:
-{
-  "name": "SHORT CAPS NAME (max 4 words)",
-  "subtitle": "descriptive subtitle",
-  "shape": "one of: iron_man, repulsor, arc_reactor_detailed, humanoid_exo, quadcopter, smart_glasses, jetpack, rectangle",
-  "classification": "short classification string",
-  "specs": [["KEY","VALUE"],["KEY","VALUE"],["KEY","VALUE"],["KEY","VALUE"]],
-  "totalCost": "$XX – $XX",
-  "totalNote": "short note about the cost",
-  "components": [
-    {
-      "name": "Part Name",
-      "description": "what it does, 1 sentence",
-      "x": 0.4,
-      "y": 0.4,
-      "size": 0.04,
-      "price": "$X–$X",
-      "tags": ["avail"]
-    }
-  ]
-}
-
-Rules:
-- Choose shape wisely: iron_man for full suits/armor, humanoid_exo for arms/limbs, repulsor for hand devices, arc_reactor_detailed for circular power devices, quadcopter for drones, smart_glasses for wearable eyewear, jetpack for backpack thrust, rectangle for anything else
-- Keep prices REALISTIC and DIY-affordable (mostly $5–$200 per part)
-- totalCost should be under $500 unless truly complex
-- Include 5–8 components
-- x and y are relative positions (0–1) for where the hotspot should appear over the silhouette drawing
-- size should be between 0.03 and 0.06
-- tags must be an array containing one or more of: "avail", "diy", "custom", "off-shelf"
-- specs should have 4–6 entries with realistic technical values`;
-
-    const response=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:1000,
-        messages:[{role:'user',content:prompt}]
-      })
-    });
-
-    const data=await response.json();
-    clearInterval(iv);barEl.style.width='100%';
-    statusEl.textContent='RENDERING...';
-    await new Promise(r=>setTimeout(r,400));
-    overlay.classList.remove('active');
-
-    if(data.content&&data.content[0]){
-      let text=data.content[0].text.trim();
-      text=text.replace(/```json|```/g,'').trim();
-      const bp=JSON.parse(text);
-      bp._key='__ai__';bp._isAI=true;bp._query=query;
-
-      state.aiBlueprintStore.push(bp);
-      addAIBlueprintToSidebar(bp);
-      displayBlueprint(bp);
-      toast('AI BLUEPRINT GENERATED — '+bp.name);
-    }else{
-      throw new Error('No content returned');
-    }
-  }catch(e){
-    clearInterval(iv);
-    overlay.classList.remove('active');
-    console.error('[JARVIS] AI blueprint error:',e);
-    // Fallback to local generation
-    const fallback=generateFallbackBlueprint(query);
-    displayBlueprint(fallback);
-    toast('BLUEPRINT GENERATED (LOCAL) — '+fallback.name);
-  }
-}
-
-function generateFallbackBlueprint(query){
-  const q=query.toLowerCase();
-  let shape='rectangle';
-  if(/suit|armor|armour|iron man|war machine|mech|exo suit/.test(q))shape='iron_man';
-  else if(/arm|limb|elbow|wrist|shoulder/.test(q))shape='humanoid_exo';
-  else if(/hand|glove|gauntlet|repulsor|blaster/.test(q))shape='repulsor';
-  else if(/reactor|core|power|fusion|battery pack/.test(q))shape='arc_reactor_detailed';
-  else if(/drone|quad|uav|copter/.test(q))shape='quadcopter';
-  else if(/glass|goggle|visor|hud|eyewear/.test(q))shape='smart_glasses';
-  else if(/jet|pack|thruster|rocket|back/.test(q))shape='jetpack';
-
-  return{
-    name:query.toUpperCase().slice(0,30),
-    subtitle:'CUSTOM AI-GENERATED PROTOTYPE SCHEMATIC',shape,
-    classification:'AUTO-GENERATED | JARVIS LOCAL | REV 0.1',
-    specs:[['CLASS','PROTOTYPE'],['VERSION','MK-I'],['STATUS','DESIGN PHASE'],['SOURCE','JARVIS LOCAL']],
-    totalCost:'$50 – $200',totalNote:'Estimated DIY prototype build',
-    components:[
-      {name:'Primary Core',description:'Central control and processing unit',x:0.40,y:0.40,size:0.05,price:'$15–$35',tags:['avail']},
-      {name:'Power Supply',description:'High-capacity battery or PSU',x:0.25,y:0.60,size:0.04,price:'$12–$25',tags:['avail']},
-      {name:'Control Board',description:'Arduino/ESP32 main controller',x:0.57,y:0.55,size:0.038,price:'$8–$15',tags:['avail']},
-      {name:'Output Array',description:'Primary output actuators or emitters',x:0.40,y:0.68,size:0.042,price:'$10–$20',tags:['diy']},
-      {name:'Frame/Housing',description:'Structural enclosure — 3D print or machined',x:0.40,y:0.25,size:0.05,price:'$12–$30',tags:['diy','custom']},
-    ],_key:'__ai__',_isAI:true,_query:query
-  };
-}
-
-function addAIBlueprintToSidebar(bp){
-  const list=document.getElementById('ai-bp-list');
-  const existing=list.querySelector('.no-bp-msg');
-  if(existing)existing.remove();
-  const btn=document.createElement('button');
-  btn.className='obj-btn ai-btn ai-bp-entry';
-  btn.innerHTML=`<span class="ico">⚡</span><span>${bp.name.slice(0,18)}</span>`;
-  btn.onclick=()=>displayBlueprint(bp);
-  list.appendChild(btn);
-}
-
-// ─── SUBMIT BUILD ─────────────────────────────────────────────
-async function submitBuild(){
-  const query=document.getElementById('build-query-input').value.trim();
-  if(!query)return;
-  document.getElementById('build-modal').classList.remove('active');
-  document.getElementById('build-query-input').value='';
-  await generateAIBlueprint(query);
-}
-
-// ─── SEARCH + VOICE ───────────────────────────────────────────
-function doSearch(q){
-  const query=(q||document.getElementById('search-input').value).trim().toLowerCase();
-  if(!query)return;
-  const bpKeys=Object.keys(BLUEPRINT_DB);
-  const bpMatch=bpKeys.find(k=>query.includes(k.replace('_',' '))||k.includes(query.replace(/ /g,'_')));
-  if(bpMatch){loadBlueprint(bpMatch);return;}
-  const mdMatch=MODEL_KEYS.find(k=>k.includes(query.replace(/ /g,'_'))||query.includes(k.replace(/_/g,' ')));
-  if(mdMatch){loadModel(mdMatch);return;}
-  // Let AI generate it
-  generateAIBlueprint(query);
-}
-
+// ── HAND CURSOR SYSTEM ─────────────────────────────────────────
+const hcCanvas=document.getElementById('hand-cursor-canvas');
+const hcCtx=hcCanvas.getContext('2d');
+function resizeHandCursorCanvas(){hcCanvas.width=window.innerWidth;hcCanvas.height=window.innerHeight;}
+resizeHandCursorCanvas();
+const cursor={x:0,y:0,visible:false,gesture:'NONE',dwellTarget:null,dwellStart:0,dwellDuration:1100,lastClick:0,pulsePhase:0};
+function getElementAt(x,y){hcCanvas.style.display='none';const el=document.elementFromPoint(x,y);hcCanvas.style.display='block';return el;}
+function getClickableEl(el){if(!el)return null;if(el.tagName==='BUTTON'||el.classList.contains('obj-btn'))return el;return el.closest('button')||el.closest('.obj-btn');}
+function drawHandCursor(){const W=hcCanvas.width,H=hcCanvas.height;hcCtx.clearRect(0,0,W,H);if(!cursor.visible)return;const{x,y,gesture}=cursor;cursor.pulsePhase+=0.1;const pulseR=1+0.15*Math.sin(cursor.pulsePhase);let col='0,200,255';if(gesture==='PINCH')col='170,68,255';else if(gesture==='FIST')col='255,80,80';else if(gesture==='OPEN')col='0,255,136';else if(gesture==='ONE_FINGER')col='255,200,0';const hovEl=getElementAt(x,y);const clickable=getClickableEl(hovEl);const isHov=!!clickable;document.querySelectorAll('.hand-hover').forEach(b=>b.classList.remove('hand-hover'));if(isHov&&clickable)clickable.classList.add('hand-hover');const launchBtn=document.getElementById('launch-btn');if(launchBtn){const rect=launchBtn.getBoundingClientRect();const inLaunch=x>rect.left&&x<rect.right&&y>rect.top&&y<rect.bottom;if(inLaunch&&gesture==='ONE_FINGER'){if(!launchDwellActive)startLaunchDwell();}else{if(launchDwellActive)stopLaunchDwell();}}hcCtx.save();hcCtx.strokeStyle=`rgba(${col},${isHov?0.9:0.55})`;hcCtx.lineWidth=isHov?2.5:1.5;hcCtx.shadowColor=`rgba(${col},0.5)`;hcCtx.shadowBlur=isHov?20:8;hcCtx.beginPath();hcCtx.arc(x,y,(isHov?22:15)*pulseR,0,Math.PI*2);hcCtx.stroke();hcCtx.beginPath();hcCtx.arc(x,y,4,0,Math.PI*2);hcCtx.fillStyle=`rgba(${col},${isHov?1:0.8})`;hcCtx.fill();hcCtx.shadowBlur=0;const cl=isHov?26:18;hcCtx.strokeStyle=`rgba(${col},0.35)`;hcCtx.lineWidth=1;[[x-cl,y,x-7,y],[x+7,y,x+cl,y],[x,y-cl,x,y-7],[x,y+6,x,y+cl]].forEach(([x1,y1,x2,y2])=>{hcCtx.beginPath();hcCtx.moveTo(x1,y1);hcCtx.lineTo(x2,y2);hcCtx.stroke();});if(isHov&&cursor.dwellTarget===clickable){const elapsed=Date.now()-cursor.dwellStart;const prog=Math.min(elapsed/cursor.dwellDuration,1);if(prog>0){hcCtx.strokeStyle=`rgba(${col},0.9)`;hcCtx.lineWidth=3;hcCtx.shadowBlur=12;hcCtx.shadowColor=`rgba(${col},0.5)`;hcCtx.beginPath();hcCtx.arc(x,y,26,-Math.PI/2,-Math.PI/2+prog*Math.PI*2);hcCtx.stroke();hcCtx.shadowBlur=0;document.getElementById('inf-dwell').textContent=(prog*100).toFixed(0)+'%';if(prog>=1&&Date.now()-cursor.lastClick>cursor.dwellDuration){cursor.lastClick=Date.now();clickable.click();cursor.dwellStart=Date.now()+600;toast('HAND CLICK — '+clickable.textContent.trim().slice(0,20));}}
+  }else{document.getElementById('inf-dwell').textContent='—';}if(isHov){if(cursor.dwellTarget!==clickable){cursor.dwellTarget=clickable;cursor.dwellStart=Date.now();}}else{cursor.dwellTarget=null;}if(launcherOpen){document.querySelectorAll('.arc-item').forEach(item=>{const rect=item.getBoundingClientRect();const inItem=x>rect.left&&x<rect.right&&y>rect.top&&y<rect.bottom;if(inItem)item.classList.add('hand-hover');else item.classList.remove('hand-hover');});}if(isHov&&clickable){const rect=clickable.getBoundingClientRect();hcCtx.strokeStyle=`rgba(${col},0.5)`;hcCtx.lineWidth=1.5;hcCtx.setLineDash([3,3]);hcCtx.strokeRect(rect.left-3,rect.top-3,rect.width+6,rect.height+6);hcCtx.setLineDash([]);}hcCtx.restore();}
+setInterval(drawHandCursor,16);
+
+// ── GESTURE ENGINE ─────────────────────────────────────────────
+const handCanvas=document.createElement('canvas');handCanvas.style.cssText='position:absolute;inset:0;pointer-events:none;z-index:14;';document.getElementById('viewer-wrap').appendChild(handCanvas);const handCtx=handCanvas.getContext('2d');function resizeHandCanvas(){handCanvas.width=canvas3d.parentElement.clientWidth;handCanvas.height=canvas3d.parentElement.clientHeight;}resizeHandCanvas();window.addEventListener('resize',resizeHandCanvas);
+const SWIPE_VELOCITY=0.045,SWIPE_DISTANCE=0.18,SWIPE_RATIO=3.5,SWIPE_COOLDOWN=1000,HISTORY_LEN=14;
+const FINGER_TIPS=[4,8,12,16,20];
+const hState={left:null,right:null,leftGesture:'NONE',rightGesture:'NONE',leftHistory:[],rightHistory:[],leftAnalysis:{type:'idle',speed:0},rightAnalysis:{type:'idle',speed:0},bothPrevDist:null,bothPrevAngle:null,lastSwipeTime:0};
+function extended(lm,tip,mid){return lm[tip].y<lm[mid].y*0.97;}function thumbExt(lm){return Math.abs(lm[4].x-lm[3].x)>0.06;}function palmCenter(lm){return{x:lm[0].x,y:lm[0].y};}function indexTip(lm){return lm[8];}
+function classifyGesture(lm){const ext=[thumbExt(lm),extended(lm,8,7),extended(lm,12,11),extended(lm,16,15),extended(lm,20,19)];const n=ext.filter(Boolean).length;const pinch=Math.hypot(lm[4].x-lm[8].x,lm[4].y-lm[8].y);if(pinch<0.06&&!ext[2]&&!ext[3]&&!ext[4])return'PINCH';if(n===0)return'FIST';if(n>=5)return'OPEN';if(n===1&&ext[1])return'ONE_FINGER';if(n===2&&ext[1]&&ext[2])return'TWO_FINGERS';if(n===3&&ext[1]&&ext[2]&&ext[3])return'THREE_FINGERS';if(ext[0]&&ext[4]&&!ext[1]&&!ext[2]&&!ext[3])return'SHAKA';return'PARTIAL';}
+function analyzeMotion(history){if(history.length<6)return{type:'idle',speed:0,dx:0,dy:0};const recent=history.slice(-4);const vx=(recent[recent.length-1].x-recent[0].x)/4;const vy=(recent[recent.length-1].y-recent[0].y)/4;const speed=Math.hypot(vx,vy);const totalDx=history[history.length-1].x-history[0].x;const totalDy=history[history.length-1].y-history[0].y;const adx=Math.abs(totalDx),ady=Math.abs(totalDy);if(speed>SWIPE_VELOCITY&&adx>SWIPE_DISTANCE&&adx>ady*SWIPE_RATIO)return{type:'swipe',direction:totalDx>0?'left':'right',speed,dx:totalDx,dy:totalDy};if(speed>0.003)return{type:'move',speed,dx:vx,dy:vy};return{type:'idle',speed:0,dx:0,dy:0};}
+function applySingleHand(gesture,lm,side,analysis){if(!state.model||state.mode!=='3d')return;const dx=analysis.dx,dy=analysis.dy;const moving=analysis.type==='move';const ghEl=document.getElementById(side==='left'?'gh-left':'gh-right');const ghAction=document.getElementById(side==='left'?'gh-left-action':'gh-right-action');const ghIcon=document.getElementById(side==='left'?'gh-left-icon':'gh-right-icon');if(ghEl){moving?ghEl.classList.add('active'):ghEl.classList.remove('active');}switch(gesture){case'OPEN':if(moving){state.model.rotation.y+=dx*7;state.model.rotation.x+=dy*7;state.momentumY=dx*4;state.momentumX=dy*4;}if(ghAction)ghAction.textContent=moving?'ROTATING':'READY';if(ghIcon)ghIcon.textContent='✋';break;case'FIST':state.targetScale=Math.max(0.15,state.targetScale-0.025);if(ghAction)ghAction.textContent='ZOOM OUT';if(ghIcon)ghIcon.textContent='👊';break;case'TWO_FINGERS':state.targetScale=Math.min(4.5,state.targetScale+0.025);if(ghAction)ghAction.textContent='ZOOM IN';if(ghIcon)ghIcon.textContent='✌️';break;case'ONE_FINGER':if(moving){state.model.position.x+=dx*0.06;state.model.position.y-=dy*0.06;}if(ghAction)ghAction.textContent=moving?'PAN':'CURSOR';if(ghIcon)ghIcon.textContent='☝️';break;case'PINCH':if(moving){state.momentumY+=dx*0.3;state.model.rotation.y+=dx*8;}if(ghAction)ghAction.textContent='SPIN';if(ghIcon)ghIcon.textContent='🤏';break;case'THREE_FINGERS':if(moving){state.model.rotation.z+=dx*4;state.momentumZ=dx*3;}if(ghAction)ghAction.textContent='TILT Z';if(ghIcon)ghIcon.textContent='🤟';break;case'SHAKA':state.model.rotation.set(0,0,0);state.model.position.set(0,0,0);state.targetScale=1;state.momentumX=0;state.momentumY=0;state.momentumZ=0;if(ghAction)ghAction.textContent='RESET';if(ghIcon)ghIcon.textContent='🤙';announce('POSITION RESET');break;default:if(moving)state.model.rotation.y+=dx*3;if(ghAction)ghAction.textContent='—';}}
+function applyDualHands(leftLm,rightLm){if(!state.model||state.mode!=='3d')return;const lp=palmCenter(leftLm),rp=palmCenter(rightLm);const dist=Math.hypot(rp.x-lp.x,rp.y-lp.y);const angle=Math.atan2(rp.y-lp.y,rp.x-lp.x);const ghBoth=document.getElementById('gh-both-action');const lg=hState.leftGesture,rg=hState.rightGesture;if(lg==='PINCH'&&rg==='PINCH'){if(hState.bothPrevDist!==null){const delta=dist-hState.bothPrevDist;state.targetScale=Math.max(0.1,Math.min(5,state.targetScale+delta*4));}if(ghBoth)ghBoth.textContent='PINCH SCALE';hState.bothPrevDist=dist;return;}if(lg==='OPEN'&&rg==='OPEN'){const la=hState.leftAnalysis,ra=hState.rightAnalysis;if(la.type==='move'&&ra.type==='move'){const avg=(la.dx+ra.dx)*0.5,avgy=(la.dy+ra.dy)*0.5;state.model.rotation.y+=avg*8;state.model.rotation.x+=avgy*8;if(ghBoth)ghBoth.textContent='ORBIT';}if(hState.bothPrevAngle!==null){const ad=angle-hState.bothPrevAngle;if(Math.abs(ad)>0.01&&Math.abs(ad)<0.3){state.model.rotation.z+=ad*2;if(ghBoth)ghBoth.textContent='TWIST';}}hState.bothPrevDist=dist;hState.bothPrevAngle=angle;return;}hState.bothPrevDist=dist;hState.bothPrevAngle=angle;}
+function handleSwipe(dir,side){const now=Date.now();if(now-hState.lastSwipeTime<SWIPE_COOLDOWN)return;hState.lastSwipeTime=now;if(state.mode==='3d'){if(dir==='right')loadNextModel();else loadPrevModel();announce((dir==='right'?'→ NEXT':'← PREV')+' MODEL');}else if(state.mode==='blueprint'){announce((dir==='right'?'→':'←')+' SWIPE');}}
+function drawLandmarks(lm,gesture,side){const W=handCanvas.width,H=handCanvas.height;const toS=pt=>({x:(1-pt.x)*W,y:pt.y*H});const GC={OPEN:'#00ff88',FIST:'#ff3333',TWO_FINGERS:'#00c8ff',ONE_FINGER:'#ffaa00',PINCH:'#ff88ff',SHAKA:'#ffffff',THREE_FINGERS:'#88ffff',PARTIAL:'#00c8ff',NONE:'#00c8ff'};const col=GC[gesture]||'#00c8ff';const conns=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];conns.forEach(([a,b])=>{const pa=toS(lm[a]),pb=toS(lm[b]);handCtx.beginPath();handCtx.moveTo(pa.x,pa.y);handCtx.lineTo(pb.x,pb.y);handCtx.strokeStyle=col+'77';handCtx.lineWidth=1.5;handCtx.stroke();});lm.forEach((pt,i)=>{const s=toS(pt),isTip=FINGER_TIPS.includes(i);handCtx.beginPath();handCtx.arc(s.x,s.y,isTip?5:3,0,Math.PI*2);handCtx.fillStyle=isTip?col:col+'aa';handCtx.fill();});}
+
+// ── MEDIAPIPE INIT ─────────────────────────────────────────────
+let handsModel=null;
+async function initMediaPipe(){const video=document.getElementById('gesture-cam');const statusEl=document.getElementById('cam-status');statusEl.textContent='● LOADING…';const s1=document.createElement('script');s1.src='https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js';document.head.appendChild(s1);const s2=document.createElement('script');s2.src='https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js';document.head.appendChild(s2);await new Promise(r=>{s2.onload=r;s2.onerror=r;});await new Promise(r=>setTimeout(r,400));if(typeof Hands==='undefined'){statusEl.textContent='● FALLBACK';return;}try{handsModel=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${f}`});handsModel.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:0.6,minTrackingConfidence:0.55});handsModel.onResults(results=>{handCtx.clearRect(0,0,handCanvas.width,handCanvas.height);const lms=results.multiHandLandmarks||[];const handedness=results.multiHandedness||[];hState.left=null;hState.right=null;document.getElementById('inf-hands').textContent=lms.length+' / 2';document.getElementById('hand-count').textContent=lms.length+' hand'+(lms.length!==1?'s':'')+' tracked';lms.forEach((lm,idx)=>{const label=handedness[idx]?.label;if(label==='Left'){hState.right=lm;hState.rightGesture=classifyGesture(lm);}else{hState.left=lm;hState.leftGesture=classifyGesture(lm);}});const ghHud=document.getElementById('gesture-hud');if(lms.length>0){ghHud.classList.add('visible');statusEl.textContent=lms.length===2?'● DUAL':'● TRACKING';statusEl.className='tracking';}else{statusEl.textContent='● SCANNING…';statusEl.className='';ghHud.classList.remove('visible');hState.bothPrevDist=null;}const cursorHand=hState.right||hState.left;if(cursorHand){const tip=indexTip(cursorHand);const gesture=hState.right?hState.rightGesture:hState.leftGesture;cursor.x=(1-tip.x)*window.innerWidth;cursor.y=tip.y*window.innerHeight;cursor.visible=gesture==='ONE_FINGER'||gesture==='PINCH';cursor.gesture=gesture;}else{cursor.visible=false;}if(hState.left){const lp=palmCenter(hState.left);hState.leftHistory.push({...lp});if(hState.leftHistory.length>HISTORY_LEN)hState.leftHistory.shift();hState.leftAnalysis=analyzeMotion(hState.leftHistory);}else{hState.leftHistory=[];hState.leftAnalysis={type:'idle',speed:0,dx:0,dy:0};}if(hState.right){const rp=palmCenter(hState.right);hState.rightHistory.push({...rp});if(hState.rightHistory.length>HISTORY_LEN)hState.rightHistory.shift();hState.rightAnalysis=analyzeMotion(hState.rightHistory);}else{hState.rightHistory=[];hState.rightAnalysis={type:'idle',speed:0,dx:0,dy:0};}if(hState.leftAnalysis.type==='swipe')handleSwipe(hState.leftAnalysis.direction,'left');if(hState.rightAnalysis.type==='swipe')handleSwipe(hState.rightAnalysis.direction,'right');if(hState.left&&hState.right){applyDualHands(hState.left,hState.right);document.getElementById('inf-gesture').textContent='DUAL: '+hState.leftGesture+'+'+hState.rightGesture;document.getElementById('inf-swipe').textContent='LOCKED';}else if(hState.left){hState.bothPrevDist=null;hState.bothPrevAngle=null;if(hState.leftAnalysis.type==='move')applySingleHand(hState.leftGesture,hState.left,'left',hState.leftAnalysis);document.getElementById('inf-gesture').textContent='L: '+hState.leftGesture;document.getElementById('inf-swipe').textContent=hState.leftAnalysis.type.toUpperCase();document.getElementById('gh-right-action').textContent='—';document.getElementById('gh-right').classList.remove('active');}else if(hState.right){hState.bothPrevDist=null;hState.bothPrevAngle=null;if(hState.rightAnalysis.type==='move')applySingleHand(hState.rightGesture,hState.right,'right',hState.rightAnalysis);document.getElementById('inf-gesture').textContent='R: '+hState.rightGesture;document.getElementById('inf-swipe').textContent=hState.rightAnalysis.type.toUpperCase();document.getElementById('gh-left-action').textContent='—';document.getElementById('gh-left').classList.remove('active');}else{document.getElementById('inf-gesture').textContent='INACTIVE';document.getElementById('inf-swipe').textContent='—';document.getElementById('gh-both-action').textContent='—';}if(hState.left)drawLandmarks(hState.left,hState.leftGesture,'left');if(hState.right)drawLandmarks(hState.right,hState.rightGesture,'right');if(hState.left&&hState.right){const W=handCanvas.width,H=handCanvas.height;const lp=palmCenter(hState.left),rp=palmCenter(hState.right);try{handCtx.beginPath();handCtx.moveTo((1-lp.x)*W,lp.y*H);handCtx.lineTo((1-rp.x)*W,rp.y*H);handCtx.strokeStyle='rgba(170,68,255,0.35)';handCtx.lineWidth=1.5;handCtx.setLineDash([5,4]);handCtx.stroke();handCtx.setLineDash([]);}catch(e){}}});try{const stream=await navigator.mediaDevices.getUserMedia({video:{width:320,height:240,facingMode:'user',frameRate:30},audio:false});video.srcObject=stream;await video.play();statusEl.textContent='● CAM ONLINE';statusEl.className='online';if(typeof Camera!=='undefined'){new Camera(video,{onFrame:async()=>{if(handsModel)await handsModel.send({image:video});},width:320,height:240}).start();}else{setInterval(async()=>{if(handsModel&&video.readyState>=2)await handsModel.send({image:video});},50);}}catch(e){statusEl.textContent='● NO CAMERA';};}catch(e){console.warn('[GESTURE]',e);}}
+
+// ── GESTURE ANNOUNCE ──────────────────────────────────────────
+let announceTimer=null;
+function announce(text){const el=document.getElementById('gesture-announce');el.textContent=text;el.classList.add('show');clearTimeout(announceTimer);announceTimer=setTimeout(()=>el.classList.remove('show'),2000);}
+
+// ── SEARCH + VOICE ────────────────────────────────────────────
+function doSearch(q){const query=(q||document.getElementById('search-input').value).trim().toLowerCase();if(!query)return;if(/\b(build mode|launcher|arc menu)\b/i.test(query)){openLauncher();return;}if(/\b(build me|build|make me|create|design|jarvis build|jarvis make)\b/i.test(query)){const cleaned=query.replace(/\b(build me|build|make me|create|design|jarvis build|jarvis make|jarvis|mode)\b/gi,'').trim();if(cleaned.length>2){generateAIBlueprint(cleaned);return;}else{openBuildInput();return;}}const bpKeys=['smartphone','smartglasses','drone','car','rocket','arc_reactor','exoskeleton','headphones'];const bpMatch=bpKeys.find(k=>query.includes(k)||k.replace('_',' ').split(' ').some(w=>query.includes(w)));if(bpMatch){loadBlueprint(bpMatch);return;}const mdMatch=MODEL_KEYS.find(k=>k.includes(query.replace(/ /g,'_'))||query.includes(k.replace(/_/g,' ')));if(mdMatch){loadModel(mdMatch);return;}toast('GENERATING BLUEPRINT FOR: "'+query+'"...');generateAIBlueprint(query);}
 function handleKey(e){if(e.key==='Enter')doSearch();}
 
+// ── VOICE RECOGNITION ─────────────────────────────────────────
 let recognition=null,isListening=false;
-function toggleMic(){
-  if(!('SpeechRecognition' in window||'webkitSpeechRecognition' in window)){toast('SPEECH NOT AVAILABLE');return;}
-  if(isListening){recognition?.stop();return;}
-  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
-  recognition=new SR();
-  recognition.lang='en-US';recognition.continuous=false;
-  const btn=document.getElementById('mic-btn');
-  recognition.onstart=()=>{isListening=true;btn.textContent='🔴 LISTENING';toast('LISTENING...');};
-  recognition.onresult=e=>{const t=e.results[0][0].transcript.trim();document.getElementById('search-input').value=t;handleVoiceCommand(t);};
-  recognition.onend=()=>{isListening=false;btn.textContent='🎙 VOICE';};
-  recognition.start();
-}
+function toggleMic(){if(!('SpeechRecognition' in window||'webkitSpeechRecognition' in window)){toast('SPEECH NOT AVAILABLE');return;}if(isListening){recognition?.stop();return;}const SR=window.SpeechRecognition||window.webkitSpeechRecognition;recognition=new SR();recognition.lang='en-US';recognition.continuous=false;const btn=document.getElementById('mic-btn');recognition.onstart=()=>{isListening=true;btn.classList.add('active');btn.textContent='🔴 LISTENING';toast('LISTENING...');};recognition.onresult=e=>{const t=e.results[0][0].transcript.trim();document.getElementById('search-input').value=t;handleVoiceCommand(t);};recognition.onend=()=>{isListening=false;btn.classList.remove('active');btn.textContent='🎙 VOICE';};recognition.start();}
 
 function handleVoiceCommand(text){
   const lower=text.toLowerCase();
-  if(/\b(build me|build|design|create|make)\b/i.test(lower)){
-    const cleaned=lower.replace(/\b(jarvis|build me|build|design|create|make|please|a|an|the)\b/gi,'').trim();
-    if(cleaned.length>2){generateAIBlueprint(cleaned);return;}
-    else{document.getElementById('build-modal').classList.add('active');return;}
-  }
-  if(/show me|load|display|pull up/i.test(lower)){doSearch(lower);return;}
+  if(lower.trim()==='build mode'||/\b(build mode|launcher mode|arc mode|arc launcher)\b/i.test(lower)){openLauncher();toast('⬡ BUILD MODE ACTIVATED');announce('BUILD MODE');return;}
+  if(/\b(show(?: me)? (?:this |it )?in 3d|switch to 3d|3d mode|view in 3d|convert to 3d)\b/i.test(lower)){blueprintTo3D();toast('CONVERTING TO 3D HOLOGRAM');return;}
+  if(/\b(build me|build|make me|design|create)\b/i.test(lower)){const cleaned=lower.replace(/\b(jarvis|build me|build|make me|design|create|please|a |an |the |mode)\b/gi,'').trim();if(cleaned.length>2){generateAIBlueprint(cleaned);return;}else{openBuildInput();return;}}
+  if(/show me|pull up|display|load/i.test(lower)){doSearch(lower);return;}
+  if(/\b(reset|clear|home)\b/i.test(lower)){if(state.model){state.model.rotation.set(0,0,0);state.model.position.set(0,0,0);state.targetScale=1;}toast('POSITION RESET');return;}
+  if(/\bnext\b/i.test(lower)){loadNextModel();return;}
+  if(/\b(prev|previous|back)\b/i.test(lower)){loadPrevModel();return;}
+  if(/\bclose\b/i.test(lower)&&launcherOpen){closeLauncher();return;}
   doSearch(lower);
 }
 
-// ─── WINDOW MESSAGES ──────────────────────────────────────────
-window.addEventListener('message',e=>{
-  const{type,query}=e.data||{};
-  if(type==='HOLOGRAM_SEARCH'&&query){
-    document.getElementById('search-input').value=query;
-    if(/build mode/i.test(query)){document.getElementById('build-modal').classList.add('active');}
-    else handleVoiceCommand(query);
-  }
-});
+// ── TOAST ─────────────────────────────────────────────────────
+function toast(msg,dur=2500){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
 
-// ─── TOAST ────────────────────────────────────────────────────
-function toast(msg,dur=2800){
-  const t=document.getElementById('toast');
-  t.textContent=msg;t.classList.add('show');
-  clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),dur);
-}
+// ── WINDOW MESSAGE ────────────────────────────────────────────
+window.addEventListener('message',e=>{const{type,query}=e.data||{};if(type==='HOLOGRAM_SEARCH'&&query){document.getElementById('search-input').value=query;handleVoiceCommand(query);}});
 
-// ─── BOOT ─────────────────────────────────────────────────────
+// ── BOOT ──────────────────────────────────────────────────────
 window.addEventListener('load',()=>{
   const loadText=document.getElementById('load-text'),bar=document.getElementById('load-bar');
-  const steps=['LOADING THREE.JS ENGINE','COMPILING SHADERS','LOADING BLUEPRINT DB','READY'];
+  const steps=['LOADING THREE.JS ENGINE','COMPILING SHADERS','LOADING LOCAL BLUEPRINT DB','LOADING HAND TRACKING','READY'];
   let si=0;
-  const stepIv=setInterval(()=>{if(si>=steps.length){clearInterval(stepIv);return;}loadText.textContent=steps[si];bar.style.width=((si+1)/steps.length*100)+'%';si++;},300);
-  setTimeout(()=>{
-    hideLoading();
-    document.getElementById('no-model').style.display='flex';
-    document.getElementById('rotate-btn').style.borderColor='var(--blue)';
-    toast('J.A.R.V.I.S HOLOGRAPHIC VIEWER v5.0 ONLINE');
-    if(location.hash){
-      const q=decodeURIComponent(location.hash.slice(1));
-      document.getElementById('search-input').value=q;
-      handleVoiceCommand(q);
-    }
-  },1400);
+  const stepIv=setInterval(()=>{if(si>=steps.length){clearInterval(stepIv);return;}loadText.textContent=steps[si];bar.style.width=((si+1)/steps.length*100)+'%';si++;},350);
+  setTimeout(()=>{hideLoading();document.getElementById('no-model').style.display='flex';initMediaPipe();toast('J.A.R.V.I.S HOLOGRAPHIC VIEWER v4.2 — LOCAL ENGINE ONLINE');document.getElementById('rotate-btn').style.borderColor='var(--blue)';},1900);
+  if(location.hash){setTimeout(()=>{const q=decodeURIComponent(location.hash.slice(1));document.getElementById('search-input').value=q;handleVoiceCommand(q);},2200);}
 });
 </script>
 </body>
