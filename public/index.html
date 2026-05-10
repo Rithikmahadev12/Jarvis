@@ -13,98 +13,108 @@
   <!-- PARTICLE CANVAS -->
   <canvas id="particle-canvas"></canvas>
 
+  <!-- GLOBAL GRID OVERLAY -->
+  <div class="global-grid"></div>
+
+  <!-- CORNER BRACKETS -->
+  <div class="corner tl"><div class="pip"></div></div>
+  <div class="corner tr"><div class="pip"></div></div>
+  <div class="corner bl"><div class="pip"></div></div>
+  <div class="corner br"><div class="pip"></div></div>
+
+  <!-- SCANLINE -->
+  <div class="scanline"></div>
+
   <!-- SETUP SCREEN -->
   <div id="setup-screen" class="screen">
-    <div class="scanline"></div>
-    <div class="corner tl"><div class="pip"></div></div>
-    <div class="corner tr"><div class="pip"></div></div>
-    <div class="corner bl"><div class="pip"></div></div>
-    <div class="corner br"><div class="pip"></div></div>
     <div class="setup-container">
       <div class="arc-reactor">
         <div class="arc-ring ring1"></div>
         <div class="arc-ring ring2"></div>
         <div class="arc-ring ring3"></div>
-        <div class="arc-core"></div>
+        <div class="arc-ring ring4"></div>
+        <div class="arc-core">
+          <div class="arc-core-inner"></div>
+        </div>
       </div>
       <h1 class="jarvis-title">J.A.R.V.I.S</h1>
-      <p class="jarvis-sub">Initial Configuration</p>
+      <p class="jarvis-sub">JUST A RATHER VERY INTELLIGENT SYSTEM</p>
       <div class="setup-step" id="step-profile">
-        <p class="setup-label">STEP 1 — CREATE YOUR PROFILE</p>
-        <input type="text"      id="setup-name"     placeholder="Your name (e.g. Rithik)" maxlength="30" autocomplete="off"/>
-        <input type="password" id="setup-password" placeholder="Create a password"         maxlength="50" autocomplete="off"/>
+        <p class="setup-label">⬡ STEP 1 — CREATE YOUR PROFILE</p>
+        <input type="text"     id="setup-name"     placeholder="Your name" maxlength="30" autocomplete="off"/>
+        <input type="password" id="setup-password" placeholder="Create a password" maxlength="50" autocomplete="off"/>
         <select id="setup-title">
           <option value="Sir">Sir</option>
           <option value="Ma'am">Ma'am</option>
           <option value="Boss">Boss</option>
           <option value="Chief">Chief</option>
         </select>
-        <button id="btn-next-profile" class="hud-btn">NEXT →</button>
+        <button id="btn-next-profile" class="hud-btn">INITIALISE →</button>
       </div>
       <div class="setup-step hidden" id="step-voice">
-        <p class="setup-label">STEP 2 — TRAIN YOUR VOICE</p>
-        <p class="setup-hint">Say your name out loud 3 times when recording.</p>
-        <div id="voice-sample-status" class="sample-status">Ready to record</div>
+        <p class="setup-label">⬡ STEP 2 — VOICE CALIBRATION</p>
+        <p class="setup-hint">Say your name out loud 3× while recording.</p>
+        <div id="voice-sample-status" class="sample-status">Ready to calibrate</div>
         <div class="voice-bars hidden" id="record-bars">
           <span></span><span></span><span></span><span></span><span></span>
         </div>
-        <div class="sample-count" id="sample-count">0 / 3 samples recorded</div>
-        <button id="btn-record-sample" class="hud-btn">🎙 RECORD SAMPLE</button>
-        <button id="btn-skip-voice"    class="hud-btn secondary">SKIP (use exact name only)</button>
+        <div class="sample-count" id="sample-count">0 / 3 samples</div>
+        <button id="btn-record-sample" class="hud-btn">🎙 RECORD</button>
+        <button id="btn-skip-voice"    class="hud-btn secondary">SKIP</button>
       </div>
       <div class="setup-step hidden" id="step-done">
-        <p class="setup-label">CONFIGURATION COMPLETE</p>
+        <p class="setup-label">⬡ CALIBRATION COMPLETE</p>
         <p class="setup-hint" id="setup-summary"></p>
-        <button id="btn-launch" class="hud-btn">INITIALIZE JARVIS →</button>
+        <button id="btn-launch" class="hud-btn">BRING J.A.R.V.I.S ONLINE →</button>
       </div>
     </div>
   </div>
 
   <!-- AUTH SCREEN -->
-  <div id="auth-screen" class="screen">
-    <div class="scanline"></div>
-    <div class="corner tl"><div class="pip"></div></div>
-    <div class="corner tr"><div class="pip"></div></div>
-    <div class="corner bl"><div class="pip"></div></div>
-    <div class="corner br"><div class="pip"></div></div>
-
+  <div id="auth-screen" class="screen active">
     <div class="auth-container">
-      <!-- Arc reactor logo -->
-      <div class="arc-reactor">
+
+      <!-- Large arc reactor -->
+      <div class="arc-reactor large">
         <div class="arc-ring ring1"></div>
         <div class="arc-ring ring2"></div>
         <div class="arc-ring ring3"></div>
-        <div class="arc-core"></div>
+        <div class="arc-ring ring4"></div>
+        <div class="arc-core">
+          <div class="arc-core-inner"></div>
+        </div>
+        <!-- Orbital dots -->
+        <div class="orbital-dot" style="--angle:0deg; --r:52px"></div>
+        <div class="orbital-dot" style="--angle:120deg; --r:52px; animation-delay:-2s"></div>
+        <div class="orbital-dot" style="--angle:240deg; --r:52px; animation-delay:-4s"></div>
       </div>
 
       <h1 class="jarvis-title">J.A.R.V.I.S</h1>
-      <p class="jarvis-sub">Just A Rather Very Intelligent System</p>
+      <p class="jarvis-sub">JUST A RATHER VERY INTELLIGENT SYSTEM</p>
 
-      <!-- ── MODE TOGGLE ── -->
+      <!-- Horizontal divider with label -->
+      <div class="auth-divider">
+        <span class="divider-line"></span>
+        <span class="divider-label">IDENTITY VERIFICATION</span>
+        <span class="divider-line"></span>
+      </div>
+
       <div class="auth-mode-toggle" id="auth-mode-toggle">
         <button class="mode-btn active" id="mode-login-btn"  onclick="switchAuthMode('login')">LOG IN</button>
         <button class="mode-btn"        id="mode-create-btn" onclick="switchAuthMode('create')">CREATE ACCOUNT</button>
       </div>
 
-      <!-- ── SAVED ACCOUNTS (login mode only) ── -->
       <div id="saved-accounts-wrap"></div>
 
-      <!-- ── STATUS LINE ── -->
       <div id="auth-status" class="auth-status">
         Say <span class="highlight">"Jarvis, log in"</span> or type below
       </div>
 
-      <!-- ══════════════════════════════════════
-           LOGIN PANEL
-           ══════════════════════════════════════ -->
+      <!-- LOGIN PANEL -->
       <div id="auth-login-panel" class="auth-panel">
         <div class="auth-field-group">
-          <input type="password" id="auth-password-input"
-                 placeholder="Password → Enter"
-                 autocomplete="current-password"/>
+          <input type="password" id="auth-password-input" placeholder="Password → Enter" autocomplete="current-password"/>
         </div>
-
-        <!-- Voice auth prompt (shown when voice flow starts) -->
         <div id="auth-prompt" class="auth-prompt hidden">
           <div class="prompt-text">IDENTIFY YOURSELF</div>
           <div class="voice-bars">
@@ -115,26 +125,22 @@
         <div id="auth-listening" class="listening-badge hidden">● LISTENING</div>
       </div>
 
-      <!-- ══════════════════════════════════════
-           CREATE ACCOUNT PANEL
-           ══════════════════════════════════════ -->
+      <!-- CREATE PANEL -->
       <div id="auth-create-panel" class="auth-panel hidden">
         <div class="auth-field-group">
-          <input type="text"     id="create-name"     placeholder="Your name"            maxlength="30" autocomplete="off"/>
+          <input type="text"     id="create-name"     placeholder="Your name"         maxlength="30" autocomplete="off"/>
           <select id="create-title">
             <option value="Sir">Sir</option>
             <option value="Ma'am">Ma'am</option>
             <option value="Boss">Boss</option>
             <option value="Chief">Chief</option>
           </select>
-          <input type="password" id="create-password"  placeholder="Choose a password"    maxlength="50" autocomplete="new-password"/>
-          <input type="password" id="create-password2" placeholder="Confirm password"     maxlength="50" autocomplete="new-password"/>
+          <input type="password" id="create-password"  placeholder="Choose a password" maxlength="50" autocomplete="new-password"/>
+          <input type="password" id="create-password2" placeholder="Confirm password"  maxlength="50" autocomplete="new-password"/>
         </div>
-
-        <!-- Voice sample (optional) -->
         <div class="voice-sample-block" id="voice-sample-block">
           <div class="auth-section-label">VOICE TRAINING (optional)</div>
-          <div class="voice-sample-hint">Say your name 3×  so JARVIS recognises your voice</div>
+          <div class="voice-sample-hint">Say your name 3× so JARVIS recognises your voice</div>
           <div id="create-sample-status" class="sample-status">Ready to record</div>
           <div class="voice-bars hidden" id="create-record-bars">
             <span></span><span></span><span></span><span></span><span></span>
@@ -145,13 +151,10 @@
             <button class="hud-btn secondary" style="flex:1;font-size:0.58rem" onclick="skipVoice()">SKIP</button>
           </div>
         </div>
-
         <button class="hud-btn" id="btn-create-account" onclick="submitCreateAccount()">CREATE ACCOUNT →</button>
       </div>
 
-      <!-- error / success feedback -->
       <div id="auth-feedback" class="auth-feedback hidden"></div>
-
       <div id="mic-debug" class="mic-debug">Mic: waiting…</div>
     </div>
   </div>
@@ -191,113 +194,259 @@
     </div>
   </div>
 
-  <!-- MAIN SCREEN -->
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- MAIN SCREEN                                    -->
+  <!-- ═══════════════════════════════════════════════ -->
   <div id="main-screen" class="screen">
-    <div class="scanline"></div>
-    <div class="corner tl"><div class="pip"></div></div>
-    <div class="corner tr"><div class="pip"></div></div>
-    <div class="corner bl"><div class="pip"></div></div>
-    <div class="corner br"><div class="pip"></div></div>
 
-    <!-- Hidden user display — actual display handled by hud-panels.js -->
-    <span id="user-display" style="display:none;"></span>
-
-    <!-- Camera feed -->
-    <div class="camera-panel" id="camera-panel">
-      <div class="camera-label">VISUAL SENSORS</div>
-      <div class="camera-feed-wrap">
-        <video id="camera-feed" class="camera-feed" autoplay muted playsinline></video>
-        <div class="cam-bracket tl"></div>
-        <div class="cam-bracket tr"></div>
-        <div class="cam-bracket bl"></div>
-        <div class="cam-bracket br"></div>
-        <div class="cam-scan"></div>
+    <!-- TOP BAR -->
+    <div class="top-bar">
+      <!-- Left cluster -->
+      <div class="top-bar-left">
+        <div class="tb-block">
+          <div class="tb-label">USER</div>
+          <div class="tb-val" id="user-display">—</div>
+        </div>
+        <div class="tb-separator"></div>
+        <div class="tb-block">
+          <div class="tb-label">UPTIME</div>
+          <div class="tb-val mono" id="hud-uptime">00:00:00</div>
+        </div>
+        <div class="tb-separator"></div>
+        <div class="tb-block">
+          <div class="tb-label">MOOD</div>
+          <div class="tb-val" id="mood-display">● NEUTRAL</div>
+        </div>
       </div>
-      <div class="camera-status" id="camera-status">● OFFLINE</div>
-    </div>
 
-    <!-- HUD top — orb only, side panels injected by hud-panels.js -->
-    <div class="hud-top">
-      <div class="hud-center-col">
+      <!-- Center — title + orb -->
+      <div class="top-bar-center">
+        <div class="title-lockup">
+          <span class="top-title">J.A.R.V.I.S</span>
+          <span class="top-subtitle">COGNITIVE ENGINE v7.0</span>
+        </div>
         <div class="orb" id="orb">
           <div class="orb-ring r1"></div>
           <div class="orb-ring r2"></div>
+          <div class="orb-ring r3"></div>
           <div class="orb-core"></div>
+          <div class="orb-pulse"></div>
         </div>
-        <span class="hud-label" id="status-text" style="letter-spacing:0.22em;color:var(--text-dim);font-size:0.55rem;">STANDBY</span>
+        <div class="orb-label" id="status-text">STANDBY</div>
+      </div>
+
+      <!-- Right cluster -->
+      <div class="top-bar-right">
+        <div class="tb-block right">
+          <div class="tb-label">TIME</div>
+          <div class="tb-val mono" id="hud-clock">--:--:--</div>
+        </div>
+        <div class="tb-separator"></div>
+        <div class="tb-block right">
+          <div class="tb-label">MEMORY</div>
+          <div class="tb-val" id="hud-mem-count">0 STORED</div>
+        </div>
+        <div class="tb-separator"></div>
+        <div class="tb-block right">
+          <div class="tb-label">PHASE</div>
+          <div class="tb-val" id="hud-phase">IDLE</div>
+        </div>
       </div>
     </div>
 
-    <!-- Transcript -->
-    <div class="transcript-area" id="transcript"></div>
+    <!-- MAIN CONTENT AREA -->
+    <div class="main-content">
 
-    <!-- Live hearing strip -->
-    <div id="live-hearing" class="live-hearing empty">
-      <span class="live-hearing-icon">🎙</span>
-      <span class="live-hearing-text">listening…</span>
-    </div>
+      <!-- LEFT PANEL -->
+      <div class="side-panel left-panel">
+        <div class="panel-header">VISUAL SENSORS</div>
+        <div class="camera-wrap" id="camera-panel">
+          <div class="camera-feed-wrap">
+            <video id="camera-feed" class="camera-feed" autoplay muted playsinline></video>
+            <div class="cam-bracket tl"></div>
+            <div class="cam-bracket tr"></div>
+            <div class="cam-bracket bl"></div>
+            <div class="cam-bracket br"></div>
+            <div class="cam-scan"></div>
+            <div class="cam-overlay-label">LIVE FEED</div>
+          </div>
+          <div class="camera-status" id="camera-status">● OFFLINE</div>
+        </div>
 
-    <div id="live-mic" class="live-mic hidden"></div>
+        <div class="panel-section">
+          <div class="panel-section-label">SYSTEM STATUS</div>
+          <div class="stat-grid">
+            <div class="stat-item">
+              <div class="stat-label">AI ENGINE</div>
+              <div class="stat-val green">ONLINE</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">OCR</div>
+              <div class="stat-val" id="ocr-status">LOADING</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">FACE ID</div>
+              <div class="stat-val" id="faceid-status">SCANNING</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">MIC</div>
+              <div class="stat-val" id="mic-status">ACTIVE</div>
+            </div>
+          </div>
+        </div>
 
-    <!-- Typing box -->
-    <div class="type-bar">
-      <input type="text" id="type-input" placeholder="Type anything… (Enter to send)" autocomplete="off" spellcheck="false"/>
-      <button id="type-send" class="type-send-btn">⏎</button>
-    </div>
+        <div class="panel-section">
+          <div class="panel-section-label">INTERACTIONS</div>
+          <div class="big-counter" id="interaction-count">0</div>
+          <div class="mini-bars" id="activity-bars">
+            <div class="mini-bar" style="height:20%"></div>
+            <div class="mini-bar" style="height:45%"></div>
+            <div class="mini-bar" style="height:30%"></div>
+            <div class="mini-bar" style="height:70%"></div>
+            <div class="mini-bar" style="height:55%"></div>
+            <div class="mini-bar" style="height:35%"></div>
+            <div class="mini-bar" style="height:80%"></div>
+            <div class="mini-bar" style="height:60%"></div>
+            <div class="mini-bar" style="height:25%"></div>
+            <div class="mini-bar" style="height:50%"></div>
+          </div>
+        </div>
 
-    <!-- Bottom bar -->
-    <div class="hud-bottom">
-      <div id="clip-indicator" class="clip-indicator hidden">
-        <span class="rec-dot"></span> BUFFER RECORDING
+        <!-- Clip indicator -->
+        <div id="clip-indicator" class="clip-indicator hidden">
+          <span class="rec-dot"></span>
+          <span>BUFFER ACTIVE</span>
+        </div>
+
+        <!-- Extension download -->
+        <a href="/api/extension/download" download="jarvis-extension.zip" class="ext-btn">
+          <span>⬡</span> EXTENSION
+        </a>
       </div>
-      <div class="hints">
-        <span>"Jarvis, [anything]"</span>
-        <span class="sep">·</span>
-        <span>"clip that"</span>
-        <span class="sep">·</span>
-        <span>"vapor link"</span>
-        <span class="sep">·</span>
-        <span>"set a timer"</span>
-        <span class="sep">·</span>
-        <span>"Jarvis, log out"</span>
+
+      <!-- TRANSCRIPT AREA -->
+      <div class="transcript-column">
+        <!-- Decorative top edge -->
+        <div class="transcript-header">
+          <div class="th-edge left"></div>
+          <div class="th-title">NEURAL INTERFACE — ACTIVE SESSION</div>
+          <div class="th-edge right"></div>
+        </div>
+
+        <div class="transcript-area" id="transcript"></div>
+
+        <!-- Live hearing -->
+        <div id="live-hearing" class="live-hearing empty">
+          <span class="live-hearing-icon">🎙</span>
+          <span class="live-hearing-text">listening…</span>
+        </div>
+
+        <!-- Waveform -->
+        <canvas id="waveform-canvas" width="600" height="48"></canvas>
+
+        <!-- Input bar -->
+        <div class="input-bar">
+          <div class="input-bar-prefix">▶</div>
+          <input type="text" id="type-input" placeholder="Speak or type anything…" autocomplete="off" spellcheck="false"/>
+          <button id="type-send" class="send-btn">⏎</button>
+        </div>
+
+        <!-- Hint strip -->
+        <div class="hint-strip">
+          <span>"Jarvis, anything"</span>
+          <span class="dot">·</span>
+          <span>"clip that"</span>
+          <span class="dot">·</span>
+          <span>"set a timer"</span>
+          <span class="dot">·</span>
+          <span>"show me a 3D model"</span>
+          <span class="dot">·</span>
+          <span>"build mode"</span>
+        </div>
       </div>
-      <div id="mic-debug" class="mic-debug">Mic: waiting…</div>
+
+      <!-- RIGHT PANEL -->
+      <div class="side-panel right-panel">
+        <div class="panel-header">INTELLIGENCE</div>
+
+        <div class="panel-section">
+          <div class="panel-section-label">EMOTIONAL STATE</div>
+          <div class="mood-orb-wrap">
+            <div class="mood-arc" id="mood-arc"></div>
+            <div class="mood-label-big" id="mood-label-big">NEUTRAL</div>
+          </div>
+          <div class="mood-score-bar">
+            <div class="mood-score-fill" id="mood-score-fill" style="width:50%"></div>
+          </div>
+          <div class="mood-score-val" id="mood-score-val">SCORE: 0</div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-section-label">AUDIO INPUT</div>
+          <div class="audio-status-line">
+            <div class="audio-dot" id="audio-dot"></div>
+            <span id="audio-status-text">STANDBY</span>
+          </div>
+          <div class="waveform-bars" id="wf-bars">
+            <div class="wfb"></div><div class="wfb"></div><div class="wfb"></div>
+            <div class="wfb"></div><div class="wfb"></div><div class="wfb"></div>
+            <div class="wfb"></div><div class="wfb"></div>
+          </div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-section-label">MEMORY BANK</div>
+          <div class="memory-badge">
+            <span class="mem-dot"></span>
+            <span id="mem-count-right">0 STORED</span>
+          </div>
+          <div class="mem-sub" id="mem-sub-right">NO FACTS YET</div>
+        </div>
+
+        <div class="panel-section">
+          <div class="panel-section-label">QUICK LAUNCH</div>
+          <div class="quick-btns">
+            <button class="q-btn" onclick="handleChatCommand('Jarvis show me a 3D model of Iron Man')">3D HOLOGRAM</button>
+            <button class="q-btn" onclick="handleChatCommand('Jarvis build mode')">BUILD MODE</button>
+            <button class="q-btn" onclick="handleChatCommand('Jarvis system status')">DIAGNOSTICS</button>
+            <button class="q-btn" onclick="handleChatCommand('Jarvis show me all my links')">LINK BANK</button>
+            <button class="q-btn" onclick="handleChatCommand('Jarvis what is the weather')">WEATHER</button>
+            <button class="q-btn" onclick="handleChatCommand('what is playing on Spotify')">SPOTIFY</button>
+          </div>
+        </div>
+
+        <!-- Mic debug -->
+        <div id="mic-debug" class="mic-debug">Mic: waiting…</div>
+      </div>
     </div>
 
-    <!-- Extension download badge -->
-    <a href="/api/extension/download" download="jarvis-extension.zip" class="ext-download-btn" title="Download Chrome Extension">
-      <span class="ext-dl-icon">⬡</span>
-      <span class="ext-dl-text">DOWNLOAD EXTENSION</span>
-    </a>
+    <!-- TICKER -->
+    <div id="status-ticker">
+      <div class="ticker-track" id="ticker-track"></div>
+    </div>
 
-    <!-- Clip toast -->
-    <div id="clip-toast" class="clip-toast hidden">✂ &nbsp;Clip saved — last 60 seconds</div>
+    <!-- CLIP TOAST -->
+    <div id="clip-toast" class="clip-toast hidden">✂ Clip saved — last 60 seconds</div>
 
-    <!-- Waveform canvas -->
-    <canvas id="waveform-canvas" width="500" height="52"></canvas>
+    <!-- TIMER BADGE slot -->
 
-    <!-- ── HOLOGRAM PANEL ── -->
-    <div id="hologram-panel" class="screen" style="display:none;position:fixed;inset:0;z-index:60;background:#010c14">
-      <button id="hologram-close-btn" style="
-        position:fixed;top:18px;right:18px;z-index:70;
-        background:rgba(0,200,255,0.07);border:1px solid rgba(0,200,255,0.3);
-        color:#00c8ff;font-family:'Share Tech Mono',monospace;font-size:0.65rem;
-        letter-spacing:0.2em;padding:6px 14px;cursor:pointer;border-radius:2px;
-      " onclick="closeHologram()">✕ CLOSE</button>
+    <!-- HOLOGRAM PANEL -->
+    <div id="hologram-panel" class="hologram-panel" style="display:none">
+      <button id="hologram-close-btn" class="holo-close-btn" onclick="closeHologram()">✕ CLOSE</button>
       <iframe id="hologram-iframe"
         src="hologram-viewer.html"
         style="width:100%;height:100%;border:none"
         allow="camera; microphone; autoplay; fullscreen"
       ></iframe>
     </div>
-  </div>
 
-  <!-- SCRIPTS — order matters -->
+  </div><!-- /main-screen -->
+
+  <!-- SCRIPTS -->
   <script src="camera-observer.js"></script>
   <script src="visuals.js"></script>
   <script src="jarvis.js"></script>
   <script src="hud-panels.js"></script>
   <script src="pip-widgets.js"></script>
-
 </body>
 </html>
