@@ -108,6 +108,11 @@
       </div>
 
       <div id="auth-login-panel" class="auth-panel">
+        <button class="retina-auth-btn" onclick="startRetinaLogin()">
+          <div class="btn-eye-icon"></div>
+          RETINA SCAN LOGIN
+        </button>
+        <div class="auth-or-divider">OR</div>
         <div class="auth-field-group">
           <input type="password" id="auth-password-input" placeholder="Password → Enter" autocomplete="current-password"/>
         </div>
@@ -120,7 +125,7 @@
         </div>
         <div id="auth-listening" class="listening-badge hidden">● LISTENING</div>
       </div>
-
+     
       <div id="auth-create-panel" class="auth-panel hidden">
         <div class="auth-field-group">
           <input type="text"     id="create-name"     placeholder="Your name"         maxlength="30" autocomplete="off"/>
@@ -436,6 +441,7 @@
   </div><!-- /main-screen -->
 
   <!-- SCRIPTS — hud-panels.js REMOVED (conflicts with hardcoded panels above) -->
+  <script src="retina-scan.js"></script>
   <script src="camera-observer.js"></script>
   <script src="visuals.js"></script>
   <script src="jarvis.js"></script>
