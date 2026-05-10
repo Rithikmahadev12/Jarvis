@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>J.A.R.V.I.S — HOME</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow-x:hidden;background:#010c14;font-family:'Share Tech Mono',monospace;color:#a8dff5}
+
+:root{
+  --blue:#00c8ff;--blue-glow:rgba(0,200,255,0.35);--blue-dim:rgba(0,200,255,0.12);
+  --amber:#ffaa00;--red:#ff3333;--green:#00ff88;--purple:#aa44ff;
+  --bg:#010c14;--bg2:#021828;--text-dim:#3a6a88;--text:#a8dff5;--text-bright:#d8f4ff;
+  --hud:'Orbitron',monospace;
+}
+
+/* ── BG GRID ── */
+body::before{content:'';position:fixed;inset:0;background-image:repeating-linear-gradient(0deg,transparent,transparent 49px,rgba(0,200,255,0.025) 50px),repeating-linear-gradient(90deg,transparent,transparent 49px,rgba(0,200,255,0.025) 50px);pointer-events:none;z-index:0}
+
+/* ── SCANLINE ── */
+.scanline{position:fixed;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,200,255,0.12),transparent);animation:scan 9s linear infinite;pointer-events:none;z-index:100}
+@keyframes scan{from{top:-2px}to{top:100vh}}
+
+/* ── CORNERS ── */
+.corner{position:fixed;width:38px;height:38px;pointer-events:none;z-index:99}
+.corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.5}
+.corner::before{width:100%;height:1px;top:0}.corner::after{width:1px;height:100%;top:0}
+.corner .pip{position:absolute;width:4px;height:4px;background:var(--blue);border-radius:50%;top:-2px;left:-2px;box-shadow:0 0 8px var(--blue);animation:pipPulse 3s ease-in-out infinite}
+.corner.tl{top:14px;left:14px}.corner.tr{top:14px;right:14px;transform:scaleX(-1)}
+.corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}.corner.br{bottom:14px;right:14px;transform:scale(-1)}
+@keyframes pipPulse{0%,100%{opacity:1}50%{opacity:0.2}}
+
+/* ── TOP BAR ── */
+#top-bar{
+  position:fixed;top:0;left:0;right:0;height:62px;
+  background:rgba(1,8,20,0.97);
+  border-bottom:1px solid rgba(0,200,255,0.15);
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;z-index:50;
+}
+.top-left{display:flex;align-items:center;gap:16px}
+.top-title{font-family:var(--hud);font-size:1rem;font-weight:900;letter-spacing:0.5em;color:var(--blue);text-shadow:0 0 20px var(--blue-glow)}
+.top-sub{font-size:0.42rem;letter-spacing:0.28em;color:var(--text-dim)}
+.top-right{display:flex;align-items:center;gap:10px}
+.back-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.25);color:var(--text-dim);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.22em;padding:7px 14px;cursor:pointer;border-radius:2px;text-decoration:none;transition:all 0.2s}
+.back-btn:hover{border-color:var(--blue);color:var(--blue)}
+
+/* ── STATUS BAR ── */
+#status-bar{
+  position:fixed;top:62px;left:0;right:0;height:36px;
+  background:rgba(0,200,255,0.03);
+  border-bottom:1px solid rgba(0,200,255,0.08);
+  display:flex;align-items:center;gap:20px;
+  padding:0 20px;z-index:40;
+  font-size:0.52rem;letter-spacing:0.14em;color:var(--text-dim);
+}
+.sb-dot{width:6px;height:6px;border-radius:50%;background:var(--text-dim);flex-shrink:0}
+.sb-dot.online{background:var(--green);box-shadow:0 0 6px rgba(0,255,136,0.5);animation:blink 2s step-end infinite}
+.sb-dot.scanning{background:var(--amber);box-shadow:0 0 6px rgba(255,170,0,0.5);animation:blink 0.6s step-end infinite}
+.sb-item{display:flex;align-items:center;gap:7px}
+.sb-sep{width:1px;height:16px;background:rgba(0,200,255,0.1)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
+
+/* ── MAIN LAYOUT ── */
+#main{
+  padding-top:110px;padding-bottom:80px;
+  display:flex;gap:0;height:100vh;
+}
+
+/* ── LEFT SIDEBAR ── */
+#sidebar{
+  width:220px;flex-shrink:0;
+  display:flex;flex-direction:column;gap:0;
+  border-right:1px solid rgba(0,200,255,0.1);
+  background:rgba(1,10,20,0.92);
+  overflow-y:auto;
+  scrollbar-width:none;
+}
+#sidebar::-webkit-scrollbar{display:none}
+.sbar-header{padding:14px 16px 10px;border-bottom:1px solid rgba(0,200,255,0.08);font-family:var(--hud);font-size:0.46rem;letter-spacing:0.3em;color:var(--blue)}
+.sbar-section{padding:10px 0 4px}
+.sbar-section-label{padding:6px 16px;font-family:var(--hud);font-size:0.36rem;letter-spacing:0.28em;color:var(--text-dim);text-transform:uppercase}
+.room-btn{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 16px;cursor:pointer;
+  border-left:2px solid transparent;
+  border-bottom:1px solid rgba(0,200,255,0.04);
+  transition:all 0.15s;font-size:0.68rem;letter-spacing:0.08em;color:var(--text-dim);
+}
+.room-btn:hover{background:rgba(0,200,255,0.06);border-left-color:rgba(0,200,255,0.3);color:var(--text)}
+.room-btn.active{background:rgba(0,200,255,0.1);border-left-color:var(--blue);color:var(--blue)}
+.room-icon{font-size:0.85rem;flex-shrink:0}
+.room-count{margin-left:auto;font-size:0.5rem;color:rgba(0,200,255,0.35)}
+
+/* ── SCAN BUTTON ── */
+.scan-btn{
+  margin:12px 14px;
+  background:rgba(0,200,255,0.06);
+  border:1px solid rgba(0,200,255,0.3);
+  color:var(--blue);font-family:var(--hud);font-size:0.48rem;
+  letter-spacing:0.22em;padding:10px;
+  cursor:pointer;border-radius:2px;width:calc(100%-28px);
+  transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.scan-btn:hover{background:rgba(0,200,255,0.14);box-shadow:0 0 20px rgba(0,200,255,0.2)}
+.scan-btn.scanning{border-color:var(--amber);color:var(--amber);animation:scanPulse 1s ease-in-out infinite}
+@keyframes scanPulse{0%,100%{opacity:1}50%{opacity:0.5}}
+
+/* ── CENTER CONTENT ── */
+#content{
+  flex:1;min-width:0;
+  padding:24px 20px;
+  overflow-y:auto;
+  scrollbar-width:thin;
+  scrollbar-color:rgba(0,200,255,0.1) transparent;
+}
+#content::-webkit-scrollbar{width:2px}
+#content::-webkit-scrollbar-thumb{background:rgba(0,200,255,0.15)}
+
+/* ── DEVICE GRID ── */
+.section-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:16px;padding-bottom:10px;
+  border-bottom:1px solid rgba(0,200,255,0.1);
+}
+.section-title{font-family:var(--hud);font-size:0.62rem;letter-spacing:0.3em;color:var(--blue)}
+.section-count{font-size:0.5rem;color:var(--text-dim);letter-spacing:0.1em}
+
+.device-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(170px,1fr));
+  gap:12px;
+  margin-bottom:28px;
+}
+
+/* ── DEVICE CARD ── */
+.device-card{
+  background:rgba(0,200,255,0.04);
+  border:1px solid rgba(0,200,255,0.12);
+  border-radius:3px;
+  padding:14px;
+  cursor:pointer;
+  transition:all 0.2s;
+  position:relative;
+  overflow:hidden;
+}
+.device-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(0,200,255,0.3),transparent);
+  opacity:0;transition:opacity 0.2s;
+}
+.device-card:hover{border-color:rgba(0,200,255,0.3);background:rgba(0,200,255,0.07)}
+.device-card:hover::before{opacity:1}
+.device-card.on{
+  border-color:rgba(0,200,255,0.35);
+  background:rgba(0,200,255,0.09);
+  box-shadow:0 0 20px rgba(0,200,255,0.08);
+}
+.device-card.on::before{opacity:1}
+.device-card.unreachable{opacity:0.4;cursor:not-allowed}
+.device-card.needs-pairing{border-color:rgba(255,170,0,0.3);background:rgba(255,170,0,0.04)}
+
+.card-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px}
+.card-icon{font-size:1.5rem;line-height:1}
+.card-toggle{
+  width:34px;height:18px;border-radius:9px;
+  background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.2);
+  cursor:pointer;position:relative;transition:all 0.2s;flex-shrink:0;
+}
+.card-toggle::after{
+  content:'';position:absolute;
+  width:12px;height:12px;border-radius:50%;
+  background:var(--text-dim);top:2px;left:2px;
+  transition:all 0.2s;
+}
+.device-card.on .card-toggle{background:rgba(0,200,255,0.2);border-color:var(--blue)}
+.device-card.on .card-toggle::after{left:18px;background:var(--blue);box-shadow:0 0 6px rgba(0,200,255,0.6)}
+
+.card-name{
+  font-size:0.75rem;letter-spacing:0.06em;color:var(--text-bright);
+  margin-bottom:3px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.card-brand{font-family:var(--hud);font-size:0.35rem;letter-spacing:0.22em;color:var(--text-dim);margin-bottom:8px}
+.card-status{
+  display:flex;align-items:center;gap:5px;
+  font-size:0.52rem;letter-spacing:0.1em;
+}
+.card-dot{width:5px;height:5px;border-radius:50%;background:var(--text-dim);flex-shrink:0}
+.device-card.on .card-dot{background:var(--green);box-shadow:0 0 5px rgba(0,255,136,0.6)}
+.card-status-text{color:var(--text-dim)}
+.device-card.on .card-status-text{color:var(--green)}
+
+/* ── BRIGHTNESS SLIDER ── */
+.card-brightness{margin-top:8px;display:none}
+.device-card.on.has-brightness .card-brightness{display:block}
+.bri-label{font-size:0.46rem;color:var(--text-dim);letter-spacing:0.1em;margin-bottom:4px;display:flex;justify-content:space-between}
+.bri-slider{
+  width:100%;height:3px;border-radius:2px;
+  background:rgba(0,200,255,0.1);
+  appearance:none;-webkit-appearance:none;cursor:pointer;outline:none;
+}
+.bri-slider::-webkit-slider-thumb{
+  appearance:none;-webkit-appearance:none;
+  width:10px;height:10px;border-radius:50%;
+  background:var(--blue);cursor:pointer;
+  box-shadow:0 0 6px rgba(0,200,255,0.5);
+}
+
+/* ── COLOR DOTS ── */
+.card-colors{display:none;gap:5px;margin-top:8px;flex-wrap:wrap}
+.device-card.on.has-color .card-colors{display:flex}
+.color-dot{
+  width:14px;height:14px;border-radius:50%;cursor:pointer;
+  border:1px solid rgba(255,255,255,0.1);
+  transition:transform 0.15s,box-shadow 0.15s;flex-shrink:0;
+}
+.color-dot:hover{transform:scale(1.3);box-shadow:0 0 8px currentColor}
+
+/* ── EMPTY STATE ── */
+#empty-state{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:60vh;gap:20px;
+  text-align:center;
+}
+.empty-orb{
+  width:80px;height:80px;border-radius:50%;
+  border:1px solid rgba(0,200,255,0.15);
+  display:flex;align-items:center;justify-content:center;
+  font-size:2rem;
+  animation:breathe 4s ease-in-out infinite;
+}
+@keyframes breathe{0%,100%{box-shadow:0 0 20px rgba(0,200,255,0.05)}50%{box-shadow:0 0 40px rgba(0,200,255,0.15)}}
+.empty-title{font-family:var(--hud);font-size:0.6rem;letter-spacing:0.35em;color:rgba(0,200,255,0.4)}
+.empty-hint{font-size:0.68rem;color:var(--text-dim);line-height:2.2;letter-spacing:0.06em}
+
+/* ── SCAN PROGRESS ── */
+#scan-progress{
+  background:rgba(255,170,0,0.06);
+  border:1px solid rgba(255,170,0,0.25);
+  border-radius:3px;padding:14px 18px;
+  margin-bottom:20px;
+  display:none;
+}
+#scan-progress.visible{display:block}
+.sp-title{font-family:var(--hud);font-size:0.48rem;letter-spacing:0.28em;color:var(--amber);margin-bottom:8px}
+.sp-bar-wrap{width:100%;height:2px;background:rgba(255,170,0,0.1);border-radius:2px;overflow:hidden;margin-bottom:8px}
+.sp-bar{height:100%;background:var(--amber);border-radius:2px;width:0%;transition:width 0.3s;box-shadow:0 0 6px rgba(255,170,0,0.5)}
+.sp-log{font-size:0.56rem;color:rgba(255,170,0,0.6);letter-spacing:0.08em;min-height:16px}
+
+/* ── HUE PAIRING ── */
+#hue-pair-banner{
+  background:rgba(170,68,255,0.06);
+  border:1px solid rgba(170,68,255,0.3);
+  border-radius:3px;padding:12px 16px;
+  margin-bottom:20px;display:none;
+  align-items:center;justify-content:space-between;gap:14px;
+}
+#hue-pair-banner.visible{display:flex}
+.hue-pair-text{font-size:0.62rem;color:rgba(170,68,255,0.8);letter-spacing:0.06em;line-height:1.6}
+.hue-pair-btn{
+  background:rgba(170,68,255,0.12);border:1px solid rgba(170,68,255,0.4);
+  color:var(--purple);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.2em;
+  padding:8px 14px;cursor:pointer;border-radius:2px;white-space:nowrap;
+  transition:all 0.2s;flex-shrink:0;
+}
+.hue-pair-btn:hover{background:rgba(170,68,255,0.22);box-shadow:0 0 14px rgba(170,68,255,0.3)}
+
+/* ── RIGHT PANEL ── */
+#right-panel{
+  width:200px;flex-shrink:0;
+  display:flex;flex-direction:column;gap:0;
+  border-left:1px solid rgba(0,200,255,0.1);
+  background:rgba(1,10,20,0.92);
+  overflow-y:auto;scrollbar-width:none;
+}
+#right-panel::-webkit-scrollbar{display:none}
+.rp-section{padding:12px 14px;border-bottom:1px solid rgba(0,200,255,0.07)}
+.rp-label{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.26em;color:var(--text-dim);margin-bottom:8px}
+.rp-stat{display:flex;justify-content:space-between;align-items:center;padding:4px 0}
+.rp-stat-key{font-size:0.56rem;color:var(--text-dim);letter-spacing:0.08em}
+.rp-stat-val{font-size:0.62rem;color:var(--blue);font-family:var(--hud)}
+.rp-stat-val.green{color:var(--green)}
+.rp-stat-val.amber{color:var(--amber)}
+
+/* ── VOICE CMD ── */
+#voice-input{padding:12px 14px;border-bottom:1px solid rgba(0,200,255,0.07)}
+#voice-input-field{
+  width:100%;background:rgba(0,200,255,0.04);
+  border:1px solid rgba(0,200,255,0.18);
+  color:var(--text);font-family:'Share Tech Mono',monospace;
+  font-size:0.62rem;padding:7px 10px;border-radius:2px;outline:none;
+  letter-spacing:0.05em;transition:border-color 0.2s;
+}
+#voice-input-field:focus{border-color:rgba(0,200,255,0.45)}
+#voice-input-field::placeholder{color:var(--text-dim)}
+#voice-send-btn{
+  width:100%;margin-top:6px;
+  background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.25);
+  color:var(--blue);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.22em;
+  padding:8px;cursor:pointer;border-radius:2px;transition:all 0.2s;
+}
+#voice-send-btn:hover{background:rgba(0,200,255,0.14)}
+
+/* ── DEVICE DETAIL PANEL ── */
+#device-detail{
+  position:fixed;right:200px;bottom:0;
+  width:280px;
+  background:rgba(1,6,18,0.98);
+  border:1px solid rgba(0,200,255,0.3);
+  border-bottom:none;border-radius:4px 4px 0 0;
+  padding:16px;
+  transform:translateY(100%);
+  transition:transform 0.3s cubic-bezier(0.16,1,0.3,1);
+  z-index:60;
+  box-shadow:0 -8px 40px rgba(0,200,255,0.12);
+}
+#device-detail.visible{transform:translateY(0)}
+.dd-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.dd-name{font-family:var(--hud);font-size:0.65rem;letter-spacing:0.22em;color:var(--blue)}
+.dd-close{background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:0.9rem;padding:2px 6px}
+.dd-close:hover{color:var(--blue)}
+.dd-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(0,200,255,0.05)}
+.dd-key{font-size:0.5rem;letter-spacing:0.16em;color:var(--text-dim)}
+.dd-val{font-size:0.58rem;color:var(--text);letter-spacing:0.08em}
+.dd-actions{display:flex;gap:6px;margin-top:12px}
+.dd-btn{
+  flex:1;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);
+  color:var(--blue);font-family:var(--hud);font-size:0.38rem;letter-spacing:0.18em;
+  padding:8px 4px;cursor:pointer;border-radius:2px;text-align:center;
+  transition:all 0.2s;
+}
+.dd-btn:hover{background:rgba(0,200,255,0.14)}
+.dd-btn.red{border-color:rgba(255,51,51,0.3);color:var(--red)}
+.dd-btn.red:hover{background:rgba(255,51,51,0.1)}
+.room-assign-input{
+  width:100%;margin-top:8px;background:rgba(0,200,255,0.04);
+  border:1px solid rgba(0,200,255,0.18);color:var(--text);
+  font-family:'Share Tech Mono',monospace;font-size:0.62rem;
+  padding:6px 10px;border-radius:2px;outline:none;
+}
+.room-assign-input::placeholder{color:var(--text-dim)}
+
+/* ── TOAST ── */
+#toast{
+  position:fixed;top:80px;left:50%;transform:translateX(-50%);
+  background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.35);
+  color:var(--blue);font-family:var(--hud);font-size:0.44rem;letter-spacing:0.22em;
+  padding:8px 20px;border-radius:2px;z-index:200;
+  opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap;
+}
+#toast.show{opacity:1}
+
+/* ── TICKER ── */
+#ticker{position:fixed;bottom:0;left:0;right:0;height:20px;background:rgba(1,8,20,0.98);border-top:1px solid rgba(0,200,255,0.07);overflow:hidden;display:flex;align-items:center;z-index:50;pointer-events:none}
+#ticker::before{content:'▶';font-size:0.42rem;color:var(--blue);padding:0 10px;flex-shrink:0;opacity:0.5}
+.ticker-track{display:flex;white-space:nowrap;animation:tickerScroll 50s linear infinite;font-size:0.48rem;color:rgba(0,200,255,0.3);letter-spacing:0.12em}
+.ticker-item{padding:0 30px}.ticker-item.blue{color:rgba(0,200,255,0.6)}
+@keyframes tickerScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+</style>
+</head>
+<body>
+<div class="scanline"></div>
+<div class="corner tl"><div class="pip"></div></div>
+<div class="corner tr"><div class="pip"></div></div>
+<div class="corner bl"><div class="pip"></div></div>
+<div class="corner br"><div class="pip"></div></div>
+<div id="toast"></div>
+
+<!-- TOP BAR -->
+<div id="top-bar">
+  <div class="top-left">
+    <div>
+      <div class="top-title">J.A.R.V.I.S</div>
+      <div class="top-sub">HOME AUTOMATION</div>
+    </div>
+  </div>
+  <div class="top-right">
+    <span id="last-scan-label" style="font-size:0.46rem;letter-spacing:0.12em;color:var(--text-dim)">Never scanned</span>
+    <a href="/" class="back-btn">← BACK</a>
+  </div>
+</div>
+
+<!-- STATUS BAR -->
+<div id="status-bar">
+  <div class="sb-item"><div class="sb-dot" id="net-dot"></div><span id="net-status">LOCAL NETWORK</span></div>
+  <div class="sb-sep"></div>
+  <div class="sb-item"><span id="device-count-label">0 DEVICES</span></div>
+  <div class="sb-sep"></div>
+  <div class="sb-item"><span id="online-count-label">0 ONLINE</span></div>
+  <div class="sb-sep"></div>
+  <div class="sb-item" id="subnet-label"><span style="color:rgba(0,200,255,0.3)">SUBNET: —</span></div>
+</div>
+
+<!-- MAIN -->
+<div id="main">
+
+  <!-- LEFT SIDEBAR -->
+  <div id="sidebar">
+    <div class="sbar-header">⬡ ROOMS</div>
+
+    <div class="sbar-section">
+      <div class="sbar-section-label">Filter by room</div>
+      <div class="room-btn active" data-room="all" onclick="filterByRoom('all')">
+        <span class="room-icon">⬡</span>All Devices
+        <span class="room-count" id="count-all">0</span>
+      </div>
+      <div class="room-btn" data-room="living room" onclick="filterByRoom('living room')">
+        <span class="room-icon">🛋</span>Living Room
+        <span class="room-count" id="count-living">0</span>
+      </div>
+      <div class="room-btn" data-room="bedroom" onclick="filterByRoom('bedroom')">
+        <span class="room-icon">🛏</span>Bedroom
+        <span class="room-count" id="count-bedroom">0</span>
+      </div>
+      <div class="room-btn" data-room="kitchen" onclick="filterByRoom('kitchen')">
+        <span class="room-icon">🍳</span>Kitchen
+        <span class="room-count" id="count-kitchen">0</span>
+      </div>
+      <div class="room-btn" data-room="office" onclick="filterByRoom('office')">
+        <span class="room-icon">💻</span>Office
+        <span class="room-count" id="count-office">0</span>
+      </div>
+      <div class="room-btn" data-room="bathroom" onclick="filterByRoom('bathroom')">
+        <span class="room-icon">🚿</span>Bathroom
+        <span class="room-count" id="count-bathroom">0</span>
+      </div>
+      <div class="room-btn" data-room="unassigned" onclick="filterByRoom('unassigned')">
+        <span class="room-icon">?</span>Unassigned
+        <span class="room-count" id="count-unassigned">0</span>
+      </div>
+    </div>
+
+    <div class="sbar-section" style="margin-top:auto;padding:12px 0 0">
+      <div class="sbar-section-label">Network scan</div>
+      <button class="scan-btn" id="scan-btn" onclick="startScan(false)">
+        <span>⟳</span> SCAN NETWORK
+      </button>
+      <button class="scan-btn" onclick="startScan(true)" style="border-color:rgba(170,68,255,0.35);color:var(--purple);font-size:0.4rem;padding:7px;margin:0 14px 12px;width:calc(100%-28px)">
+        DEEP SCAN (slow)
+      </button>
+    </div>
+  </div>
+
+  <!-- CENTER -->
+  <div id="content">
+
+    <!-- Scan progress -->
+    <div id="scan-progress">
+      <div class="sp-title">⟳ SCANNING NETWORK</div>
+      <div class="sp-bar-wrap"><div class="sp-bar" id="sp-bar"></div></div>
+      <div class="sp-log" id="sp-log">Initialising…</div>
+    </div>
+
+    <!-- Hue pairing banner -->
+    <div id="hue-pair-banner">
+      <div class="hue-pair-text">
+        ⬡ Philips Hue bridge found.<br>
+        Press the <strong style="color:var(--purple)">link button</strong> on your bridge, then click pair.
+      </div>
+      <button class="hue-pair-btn" onclick="pairHue()">PAIR HUE</button>
+    </div>
+
+    <!-- Empty state -->
+    <div id="empty-state">
+      <div class="empty-orb">⌂</div>
+      <div class="empty-title">NO DEVICES FOUND</div>
+      <div class="empty-hint">
+        Click <strong style="color:var(--blue)">SCAN NETWORK</strong> to discover smart devices<br>
+        on your local Wi-Fi network.<br><br>
+        Supported: Philips Hue · TP-Link Kasa · WLED<br>
+        Shelly · ESPHome · Generic UPnP/SSDP<br><br>
+        Or say <strong style="color:var(--blue)">"Jarvis, scan home"</strong>
+      </div>
+    </div>
+
+    <!-- Device sections (filled dynamically) -->
+    <div id="device-sections"></div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div id="right-panel">
+    <div class="rp-section">
+      <div class="rp-label">QUICK ACTIONS</div>
+      <button onclick="allOn()"  class="scan-btn" style="margin:0 0 6px;font-size:0.42rem;padding:9px 6px">💡 ALL LIGHTS ON</button>
+      <button onclick="allOff()" class="scan-btn" style="margin:0 0 6px;font-size:0.42rem;padding:9px 6px;border-color:rgba(255,51,51,0.3);color:var(--red)">🌑 ALL LIGHTS OFF</button>
+      <button onclick="allDim()" class="scan-btn" style="margin:0;font-size:0.42rem;padding:9px 6px;border-color:rgba(255,170,0,0.3);color:var(--amber)">🌙 DIM ALL (20%)</button>
+    </div>
+
+    <div class="rp-section" id="voice-input">
+      <div class="rp-label">VOICE COMMAND</div>
+      <input type="text" id="voice-input-field" placeholder="e.g. turn on lights" onkeydown="if(event.key==='Enter')sendVoiceCmd()"/>
+      <button id="voice-send-btn" onclick="sendVoiceCmd()">⏎ SEND</button>
+    </div>
+
+    <div class="rp-section">
+      <div class="rp-label">NETWORK INFO</div>
+      <div class="rp-stat"><span class="rp-stat-key">Subnet</span><span class="rp-stat-val" id="rp-subnet">—</span></div>
+      <div class="rp-stat"><span class="rp-stat-key">Devices</span><span class="rp-stat-val" id="rp-total">0</span></div>
+      <div class="rp-stat"><span class="rp-stat-key">Online</span><span class="rp-stat-val green" id="rp-online">0</span></div>
+      <div class="rp-stat"><span class="rp-stat-key">Lights</span><span class="rp-stat-val" id="rp-lights">0</span></div>
+      <div class="rp-stat"><span class="rp-stat-key">Plugs</span><span class="rp-stat-val" id="rp-plugs">0</span></div>
+    </div>
+
+    <div class="rp-section">
+      <div class="rp-label">BRANDS FOUND</div>
+      <div id="rp-brands" style="display:flex;flex-direction:column;gap:4px;margin-top:2px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- DEVICE DETAIL PANEL -->
+<div id="device-detail">
+  <div class="dd-header">
+    <div class="dd-name" id="dd-name">Device</div>
+    <button class="dd-close" onclick="closeDetail()">✕</button>
+  </div>
+  <div id="dd-rows"></div>
+  <input class="room-assign-input" id="dd-room-input" placeholder="Assign room…" onkeydown="if(event.key==='Enter')assignRoom()"/>
+  <div class="dd-actions" id="dd-actions"></div>
+</div>
+
+<!-- TICKER -->
+<div id="ticker">
+  <div class="ticker-track">
+    <span class="ticker-item blue">HOME AUTOMATION ACTIVE</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item">LOCAL NETWORK ONLY — NO CLOUD</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item blue">PHILIPS HUE · TP-LINK KASA · WLED · SHELLY</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item">SAY "JARVIS TURN ON THE LIGHTS" TO CONTROL</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item blue">HOME AUTOMATION ACTIVE</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item">LOCAL NETWORK ONLY — NO CLOUD</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item blue">PHILIPS HUE · TP-LINK KASA · WLED · SHELLY</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item">SAY "JARVIS TURN ON THE LIGHTS" TO CONTROL</span><span class="ticker-item" style="opacity:.25">·</span>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// JARVIS HOME CLIENT
+// ═══════════════════════════════════════════════════════════════
+
+let allDevices = [];
+let currentRoom = 'all';
+let selectedDevice = null;
+let scanInterval = null;
+let refreshInterval = null;
+
+const COLORS = [
+  { name:'White',  hex:'#ffffff', rgb:{r:255,g:255,b:255} },
+  { name:'Warm',   hex:'#ffddaa', rgb:{r:255,g:200,b:100} },
+  { name:'Blue',   hex:'#0096ff', rgb:{r:0,g:100,b:255}   },
+  { name:'Green',  hex:'#00ff88', rgb:{r:0,g:200,b:100}   },
+  { name:'Red',    hex:'#ff3333', rgb:{r:255,g:0,b:0}      },
+  { name:'Purple', hex:'#bb44ff', rgb:{r:180,g:0,b:255}   },
+  { name:'Amber',  hex:'#ffaa00', rgb:{r:255,g:140,b:0}   },
+];
+
+const ICONS = { light:'💡', plug:'🔌', switch:'🔲', sensor:'📡', hub:'⬡', unknown:'⚙' };
+const BRANDS = { hue:'Philips Hue', kasa:'TP-Link Kasa', tapo:'TP-Link Tapo', wled:'WLED', shelly:'Shelly', esphome:'ESPHome', govee:'Govee', generic:'Generic' };
+
+// ── BOOT ───────────────────────────────────────────────────────
+window.onload = () => {
+  loadSubnet();
+  fetchDevices();
+  refreshInterval = setInterval(fetchDevices, 8000);
+};
+
+async function loadSubnet() {
+  try {
+    const res = await fetch('/api/home/info');
+    const data = await res.json();
+    const sub = data.subnets?.[0] || '—';
+    document.getElementById('subnet-label').innerHTML = `<span style="color:rgba(0,200,255,0.3)">SUBNET: ${sub}0/24</span>`;
+    document.getElementById('rp-subnet').textContent = sub + '0/24';
+  } catch {}
+}
+
+async function fetchDevices() {
+  try {
+    const res  = await fetch('/api/home/devices');
+    const data = await res.json();
+    allDevices = data.devices || [];
+    renderDevices();
+    updateStats();
+  } catch {}
+}
+
+// ── SCAN ────────────────────────────────────────────────────────
+async function startScan(deep = false) {
+  const btn = document.getElementById('scan-btn');
+  const prog = document.getElementById('scan-progress');
+  const log  = document.getElementById('sp-log');
+  const bar  = document.getElementById('sp-bar');
+
+  btn.classList.add('scanning');
+  btn.textContent = '⟳ SCANNING…';
+  prog.classList.add('visible');
+  document.getElementById('empty-state').style.display = 'none';
+
+  let pct = 0;
+  const ticker = setInterval(() => {
+    pct = Math.min(pct + Math.random() * 8, 85);
+    bar.style.width = pct + '%';
+  }, 300);
+
+  // Poll scan progress
+  let done = false;
+  const pollLog = setInterval(async () => {
+    if (done) return;
+    try {
+      const r = await fetch('/api/home/scan-status');
+      const d = await r.json();
+      if (d.log) log.textContent = d.log;
+    } catch {}
+  }, 600);
+
+  try {
+    const res  = await fetch('/api/home/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deep }),
+    });
+    const data = await res.json();
+    done = true;
+    clearInterval(ticker);
+    clearInterval(pollLog);
+    bar.style.width = '100%';
+    allDevices = data.devices || [];
+    renderDevices();
+    updateStats();
+    setTimeout(() => { prog.classList.remove('visible'); bar.style.width = '0%'; }, 1500);
+
+    // Check for Hue pairing
+    const needsPairing = allDevices.find(d => d._needsPairing);
+    document.getElementById('hue-pair-banner').classList.toggle('visible', !!needsPairing);
+
+    toast(`Scan complete — ${allDevices.length} device(s) found`);
+    updateLastScan();
+  } catch (e) {
+    done = true;
+    clearInterval(ticker);
+    clearInterval(pollLog);
+    prog.classList.remove('visible');
+    toast('Scan failed — check server');
+  }
+
+  btn.classList.remove('scanning');
+  btn.textContent = '⟳ SCAN NETWORK';
+}
+
+function updateLastScan() {
+  document.getElementById('last-scan-label').textContent =
+    'Last scan: ' + new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:true });
+}
+
+// ── RENDER ──────────────────────────────────────────────────────
+function filterByRoom(room) {
+  currentRoom = room;
+  document.querySelectorAll('.room-btn').forEach(b => b.classList.toggle('active', b.dataset.room === room));
+  renderDevices();
+}
+
+function getFilteredDevices() {
+  if (currentRoom === 'all') return allDevices;
+  if (currentRoom === 'unassigned') return allDevices.filter(d => !d.room);
+  return allDevices.filter(d => (d.room || '').toLowerCase().includes(currentRoom));
+}
+
+function renderDevices() {
+  const container = document.getElementById('device-sections');
+  const empty     = document.getElementById('empty-state');
+  const filtered  = getFilteredDevices();
+
+  if (allDevices.length === 0) {
+    empty.style.display = 'flex';
+    container.innerHTML = '';
+    return;
+  }
+  empty.style.display = 'none';
+
+  // Group by type
+  const groups = {};
+  for (const d of filtered) {
+    const key = d.type || 'unknown';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(d);
+  }
+
+  const typeLabels = { light:'LIGHTS', plug:'SMART PLUGS', switch:'SWITCHES', sensor:'SENSORS', hub:'HUBS', unknown:'OTHER' };
+  const typeOrder  = ['light','plug','switch','sensor','hub','unknown'];
+
+  let html = '';
+  for (const type of typeOrder) {
+    const list = groups[type];
+    if (!list || list.length === 0) continue;
+    html += `<div class="section-header">
+      <div class="section-title">${typeLabels[type] || type.toUpperCase()}</div>
+      <div class="section-count">${list.length} device${list.length > 1 ? 's' : ''}</div>
+    </div>
+    <div class="device-grid">`;
+    for (const d of list) html += renderCard(d);
+    html += `</div>`;
+  }
+
+  container.innerHTML = html;
+  updateRoomCounts();
+}
+
+function renderCard(d) {
+  const onClass = d.on ? ' on' : '';
+  const unreachClass = !d.reachable ? ' unreachable' : '';
+  const pairingClass = d._needsPairing ? ' needs-pairing' : '';
+  const hasBri  = d.brightness !== null && d.brightness !== undefined;
+  const hasCol  = !!d.color || ['hue','wled'].includes(d.brand);
+  const briClass = hasBri ? ' has-brightness' : '';
+  const colClass = hasCol ? ' has-color' : '';
+  const icon = ICONS[d.type] || '⚙';
+  const status = d._needsPairing ? 'NEEDS PAIRING' : d.reachable === false ? 'UNREACHABLE' : d.on ? 'ONLINE' : 'STANDBY';
+
+  const colorDots = hasCol ? COLORS.map(c =>
+    `<div class="color-dot" style="background:${c.hex}" title="${c.name}" onclick="setColor(event,'${d.id}',${JSON.stringify(c.rgb)})"></div>`
+  ).join('') : '';
+
+  return `<div class="device-card${onClass}${unreachClass}${pairingClass}${briClass}${colClass}"
+    id="card-${d.id.replace(/[^a-zA-Z0-9]/g,'-')}"
+    onclick="selectDevice('${d.id}')">
+    <div class="card-top">
+      <div class="card-icon">${icon}</div>
+      ${d.type !== 'hub' && !d._needsPairing ? `<div class="card-toggle" onclick="toggleDevice(event,'${d.id}')"></div>` : ''}
+    </div>
+    <div class="card-name">${escHtml(d.name)}</div>
+    <div class="card-brand">${BRANDS[d.brand] || d.brand || 'Unknown'}</div>
+    <div class="card-status">
+      <div class="card-dot"></div>
+      <span class="card-status-text">${status}</span>
+    </div>
+    ${hasBri ? `<div class="card-brightness">
+      <div class="bri-label"><span>BRIGHTNESS</span><span id="bri-val-${d.id.replace(/[^a-zA-Z0-9]/g,'-')}">${d.brightness || 0}%</span></div>
+      <input type="range" class="bri-slider" min="0" max="100" value="${d.brightness || 0}"
+        oninput="previewBri(event,'${d.id}')"
+        onchange="setBrightness(event,'${d.id}')"
+        onclick="event.stopPropagation()"/>
+    </div>` : ''}
+    ${hasCol ? `<div class="card-colors">${colorDots}</div>` : ''}
+  </div>`;
+}
+
+function updateRoomCounts() {
+  const roomMap = { all:0, 'living room':0, bedroom:0, kitchen:0, office:0, bathroom:0, unassigned:0 };
+  roomMap.all = allDevices.length;
+  for (const d of allDevices) {
+    const r = (d.room || '').toLowerCase();
+    if (!d.room) { roomMap.unassigned++; continue; }
+    for (const key of Object.keys(roomMap)) {
+      if (key !== 'all' && key !== 'unassigned' && r.includes(key)) roomMap[key]++;
+    }
+  }
+  document.getElementById('count-all').textContent       = roomMap.all;
+  document.getElementById('count-living').textContent    = roomMap['living room'];
+  document.getElementById('count-bedroom').textContent   = roomMap.bedroom;
+  document.getElementById('count-kitchen').textContent   = roomMap.kitchen;
+  document.getElementById('count-office').textContent    = roomMap.office;
+  document.getElementById('count-bathroom').textContent  = roomMap.bathroom;
+  document.getElementById('count-unassigned').textContent= roomMap.unassigned;
+}
+
+function updateStats() {
+  const total  = allDevices.length;
+  const online = allDevices.filter(d => d.reachable !== false).length;
+  const lights = allDevices.filter(d => d.type === 'light').length;
+  const plugs  = allDevices.filter(d => d.type === 'plug').length;
+
+  document.getElementById('device-count-label').textContent = `${total} DEVICE${total !== 1 ? 'S' : ''}`;
+  document.getElementById('online-count-label').textContent = `${online} ONLINE`;
+  document.getElementById('rp-total').textContent  = total;
+  document.getElementById('rp-online').textContent = online;
+  document.getElementById('rp-lights').textContent = lights;
+  document.getElementById('rp-plugs').textContent  = plugs;
+
+  const netDot = document.getElementById('net-dot');
+  netDot.className = 'sb-dot' + (online > 0 ? ' online' : '');
+
+  // Brands
+  const brandSet = {};
+  for (const d of allDevices) { brandSet[d.brand] = (brandSet[d.brand] || 0) + 1; }
+  const brandsEl = document.getElementById('rp-brands');
+  brandsEl.innerHTML = Object.entries(brandSet).map(([b,n]) =>
+    `<div class="rp-stat"><span class="rp-stat-key">${BRANDS[b] || b}</span><span class="rp-stat-val">${n}</span></div>`
+  ).join('') || `<div style="font-size:0.5rem;color:var(--text-dim)">None yet</div>`;
+}
+
+// ── DEVICE CONTROL ───────────────────────────────────────────────
+async function toggleDevice(event, id) {
+  event.stopPropagation();
+  const d = allDevices.find(x => x.id === id);
+  if (!d || d._needsPairing) return;
+  const newState = !d.on;
+  d.on = newState;
+  updateCardState(id, d);
+  try {
+    await fetch(`/api/home/control/${encodeURIComponent(id)}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ on: newState }),
+    });
+  } catch {}
+}
+
+async function setBrightness(event, id) {
+  event.stopPropagation();
+  const bri = parseInt(event.target.value);
+  const d   = allDevices.find(x => x.id === id);
+  if (d) d.brightness = bri;
+  try {
+    await fetch(`/api/home/control/${encodeURIComponent(id)}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ bri, on: bri > 0 }),
+    });
+  } catch {}
+}
+
+function previewBri(event, id) {
+  event.stopPropagation();
+  const val = event.target.value;
+  const el  = document.getElementById('bri-val-' + id.replace(/[^a-zA-Z0-9]/g, '-'));
+  if (el) el.textContent = val + '%';
+}
+
+async function setColor(event, id, rgb) {
+  event.stopPropagation();
+  try {
+    await fetch(`/api/home/control/${encodeURIComponent(id)}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ color: rgb, on: true }),
+    });
+    toast('Color updated');
+  } catch {}
+}
+
+function updateCardState(id, d) {
+  const card = document.getElementById('card-' + id.replace(/[^a-zA-Z0-9]/g, '-'));
+  if (!card) return;
+  if (d.on) card.classList.add('on'); else card.classList.remove('on');
+}
+
+// ── BULK CONTROL ─────────────────────────────────────────────────
+async function allOn()  { bulkControl({ on: true });  toast('All lights on'); }
+async function allOff() { bulkControl({ on: false }); toast('All lights off'); }
+async function allDim() { bulkControl({ bri: 20, on: true }); toast('All lights dimmed to 20%'); }
+
+async function bulkControl(cmd) {
+  const controllable = allDevices.filter(d => !d._needsPairing && d.reachable !== false);
+  for (const d of controllable) {
+    if (cmd.on !== undefined) d.on = cmd.on;
+    if (cmd.bri !== undefined) d.brightness = cmd.bri;
+    updateCardState(d.id, d);
+  }
+  try {
+    await fetch('/api/home/control-all', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(cmd),
+    });
+  } catch {}
+}
+
+// ── DEVICE DETAIL ────────────────────────────────────────────────
+function selectDevice(id) {
+  const d = allDevices.find(x => x.id === id);
+  if (!d) return;
+  selectedDevice = d;
+
+  document.getElementById('dd-name').textContent = d.name;
+  document.getElementById('dd-room-input').value = d.room || '';
+
+  const rows = [
+    ['Type',      d.type || '—'],
+    ['Brand',     BRANDS[d.brand] || d.brand || '—'],
+    ['IP',        d.ip || '—'],
+    ['Status',    d.reachable === false ? 'Unreachable' : 'Reachable'],
+    ['Power',     d.on === null ? '—' : d.on ? 'ON' : 'OFF'],
+    ['Brightness',d.brightness !== null && d.brightness !== undefined ? d.brightness + '%' : '—'],
+    ['Room',      d.room || 'Unassigned'],
+  ];
+
+  document.getElementById('dd-rows').innerHTML = rows.map(([k,v]) =>
+    `<div class="dd-row"><span class="dd-key">${k}</span><span class="dd-val">${escHtml(String(v))}</span></div>`
+  ).join('');
+
+  const actions = [];
+  if (!d._needsPairing) {
+    actions.push(`<div class="dd-btn" onclick="controlDevice('${id}',{on:true})">ON</div>`);
+    actions.push(`<div class="dd-btn" onclick="controlDevice('${id}',{on:false})">OFF</div>`);
+    if (d.brightness !== null && d.brightness !== undefined) {
+      actions.push(`<div class="dd-btn" onclick="controlDevice('${id}',{bri:50})">50%</div>`);
+    }
+  }
+  document.getElementById('dd-actions').innerHTML = actions.join('');
+  document.getElementById('device-detail').classList.add('visible');
+}
+
+function closeDetail() {
+  document.getElementById('device-detail').classList.remove('visible');
+  selectedDevice = null;
+}
+
+async function controlDevice(id, cmd) {
+  try {
+    const res = await fetch(`/api/home/control/${encodeURIComponent(id)}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(cmd),
+    });
+    const data = await res.json();
+    const d    = allDevices.find(x => x.id === id);
+    if (d && cmd.on !== undefined) { d.on = cmd.on; updateCardState(id, d); }
+    toast(data.ok ? 'Done' : 'Control failed');
+  } catch { toast('Request failed'); }
+}
+
+async function assignRoom() {
+  if (!selectedDevice) return;
+  const room = document.getElementById('dd-room-input').value.trim();
+  try {
+    await fetch(`/api/home/device/${encodeURIComponent(selectedDevice.id)}/room`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ room }),
+    });
+    const d = allDevices.find(x => x.id === selectedDevice.id);
+    if (d) d.room = room;
+    renderDevices();
+    toast(`Room set to "${room}"`);
+  } catch {}
+}
+
+// ── HUE PAIRING ──────────────────────────────────────────────────
+async function pairHue() {
+  toast('Attempting Hue pairing…');
+  try {
+    const res  = await fetch('/api/home/hue/pair', { method:'POST' });
+    const data = await res.json();
+    if (data.success) {
+      toast(`Hue paired! ${data.lights} light(s) added.`);
+      document.getElementById('hue-pair-banner').classList.remove('visible');
+      await fetchDevices();
+    } else {
+      toast(data.error || 'Pairing failed — press link button first');
+    }
+  } catch { toast('Pairing request failed'); }
+}
+
+// ── VOICE ────────────────────────────────────────────────────────
+async function sendVoiceCmd() {
+  const input = document.getElementById('voice-input-field');
+  const text  = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  try {
+    const res  = await fetch('/api/home/voice', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ text }),
+    });
+    const data = await res.json();
+    toast(data.reply || 'Done');
+    await fetchDevices();
+  } catch { toast('Command failed'); }
+}
+
+// ── UTILS ─────────────────────────────────────────────────────────
+function toast(msg, dur = 2800) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('show'), dur);
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── WINDOW MESSAGES (from JARVIS main app) ──────────────────────
+window.addEventListener('message', (e) => {
+  const { type } = e.data || {};
+  if (type === 'HOME_SCAN') startScan(false);
+  if (type === 'HOME_ALL_ON')  allOn();
+  if (type === 'HOME_ALL_OFF') allOff();
+});
+</script>
+</body>
+</html>
