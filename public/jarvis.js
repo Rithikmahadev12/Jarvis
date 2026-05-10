@@ -972,7 +972,13 @@ function handleChatCommand(text) {
     addMsg("jarvis", r); speak(r);
     enrollUserFace(); return;
   }
-
+if (/\b(re-?enroll|enroll again)\b/.test(cleanedLower) &&
+      /\b(iris|retina|eye)\b/.test(cleanedLower)) {
+    const r = `Enrolling your iris now, ${state.userTitle}. Look at the camera.`;
+    addMsg("jarvis", r); speak(r);
+    if (window.RetinaScan) RetinaScan.enroll((state.user || "owner").toLowerCase());
+    return;
+  }
   sendToAI(cleaned);
 }
 
