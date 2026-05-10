@@ -74,7 +74,6 @@
   <div id="auth-screen" class="screen active">
     <div class="auth-container">
 
-      <!-- Large arc reactor -->
       <div class="arc-reactor large">
         <div class="arc-ring ring1"></div>
         <div class="arc-ring ring2"></div>
@@ -83,7 +82,6 @@
         <div class="arc-core">
           <div class="arc-core-inner"></div>
         </div>
-        <!-- Orbital dots -->
         <div class="orbital-dot" style="--angle:0deg; --r:52px"></div>
         <div class="orbital-dot" style="--angle:120deg; --r:52px; animation-delay:-2s"></div>
         <div class="orbital-dot" style="--angle:240deg; --r:52px; animation-delay:-4s"></div>
@@ -92,7 +90,6 @@
       <h1 class="jarvis-title">J.A.R.V.I.S</h1>
       <p class="jarvis-sub">JUST A RATHER VERY INTELLIGENT SYSTEM</p>
 
-      <!-- Horizontal divider with label -->
       <div class="auth-divider">
         <span class="divider-line"></span>
         <span class="divider-label">IDENTITY VERIFICATION</span>
@@ -110,7 +107,6 @@
         Say <span class="highlight">"Jarvis, log in"</span> or type below
       </div>
 
-      <!-- LOGIN PANEL -->
       <div id="auth-login-panel" class="auth-panel">
         <div class="auth-field-group">
           <input type="password" id="auth-password-input" placeholder="Password → Enter" autocomplete="current-password"/>
@@ -125,7 +121,6 @@
         <div id="auth-listening" class="listening-badge hidden">● LISTENING</div>
       </div>
 
-      <!-- CREATE PANEL -->
       <div id="auth-create-panel" class="auth-panel hidden">
         <div class="auth-field-group">
           <input type="text"     id="create-name"     placeholder="Your name"         maxlength="30" autocomplete="off"/>
@@ -201,7 +196,6 @@
 
     <!-- TOP BAR -->
     <div class="top-bar">
-      <!-- Left cluster -->
       <div class="top-bar-left">
         <div class="tb-block">
           <div class="tb-label">USER</div>
@@ -219,7 +213,6 @@
         </div>
       </div>
 
-      <!-- Center — title + orb -->
       <div class="top-bar-center">
         <div class="title-lockup">
           <span class="top-title">J.A.R.V.I.S</span>
@@ -235,7 +228,6 @@
         <div class="orb-label" id="status-text">STANDBY</div>
       </div>
 
-      <!-- Right cluster -->
       <div class="top-bar-right">
         <div class="tb-block right">
           <div class="tb-label">TIME</div>
@@ -312,6 +304,15 @@
           </div>
         </div>
 
+        <div class="panel-section">
+          <div class="panel-section-label">MEMORY BANK</div>
+          <div class="memory-badge">
+            <span class="mem-dot"></span>
+            <span id="hud-mem-count-left">0 STORED</span>
+          </div>
+          <div class="mem-sub">LONG-TERM FACTS</div>
+        </div>
+
         <!-- Clip indicator -->
         <div id="clip-indicator" class="clip-indicator hidden">
           <span class="rec-dot"></span>
@@ -326,7 +327,6 @@
 
       <!-- TRANSCRIPT AREA -->
       <div class="transcript-column">
-        <!-- Decorative top edge -->
         <div class="transcript-header">
           <div class="th-edge left"></div>
           <div class="th-title">NEURAL INTERFACE — ACTIVE SESSION</div>
@@ -335,23 +335,19 @@
 
         <div class="transcript-area" id="transcript"></div>
 
-        <!-- Live hearing -->
         <div id="live-hearing" class="live-hearing empty">
           <span class="live-hearing-icon">🎙</span>
           <span class="live-hearing-text">listening…</span>
         </div>
 
-        <!-- Waveform -->
         <canvas id="waveform-canvas" width="600" height="48"></canvas>
 
-        <!-- Input bar -->
         <div class="input-bar">
           <div class="input-bar-prefix">▶</div>
           <input type="text" id="type-input" placeholder="Speak or type anything…" autocomplete="off" spellcheck="false"/>
           <button id="type-send" class="send-btn">⏎</button>
         </div>
 
-        <!-- Hint strip -->
         <div class="hint-strip">
           <span>"Jarvis, anything"</span>
           <span class="dot">·</span>
@@ -415,7 +411,6 @@
           </div>
         </div>
 
-        <!-- Mic debug -->
         <div id="mic-debug" class="mic-debug">Mic: waiting…</div>
       </div>
     </div>
@@ -427,8 +422,6 @@
 
     <!-- CLIP TOAST -->
     <div id="clip-toast" class="clip-toast hidden">✂ Clip saved — last 60 seconds</div>
-
-    <!-- TIMER BADGE slot -->
 
     <!-- HOLOGRAM PANEL -->
     <div id="hologram-panel" class="hologram-panel" style="display:none">
@@ -442,11 +435,10 @@
 
   </div><!-- /main-screen -->
 
-  <!-- SCRIPTS -->
+  <!-- SCRIPTS — hud-panels.js REMOVED (conflicts with hardcoded panels above) -->
   <script src="camera-observer.js"></script>
   <script src="visuals.js"></script>
   <script src="jarvis.js"></script>
-  <script src="hud-panels.js"></script>
   <script src="pip-widgets.js"></script>
 </body>
 </html>
