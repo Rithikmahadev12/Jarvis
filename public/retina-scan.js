@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Retina Scan Authentication Module v1.0
+// J.A.R.V.I.S — Retina Scan Authentication Module v1.1
 // Save this as: public/retina-scan.js
 // Add <script src="retina-scan.js"></script> to index.html
 // AFTER face-api is loaded (or it loads it automatically)
@@ -45,14 +45,41 @@ window.RetinaScan = (function () {
     overlay.className = 'retina-overlay hidden';
     overlay.innerHTML = `
       <video id="retina-video" autoplay muted playsinline></video>
+
       <div class="retina-box">
+        <div style="font-family:var(--hud,Orbitron,monospace);font-size:0.52rem;letter-spacing:0.4em;color:rgba(0,200,255,0.5);text-align:center" id="retina-mode-label">RETINAL SCAN</div>
 
-        <div style="font-family:var(--hud);font-size:0.52rem;letter-spacing:0.4em;color:rgba(0,200,255,0.5);text-align:center" id="retina-mode-label">RETINAL SCAN</div>
+        <!-- LIVE EYE FEED WITH OVERLAY -->
+        <div class="eye-scanner-wrap" style="position:relative;width:280px;height:280px;display:flex;align-items:center;justify-content:center;">
 
-        <div class="eye-scanner-wrap">
-          <div class="eye-crosshair eye-crosshair-h" style="position:absolute"></div>
-          <div class="eye-crosshair eye-crosshair-v" style="position:absolute"></div>
-          <canvas id="retina-canvas" class="eye-scanner-canvas" width="200" height="200"></canvas>
+          <!-- Live camera feed cropped to eye region -->
+          <video id="retina-live-video"
+            autoplay muted playsinline
+            style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%;transform:scaleX(-1);filter:brightness(1.1) contrast(1.15) saturate(0.6) hue-rotate(160deg);opacity:0.85;"></video>
+
+          <!-- HUD overlay canvas drawn on top -->
+          <canvas id="retina-canvas" width="280" height="280"
+            style="position:absolute;inset:0;width:100%;height:100%;border-radius:50%;z-index:2;pointer-events:none;"></canvas>
+
+          <!-- Corner targeting brackets -->
+          <div style="position:absolute;top:10px;left:10px;width:30px;height:30px;border-top:2px solid #00c8ff;border-left:2px solid #00c8ff;z-index:3;"></div>
+          <div style="position:absolute;top:10px;right:10px;width:30px;height:30px;border-top:2px solid #00c8ff;border-right:2px solid #00c8ff;z-index:3;"></div>
+          <div style="position:absolute;bottom:10px;left:10px;width:30px;height:30px;border-bottom:2px solid #00c8ff;border-left:2px solid #00c8ff;z-index:3;"></div>
+          <div style="position:absolute;bottom:10px;right:10px;width:30px;height:30px;border-bottom:2px solid #00c8ff;border-right:2px solid #00c8ff;z-index:3;"></div>
+
+          <!-- Outer ring -->
+          <div style="position:absolute;inset:-8px;border-radius:50%;border:1px solid rgba(0,200,255,0.3);z-index:3;animation:retinaRingPulse 2s ease-in-out infinite;pointer-events:none;"></div>
+          <div style="position:absolute;inset:-18px;border-radius:50%;border:1px solid rgba(0,200,255,0.15);z-index:3;animation:retinaRingPulse 2s ease-in-out infinite 0.5s;pointer-events:none;"></div>
+
+          <!-- Data readout overlays on sides -->
+          <div style="position:absolute;left:-110px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:6px;z-index:3;">
+            <div style="font-family:monospace;font-size:0.44rem;letter-spacing:0.15em;color:rgba(0,200,255,0.5);">IRIS POINTS<br><span style="color:#00c8ff;font-size:0.6rem;" id="rd-points">—</span></div>
+            <div style="font-family:monospace;font-size:0.44rem;letter-spacing:0.15em;color:rgba(0,200,255,0.5);">EYE DETECT<br><span style="color:#00c8ff;font-size:0.6rem;" id="rd-eye">SCANNING</span></div>
+          </div>
+          <div style="position:absolute;right:-110px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:6px;z-index:3;text-align:right;">
+            <div style="font-family:monospace;font-size:0.44rem;letter-spacing:0.15em;color:rgba(0,200,255,0.5);">MATCH DIST<br><span style="color:#00c8ff;font-size:0.6rem;" id="rd-dist">—</span></div>
+            <div style="font-family:monospace;font-size:0.44rem;letter-spacing:0.15em;color:rgba(0,200,255,0.5);">CONFIDENCE<br><span style="color:#00c8ff;font-size:0.6rem;" id="rd-conf">—</span></div>
+          </div>
         </div>
 
         <div class="retina-status idle" id="retina-status">INITIALISING IRIS SCANNER</div>
@@ -61,29 +88,23 @@ window.RetinaScan = (function () {
           <div class="retina-progress-bar" id="retina-progress-bar"></div>
         </div>
 
-        <div class="retina-data">
-          <div class="retina-data-item">
-            <span class="retina-data-key">IRIS POINTS</span>
-            <span class="retina-data-val" id="rd-points">—</span>
-          </div>
-          <div class="retina-data-item">
-            <span class="retina-data-key">MATCH DIST</span>
-            <span class="retina-data-val" id="rd-dist">—</span>
-          </div>
-          <div class="retina-data-item">
-            <span class="retina-data-key">EYE DETECT</span>
-            <span class="retina-data-val" id="rd-eye">SCANNING</span>
-          </div>
-          <div class="retina-data-item">
-            <span class="retina-data-key">CONFIDENCE</span>
-            <span class="retina-data-val" id="rd-conf">—</span>
-          </div>
-        </div>
-
         <div class="retina-btns">
           <button class="hud-btn secondary" id="retina-cancel-btn" onclick="RetinaScan.cancel()">CANCEL</button>
         </div>
       </div>`;
+
+    // Inject keyframe animation
+    if (!document.getElementById('retina-keyframes')) {
+      const style = document.createElement('style');
+      style.id = 'retina-keyframes';
+      style.textContent = `
+        @keyframes retinaRingPulse {
+          0%,100% { opacity:0.4; transform:scale(1); }
+          50%      { opacity:1;   transform:scale(1.04); }
+        }
+      `;
+      document.head.appendChild(style);
+    }
 
     document.body.appendChild(overlay);
     rs.overlay  = overlay;
@@ -206,7 +227,7 @@ window.RetinaScan = (function () {
     return !!loadDescriptor(userName);
   }
 
-  // ── CANVAS DRAW — IRIS ANIMATION ───────────────────────────
+  // ── CANVAS DRAW — HUD OVERLAY ON TOP OF LIVE FEED ──────────
   function drawScanCanvas(detectedEye, progress, dist) {
     const ctx = rs.ctx;
     const W   = rs.canvas.width;
@@ -215,24 +236,17 @@ window.RetinaScan = (function () {
     const cy  = H / 2;
     const f   = rs.scanFrame;
 
+    // Transparent — let live video show through
     ctx.clearRect(0, 0, W, H);
-
-    // Dark background
-    ctx.fillStyle = '#020c14';
-    ctx.fillRect(0, 0, W, H);
-    ctx.beginPath();
-    ctx.arc(cx, cy, W/2, 0, Math.PI * 2);
-    ctx.fillStyle = '#020c14';
-    ctx.fill();
 
     const statusColor = rs.status === 'success' ? '#00ff88'
                       : rs.status === 'error'   ? '#ff3333'
                       : '#00c8ff';
 
-    // Iris rings
-    const irisR  = 70;
-    const pupilR = 24;
-    const colours = ['rgba(0,200,255,0.15)', 'rgba(0,150,200,0.2)', 'rgba(0,100,180,0.12)'];
+    // Iris rings (HUD overlay)
+    const irisR  = 100;
+    const pupilR = 34;
+    const colours = ['rgba(0,200,255,0.18)', 'rgba(0,150,200,0.22)', 'rgba(0,100,180,0.14)'];
     [irisR, irisR*0.75, irisR*0.5].forEach((r, i) => {
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -245,7 +259,7 @@ window.RetinaScan = (function () {
     const numSpokes = 24;
     for (let i = 0; i < numSpokes; i++) {
       const angle   = (i / numSpokes) * Math.PI * 2 + f * 0.008;
-      const alpha   = detectedEye ? 0.4 + 0.2 * Math.sin(f * 0.05 + i) : 0.15;
+      const alpha   = detectedEye ? 0.3 + 0.15 * Math.sin(f * 0.05 + i) : 0.1;
       ctx.beginPath();
       ctx.moveTo(cx + Math.cos(angle) * pupilR, cy + Math.sin(angle) * pupilR);
       ctx.lineTo(cx + Math.cos(angle) * irisR,  cy + Math.sin(angle) * irisR);
@@ -268,9 +282,9 @@ window.RetinaScan = (function () {
           ctx.arc(cx, cy, r2, a1, a2);
           ctx.arc(cx, cy, r1, a2, a1, true);
           ctx.closePath();
-          ctx.fillStyle = `rgba(0,200,255,${0.04 + 0.06 * Math.random()})`;
+          ctx.fillStyle = `rgba(0,200,255,${0.06 + 0.04 * Math.random()})`;
           ctx.fill();
-          ctx.strokeStyle = `rgba(0,200,255,0.2)`;
+          ctx.strokeStyle = `rgba(0,200,255,0.25)`;
           ctx.lineWidth   = 0.4;
           ctx.stroke();
         }
@@ -289,16 +303,10 @@ window.RetinaScan = (function () {
     ctx.beginPath();
     ctx.moveTo(cx - irisR, scanY);
     ctx.lineTo(cx + irisR, scanY);
-    ctx.strokeStyle = `rgba(0,200,255,${0.5 + 0.3 * Math.sin(f * 0.1)})`;
+    ctx.strokeStyle = `rgba(0,200,255,${0.55 + 0.3 * Math.sin(f * 0.1)})`;
     ctx.lineWidth   = 1.5;
     ctx.stroke();
     ctx.restore();
-
-    // Pupil
-    ctx.beginPath();
-    ctx.arc(cx, cy, pupilR, 0, Math.PI * 2);
-    ctx.fillStyle = '#010810';
-    ctx.fill();
 
     // Rotating targeting dots
     const nDots = 8;
@@ -312,27 +320,6 @@ window.RetinaScan = (function () {
       ctx.fillStyle = `rgba(0,200,255,${0.5 + 0.5 * Math.sin(f * 0.1 + i)})`;
       ctx.fill();
     }
-
-    // Corner brackets
-    const bSize = 14;
-    const bR    = irisR + 22;
-    const corners = [[cx-bR,cy-bR],[cx+bR,cy-bR],[cx-bR,cy+bR],[cx+bR,cy+bR]];
-    corners.forEach(([bx,by], qi) => {
-      ctx.strokeStyle = statusColor;
-      ctx.lineWidth   = 2;
-      ctx.beginPath();
-      if (qi === 0) { ctx.moveTo(bx+bSize,by); ctx.lineTo(bx,by); ctx.lineTo(bx,by+bSize); }
-      if (qi === 1) { ctx.moveTo(bx-bSize,by); ctx.lineTo(bx,by); ctx.lineTo(bx,by+bSize); }
-      if (qi === 2) { ctx.moveTo(bx+bSize,by); ctx.lineTo(bx,by); ctx.lineTo(bx,by-bSize); }
-      if (qi === 3) { ctx.moveTo(bx-bSize,by); ctx.lineTo(bx,by); ctx.lineTo(bx,by-bSize); }
-      ctx.stroke();
-    });
-
-    // Specular highlight
-    ctx.beginPath();
-    ctx.arc(cx + 10, cy - 10, 5, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.fill();
 
     // Outer glow ring
     ctx.beginPath();
@@ -393,6 +380,11 @@ window.RetinaScan = (function () {
       });
       rs.video.srcObject = rs.stream;
       await rs.video.play();
+
+      // Also pipe to the live display video
+      const liveVid = document.getElementById('retina-live-video');
+      if (liveVid) { liveVid.srcObject = rs.stream; liveVid.play(); }
+
       return true;
     } catch (e) {
       console.warn('[RETINA] Camera error:', e.message);
@@ -430,8 +422,6 @@ window.RetinaScan = (function () {
   }
 
   // ── MAIN SCAN LOOP ─────────────────────────────────────────
-  // Runs for SCAN_FRAMES frames collecting iris descriptors,
-  // then averages them for a stable reading.
   async function runScanLoop(mode, userName, storedDescriptor) {
     rs.scanFrame           = 0;
     rs.descriptorHistory   = [];
@@ -489,7 +479,7 @@ window.RetinaScan = (function () {
         setStatus(mode === 'enroll' ? 'MAPPING IRIS PATTERN…' : 'COMPARING BIOMETRICS…', '');
       }
 
-      // Draw animation
+      // Draw HUD animation over live feed
       drawScanCanvas(eyeDetected, rs.progress, dist);
 
       // Complete condition
@@ -540,7 +530,6 @@ window.RetinaScan = (function () {
     } else {
       // Login or verify
       if (!storedDescriptor) {
-        // No stored descriptor — can't match, treat as enroll needed
         rs.status = 'error';
         setStatus('NO ENROLLED IRIS — USE PASSWORD', 'error');
         drawScanCanvas(false, 1, null);
@@ -577,7 +566,6 @@ window.RetinaScan = (function () {
       }
     }
 
-    // Final draw with the updated status
     drawScanCanvas(true, 1, null);
   }
 
@@ -661,10 +649,6 @@ window.RetinaScan = (function () {
   }
 
   // ── PUBLIC: VERIFY (intruder check) ───────────────────────
-  // This is called when an unknown face is detected.
-  // It runs against the owner's enrolled iris.
-  // If it matches the owner → NOT an intruder (false alarm).
-  // If it doesn't match   → INTRUDER CONFIRMED.
   async function verifyNotIntruder(ownerName) {
     return new Promise(async (resolve) => {
       rs.onComplete = resolve;
@@ -676,7 +660,6 @@ window.RetinaScan = (function () {
         await ensureFaceApi();
         const stored = loadDescriptor(ownerName);
         if (!stored) {
-          // No iris enrolled — can't verify, assume intruder
           hide();
           resolve({ success: false, reason: 'not_enrolled', isOwner: false });
           return;
