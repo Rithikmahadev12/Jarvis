@@ -972,7 +972,7 @@ function handleChatCommand(text) {
     return;
   }
 
-  // ── Re-enroll face command ──
+// ── Re-enroll face command ──
   if (/\b(re-?enroll|enroll again|re-?scan|scan again|re-?register)\b/.test(cleanedLower) &&
       /\b(face|facial|me)\b/.test(cleanedLower)) {
     state.faceEnrolled = false;
@@ -982,9 +982,11 @@ function handleChatCommand(text) {
     enrollUserFace(); return;
   }
 
+  sendToAI(cleaned);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ── AI CHAT ──
-// ═══════════════════════════════════════════════════════════════
 async function sendToAI(message) {
   mic.suspend();
   addMsg("user", message);
@@ -1805,7 +1807,5 @@ window.addEventListener("load", async () => {
     w.volume = 0; speechSynthesis.speak(w); speechSynthesis.getVoices();
   }, 500);
 
-  // Always go straight to auth screen — showAuthScreen auto-switches
-  // to "create" mode if no profiles exist, "login" mode if they do.
   showAuthScreen();
 });
