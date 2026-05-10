@@ -651,16 +651,28 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ reply, action, intent, meta: { query: message } });
   }
 
-  const shouldTryResearch = (action === "FALLBACK" || (action === "KNOWLEDGE" && reply.length < 200) || Research.shouldResearch(message));
-  if (shouldTryResearch) {
-    try {
-      const researched = await Research.research(message, userTitle);
-      if (researched?.reply) {
-        return res.json({ reply: researched.reply, action: action === "FALLBACK" ? "RESEARCH" : action, intent: "research", topic: researched.query, meta: { researched: true, sources: researched.sources } });
-      }
-    } catch {}
-  }
-
+  const ACTION_VERB_CHECK = /^(write|create|build|make|generate|code|script|program|implement|develop|debug|fix|refactor|optimise|optimize|review|improve|give|show|set|open|launch|play|pause|stop|clip|save|record|switch|turn|enable|disable|activate|start|run|help me|can you|could you|please|navigate|pull up|bring up|load|display|render|draw|check|scan|find|remind|alert|schedule|automate|watch|monitor|read|translate|convert|calculate|solve|compute|figure out|work out|summarize|summarise|list|compare|call|ring|connect)/i;
+const COMMAND_SIGNALS = /\b(clip|timer|alarm|reminder|links|camera|screen|memory|remember|forget|log.?out|weather|spotify|gmail|calendar|open|launch|navigate|turn on|turn off|set a|remind me|alert me|show me|pull up|build mode|hologram|3d|write me|create a|build me|make me|generate|give me|code a|function|class|script|api|server|endpoint|hello|hi|hey|good morning|good evening|how are you|thank|thanks|bye|goodbye|shut down|what time|what day|what date|clip that|save that|switch camera|smart home|lights|plug)\b/i;
+const looksLikeCommand = ACTION_VERB_CHECK.test(message) || COMMAND_SIGNALS.test(message.toLowerCase());
+const shouldTryResearch = !looksLikeCommand && (
+  action === "FALLBACK" ||
+  (action === "KNOWLEDGE" && reply.length < 200) ||
+  Research.shouldResearch(message)
+);
+if (shouldTryResearch) {
+  try {
+    const researched = await Research.research(message, userTitle);
+    if (researched?.reply) {
+      return res.json({
+        reply:  researched.reply,
+        action: action === "FALLBACK" ? "RESEARCH" : action,
+        intent: "research",
+        topic:  researched.query,
+        meta:   { researched: true, sources: researched.sources },
+      });
+    }
+  } catch {}
+}
   if (action === "SHOW_LINKS") {
     return res.json({ reply, action, intent, meta: { requestLinks: true, linkGroups: getAllLinksFormatted(), total: linkSummary.total } });
   }
