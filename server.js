@@ -12,6 +12,7 @@ const Weather     = require("./weather");
 const Spotify     = require("./spotify");
 const Google      = require("./google");
 const DIY         = require("./diy-builder");
+const Home = require("./home");
 
 const app        = express();
 const httpServer = http.createServer(app);
@@ -178,6 +179,70 @@ function bootstrapOwnerAccount() {
 
 app.get("/favicon.ico", (req, res) => res.status(204).end());
 
+let _scanLog = '';
+
+app.get("/home", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "home.html"));
+});
+
+app.get("/api/home/info", (req, res) => {
+  res.json({ subnets: Home.getLocalSubnets(), localIPs: Home.getLocalIPs() });
+});
+
+app.get("/api/home/devices", async (req, res) => {
+  const devices = Home.getDeviceList();
+  res.json({ devices, count: devices.length, lastScan: Home.lastScanTime() });
+});
+
+app.post("/api/home/scan", async (req, res) => {
+  const { deep } = req.body;
+  _scanLog = 'Starting scan...';
+  try {
+    const devices = await Home.scanNetwork({
+      useSSDP: true,
+      useKasa: true,
+      useHTTP: !!deep,
+      onProgress: (msg) => { _scanLog = msg; console.log('[HOME]', msg); }
+    });
+    res.json({ devices, count: devices.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get("/api/home/scan-status", (req, res) => {
+  res.json({ log: _scanLog });
+});
+
+app.post("/api/home/control/:id", async (req, res) => {
+  const result = await Home.controlDevice(decodeURIComponent(req.params.id), req.body);
+  res.json(result);
+});
+
+app.post("/api/home/control-all", async (req, res) => {
+  const devices = Home.getDeviceList().filter(d => !d._needsPairing && d.reachable !== false);
+  const results = await Promise.all(devices.map(d => Home.controlDevice(d.id, req.body)));
+  res.json({ ok: true, count: results.filter(r => r.ok).length });
+});
+
+app.post("/api/home/voice", async (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: 'Missing text' });
+  const reply = await Home.executeVoiceCommand(text, 'Sir');
+  await Home.refreshStates();
+  res.json({ reply });
+});
+
+app.post("/api/home/device/:id/room", async (req, res) => {
+  const { room } = req.body;
+  const ok = Home.assignRoom(decodeURIComponent(req.params.id), room);
+  res.json({ ok });
+});
+
+app.post("/api/home/hue/pair", async (req, res) => {
+  const result = await Home.pairHueBridge();
+  res.json(result);
+});
 // ── PROFILE ROUTES ────────────────────────────────────────────────
 app.post("/api/register", (req, res) => {
   const { name, passwordHash, title, voiceAliases } = req.body;
@@ -372,7 +437,15 @@ app.post("/api/personality/comment", (req, res) => {
   const reply = Personality.getCameraComment(scene, T, sessionMinutes);
   res.json({ reply: reply || null });
 });
-
+if (Home.isHomeCommand(message) || Home.isHomePanelRequest(message)) {
+  if (Home.isHomePanelRequest(message)) {
+    const reply = `Opening home control panel, ${T}.`;
+    return res.json({ reply, action: "OPEN_HOME", intent: "home", meta: { openHome: true } });
+  }
+  const reply = await Home.executeVoiceCommand(message, T);
+  await Home.refreshStates();
+  return res.json({ reply, action: "HOME_COMMAND", intent: "home" });
+}
 app.post("/api/personality/smalltalk", (req, res) => {
   const { message, userTitle } = req.body;
   const T = userTitle || "Sir";
