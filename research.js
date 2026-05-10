@@ -1,14 +1,12 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Research Engine v2.0
-// Public APIs. Zero sign-in. Zero credits.
-// Person lookup: Wikipedia · DuckDuckGo · GitHub · Reddit · StackOverflow
-// Knowledge: DuckDuckGo Instant Answer + Wikipedia
+// J.A.R.V.I.S — Research Engine v2.1
+// FIX: shouldResearch no longer fires on action/command queries
 // ═══════════════════════════════════════════════════════════════
 
 // ── SIMPLE CACHE ─────────────────────────────────────────────
 const cache = new Map();
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const CACHE_TTL = 30 * 60 * 1000;
 
 function getCached(key) {
   const entry = cache.get(key);
@@ -24,7 +22,6 @@ function setCache(key, data) {
   }
 }
 
-// ── TEXT CLEANER ─────────────────────────────────────────────
 function cleanText(text) {
   if (!text) return "";
   return text
@@ -51,7 +48,6 @@ function extractQuery(text) {
     .trim();
 }
 
-// ── PERSON NAME EXTRACTOR ─────────────────────────────────────
 function extractPersonName(text) {
   const patterns = [
     /(?:look up|lookup|find out about|search for|research|investigate|dig up|find info on|locate|background check on|run a check on|pull up info on|pull everything on|what do you know about|what can you find on|anything on|info on|information on|check out)\s+(.+?)(?:\s+for me|\s+please|\s*\??\s*$)/i,
@@ -69,9 +65,9 @@ function extractPersonName(text) {
   return null;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── DUCKDUCKGO INSTANT ANSWER ────────────────────────────────
-// ═══════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────
+// ── DUCKDUCKGO / WIKIPEDIA / GITHUB / REDDIT etc. (unchanged)
+// ─────────────────────────────────────────────────────────────
 async function searchDuckDuckGo(query) {
   const cacheKey = `ddg:${query.toLowerCase()}`;
   const cached = getCached(cacheKey);
@@ -120,9 +116,6 @@ async function searchDuckDuckGo(query) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── WIKIPEDIA ────────────────────────────────────────────────
-// ═══════════════════════════════════════════════════════════════
 async function searchWikipedia(query) {
   const cacheKey = `wiki:${query.toLowerCase()}`;
   const cached = getCached(cacheKey);
@@ -172,10 +165,6 @@ async function searchWikipedia(query) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── GITHUB ───────────────────────────────────────────────────
-// Free public API — no auth required for user search
-// ═══════════════════════════════════════════════════════════════
 async function searchGitHub(name) {
   const cacheKey = `github:${name.toLowerCase()}`;
   const cached = getCached(cacheKey);
@@ -194,7 +183,6 @@ async function searchGitHub(name) {
     const searchData = await searchRes.json();
     if (!searchData.items || searchData.items.length === 0) return null;
 
-    // Get full profile for top match
     const topUser = searchData.items[0];
     let detail = topUser;
     try {
@@ -233,10 +221,6 @@ async function searchGitHub(name) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── REDDIT ───────────────────────────────────────────────────
-// Public JSON API — no auth required
-// ═══════════════════════════════════════════════════════════════
 async function searchReddit(name) {
   const cacheKey = `reddit:${name.toLowerCase()}`;
   const cached = getCached(cacheKey);
@@ -292,10 +276,6 @@ async function searchReddit(name) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── STACK OVERFLOW ────────────────────────────────────────────
-// Free public API — no auth required
-// ═══════════════════════════════════════════════════════════════
 async function searchStackOverflow(name) {
   const cacheKey = `so:${name.toLowerCase()}`;
   const cached = getCached(cacheKey);
@@ -329,17 +309,12 @@ async function searchStackOverflow(name) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── NPM (check if person is a developer with packages) ────────
-// Free public API — no auth required
-// ═══════════════════════════════════════════════════════════════
 async function searchNPM(name) {
   const cacheKey = `npm:${name.toLowerCase()}`;
   const cached = getCached(cacheKey);
   if (cached) return cached;
 
   try {
-    // search npm packages by author name
     const res = await fetch(
       `https://registry.npmjs.org/-/v1/search?text=author:${encodeURIComponent(name.toLowerCase().replace(/\s+/g, ""))}&size=5`,
       { headers: { "User-Agent": "JARVIS-Assistant/1.0" }, signal: AbortSignal.timeout(6000) }
@@ -368,10 +343,6 @@ async function searchNPM(name) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── HACKER NEWS ──────────────────────────────────────────────
-// Algolia HN Search API — free, no auth
-// ═══════════════════════════════════════════════════════════════
 async function searchHackerNews(name) {
   const cacheKey = `hn:${name.toLowerCase()}`;
   const cached = getCached(cacheKey);
@@ -402,10 +373,6 @@ async function searchHackerNews(name) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── PERSON LOOKUP AGGREGATOR ─────────────────────────────────
-// Runs all sources in parallel, returns everything found
-// ═══════════════════════════════════════════════════════════════
 async function lookupPerson(fullName) {
   console.log(`[RESEARCH] Person lookup initiated: "${fullName}"`);
 
@@ -430,17 +397,11 @@ async function lookupPerson(fullName) {
     hackerNews:    hnRes.status       === "fulfilled" ? hnRes.value       : null,
   };
 
-  const sourceCount = Object.values(result)
-    .filter((v, i) => i > 0 && v !== null).length;
-
+  const sourceCount = Object.values(result).filter((v, i) => i > 0 && v !== null).length;
   console.log(`[RESEARCH] Person lookup complete: "${fullName}" — ${sourceCount} source(s) returned data`);
   return result;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── JARVIS INTEL REPORT BUILDER ───────────────────────────────
-// Builds a movie-JARVIS style intel briefing from lookup results
-// ═══════════════════════════════════════════════════════════════
 const pick = arr => arr[Math.floor(Math.random() * arr.length)];
 
 function buildPersonIntelReport(data, userTitle) {
@@ -453,22 +414,18 @@ function buildPersonIntelReport(data, userTitle) {
 
   if (!hasAnything) {
     return pick([
-      `Intel on "${name}" came back empty across all channels, ${T}. Wikipedia — nothing. GitHub — no matching profile. Reddit — no mentions. Stack Overflow — clear. HN — nothing. Either this person maintains an unusually clean digital absence, or the name needs refining. Middle name, username, or location would help narrow it down.`,
-      `Running "${name}" through every public database I have access to returned minimal signal, ${T}. No Wikipedia entry. No notable GitHub presence. No Reddit footprint. No Stack Overflow account matching that name. They're either offline, very private, or known by a different name online. Want me to try a variation?`,
-      `${T}, "${name}" isn't surfacing in any accessible public record. Wikipedia: nothing. GitHub: no match. Reddit: no trace. Stack Overflow: nothing. Hacker News: silent. I'm not going to fabricate intel — this one's genuinely thin. A username, location, or profession would help considerably.`,
+      `Intel on "${name}" came back empty across all channels, ${T}. Wikipedia — nothing. GitHub — no matching profile. Reddit — no mentions. Stack Overflow — clear. HN — nothing. Either this person maintains an unusually clean digital absence, or the name needs refining.`,
+      `Running "${name}" through every public database I have access to returned minimal signal, ${T}. No Wikipedia entry. No notable GitHub presence. No Reddit footprint. No Stack Overflow account matching that name.`,
     ]);
   }
 
-  // ── OPENING LINE ──
   const openers = [
     `Intel report on ${name}, ${T}. Cross-referencing ${_sourceSummary(data)}.`,
     `${T}, running ${name} through public channels. Here's what I have.`,
-    `Scanning public databases for ${name}, ${T}. Cross-referencing ${_sourceSummary(data)}. Here's the picture.`,
     `${T} — ${name}. Open-source intelligence report follows.`,
   ];
   parts.push(pick(openers));
 
-  // ── WIKIPEDIA / DDG (Most authoritative) ──
   if (data.wikipedia) {
     parts.push(truncate(data.wikipedia.extract, 350));
   } else if (data.ddg?.answer) {
@@ -479,16 +436,11 @@ function buildPersonIntelReport(data, userTitle) {
     parts.push(data.ddg.definition);
   }
 
-  // ── DDG INFOBOX ──
   if (data.ddg?.infobox) {
-    const facts = Object.entries(data.ddg.infobox)
-      .slice(0, 5)
-      .map(([k, v]) => `${k}: ${v}`)
-      .join(" · ");
+    const facts = Object.entries(data.ddg.infobox).slice(0, 5).map(([k, v]) => `${k}: ${v}`).join(" · ");
     if (facts) parts.push(`Key data — ${facts}.`);
   }
 
-  // ── GITHUB ──
   if (data.github) {
     const gh = data.github;
     const segments = [`GitHub: @${gh.login}`];
@@ -501,39 +453,27 @@ function buildPersonIntelReport(data, userTitle) {
     if (gh.bio) segments.push(`Bio: "${truncate(gh.bio, 120)}"`);
     if (gh.blog) segments.push(`Web: ${gh.blog}`);
     parts.push(segments.join(", ") + ".");
-
-    if (gh.otherMatches && gh.otherMatches.length > 0) {
-      parts.push(`Additional GitHub accounts matching that name: ${gh.otherMatches.map(u => `@${u.login}`).join(", ")}.`);
-    }
   }
 
-  // ── STACK OVERFLOW ──
   if (data.stackoverflow && data.stackoverflow.length > 0) {
     const top = data.stackoverflow[0];
     const soSegments = [`Stack Overflow: ${top.name}`];
     if (top.reputation) soSegments.push(`rep ${top.reputation.toLocaleString()}`);
     if (top.location) soSegments.push(`location ${top.location}`);
     if (top.gold || top.silver || top.bronze) soSegments.push(`badges: ${top.gold}🥇 ${top.silver}🥈 ${top.bronze}🥉`);
-    if (top.lastSeen) soSegments.push(`last active ${top.lastSeen}`);
     parts.push(soSegments.join(", ") + ".");
-    if (data.stackoverflow.length > 1) {
-      parts.push(`${data.stackoverflow.length - 1} additional Stack Overflow account(s) also matched that name.`);
-    }
   }
 
-  // ── NPM ──
   if (data.npm && data.npm.packages.length > 0) {
     const pkgs = data.npm.packages.slice(0, 3).map(p => `${p.name}${p.description ? ` (${truncate(p.description, 60)})` : ""}`).join(", ");
-    parts.push(`NPM packages published: ${pkgs}. ${data.npm.total > 3 ? `Total: ${data.npm.total} packages.` : ""}`);
+    parts.push(`NPM packages published: ${pkgs}.`);
   }
 
-  // ── HACKER NEWS ──
   if (data.hackerNews && data.hackerNews.length > 0) {
     const hn = data.hackerNews[0];
     parts.push(`Hacker News mention: "${truncate(hn.title, 100)}" — ${hn.points} points${hn.year ? `, ${hn.year}` : ""}.`);
   }
 
-  // ── REDDIT ──
   if (data.reddit) {
     if (data.reddit.users && data.reddit.users.length > 0) {
       const u = data.reddit.users[0];
@@ -545,12 +485,10 @@ function buildPersonIntelReport(data, userTitle) {
     }
   }
 
-  // ── CLOSING ──
   const closers = [
     `End of public record, ${T}. That's everything the open web has.`,
-    `That's the full open-source picture, ${T}. Anything you want me to dig deeper on?`,
-    `That's what the public databases have, ${T}. Private records would require considerably different tools.`,
-    `Intel summary complete, ${T}. The rest either doesn't exist digitally or isn't publicly accessible.`,
+    `That's the full open-source picture, ${T}.`,
+    `Intel summary complete, ${T}.`,
   ];
   parts.push(pick(closers));
 
@@ -571,9 +509,6 @@ function _sourceSummary(data) {
   return sources.slice(0, -1).join(", ") + " and " + sources[sources.length - 1];
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── KNOWLEDGE SYNTHESIS (for general topics) ─────────────────
-// ═══════════════════════════════════════════════════════════════
 const PERSONALITY = {
   openers: [
     "Here's what I found on that —",
@@ -623,9 +558,7 @@ function synthesizeResponse(query, ddgResult, wikiResult, userTitle) {
   parts.push(primaryText);
 
   if (ddgResult?.infobox && source !== "duckduckgo") {
-    const infoFacts = Object.entries(ddgResult.infobox).slice(0, 3)
-      .map(([k, v]) => `${k}: ${v}`)
-      .join(", ");
+    const infoFacts = Object.entries(ddgResult.infobox).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(", ");
     if (infoFacts) parts.push(`${pick(PERSONALITY.connectors)} ${infoFacts}.`);
   }
 
@@ -644,9 +577,6 @@ function synthesizeResponse(query, ddgResult, wikiResult, userTitle) {
   return response;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── MAIN RESEARCH FUNCTION ───────────────────────────────────
-// ═══════════════════════════════════════════════════════════════
 async function research(rawQuery, userTitle) {
   const query = extractQuery(rawQuery);
   if (!query || query.length < 2) return null;
@@ -681,13 +611,48 @@ async function research(rawQuery, userTitle) {
   };
 }
 
-// ── SHOULD WE RESEARCH? ──────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// ── shouldResearch — THE KEY FIX ─────────────────────────────
+// Only returns true for genuine knowledge/info queries.
+// Aggressively returns false for anything that looks like a
+// command, task, or action the AI should just handle directly.
+// ═══════════════════════════════════════════════════════════════
+
+// Action verbs that mean "do something" not "look something up"
+const ACTION_VERBS = /^(write|create|build|make|generate|code|script|program|implement|develop|debug|fix|refactor|optimise|optimize|review|improve|give|show|tell|set|open|launch|play|pause|stop|clip|save|record|switch|turn|enable|disable|activate|deactivate|send|call|ring|connect|start|run|help me|can you|could you|i need you to|i want you to|please|do|let|go|navigate|pull up|bring up|load|display|render|draw|check|scan|search for|find|look up|lookup|remind|alert|schedule|automate|watch|monitor|read|translate|convert|calculate|solve|compute|figure out|work out|summarize|summarise|list|compare|explain how to|show me how|walk me through)/i;
+
+// Things that are clearly NOT research queries
+const NON_RESEARCH_SIGNALS = /\b(clip|timer|alarm|reminder|links|camera|screen|memory|remember|forget|log out|logout|weather|spotify|gmail|calendar|open|launch|navigate|turn on|turn off|set a|set timer|remind me|alert me|wake me|ping me|show me|pull up|build mode|hologram|3d model|write me|create a|build me|make me|generate a|give me a|code a|script for|function that|class that|hello|hi|hey|good morning|good evening|good night|how are you|thank you|thanks|cheers|goodbye|bye|shut down|what time|what day|what date|clip that|save that|record that|switch camera|camera \d|home panel|smart home|lights on|lights off|plug on|plug off)\b/i;
+
+// Genuine question starters that suggest info lookup
+const RESEARCH_QUESTION_STARTERS = /^(what is |what are |who is |who was |when did |when was |where is |where was |how does |how did |why does |why did |tell me about |explain |define |describe |what happened |history of |facts about |what caused |who invented |who created |who founded |how was .+ (made|created|built|invented|discovered))/i;
+
 function shouldResearch(text) {
-  const lower = text.toLowerCase();
-  if (/^(what is|what are|who is|who was|when did|when was|where is|where was|how does|how did|why does|why did|tell me about|explain|define|describe)\b/i.test(lower)) return true;
-  if (/\b(history|invention|discovery|founded|created|born|died|meaning of|definition of|facts about|what happened)\b/i.test(lower)) return true;
-  if (/\b(clip|timer|alarm|reminder|links|camera|screen|memory|remember|forget|log out|logout|weather|spotify|gmail|calendar|open|launch|navigate)\b/i.test(lower)) return false;
-  if (text.trim().split(/\s+/).length < 3) return false;
+  const lower = text.toLowerCase().trim();
+
+  // Hard no — these are clearly commands, not info queries
+  if (NON_RESEARCH_SIGNALS.test(lower)) return false;
+
+  // Hard no — starts with an action verb
+  if (ACTION_VERBS.test(lower)) return false;
+
+  // Hard no — very short (probably a greeting or quick command)
+  const wordCount = text.trim().split(/\s+/).length;
+  if (wordCount < 4) return false;
+
+  // Hard no — contains code-related keywords anywhere
+  if (/\b(function|class|script|component|api|server|endpoint|query|module|snippet|python|javascript|node|react|sql|bash|html|css|typescript|rust|go lang|flutter|dart|swift|kotlin|c\+\+|csharp|php|ruby|rails)\b/i.test(lower)) return false;
+
+  // Hard no — conversational/emotional
+  if (/\b(i feel|i am|i'm|i've|i was|i want|i need|i think|i believe|should i|help me|my |me |myself)\b/i.test(lower)) return false;
+
+  // Yes — starts with a clear research question pattern
+  if (RESEARCH_QUESTION_STARTERS.test(lower)) return true;
+
+  // Yes — explicit knowledge/info markers with no action words
+  if (/\b(history|origin|meaning|definition|invented|discovery|founded|born|died|facts about|what happened to)\b/i.test(lower)) return true;
+
+  // Default: don't research — let the AI handle it
   return false;
 }
 
