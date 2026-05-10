@@ -572,7 +572,28 @@ if (pwInput) {
 
   startAuthListening();
 }
-
+async function startRetinaLogin() {
+  if (!window.RetinaScan) return;
+  const nameKey = _selectedUser || localStorage.getItem("jarvis_name_hint") || "";
+  if (!nameKey) { showAuthFeedback("Select an account first."); return; }
+  mic.suspend();
+  const result = await RetinaScan.login(nameKey);
+  if (result.success) {
+    const profiles = await loadServerProfiles();
+    const profile = profiles.find(p => p.name.toLowerCase() === nameKey);
+    if (profile) {
+      state.user = profile.name;
+      state.userTitle = profile.title;
+      localStorage.setItem("jarvis_name_hint", profile.name.toLowerCase());
+      saveProfileLocal(profile);
+      speak(`Welcome back, ${profile.title}.`, launchMain);
+    }
+  } else if (result.reason === "not_enrolled") {
+    showAuthFeedback("No iris enrolled — use password first, then say 'enroll iris'.", "info");
+  } else if (result.reason !== "cancelled") {
+    showAuthFeedback("Retina scan failed — use password instead.");
+  }
+}
 // Alias — old boot code calls showSetup when no profile exists
 // but we now send everyone to showAuthScreen which auto-switches to create
 function showSetup() { showAuthScreen(); }
@@ -723,7 +744,12 @@ async function submitCreateAccount() {
   localStorage.setItem("jarvis_pw_hash",   hash);
 
   showAuthFeedback(`Account created for ${name}. Logging you in…`, "success");
-
+if (window.RetinaScan) {
+  setTimeout(async () => {
+    const enroll = await RetinaScan.enroll(name.toLowerCase());
+    if (enroll.success) addMsg("system", "Iris enrolled successfully.");
+  }, 1200);
+}
   state.user      = name;
   state.userTitle = title;
 
