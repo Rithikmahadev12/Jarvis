@@ -542,18 +542,18 @@ app.post("/api/screen", (req, res) => {
 app.post("/api/chat", async (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
+  
+  const T = userTitle || "Sir";
   if (Home.isHomeCommand(message) || Home.isHomePanelRequest(message)) {
   if (Home.isHomePanelRequest(message)) {
     const reply = `Opening home control panel, ${T}.`;
     return res.json({ reply, action: "OPEN_HOME", intent: "home", meta: { openHome: true } });
   }
-  return Home.executeVoiceCommand(message, T).then(reply => {
+  return Home.executeVoiceCommand(message, T).then(homeReply => {
     Home.refreshStates();
-    return res.json({ reply, action: "HOME_COMMAND", intent: "home" });
-  }).catch(e => res.json({ reply: `Home command failed, ${T}.`, action: "HOME_COMMAND", intent: "home" }));
+    return res.json({ reply: homeReply, action: "HOME_COMMAND", intent: "home" });
+  }).catch(() => res.json({ reply: `Home command failed, ${T}.`, action: "HOME_COMMAND", intent: "home" }));
 }
-  const T = userTitle || "Sir";
-
   const personalNewsReply = Personality.routePersonalNews(message, T);
   if (personalNewsReply) return res.json({ reply: personalNewsReply, action: "PERSONAL_NEWS", intent: "personal_news" });
 
