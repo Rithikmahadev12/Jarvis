@@ -442,9 +442,10 @@ if (Home.isHomeCommand(message) || Home.isHomePanelRequest(message)) {
     const reply = `Opening home control panel, ${T}.`;
     return res.json({ reply, action: "OPEN_HOME", intent: "home", meta: { openHome: true } });
   }
-  const reply = await Home.executeVoiceCommand(message, T);
-  await Home.refreshStates();
-  return res.json({ reply, action: "HOME_COMMAND", intent: "home" });
+  return Home.executeVoiceCommand(message, T).then(reply => {
+    Home.refreshStates();
+    return res.json({ reply, action: "HOME_COMMAND", intent: "home" });
+  }).catch(e => res.json({ reply: `Home command failed, ${T}.`, action: "HOME_COMMAND", intent: "home" }));
 }
 app.post("/api/personality/smalltalk", (req, res) => {
   const { message, userTitle } = req.body;
