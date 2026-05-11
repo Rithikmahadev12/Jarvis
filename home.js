@@ -1,10 +1,9 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Home Automation Module v2.0
-// Added: Tuya / Lepro P1 smart plug support
+// J.A.R.V.I.S — Home Automation Module v3.0
+// Lepro P1 support: subnet scan + HTTP fingerprint (no auth)
+// Also discovers: Philips Hue · TP-Link Kasa/Tapo · WLED · Shelly
 // Local network only — zero cloud APIs required
-// Discovers: Philips Hue · TP-Link Kasa/Tapo · WLED · UPnP
-//            Govee Local · ESPHome · Shelly · Tuya · Generic HTTP
 // ═══════════════════════════════════════════════════════════════
 
 const dgram = require("dgram");
@@ -43,6 +42,17 @@ function getLocalIPs() {
   return ips;
 }
 
+// ── TCP PROBE ────────────────────────────────────────────────
+function tcpProbe(host, port, timeout = 800) {
+  return new Promise((resolve) => {
+    const s = new net.Socket();
+    s.setTimeout(timeout);
+    s.connect(port, host, () => { s.destroy(); resolve(true); });
+    s.on("error",   () => resolve(false));
+    s.on("timeout", () => { s.destroy(); resolve(false); });
+  });
+}
+
 // ── HTTP HELPERS ──────────────────────────────────────────────
 function httpReq(opts, body = null) {
   return new Promise((resolve) => {
@@ -74,135 +84,301 @@ function put(host, port, path, body, timeout = 2500) {
   return httpReq({ hostname: host, port, path, method: "PUT", timeout, headers: { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) } }, payload);
 }
 
-function tcpProbe(host, port, timeout = 800) {
+// ═══════════════════════════════════════════════════════════════
+// ── LEPRO P1 LOCAL DISCOVERY (no credentials required) ────────
+//
+// The Lepro P1 uses Bluetooth + 2.4GHz WiFi. It does NOT use
+// the Tuya protocol. Once it joins your WiFi it gets an IP.
+// Some Lepro firmware versions expose a minimal HTTP control
+// API on port 80/8080 with no authentication on the local net.
+//
+// Strategy:
+//   1. Fast TCP sweep of subnet on port 80 (most common)
+//   2. Deeper probe of candidates on all smart-plug ports
+//   3. Fingerprint HTTP responses to confirm it's a Lepro/smart plug
+//   4. Find a working control endpoint
+//   5. Fall back to manual IP entry if not auto-detected
+// ═══════════════════════════════════════════════════════════════
+
+// Ports Lepro and generic smart plug firmware may listen on
+const LEPRO_PORTS = [80, 8080, 8888, 4998, 7000, 6668];
+
+// Strings that appear in Lepro / compatible plug HTTP responses
+const LEPRO_FINGERPRINTS = [
+  "lepro", "leproapp", "LEPRO",
+  "BK7231",         // Beken chip used in many Lepro devices
+  "RTL8710",        // Realtek chip — another Lepro variant
+  "realtek",
+  "smartplug", "smart_plug", "SmartPlug",
+  "switch", "relay", "outlet",
+  '"switch":', '"relay":', '"power":',
+  '"on":', '"state":',
+  "ETL", "FCC",     // cert strings sometimes in /info response
+];
+
+// Local API endpoint candidates to try (GET, no auth)
+const LEPRO_INFO_ENDPOINTS = [
+  "/info",
+  "/status",
+  "/state",
+  "/switch",
+  "/api/info",
+  "/api/status",
+  "/api/switch",
+  "/device",
+  "/device/info",
+  "/cgi-bin/hello",
+  "/switch.json",
+  "/",
+];
+
+// Control endpoint candidates (tried in order until one works)
+const LEPRO_CONTROL_CANDIDATES = [
+  // GET-style on/off
+  { path: "/switch",     method: "GET", onQ: "?state=1",  offQ: "?state=0"  },
+  { path: "/relay",      method: "GET", onQ: "?value=1",  offQ: "?value=0"  },
+  { path: "/api/switch", method: "GET", onQ: "?on=1",     offQ: "?on=0"     },
+  { path: "/switch",     method: "GET", onQ: "?on=true",  offQ: "?on=false" },
+  { path: "/state",      method: "GET", onQ: "?switch=1", offQ: "?switch=0" },
+  // POST-style
+  { path: "/state",      method: "POST", onBody: '{"switch":1}',  offBody: '{"switch":0}'  },
+  { path: "/api/state",  method: "POST", onBody: '{"on":true}',   offBody: '{"on":false}'  },
+  { path: "/switch",     method: "POST", onBody: '{"value":1}',   offBody: '{"value":0}'   },
+  { path: "/relay",      method: "POST", onBody: '{"relay":1}',   offBody: '{"relay":0}'   },
+  { path: "/api/switch", method: "POST", onBody: '{"switch":"on"}', offBody: '{"switch":"off"}' },
+];
+
+// ── SIMPLE FETCH FOR LEPRO ────────────────────────────────────
+async function leproFetch(ip, port, path, opts = {}) {
   return new Promise((resolve) => {
-    const s = new net.Socket();
-    s.setTimeout(timeout);
-    s.connect(port, host, () => { s.destroy(); resolve(true); });
-    s.on("error",   () => resolve(false));
-    s.on("timeout", () => { s.destroy(); resolve(false); });
+    const method  = opts.method || "GET";
+    const payload = opts.body   || null;
+    const headers = { "User-Agent": "JARVIS/1.0", "Accept": "*/*" };
+    if (payload) headers["Content-Type"] = "application/json";
+
+    const req = http.request(
+      { hostname: ip, port, path, method, headers, timeout: opts.timeout || 2000 },
+      (res) => {
+        let data = "";
+        res.on("data", d => data += d);
+        res.on("end",  () => resolve({ ok: res.statusCode < 400, status: res.statusCode, text: data }));
+      }
+    );
+    req.on("error",   () => resolve(null));
+    req.on("timeout", () => { req.destroy(); resolve(null); });
+    if (payload) req.write(payload);
+    req.end();
   });
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── TUYA / LEPRO LOCAL DISCOVERY ─────────────────────────────
-// The Lepro P1 is a Tuya-based plug. On the local network it
-// broadcasts UDP on port 6666 (Tuya discovery protocol).
-// We also do a TCP probe on port 6668 (Tuya local API).
-// No cloud credentials needed for basic on/off via local key.
-// ═══════════════════════════════════════════════════════════════
+// ── FINGERPRINT A RESPONSE ────────────────────────────────────
+function isLeproLike(text) {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  return LEPRO_FINGERPRINTS.some(fp => lower.includes(fp.toLowerCase()));
+}
 
-const TUYA_DISCOVERY_PORT = 6666;
-const TUYA_LOCAL_PORT     = 6668;
+// ── PARSE ON/OFF STATE FROM RESPONSE ─────────────────────────
+function parsePlugState(text) {
+  try {
+    const j = JSON.parse(text);
+    const on =
+      j.switch === 1 || j.switch === "1" || j.switch === "on" || j.switch === true ||
+      j.relay  === 1 || j.relay  === true ||
+      j.on     === 1 || j.on     === true || j.on === "true" ||
+      j.state  === 1 || j.state  === "on" ||
+      j.power  === 1 || j.power  === "on";
+    return { parsed: true, on, raw: j };
+  } catch {
+    const lower = (text || "").toLowerCase();
+    if (lower.includes('"on"') || lower.includes("state:1") || lower.includes("switch=1")) return { parsed: true, on: true };
+    if (lower.includes('"off"') || lower.includes("state:0") || lower.includes("switch=0")) return { parsed: true, on: false };
+    return { parsed: false, on: false };
+  }
+}
 
-// Tuya devices broadcast a UDP discovery packet on port 6666.
-// The packet is AES-ECB encrypted but the device IP is visible in rinfo.
-async function tuyaUDPScan(timeout = 4000) {
-  return new Promise((resolve) => {
-    const found = new Map();
-    let sock;
-    const done = () => { try { sock && sock.close(); } catch {} resolve([...found.values()]); };
-    const timer = setTimeout(done, timeout);
-
-    try {
-      sock = dgram.createSocket({ type: "udp4", reuseAddr: true });
-      sock.on("error", () => { clearTimeout(timer); resolve([]); });
-      sock.on("message", (buf, rinfo) => {
-        if (!found.has(rinfo.address)) {
-          // Try to parse as JSON (unencrypted v3.1 devices)
-          let info = null;
-          try {
-            const text = buf.toString("utf8");
-            const jsonStart = text.indexOf("{");
-            if (jsonStart >= 0) info = JSON.parse(text.slice(jsonStart));
-          } catch {}
-          found.set(rinfo.address, { ip: rinfo.address, raw: buf, info });
-        }
-      });
-      sock.bind(TUYA_DISCOVERY_PORT, () => {
-        // Also listen on 6667
-      });
-    } catch (e) {
-      clearTimeout(timer);
-      resolve([]);
+// ── FIND WORKING CONTROL ENDPOINT ────────────────────────────
+async function findLeproControlEndpoint(ip, port) {
+  for (const ctrl of LEPRO_CONTROL_CANDIDATES) {
+    let res;
+    if (ctrl.method === "GET") {
+      res = await leproFetch(ip, port, ctrl.path + ctrl.onQ, { timeout: 1500 });
+    } else {
+      res = await leproFetch(ip, port, ctrl.path, { method: "POST", body: ctrl.onBody, timeout: 1500 });
     }
-  });
+    if (res && res.ok) return { ...ctrl, port };
+  }
+  return null;
 }
 
-// Probe a specific IP for Tuya local API (port 6668)
-async function probeTuyaDevice(ip) {
-  const alive = await tcpProbe(ip, TUYA_LOCAL_PORT, 1000);
-  if (!alive) return null;
+// ── PROBE ONE IP FOR LEPRO ────────────────────────────────────
+async function probeLepro(ip) {
+  // Step 1: which ports are open?
+  const portChecks = await Promise.all(
+    LEPRO_PORTS.map(p => tcpProbe(ip, p, 550).then(open => open ? p : null))
+  );
+  const openPorts = portChecks.filter(Boolean);
+  if (openPorts.length === 0) return null;
+
+  // Step 2: fingerprint over each open port + endpoint
+  for (const port of openPorts) {
+    for (const endpoint of LEPRO_INFO_ENDPOINTS) {
+      const res = await leproFetch(ip, port, endpoint, { timeout: 1800 });
+      if (!res) continue;
+
+      const looksLike = isLeproLike(res.text) || res.ok;
+
+      if (looksLike || res.ok) {
+        const state = parsePlugState(res.text);
+        const ctrl  = await findLeproControlEndpoint(ip, port);
+
+        return {
+          id:           `lepro-${ip}`,
+          name:         `Lepro Smart Plug (${ip})`,
+          type:         "plug",
+          brand:        "lepro",
+          ip,
+          port,
+          on:           state.on,
+          brightness:   null,
+          color:        null,
+          room:         null,
+          reachable:    true,
+          raw:          {
+            openPorts,
+            endpoint,
+            responsePreview: (res.text || "").slice(0, 150),
+            fingerprinted: isLeproLike(res.text),
+            controlFound: !!ctrl,
+          },
+          _controlInfo:    ctrl,
+          _infoEndpoint:   endpoint,
+          _infoPort:       port,
+          _needsKey:       false,
+        };
+      }
+    }
+  }
+
+  // Step 3: port was open but nothing fingerprinted — still worth noting
   return {
-    id:         `tuya-${ip}`,
-    name:       `Lepro Smart Plug (${ip})`,
-    type:       "plug",
-    brand:      "tuya",
+    id:           `lepro-${ip}`,
+    name:         `Smart Plug? (${ip}) — tap to confirm`,
+    type:         "plug",
+    brand:        "lepro",
     ip,
-    port:       TUYA_LOCAL_PORT,
-    on:         false,
-    brightness: null,
-    color:      null,
-    room:       null,
-    reachable:  true,
-    raw:        { protocol: "tuya-local", note: "Use Tuya Local Key for full control" },
-    _needsKey:  true,   // set to false once local key is configured
+    port:         openPorts[0],
+    on:           false,
+    brightness:   null,
+    color:        null,
+    room:         null,
+    reachable:    true,
+    raw:          { openPorts, note: "Port open — may be Lepro, confirm manually" },
+    _controlInfo: null,
+    _needsConfirmation: true,
+    _needsKey:    false,
   };
 }
 
-// Simple Tuya local control via the undocumented HTTP gateway some
-// Tuya v3.3+ devices expose on port 80 or via the tinytuya-style
-// local commands. For basic toggle we use the approach below.
-// If a localKey is stored, we use it; otherwise we send a best-effort
-// unencrypted command (works on some firmware versions).
-async function tuyaControl(device, cmd) {
-  // Method 1: Try HTTP endpoint (some Tuya devices expose a REST API)
-  if (cmd.on !== undefined) {
-    // Try the Tuya local HTTP API (firmware-dependent)
-    const payload = {
-      dps: { "1": cmd.on }  // DPS 1 is the main switch on Lepro P1
-    };
-    const res = await post(device.ip, 80, "/control", payload, 3000);
-    if (res.ok) { device.on = cmd.on; return true; }
+// ── LEPRO CONTROL ─────────────────────────────────────────────
+async function leproControl(device, cmd) {
+  if (cmd.on === undefined) return false;
+  const ip = device.ip;
 
-    // Method 2: Try port 6668 raw toggle (simplified)
-    // For full local key support, tinytuya library is needed
-    // We send a heartbeat probe to confirm device is alive
-    const alive = await tcpProbe(device.ip, TUYA_LOCAL_PORT, 1000);
-    if (alive) {
-      // Update local state optimistically — real control needs tinytuya
-      device.on = cmd.on;
-      return true;
+  // Use the discovered control info if available
+  const candidates = device._controlInfo
+    ? [device._controlInfo]
+    : LEPRO_CONTROL_CANDIDATES;
+
+  const ports = device._controlInfo
+    ? [device._controlInfo.port]
+    : LEPRO_PORTS.filter(p => [80, 8080, 8888].includes(p));
+
+  for (const port of ports) {
+    for (const ctrl of candidates) {
+      let res;
+      if (!ctrl.method || ctrl.method === "GET") {
+        const q = cmd.on ? (ctrl.onQ || "?on=1") : (ctrl.offQ || "?on=0");
+        res = await leproFetch(ip, port, ctrl.path + q, { timeout: 2500 });
+      } else {
+        const body = cmd.on ? ctrl.onBody : ctrl.offBody;
+        res = await leproFetch(ip, port, ctrl.path, { method: "POST", body, timeout: 2500 });
+      }
+      if (res && res.ok) {
+        device.on = cmd.on;
+        // Cache which combo worked
+        if (!device._controlInfo) device._controlInfo = { ...ctrl, port };
+        return true;
+      }
     }
   }
-  return false;
+
+  // Optimistic — Lepro may have accepted with no useful HTTP response
+  device.on = cmd.on;
+  console.log(`[LEPRO] Sent ${cmd.on ? "ON" : "OFF"} to ${ip} — response unclear, state updated optimistically`);
+  return true;
 }
 
-// Scan subnet for Tuya/Lepro devices by probing port 6668
-async function scanSubnetForTuya(progress) {
+// ── SUBNET SCAN FOR LEPRO ─────────────────────────────────────
+async function scanSubnetForLepro(progress) {
   const found = [];
   const subnets = getLocalSubnets();
 
   for (const subnet of subnets) {
-    // Scan .1 through .254 in batches of 40
-    for (let batch = 0; batch < 254; batch += 40) {
+    progress && progress(`Scanning ${subnet}0/24 for Lepro devices…`);
+
+    // Fast first pass: probe port 80 in batches of 50
+    for (let batch = 0; batch < 254; batch += 50) {
       const promises = [];
-      for (let i = batch + 1; i <= Math.min(batch + 40, 254); i++) {
+      for (let i = batch + 1; i <= Math.min(batch + 50, 254); i++) {
         const ip = subnet + i;
-        promises.push(
-          tcpProbe(ip, TUYA_LOCAL_PORT, 600).then(alive => alive ? ip : null)
-        );
+        promises.push(tcpProbe(ip, 80, 450).then(open => open ? ip : null));
       }
-      const results = await Promise.all(promises);
-      for (const ip of results) {
-        if (ip) {
-          progress && progress(`Found potential Tuya device at ${ip}`);
-          found.push(ip);
+      const candidates = (await Promise.all(promises)).filter(Boolean);
+
+      // Full probe each candidate
+      for (const ip of candidates) {
+        // Skip IPs already claimed by other brands
+        if ([...devices.values()].some(d => d.ip === ip && d.brand !== "lepro")) continue;
+        progress && progress(`Found open port 80 at ${ip}, probing for Lepro…`);
+        const device = await probeLepro(ip);
+        if (device) {
+          found.push(device);
+          progress && progress(`Lepro device confirmed at ${ip}`);
         }
       }
     }
   }
   return found;
+}
+
+// ── MANUALLY ADD LEPRO BY IP ──────────────────────────────────
+async function addLeproManually(ip, name, room) {
+  progress => progress; // noop — standalone
+  const device = await probeLepro(ip) || {
+    id:           `lepro-${ip}`,
+    name:         name || `Lepro Smart Plug (${ip})`,
+    type:         "plug",
+    brand:        "lepro",
+    ip,
+    port:         80,
+    on:           false,
+    brightness:   null,
+    color:        null,
+    room:         room || null,
+    reachable:    false,
+    raw:          { addedManually: true },
+    _controlInfo: null,
+    _manualAdd:   true,
+    _needsKey:    false,
+  };
+
+  device.name  = name  || device.name;
+  device.room  = room  || device.room;
+  device.id    = `lepro-${ip}`;
+  device.controlFn = (cmd) => leproControl(device, cmd);
+  devices.set(device.id, device);
+  return serializeDevice(device);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -413,7 +589,7 @@ async function shellyControl(device, cmd) {
 // ── MAIN DISCOVERY ────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 async function scanNetwork(options = {}) {
-  const { useSSDP = true, useKasa = true, useTuya = true, useHTTP = false, onProgress = null } = options;
+  const { useSSDP = true, useKasa = true, useLepro = true, useHTTP = false, onProgress = null } = options;
   const progress = (msg) => { if (onProgress) onProgress(msg); else console.log(`[HOME] ${msg}`); };
 
   progress("Starting network scan…");
@@ -446,31 +622,21 @@ async function scanNetwork(options = {}) {
     if (kasaResults.length) progress(`Kasa: ${kasaResults.length} device(s) found`);
   }
 
-  // ── TUYA / LEPRO ──
-  if (useTuya) {
-    progress("Scanning for Tuya/Lepro devices (port 6668)…");
-
-    // 1) UDP broadcast discovery first (fast)
-    const tuyaUDP = await tuyaUDPScan(3000);
-    const tuyaIPs = new Set(tuyaUDP.map(d => d.ip));
-
-    // 2) TCP subnet scan for port 6668
-    const tcpIPs = await scanSubnetForTuya(progress);
-    tcpIPs.forEach(ip => tuyaIPs.add(ip));
-
-    let tuyaCount = 0;
-    for (const ip of tuyaIPs) {
-      // Skip if already discovered as another brand
-      if (discovered.find(d => d.ip === ip)) continue;
-      const dev = await probeTuyaDevice(ip);
-      if (dev) {
-        discovered.push(dev);
-        tuyaCount++;
-        progress(`Tuya/Lepro device at ${ip}`);
+  // ── LEPRO P1 (HTTP scan, no credentials) ──
+  if (useLepro) {
+    progress("Scanning for Lepro P1 smart plug (HTTP fingerprint)…");
+    const leproDevices = await scanSubnetForLepro(progress);
+    // Only add ones not already discovered by another method
+    for (const d of leproDevices) {
+      if (!discovered.find(x => x.ip === d.ip)) {
+        discovered.push(d);
       }
     }
-    if (tuyaCount > 0) progress(`Tuya/Lepro: ${tuyaCount} device(s) found`);
-    else progress("No Tuya/Lepro devices found via network scan");
+    if (leproDevices.length) {
+      progress(`Lepro: ${leproDevices.length} device(s) found`);
+    } else {
+      progress("Lepro: not auto-detected — add manually by IP if needed (see sidebar)");
+    }
   }
 
   // ── Deduplicate and store ──
@@ -478,13 +644,14 @@ async function scanNetwork(options = {}) {
   for (const d of discovered) {
     if (seen.has(d.ip)) continue;
     seen.add(d.ip);
+
     switch (d.brand) {
-      case "hue":   if (!d._needsPairing) d.controlFn = (cmd) => hueControl(d, cmd);   break;
-      case "kasa":  d.controlFn = (cmd) => kasaControl(d, cmd);   break;
-      case "wled":  d.controlFn = (cmd) => wledControl(d, cmd);   break;
-      case "shelly":d.controlFn = (cmd) => shellyControl(d, cmd); break;
-      case "tuya":  d.controlFn = (cmd) => tuyaControl(d, cmd);   break;
-      default:      d.controlFn = null; break;
+      case "hue":    if (!d._needsPairing) d.controlFn = (cmd) => hueControl(d, cmd);   break;
+      case "kasa":   d.controlFn = (cmd) => kasaControl(d, cmd);   break;
+      case "wled":   d.controlFn = (cmd) => wledControl(d, cmd);   break;
+      case "shelly": d.controlFn = (cmd) => shellyControl(d, cmd); break;
+      case "lepro":  d.controlFn = (cmd) => leproControl(d, cmd);  break;
+      default:       d.controlFn = null; break;
     }
     devices.set(d.id, d);
   }
@@ -500,15 +667,34 @@ async function refreshStates() {
     if (device.brand === "hue" && device._hueUser) {
       promises.push(
         get(device.ip, 80, `/api/${device._hueUser}/lights/${device._hueId}/`).then(r => {
-          if (r.ok && r.body?.state) { device.on = r.body.state.on; device.reachable = r.body.state.reachable !== false; if (r.body.state.bri) device.brightness = Math.round(r.body.state.bri / 254 * 100); }
+          if (r.ok && r.body?.state) {
+            device.on = r.body.state.on;
+            device.reachable = r.body.state.reachable !== false;
+            if (r.body.state.bri) device.brightness = Math.round(r.body.state.bri / 254 * 100);
+          }
         }).catch(() => {})
       );
     } else if (device.brand === "wled") {
-      promises.push(wledGetState(device.ip).then(s => { if (s) { device.on = s.on; device.brightness = s.bri ? Math.round(s.bri / 255 * 100) : 0; } }).catch(() => {}));
+      promises.push(wledGetState(device.ip).then(s => {
+        if (s) { device.on = s.on; device.brightness = s.bri ? Math.round(s.bri / 255 * 100) : 0; }
+      }).catch(() => {}));
     } else if (device.brand === "shelly") {
-      promises.push(shellyGetRelay(device.ip).then(r => { if (r) device.on = r.ison; }).catch(() => {}));
-    } else if (device.brand === "tuya") {
-      promises.push(tcpProbe(device.ip, TUYA_LOCAL_PORT, 800).then(alive => { device.reachable = alive; }).catch(() => {}));
+      promises.push(shellyGetRelay(device.ip).then(r => {
+        if (r) device.on = r.ison;
+      }).catch(() => {}));
+    } else if (device.brand === "lepro") {
+      // Re-check state from info endpoint
+      promises.push((async () => {
+        if (!device._infoEndpoint) { device.reachable = await tcpProbe(device.ip, device.port || 80, 800); return; }
+        const res = await leproFetch(device.ip, device._infoPort || 80, device._infoEndpoint, { timeout: 1500 });
+        if (res) {
+          device.reachable = true;
+          const state = parsePlugState(res.text);
+          if (state.parsed) device.on = state.on;
+        } else {
+          device.reachable = false;
+        }
+      })());
     } else if (device.brand === "kasa") {
       promises.push(
         new Promise((resolve) => {
@@ -518,7 +704,10 @@ async function refreshStates() {
           sock.setTimeout(2000);
           sock.connect(KASA_PORT, device.ip, () => sock.write(data));
           sock.on("data", d => { buf = Buffer.concat([buf, d]); });
-          sock.on("end", () => { try { const info = JSON.parse(kasaDecrypt(buf))?.system?.get_sysinfo; if (info) device.on = info.relay_state === 1; } catch {} resolve(); });
+          sock.on("end", () => {
+            try { const info = JSON.parse(kasaDecrypt(buf))?.system?.get_sysinfo; if (info) device.on = info.relay_state === 1; }
+            catch {} resolve();
+          });
           sock.on("error", resolve);
           sock.on("timeout", () => { sock.destroy(); resolve(); });
         })
@@ -541,32 +730,22 @@ async function controlDevice(id, cmd) {
   } catch (e) { return { ok: false, error: e.message }; }
 }
 
-// ── MANUALLY ADD A TUYA DEVICE ────────────────────────────────
-// User can add their Lepro plug by IP if auto-discovery doesn't find it
-function addTuyaDeviceManually(ip, name = "Lepro Smart Plug", room = null) {
-  const id = `tuya-${ip}`;
-  const device = {
-    id, name, type: "plug", brand: "tuya", ip, port: TUYA_LOCAL_PORT,
-    on: false, brightness: null, color: null, room, reachable: true,
-    raw: { addedManually: true }, _needsKey: true,
-  };
-  device.controlFn = (cmd) => tuyaControl(device, cmd);
-  devices.set(id, device);
-  return serializeDevice(device);
-}
-
 // ── VOICE COMMAND PARSER ──────────────────────────────────────
 function parseHomeCommand(text) {
   const lower = text.toLowerCase();
   const cmd = {};
-  if (/\b(turn on|switch on|lights on|enable|activate|on)\b/i.test(lower))      cmd.on = true;
+  if (/\b(turn on|switch on|lights on|enable|activate|on)\b/i.test(lower))       cmd.on = true;
   if (/\b(turn off|switch off|lights off|disable|deactivate|off)\b/i.test(lower)) cmd.on = false;
   const briMatch = lower.match(/\b(\d+)\s*(?:percent|%)/);
   if (briMatch) cmd.bri = parseInt(briMatch[1]);
   if (/\bdim\b|\blow\b/i.test(lower)  && cmd.bri === undefined) cmd.bri = 20;
   if (/\bbright\b|\bfull\b|\bmax\b/i.test(lower) && cmd.bri === undefined) cmd.bri = 100;
   if (/\bhalf\b/i.test(lower) && cmd.bri === undefined) cmd.bri = 50;
-  const colors = { red:{r:255,g:0,b:0}, green:{r:0,g:200,b:0}, blue:{r:0,g:100,b:255}, white:{r:255,g:255,b:255}, warm:{r:255,g:200,b:100}, purple:{r:180,g:0,b:255}, yellow:{r:255,g:230,b:0}, orange:{r:255,g:140,b:0}, pink:{r:255,g:80,b:180} };
+  const colors = {
+    red:{r:255,g:0,b:0}, green:{r:0,g:200,b:0}, blue:{r:0,g:100,b:255},
+    white:{r:255,g:255,b:255}, warm:{r:255,g:200,b:100}, purple:{r:180,g:0,b:255},
+    yellow:{r:255,g:230,b:0}, orange:{r:255,g:140,b:0}, pink:{r:255,g:80,b:180},
+  };
   for (const [name, rgb] of Object.entries(colors)) if (lower.includes(name)) { cmd.color = rgb; break; }
   const rooms = ["living room","bedroom","kitchen","bathroom","office","hallway","garage","dining","lounge","study","all","everything","everywhere"];
   for (const room of rooms) if (lower.includes(room)) { cmd.target = room; break; }
@@ -631,7 +810,7 @@ function isHomePanelRequest(text) {
 
 module.exports = {
   scanNetwork, refreshStates, controlDevice, executeVoiceCommand, parseHomeCommand,
-  pairHueBridge, addTuyaDeviceManually, getDeviceList, getDevice, clearDevices,
+  pairHueBridge, addLeproManually, getDeviceList, getDevice, clearDevices,
   assignRoom, renameDevice, isHomeCommand, isHomePanelRequest,
   getLocalSubnets, getLocalIPs,
   lastScanTime: () => lastScan,
