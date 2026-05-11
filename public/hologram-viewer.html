@@ -1043,8 +1043,8 @@ function buildIronMan(){
   // Hip
   addPart(g,new THREE.BoxGeometry(0.8,0.2,0.44),red,0,0.28,0);
   // Thighs — detailed
-  addPart(g,new THREE.CylinderGeometry(0.17,0.15,0.52,10),gold,-0.26,−0.08,0);
-  addPart(g,new THREE.CylinderGeometry(0.17,0.15,0.52,10),gold,0.26,−0.08,0);
+  addPart(g,new THREE.CylinderGeometry(0.17,0.15,0.52,10),gold,-0.26,-0.08,0);
+  addPart(g,new THREE.CylinderGeometry(0.17,0.15,0.52,10),gold,0.26,-0.08,0);
   addPart(g,new THREE.BoxGeometry(0.16,0.06,0.2),gold,-0.26,0.08,0.15);// knee pad
   addPart(g,new THREE.BoxGeometry(0.16,0.06,0.2),gold,0.26,0.08,0.15);
   // Shins
@@ -1250,7 +1250,7 @@ function buildGlasses(){
   addPart(g,new THREE.BoxGeometry(0.34,0.16,0.01),lens,-0.32,0.06,0.19);
   addPart(g,new THREE.BoxGeometry(0.34,0.16,0.01),lens,0.32,0.06,0.19);
   // Waveguide layers (visible as thin plates)
-  addPart(g,new THREE.BoxGeometry(0.3,0.12,0.004),new THREE.MeshPhongMaterial({color:0x0066ff,transparent:true,opacity:0.35,emissive:new THREE.Color(0x001144)}),−0.32,0.06,0.21);
+  addPart(g,new THREE.BoxGeometry(0.3,0.12,0.004),new THREE.MeshPhongMaterial({color:0x0066ff,transparent:true,opacity:0.35,emissive:new THREE.Color(0x001144)}),-0.32,0.06,0.21);
   addPart(g,new THREE.BoxGeometry(0.3,0.12,0.004),new THREE.MeshPhongMaterial({color:0x0066ff,transparent:true,opacity:0.35,emissive:new THREE.Color(0x001144)}),0.32,0.06,0.21);
   // Camera — front center
   addPart(g,new THREE.CylinderGeometry(0.018,0.018,0.02,10),blue,0,0.06,0.21,Math.PI/2,0,0);
@@ -1264,11 +1264,10 @@ function buildGlasses(){
   addPart(g,new THREE.BoxGeometry(0.12,0.02,0.02),frame,-0.98,0.06,0);
   addPart(g,new THREE.BoxGeometry(0.12,0.02,0.02),frame,0.98,0.06,0);
   // Ear pads
-  addPart(g,new THREE.BoxGeometry(0.04,0.04,0.02),new THREE.MeshPhongMaterial({color:0x080e18}),−1.1,0.06,0);
+  addPart(g,new THREE.BoxGeometry(0.04,0.04,0.02),new THREE.MeshPhongMaterial({color:0x080e18}),-1.1,0.06,0);
   addPart(g,new THREE.BoxGeometry(0.04,0.04,0.02),new THREE.MeshPhongMaterial({color:0x080e18}),1.1,0.06,0);
   return{group:g,name:'SMART GLASSES — AR HUD v4',verts:6000,mat:'Mg-Al Alloy Frame',pwr:'Li-Ion 400mAh'};
 }
-
 function buildSub(){
   const g=new THREE.Group();
   const hull=mkMat(0x0a1a28);const dark=mkMat(0x040c16);const blue=mkMat(0x00c8ff,false,0.85);const amber=mkMat(0xffaa00,false,0.9);
@@ -1321,7 +1320,7 @@ function buildTank(){
   // Tracks × 2
   [-0.55,0.55].forEach(z=>{
     addPart(g,new THREE.BoxGeometry(2.1,0.2,0.26),track,0,-0.3,z);
-    for(let w=0;w<10;w++){addPart(g,new THREE.BoxGeometry(0.04,0.08,0.28),new THREE.MeshPhongMaterial({color:0x050c12}),−0.92+w*0.2,-0.28,z);}
+    for(let w=0;w<10;w++){addPart(g,new THREE.BoxGeometry(0.04,0.08,0.28),new THREE.MeshPhongMaterial({color:0x050c12}),-0.92+w*0.2,-0.28,z);}
     // Roadwheels
     for(let w=0;w<5;w++){addPart(g,new THREE.CylinderGeometry(0.1,0.1,0.06,12),dark,-0.7+w*0.38,-0.24,z,0,0,Math.PI/2);}
   });
