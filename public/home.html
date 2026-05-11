@@ -48,10 +48,10 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
 
 /* ── MAIN LAYOUT ── */
-#main{padding-top:110px;padding-bottom:80px;display:flex;gap:0;height:100vh}
+#main{padding-top:112px;padding-bottom:80px;display:flex;gap:0;height:100vh}
 
 /* ── SIDEBAR ── */
-#sidebar{width:220px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(0,200,255,0.1);background:rgba(1,10,20,0.92);overflow-y:auto;scrollbar-width:none}
+#sidebar{width:230px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(0,200,255,0.1);background:rgba(1,10,20,0.92);overflow-y:auto;scrollbar-width:none}
 #sidebar::-webkit-scrollbar{display:none}
 .sbar-header{padding:14px 16px 10px;border-bottom:1px solid rgba(0,200,255,0.08);font-family:var(--hud);font-size:0.46rem;letter-spacing:0.3em;color:var(--blue)}
 .room-btn{display:flex;align-items:center;gap:10px;padding:9px 16px;cursor:pointer;border-left:2px solid transparent;border-bottom:1px solid rgba(0,200,255,0.04);transition:all 0.15s;font-size:0.68rem;letter-spacing:0.08em;color:var(--text-dim)}
@@ -63,14 +63,14 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 .scan-btn.scanning{border-color:var(--amber);color:var(--amber);animation:scanPulse 1s ease-in-out infinite}
 @keyframes scanPulse{0%,100%{opacity:1}50%{opacity:0.5}}
 
-/* ── LEPRO MANUAL ADD ── */
-#lepro-add-form{margin:0 14px 10px;background:rgba(170,68,255,0.05);border:1px solid rgba(170,68,255,0.25);border-radius:3px;padding:10px 12px}
-.lepro-form-title{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.24em;color:var(--purple);margin-bottom:8px}
-.lepro-input{width:100%;background:rgba(170,68,255,0.06);border:1px solid rgba(170,68,255,0.2);color:var(--text-bright);font-family:'Share Tech Mono',monospace;font-size:0.65rem;padding:6px 10px;border-radius:2px;outline:none;margin-bottom:6px}
-.lepro-input::placeholder{color:var(--text-dim)}
-.lepro-input:focus{border-color:rgba(170,68,255,0.5)}
-.lepro-add-btn{width:100%;background:rgba(170,68,255,0.1);border:1px solid rgba(170,68,255,0.35);color:var(--purple);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.18em;padding:7px;cursor:pointer;border-radius:2px;transition:all 0.2s}
-.lepro-add-btn:hover{background:rgba(170,68,255,0.2)}
+/* ── MANUAL ADD FORM ── */
+.add-form{margin:0 14px 10px;background:rgba(170,68,255,0.05);border:1px solid rgba(170,68,255,0.25);border-radius:3px;padding:10px 12px}
+.add-form-title{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.24em;color:var(--purple);margin-bottom:8px}
+.add-form input{width:100%;background:rgba(170,68,255,0.06);border:1px solid rgba(170,68,255,0.2);color:var(--text-bright);font-family:'Share Tech Mono',monospace;font-size:0.65rem;padding:6px 10px;border-radius:2px;outline:none;margin-bottom:6px}
+.add-form input::placeholder{color:var(--text-dim)}
+.add-form input:focus{border-color:rgba(170,68,255,0.5)}
+.add-form-btn{width:100%;background:rgba(170,68,255,0.1);border:1px solid rgba(170,68,255,0.35);color:var(--purple);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.18em;padding:7px;cursor:pointer;border-radius:2px;transition:all 0.2s}
+.add-form-btn:hover{background:rgba(170,68,255,0.2)}
 
 /* ── CONTENT ── */
 #content{flex:1;padding:20px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(0,200,255,0.1) transparent}
@@ -91,7 +91,7 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 .section-count{font-size:0.5rem;color:var(--text-dim);letter-spacing:0.1em}
 
 /* ── DEVICE GRID ── */
-.device-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(172px,1fr));gap:12px;margin-bottom:28px}
+.device-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(185px,1fr));gap:12px;margin-bottom:28px}
 
 /* ── DEVICE CARD ── */
 .device-card{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.12);border-radius:3px;padding:14px;cursor:pointer;transition:all 0.2s;position:relative;overflow:hidden}
@@ -100,44 +100,37 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 .device-card:hover::before{opacity:1}
 .device-card.on{border-color:rgba(0,200,255,0.35);background:rgba(0,200,255,0.09);box-shadow:0 0 20px rgba(0,200,255,0.08)}
 .device-card.on::before{opacity:1}
-.device-card.tuya-card{border-color:rgba(170,68,255,0.25)}
-.device-card.tuya-card.on{border-color:rgba(170,68,255,0.5);background:rgba(170,68,255,0.08);box-shadow:0 0 20px rgba(170,68,255,0.1)}
-.device-card.unreachable{opacity:0.4;cursor:not-allowed}
-.device-card.needs-key{border-color:rgba(255,170,0,0.3);background:rgba(255,170,0,0.03)}
+.device-card.unreachable{opacity:0.4}
 
 .card-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px}
-.card-icon{font-size:1.5rem;line-height:1}
+.card-icon{font-size:1.6rem;line-height:1}
+.card-actions{display:flex;gap:5px;align-items:center}
 .card-toggle{width:34px;height:18px;border-radius:9px;background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.2);cursor:pointer;position:relative;transition:all 0.2s;flex-shrink:0}
 .card-toggle::after{content:'';position:absolute;width:12px;height:12px;border-radius:50%;background:var(--text-dim);top:2px;left:2px;transition:all 0.2s}
 .device-card.on .card-toggle{background:rgba(0,200,255,0.2);border-color:var(--blue)}
 .device-card.on .card-toggle::after{left:18px;background:var(--blue);box-shadow:0 0 6px rgba(0,200,255,0.6)}
-.device-card.tuya-card.on .card-toggle{background:rgba(170,68,255,0.2);border-color:var(--purple)}
-.device-card.tuya-card.on .card-toggle::after{background:var(--purple);box-shadow:0 0 6px rgba(170,68,255,0.6)}
+
+.msg-icon-btn{width:26px;height:26px;border-radius:2px;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);color:rgba(0,200,255,0.7);font-size:0.8rem;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.2s;flex-shrink:0}
+.msg-icon-btn:hover{background:rgba(0,200,255,0.15);border-color:var(--blue);color:var(--blue)}
 
 .card-name{font-size:0.75rem;letter-spacing:0.06em;color:var(--text-bright);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.card-brand{font-family:var(--hud);font-size:0.35rem;letter-spacing:0.22em;color:var(--text-dim);margin-bottom:8px}
-.card-brand.tuya{color:rgba(170,68,255,0.7)}
+.card-brand{font-family:var(--hud);font-size:0.35rem;letter-spacing:0.22em;color:var(--text-dim);margin-bottom:6px}
 .card-status{display:flex;align-items:center;gap:5px;font-size:0.52rem;letter-spacing:0.1em}
 .card-dot{width:5px;height:5px;border-radius:50%;background:var(--text-dim);flex-shrink:0}
 .device-card.on .card-dot{background:var(--green);box-shadow:0 0 5px rgba(0,255,136,0.6)}
-.device-card.tuya-card.on .card-dot{background:var(--purple);box-shadow:0 0 5px rgba(170,68,255,0.6)}
 .card-status-text{color:var(--text-dim)}
 .device-card.on .card-status-text{color:var(--green)}
-.device-card.tuya-card.on .card-status-text{color:var(--purple)}
+.card-ip{font-size:0.5rem;color:rgba(0,200,255,0.3);margin-top:4px;font-family:'Share Tech Mono',monospace}
+.card-ports{font-size:0.46rem;color:rgba(0,200,255,0.25);margin-top:2px}
+.open-ports-list{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
+.port-tag{font-size:0.42rem;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.15);color:rgba(0,200,255,0.5);padding:1px 5px;border-radius:2px;font-family:'Share Tech Mono',monospace}
 
-/* Lepro badge */
-.lepro-badge{display:inline-flex;align-items:center;gap:4px;background:rgba(170,68,255,0.1);border:1px solid rgba(170,68,255,0.3);border-radius:2px;padding:2px 6px;font-family:var(--hud);font-size:0.3rem;letter-spacing:0.18em;color:var(--purple);margin-top:5px}
-.needs-key-badge{font-size:0.46rem;color:var(--amber);margin-top:5px;display:flex;align-items:center;gap:4px}
-
-/* brightness */
-.card-brightness{margin-top:8px;display:none}
-.device-card.on.has-brightness .card-brightness{display:block}
-.bri-label{font-size:0.46rem;color:var(--text-dim);letter-spacing:0.1em;margin-bottom:4px;display:flex;justify-content:space-between}
-.bri-slider{width:100%;height:3px;border-radius:2px;background:rgba(0,200,255,0.1);appearance:none;-webkit-appearance:none;cursor:pointer;outline:none}
-.bri-slider::-webkit-slider-thumb{appearance:none;width:10px;height:10px;border-radius:50%;background:var(--blue);cursor:pointer;box-shadow:0 0 6px rgba(0,200,255,0.5)}
+/* ── MESSAGE BADGE ── */
+.msg-badge{position:absolute;top:8px;right:8px;background:var(--green);color:#010c14;font-size:0.4rem;font-family:var(--hud);padding:2px 5px;border-radius:2px;font-weight:700;animation:msgBadgePop 0.3s ease}
+@keyframes msgBadgePop{from{transform:scale(0)}to{transform:scale(1)}}
 
 /* ── RIGHT PANEL ── */
-#right-panel{width:200px;flex-shrink:0;display:flex;flex-direction:column;border-left:1px solid rgba(0,200,255,0.1);background:rgba(1,10,20,0.92);overflow-y:auto;scrollbar-width:none}
+#right-panel{width:210px;flex-shrink:0;display:flex;flex-direction:column;border-left:1px solid rgba(0,200,255,0.1);background:rgba(1,10,20,0.92);overflow-y:auto;scrollbar-width:none}
 #right-panel::-webkit-scrollbar{display:none}
 .rp-section{padding:12px 14px;border-bottom:1px solid rgba(0,200,255,0.07)}
 .rp-label{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.26em;color:var(--text-dim);margin-bottom:8px}
@@ -147,7 +140,6 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 .rp-stat-val.green{color:var(--green)}
 .rp-stat-val.purple{color:var(--purple)}
 
-/* voice cmd */
 #voice-input-field{width:100%;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.18);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:0.62rem;padding:7px 10px;border-radius:2px;outline:none;letter-spacing:0.05em;transition:border-color 0.2s}
 #voice-input-field:focus{border-color:rgba(0,200,255,0.45)}
 #voice-input-field::placeholder{color:var(--text-dim)}
@@ -161,27 +153,54 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 .empty-title{font-family:var(--hud);font-size:0.6rem;letter-spacing:0.35em;color:rgba(0,200,255,0.4)}
 .empty-hint{font-size:0.68rem;color:var(--text-dim);line-height:2.2}
 
-/* ── HUE PAIR BANNER ── */
-#hue-pair-banner{background:rgba(170,68,255,0.06);border:1px solid rgba(170,68,255,0.3);border-radius:3px;padding:12px 16px;margin-bottom:20px;display:none;align-items:center;justify-content:space-between;gap:14px}
-#hue-pair-banner.visible{display:flex}
-.hue-pair-text{font-size:0.62rem;color:rgba(170,68,255,0.8);line-height:1.6}
-.hue-pair-btn{background:rgba(170,68,255,0.12);border:1px solid rgba(170,68,255,0.4);color:var(--purple);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.2em;padding:8px 14px;cursor:pointer;border-radius:2px;white-space:nowrap;transition:all 0.2s}
-.hue-pair-btn:hover{background:rgba(170,68,255,0.22)}
-
-/* ── DEVICE DETAIL ── */
-#device-detail{position:fixed;right:200px;bottom:0;width:280px;background:rgba(1,6,18,0.98);border:1px solid rgba(0,200,255,0.3);border-bottom:none;border-radius:4px 4px 0 0;padding:16px;transform:translateY(100%);transition:transform 0.3s cubic-bezier(0.16,1,0.3,1);z-index:60;box-shadow:0 -8px 40px rgba(0,200,255,0.12)}
+/* ── DEVICE DETAIL PANEL ── */
+#device-detail{position:fixed;right:210px;bottom:0;width:300px;background:rgba(1,6,18,0.98);border:1px solid rgba(0,200,255,0.3);border-bottom:none;border-radius:4px 4px 0 0;padding:16px;transform:translateY(100%);transition:transform 0.3s cubic-bezier(0.16,1,0.3,1);z-index:60;box-shadow:0 -8px 40px rgba(0,200,255,0.12)}
 #device-detail.visible{transform:translateY(0)}
 .dd-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
 .dd-name{font-family:var(--hud);font-size:0.65rem;letter-spacing:0.22em;color:var(--blue)}
 .dd-close{background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:0.9rem;padding:2px 6px}
-.dd-row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(0,200,255,0.05)}
-.dd-key{font-size:0.5rem;letter-spacing:0.16em;color:var(--text-dim)}
-.dd-val{font-size:0.58rem;color:var(--text)}
-.dd-actions{display:flex;gap:6px;margin-top:12px}
-.dd-btn{flex:1;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);color:var(--blue);font-family:var(--hud);font-size:0.38rem;letter-spacing:0.18em;padding:8px 4px;cursor:pointer;border-radius:2px;transition:all 0.2s}
+.dd-row{display:flex;justify-content:space-between;align-items:flex-start;padding:5px 0;border-bottom:1px solid rgba(0,200,255,0.05);gap:8px}
+.dd-key{font-size:0.5rem;letter-spacing:0.16em;color:var(--text-dim);white-space:nowrap}
+.dd-val{font-size:0.56rem;color:var(--text);text-align:right;word-break:break-all}
+.dd-actions{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+.dd-btn{flex:1;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);color:var(--blue);font-family:var(--hud);font-size:0.38rem;letter-spacing:0.18em;padding:8px 4px;cursor:pointer;border-radius:2px;transition:all 0.2s;min-width:60px}
 .dd-btn:hover{background:rgba(0,200,255,0.14)}
 .room-assign-input{width:100%;margin-top:8px;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.18);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:0.62rem;padding:6px 10px;border-radius:2px;outline:none}
 .room-assign-input::placeholder{color:var(--text-dim)}
+
+/* ── MESSAGE OVERLAY ── */
+#msg-overlay{position:fixed;inset:0;z-index:200;background:rgba(1,5,15,0.92);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center}
+#msg-overlay.active{display:flex}
+.msg-box{background:rgba(2,12,24,0.99);border:1px solid rgba(0,200,255,0.35);box-shadow:0 0 60px rgba(0,200,255,0.15);border-radius:3px;padding:24px 28px;width:420px;display:flex;flex-direction:column;gap:14px}
+.msg-box-header{display:flex;align-items:center;justify-content:space-between}
+.msg-box-title{font-family:var(--hud);font-size:0.6rem;letter-spacing:0.28em;color:var(--blue)}
+.msg-box-device{font-size:0.56rem;color:var(--text-dim);margin-top:3px;letter-spacing:0.08em}
+.msg-close{background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:1rem;padding:2px 6px}
+.msg-textarea{width:100%;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.2);color:var(--text-bright);font-family:'Share Tech Mono',monospace;font-size:0.75rem;padding:10px 12px;border-radius:2px;outline:none;resize:vertical;min-height:80px;letter-spacing:0.05em;transition:border-color 0.2s}
+.msg-textarea:focus{border-color:rgba(0,200,255,0.5)}
+.msg-textarea::placeholder{color:var(--text-dim)}
+.msg-methods{font-size:0.52rem;color:var(--text-dim);line-height:1.8}
+.msg-methods span{color:rgba(0,200,255,0.55)}
+.msg-send-btn{background:rgba(0,200,255,0.1);border:1px solid rgba(0,200,255,0.4);color:var(--blue);font-family:var(--hud);font-size:0.5rem;letter-spacing:0.22em;padding:11px;cursor:pointer;border-radius:2px;transition:all 0.2s}
+.msg-send-btn:hover{background:rgba(0,200,255,0.2);box-shadow:0 0 20px rgba(0,200,255,0.2)}
+.msg-send-btn:disabled{opacity:0.4;cursor:not-allowed}
+.msg-result{font-size:0.6rem;padding:8px 12px;border-radius:2px;text-align:center;letter-spacing:0.1em}
+.msg-result.success{background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.3);color:var(--green)}
+.msg-result.error{background:rgba(255,51,51,0.08);border:1px solid rgba(255,51,51,0.3);color:var(--red)}
+.msg-result.info{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);color:var(--blue)}
+
+/* ── BROADCAST SECTION ── */
+.broadcast-row{display:flex;gap:6px}
+.broadcast-input{flex:1;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.18);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:0.62rem;padding:7px 10px;border-radius:2px;outline:none}
+.broadcast-input::placeholder{color:var(--text-dim)}
+.broadcast-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.25);color:var(--blue);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.18em;padding:7px 10px;cursor:pointer;border-radius:2px;white-space:nowrap;transition:all 0.2s}
+.broadcast-btn:hover{background:rgba(0,200,255,0.14)}
+
+/* ── QA BUTTONS ── */
+.qa-btn{width:100%;margin-bottom:5px;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.15);color:rgba(0,200,255,0.65);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.18em;padding:8px;cursor:pointer;border-radius:2px;transition:all 0.2s;text-align:left;display:flex;align-items:center;gap:8px}
+.qa-btn:hover{background:rgba(0,200,255,0.1);border-color:rgba(0,200,255,0.35);color:var(--blue)}
+.qa-btn.red{border-color:rgba(255,51,51,0.2);color:rgba(255,51,51,0.7)}
+.qa-btn.red:hover{background:rgba(255,51,51,0.06);border-color:rgba(255,51,51,0.4);color:var(--red)}
 
 /* ── TOAST ── */
 #toast{position:fixed;top:76px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.35);color:var(--blue);font-family:var(--hud);font-size:0.44rem;letter-spacing:0.22em;padding:8px 20px;border-radius:2px;z-index:200;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap}
@@ -194,11 +213,18 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 .ticker-item{padding:0 30px}.ticker-item.blue{color:rgba(0,200,255,0.6)}
 @keyframes tickerScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 
-/* Quick action btns in right panel */
-.qa-btn{width:100%;margin-bottom:5px;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.15);color:rgba(0,200,255,0.65);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.18em;padding:8px;cursor:pointer;border-radius:2px;transition:all 0.2s;text-align:left;display:flex;align-items:center;gap:8px}
-.qa-btn:hover{background:rgba(0,200,255,0.1);border-color:rgba(0,200,255,0.35);color:var(--blue)}
-.qa-btn.red{border-color:rgba(255,51,51,0.2);color:rgba(255,51,51,0.7)}
-.qa-btn.red:hover{background:rgba(255,51,51,0.06);border-color:rgba(255,51,51,0.4);color:var(--red)}
+/* ── DEVICE TYPE BADGE ── */
+.type-badge{display:inline-flex;align-items:center;gap:3px;font-family:var(--hud);font-size:0.3rem;letter-spacing:0.18em;padding:2px 6px;border-radius:2px;margin-top:5px}
+.type-badge.phone{background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.2);color:rgba(0,200,255,0.7)}
+.type-badge.laptop,.type-badge.chromebook{background:rgba(170,68,255,0.08);border:1px solid rgba(170,68,255,0.2);color:rgba(170,68,255,0.7)}
+.type-badge.tv{background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);color:rgba(255,170,0,0.7)}
+.type-badge.printer{background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);color:rgba(0,255,136,0.7)}
+.type-badge.router{background:rgba(255,51,51,0.08);border:1px solid rgba(255,51,51,0.2);color:rgba(255,51,51,0.7)}
+.type-badge.plug,.type-badge.smart{background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.2);color:rgba(255,170,0,0.7)}
+.type-badge.console{background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.2);color:rgba(0,255,136,0.7)}
+
+/* ── PENDING MESSAGES INDICATOR ── */
+.pending-msg-dot{position:absolute;top:-4px;right:-4px;width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px rgba(0,255,136,0.6);animation:blink 1.5s step-end infinite}
 </style>
 </head>
 <body>
@@ -207,10 +233,29 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 <div class="corner bl"></div><div class="corner br"></div>
 <div id="toast"></div>
 
+<!-- MESSAGE OVERLAY -->
+<div id="msg-overlay">
+  <div class="msg-box">
+    <div class="msg-box-header">
+      <div>
+        <div class="msg-box-title">⬡ SEND MESSAGE</div>
+        <div class="msg-box-device" id="msg-device-name">—</div>
+      </div>
+      <button class="msg-close" onclick="closeMsgOverlay()">✕</button>
+    </div>
+    <textarea class="msg-textarea" id="msg-text" placeholder="Type your message to this device…" maxlength="500"></textarea>
+    <div class="msg-methods">
+      Methods tried in order: <span>JARVIS agent</span> · <span>Windows NetSend</span> · <span>HTTP notify</span> · <span>queued for pickup</span>
+    </div>
+    <button class="msg-send-btn" id="msg-send-btn" onclick="sendMsg()">⏎ SEND TO DEVICE</button>
+    <div id="msg-result" style="display:none"></div>
+  </div>
+</div>
+
 <div id="top-bar">
   <div>
     <div class="top-title">J.A.R.V.I.S</div>
-    <div style="font-size:0.38rem;letter-spacing:0.22em;color:var(--text-dim)">HOME AUTOMATION</div>
+    <div style="font-size:0.38rem;letter-spacing:0.22em;color:var(--text-dim)">HOME AUTOMATION & NETWORK</div>
   </div>
   <div class="top-right">
     <span id="last-scan-label" style="font-size:0.44rem;letter-spacing:0.1em;color:var(--text-dim)">Never scanned</span>
@@ -220,7 +265,6 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 
 <!-- ACCOUNTS BAR -->
 <div id="accounts-bar">
-  <!-- JARVIS User -->
   <div class="account-chip" id="chip-user">
     <span class="chip-icon">👤</span>
     <div>
@@ -230,29 +274,6 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
     <div class="chip-status" id="chip-user-status"></div>
   </div>
   <div class="acct-divider"></div>
-  <!-- Gmail -->
-  <div class="account-chip" id="chip-gmail">
-    <span class="chip-icon">📧</span>
-    <div>
-      <div class="chip-label">GMAIL</div>
-      <div class="chip-val" id="chip-gmail-val">Checking…</div>
-    </div>
-    <div class="chip-status" id="chip-gmail-status"></div>
-    <a href="/api/google/auth" class="chip-connect-btn" id="chip-gmail-btn" style="display:none">CONNECT</a>
-  </div>
-  <div class="acct-divider"></div>
-  <!-- Spotify -->
-  <div class="account-chip" id="chip-spotify">
-    <span class="chip-icon">🎵</span>
-    <div>
-      <div class="chip-label">SPOTIFY</div>
-      <div class="chip-val" id="chip-spotify-val">Checking…</div>
-    </div>
-    <div class="chip-status" id="chip-spotify-status"></div>
-    <a href="/api/spotify/auth" class="chip-connect-btn" id="chip-spotify-btn" style="display:none">CONNECT</a>
-  </div>
-  <div class="acct-divider"></div>
-  <!-- Network info -->
   <div class="account-chip">
     <span class="chip-icon">🌐</span>
     <div>
@@ -262,12 +283,35 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
     <div class="chip-status connected" id="chip-net-status"></div>
   </div>
   <div class="acct-divider"></div>
-  <!-- Device count -->
+  <div class="account-chip">
+    <span class="chip-icon">📱</span>
+    <div>
+      <div class="chip-label">PHONES</div>
+      <div class="chip-val" id="chip-phones">0</div>
+    </div>
+  </div>
+  <div class="acct-divider"></div>
+  <div class="account-chip">
+    <span class="chip-icon">💻</span>
+    <div>
+      <div class="chip-label">COMPUTERS</div>
+      <div class="chip-val" id="chip-computers">0</div>
+    </div>
+  </div>
+  <div class="acct-divider"></div>
   <div class="account-chip">
     <span class="chip-icon">⬡</span>
     <div>
-      <div class="chip-label">DEVICES FOUND</div>
+      <div class="chip-label">ALL DEVICES</div>
       <div class="chip-val" id="chip-device-count">0 devices</div>
+    </div>
+  </div>
+  <div class="acct-divider"></div>
+  <div class="account-chip">
+    <span class="chip-icon">✉</span>
+    <div>
+      <div class="chip-label">MESSAGES SENT</div>
+      <div class="chip-val" id="chip-msgs-sent">0</div>
     </div>
   </div>
 </div>
@@ -275,31 +319,39 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 <div id="main">
   <!-- SIDEBAR -->
   <div id="sidebar">
-    <div class="sbar-header">⬡ ROOMS</div>
-    <div class="room-btn active" data-room="all"         onclick="filterByRoom('all')">       <span>⬡</span> All Devices    <span class="room-count" id="count-all">0</span></div>
-    <div class="room-btn"       data-room="living room"  onclick="filterByRoom('living room')"><span>🛋</span> Living Room   <span class="room-count" id="count-living">0</span></div>
-    <div class="room-btn"       data-room="bedroom"      onclick="filterByRoom('bedroom')">   <span>🛏</span> Bedroom       <span class="room-count" id="count-bedroom">0</span></div>
-    <div class="room-btn"       data-room="kitchen"      onclick="filterByRoom('kitchen')">   <span>🍳</span> Kitchen       <span class="room-count" id="count-kitchen">0</span></div>
-    <div class="room-btn"       data-room="office"       onclick="filterByRoom('office')">    <span>💻</span> Office        <span class="room-count" id="count-office">0</span></div>
-    <div class="room-btn"       data-room="bathroom"     onclick="filterByRoom('bathroom')">  <span>🚿</span> Bathroom      <span class="room-count" id="count-bathroom">0</span></div>
-    <div class="room-btn"       data-room="unassigned"   onclick="filterByRoom('unassigned')"><span>?</span>  Unassigned    <span class="room-count" id="count-unassigned">0</span></div>
+    <div class="sbar-header">⬡ FILTER BY ROOM</div>
+    <div class="room-btn active" data-room="all"          onclick="filterByRoom('all')">       <span>⬡</span> All Devices    <span class="room-count" id="count-all">0</span></div>
+    <div class="room-btn"       data-room="phone"         onclick="filterByType('phone')">     <span>📱</span> Phones          <span class="room-count" id="count-phones">0</span></div>
+    <div class="room-btn"       data-room="laptop"        onclick="filterByType('laptop')">    <span>💻</span> Laptops         <span class="room-count" id="count-laptops">0</span></div>
+    <div class="room-btn"       data-room="chromebook"    onclick="filterByType('chromebook')"><span>💻</span> Chromebooks     <span class="room-count" id="count-chromebooks">0</span></div>
+    <div class="room-btn"       data-room="tv"            onclick="filterByType('tv')">        <span>📺</span> Smart TVs       <span class="room-count" id="count-tvs">0</span></div>
+    <div class="room-btn"       data-room="printer"       onclick="filterByType('printer')">   <span>🖨</span> Printers        <span class="room-count" id="count-printers">0</span></div>
+    <div class="room-btn"       data-room="router"        onclick="filterByType('router')">    <span>📡</span> Routers         <span class="room-count" id="count-routers">0</span></div>
+    <div class="room-btn"       data-room="console"       onclick="filterByType('console')">   <span>🎮</span> Consoles        <span class="room-count" id="count-consoles">0</span></div>
+    <div class="room-btn"       data-room="plug"          onclick="filterByType('plug')">      <span>🔌</span> Smart Plugs     <span class="room-count" id="count-plugs">0</span></div>
+    <div class="room-btn"       data-room="unknown"       onclick="filterByType('unknown')">   <span>⬡</span> Unknown         <span class="room-count" id="count-unknown">0</span></div>
+    <div class="room-btn"       data-room="living room"   onclick="filterByRoom('living room')"><span>🛋</span> Living Room    <span class="room-count" id="count-living">0</span></div>
+    <div class="room-btn"       data-room="bedroom"       onclick="filterByRoom('bedroom')">   <span>🛏</span> Bedroom        <span class="room-count" id="count-bedroom">0</span></div>
+    <div class="room-btn"       data-room="office"        onclick="filterByRoom('office')">    <span>💻</span> Office         <span class="room-count" id="count-office">0</span></div>
+    <div class="room-btn"       data-room="unassigned"    onclick="filterByRoom('unassigned')"><span>?</span> Unassigned     <span class="room-count" id="count-unassigned">0</span></div>
 
     <div style="padding:10px 14px 4px;font-family:var(--hud);font-size:0.36rem;letter-spacing:0.26em;color:var(--text-dim)">SCAN NETWORK</div>
-    <button class="scan-btn" id="scan-btn" onclick="startScan(false)"><span>⟳</span> SCAN</button>
+    <button class="scan-btn" id="scan-btn" onclick="startScan()"><span>⟳</span> FULL SCAN</button>
     <button class="scan-btn" onclick="startScan(true)" style="border-color:rgba(170,68,255,0.35);color:var(--purple);font-size:0.38rem;padding:7px;margin-top:0">DEEP SCAN</button>
 
-    <!-- LEPRO MANUAL ADD -->
-    <div style="padding:10px 14px 4px;font-family:var(--hud);font-size:0.36rem;letter-spacing:0.26em;color:var(--purple)">ADD LEPRO MANUALLY</div>
-    <div id="lepro-add-form">
-      <div class="lepro-form-title">⬡ LEPRO P1 PLUG</div>
-      <input class="lepro-input" id="lepro-ip" placeholder="192.168.1.xxx (plug IP)"/>
-      <input class="lepro-input" id="lepro-name" placeholder="Name (e.g. Desk Lamp)"/>
-      <button class="lepro-add-btn" onclick="addLeproManually()">+ ADD PLUG</button>
+    <!-- MANUAL DEVICE ADD -->
+    <div style="padding:10px 14px 4px;font-family:var(--hud);font-size:0.36rem;letter-spacing:0.26em;color:var(--purple)">ADD DEVICE MANUALLY</div>
+    <div class="add-form">
+      <div class="add-form-title">⬡ MANUAL ADD</div>
+      <input id="manual-ip"   placeholder="IP Address (192.168.1.x)"/>
+      <input id="manual-name" placeholder="Device name (optional)"/>
+      <button class="add-form-btn" onclick="addManualDevice()">+ ADD DEVICE</button>
     </div>
     <div style="padding:4px 14px 12px;font-size:0.5rem;color:var(--text-dim);line-height:1.7">
-      To find your plug's IP:<br>
-      Check your router's device list<br>
-      or use <span style="color:var(--blue)">Lepro app → device info</span>
+      To send messages:<br>
+      Target device needs JARVIS running<br>
+      OR be on Windows network<br>
+      Messages always queue for pickup
     </div>
   </div>
 
@@ -310,19 +362,16 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
       <div class="sp-bar-wrap"><div class="sp-bar" id="sp-bar"></div></div>
       <div class="sp-log" id="sp-log">Initialising…</div>
     </div>
-    <div id="hue-pair-banner">
-      <div class="hue-pair-text">⬡ Philips Hue bridge found.<br>Press the <strong style="color:var(--purple)">link button</strong> then click pair.</div>
-      <button class="hue-pair-btn" onclick="pairHue()">PAIR HUE</button>
-    </div>
+
     <div id="empty-state">
       <div class="empty-orb">⌂</div>
       <div class="empty-title">NO DEVICES FOUND</div>
       <div class="empty-hint">
-        Click <strong style="color:var(--blue)">SCAN</strong> to discover devices on your network<br><br>
-        <strong style="color:var(--purple)">Lepro P1:</strong> Add it manually by IP address<br>
-        (find IP in your router or Lepro app)<br><br>
-        Supported: Lepro/Tuya · Philips Hue<br>
-        TP-Link Kasa · WLED · Shelly
+        Click <strong style="color:var(--blue)">FULL SCAN</strong> to discover all devices on your network<br><br>
+        Detects: <strong style="color:var(--blue)">Phones · Laptops · Chromebooks</strong><br>
+        <strong style="color:var(--blue)">Smart TVs · Printers · Routers · Consoles</strong><br>
+        Smart Plugs (Kasa/WLED/Shelly) and anything else<br><br>
+        💬 Send messages to any detected device
       </div>
     </div>
     <div id="device-sections"></div>
@@ -332,36 +381,41 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
   <div id="right-panel">
     <div class="rp-section">
       <div class="rp-label">QUICK ACTIONS</div>
-      <button class="qa-btn" onclick="allOn()">  💡 All Lights / Plugs ON</button>
-      <button class="qa-btn red" onclick="allOff()">🌑 All Lights / Plugs OFF</button>
-      <button class="qa-btn" onclick="allDim()">🌙 Dim All (20%)</button>
+      <button class="qa-btn" onclick="allOn()">💡 All Plugs / Lights ON</button>
+      <button class="qa-btn red" onclick="allOff()">🌑 All Plugs / Lights OFF</button>
+      <button class="qa-btn" onclick="broadcastAll()">💬 Broadcast to All</button>
     </div>
 
     <div class="rp-section">
-      <div class="rp-label">VOICE COMMAND</div>
-      <input type="text" id="voice-input-field" placeholder='e.g. "turn on plug"' onkeydown="if(event.key==='Enter')sendVoiceCmd()"/>
-      <button id="voice-send-btn" onclick="sendVoiceCmd()">⏎ SEND</button>
-    </div>
-
-    <div class="rp-section">
-      <div class="rp-label">NETWORK INFO</div>
-      <div class="rp-stat"><span class="rp-stat-key">Subnet</span>   <span class="rp-stat-val" id="rp-subnet">—</span></div>
-      <div class="rp-stat"><span class="rp-stat-key">Total</span>    <span class="rp-stat-val" id="rp-total">0</span></div>
-      <div class="rp-stat"><span class="rp-stat-key">Online</span>   <span class="rp-stat-val green" id="rp-online">0</span></div>
-      <div class="rp-stat"><span class="rp-stat-key">Lights</span>   <span class="rp-stat-val" id="rp-lights">0</span></div>
-      <div class="rp-stat"><span class="rp-stat-key">Plugs</span>    <span class="rp-stat-val purple" id="rp-plugs">0</span></div>
-    </div>
-
-    <div class="rp-section">
-      <div class="rp-label">BRANDS FOUND</div>
-      <div id="rp-brands" style="display:flex;flex-direction:column;gap:4px;margin-top:2px">
-        <div style="font-size:0.5rem;color:var(--text-dim)">Scan to populate</div>
+      <div class="rp-label">BROADCAST MESSAGE</div>
+      <div class="broadcast-row">
+        <input class="broadcast-input" id="broadcast-input" placeholder="Message to all…" onkeydown="if(event.key==='Enter')broadcastAll()"/>
+        <button class="broadcast-btn" onclick="broadcastAll()">SEND ALL</button>
       </div>
     </div>
 
     <div class="rp-section">
-      <div class="rp-label">ACCOUNTS</div>
-      <div id="rp-accounts" style="display:flex;flex-direction:column;gap:5px;margin-top:2px"></div>
+      <div class="rp-label">VOICE COMMAND</div>
+      <input type="text" id="voice-input-field" placeholder='"turn on plug" · "lights off"' onkeydown="if(event.key==='Enter')sendVoiceCmd()"/>
+      <button id="voice-send-btn" onclick="sendVoiceCmd()">⏎ SEND COMMAND</button>
+    </div>
+
+    <div class="rp-section">
+      <div class="rp-label">NETWORK STATS</div>
+      <div class="rp-stat"><span class="rp-stat-key">Subnet</span>   <span class="rp-stat-val" id="rp-subnet">—</span></div>
+      <div class="rp-stat"><span class="rp-stat-key">Total</span>    <span class="rp-stat-val" id="rp-total">0</span></div>
+      <div class="rp-stat"><span class="rp-stat-key">Online</span>   <span class="rp-stat-val green" id="rp-online">0</span></div>
+      <div class="rp-stat"><span class="rp-stat-key">Phones</span>   <span class="rp-stat-val" id="rp-phones">0</span></div>
+      <div class="rp-stat"><span class="rp-stat-key">Computers</span><span class="rp-stat-val" id="rp-computers">0</span></div>
+      <div class="rp-stat"><span class="rp-stat-key">Plugs</span>    <span class="rp-stat-val purple" id="rp-plugs">0</span></div>
+      <div class="rp-stat"><span class="rp-stat-key">Msgs Sent</span><span class="rp-stat-val green" id="rp-msgs">0</span></div>
+    </div>
+
+    <div class="rp-section">
+      <div class="rp-label">DEVICE TYPES</div>
+      <div id="rp-brands" style="display:flex;flex-direction:column;gap:4px;margin-top:2px">
+        <div style="font-size:0.5rem;color:var(--text-dim)">Scan to populate</div>
+      </div>
     </div>
   </div>
 </div>
@@ -381,121 +435,61 @@ body::before{content:'';position:fixed;inset:0;background-image:repeating-linear
 <div id="ticker">
   <div class="ticker-track">
     <span class="ticker-item blue">HOME AUTOMATION — J.A.R.V.I.S</span><span class="ticker-item" style="opacity:.25">·</span>
-    <span class="ticker-item">LEPRO P1 · TUYA · HUE · KASA · WLED · SHELLY</span><span class="ticker-item" style="opacity:.25">·</span>
-    <span class="ticker-item blue">LOCAL NETWORK ONLY — ZERO CLOUD</span><span class="ticker-item" style="opacity:.25">·</span>
-    <span class="ticker-item">SAY "JARVIS TURN ON THE PLUG" TO CONTROL</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item">PHONES · LAPTOPS · CHROMEBOOKS · SMART TVS · PRINTERS · ROUTERS · CONSOLES</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item blue">SEND MESSAGES TO ANY DEVICE ON YOUR NETWORK</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item">MAC VENDOR FINGERPRINTING · PORT SCANNING · ARP TABLE ANALYSIS</span><span class="ticker-item" style="opacity:.25">·</span>
     <span class="ticker-item blue">HOME AUTOMATION — J.A.R.V.I.S</span><span class="ticker-item" style="opacity:.25">·</span>
-    <span class="ticker-item">LEPRO P1 · TUYA · HUE · KASA · WLED · SHELLY</span><span class="ticker-item" style="opacity:.25">·</span>
-    <span class="ticker-item blue">LOCAL NETWORK ONLY — ZERO CLOUD</span><span class="ticker-item" style="opacity:.25">·</span>
-    <span class="ticker-item">SAY "JARVIS TURN ON THE PLUG" TO CONTROL</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item">PHONES · LAPTOPS · CHROMEBOOKS · SMART TVS · PRINTERS · ROUTERS · CONSOLES</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item blue">SEND MESSAGES TO ANY DEVICE ON YOUR NETWORK</span><span class="ticker-item" style="opacity:.25">·</span>
+    <span class="ticker-item">MAC VENDOR FINGERPRINTING · PORT SCANNING · ARP TABLE ANALYSIS</span><span class="ticker-item" style="opacity:.25">·</span>
   </div>
 </div>
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-// JARVIS HOME CLIENT v2 — Lepro/Tuya support + accounts bar
+// JARVIS HOME CLIENT v3 — Full Network + Messaging
 // ═══════════════════════════════════════════════════════════════
-let allDevices  = [];
-let currentRoom = 'all';
+let allDevices    = [];
+let currentFilter = { mode: 'all', value: 'all' };
 let selectedDevice = null;
-let refreshInterval = null;
+let msgTarget      = null;
+let msgsSent       = 0;
 
-const ICONS = { light:'💡', plug:'🔌', switch:'🔲', sensor:'📡', hub:'⬡', unknown:'⚙' };
-const BRANDS = { hue:'Philips Hue', kasa:'TP-Link Kasa', tapo:'TP-Link Tapo', wled:'WLED', shelly:'Shelly', tuya:'Tuya / Lepro', generic:'Generic' };
+const TYPE_ICONS = {
+  phone:'📱', laptop:'💻', chromebook:'💻', computer:'🖥', tablet:'📱',
+  tv:'📺', printer:'🖨', router:'📡', console:'🎮', echo:'🔊',
+  chromecast:'📺', camera:'📹', nas:'💾', iot:'⚡', plug:'🔌',
+  smart:'💡', unknown:'⬡'
+};
+const TYPE_LABELS = {
+  phone:'Phone', laptop:'Laptop', chromebook:'Chromebook', computer:'Computer',
+  tablet:'Tablet', tv:'Smart TV', printer:'Printer', router:'Router',
+  console:'Console', echo:'Smart Speaker', chromecast:'Chromecast',
+  camera:'IP Camera', nas:'NAS Drive', plug:'Smart Plug', smart:'Smart Device',
+  iot:'IoT Device', unknown:'Device'
+};
 
 // ── BOOT ──────────────────────────────────────────────────────
 window.onload = () => {
-  loadAccountsBar();
+  loadUserChip();
   loadSubnet();
   fetchDevices();
-  refreshInterval = setInterval(fetchDevices, 8000);
+  setInterval(fetchDevices, 10000);
 };
 
-// ── ACCOUNTS BAR ──────────────────────────────────────────────
-async function loadAccountsBar() {
-  // 1. JARVIS user from profile
+function loadUserChip() {
   try {
     const profile = JSON.parse(localStorage.getItem('jarvis_profile') || 'null');
     const nameHint = localStorage.getItem('jarvis_name_hint') || '';
-    if (profile?.name || nameHint) {
-      const name = profile?.name || nameHint;
-      const title = profile?.title || 'Sir';
-      document.getElementById('chip-user-val').textContent = `${name} (${title})`;
+    const name = profile?.name || nameHint;
+    if (name) {
+      document.getElementById('chip-user-val').textContent = `${name} (${profile?.title || 'Sir'})`;
       document.getElementById('chip-user-status').className = 'chip-status connected';
     } else {
       document.getElementById('chip-user-val').textContent = 'Not logged in';
       document.getElementById('chip-user-status').className = 'chip-status error';
     }
   } catch {}
-
-  // 2. Check Google/Gmail
-  checkGoogleStatus();
-
-  // 3. Check Spotify
-  checkSpotifyStatus();
-
-  // 4. Update right panel accounts
-  updateRpAccounts();
-}
-
-async function checkGoogleStatus() {
-  try {
-    // Try to call gmail briefly to see if token exists
-    const res  = await fetch('/api/gmail', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message:'check inbox' }) });
-    const data = await res.json();
-    if (data.needsAuth) {
-      document.getElementById('chip-gmail-val').textContent = 'Not connected';
-      document.getElementById('chip-gmail-status').className = 'chip-status error';
-      document.getElementById('chip-gmail-btn').style.display = '';
-    } else if (data.error && data.error.includes('not configured')) {
-      document.getElementById('chip-gmail-val').textContent = 'Not configured';
-      document.getElementById('chip-gmail-status').className = 'chip-status pending';
-    } else {
-      // Connected — show unread count
-      const unread = data.unread !== undefined ? data.unread : '?';
-      document.getElementById('chip-gmail-val').textContent = `Connected · ${unread} unread`;
-      document.getElementById('chip-gmail-status').className = 'chip-status connected';
-      document.getElementById('chip-gmail-btn').style.display = 'none';
-    }
-  } catch {
-    document.getElementById('chip-gmail-val').textContent = 'Unavailable';
-    document.getElementById('chip-gmail-status').className = 'chip-status pending';
-  }
-}
-
-async function checkSpotifyStatus() {
-  try {
-    const res  = await fetch('/api/spotify', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ message:'now playing' }) });
-    const data = await res.json();
-    if (data.needsAuth) {
-      document.getElementById('chip-spotify-val').textContent = 'Not connected';
-      document.getElementById('chip-spotify-status').className = 'chip-status error';
-      document.getElementById('chip-spotify-btn').style.display = '';
-    } else if (data.error?.includes('not configured')) {
-      document.getElementById('chip-spotify-val').textContent = 'Not configured';
-      document.getElementById('chip-spotify-status').className = 'chip-status pending';
-    } else {
-      const track = data.track ? `${data.track}` : 'Connected';
-      document.getElementById('chip-spotify-val').textContent = track.length > 22 ? track.slice(0,22) + '…' : track;
-      document.getElementById('chip-spotify-status').className = 'chip-status connected';
-      document.getElementById('chip-spotify-btn').style.display = 'none';
-    }
-  } catch {
-    document.getElementById('chip-spotify-val').textContent = 'Unavailable';
-    document.getElementById('chip-spotify-status').className = 'chip-status pending';
-  }
-}
-
-function updateRpAccounts() {
-  const profile = JSON.parse(localStorage.getItem('jarvis_profile') || 'null');
-  const nameHint = localStorage.getItem('jarvis_name_hint') || '';
-  const name = profile?.name || nameHint || '—';
-  const el = document.getElementById('rp-accounts');
-  el.innerHTML = `
-    <div class="rp-stat"><span class="rp-stat-key">User</span><span class="rp-stat-val">${escHtml(name.toUpperCase())}</span></div>
-    <div class="rp-stat"><span class="rp-stat-key">Gmail</span><span class="rp-stat-val" id="rp-gmail-status">Checking…</span></div>
-    <div class="rp-stat"><span class="rp-stat-key">Spotify</span><span class="rp-stat-val" id="rp-spotify-status">Checking…</span></div>
-  `;
 }
 
 async function loadSubnet() {
@@ -511,7 +505,7 @@ async function loadSubnet() {
 // ── FETCH DEVICES ─────────────────────────────────────────────
 async function fetchDevices() {
   try {
-    const res  = await fetch('/api/home/devices');
+    const res = await fetch('/api/home/devices');
     const data = await res.json();
     allDevices = data.devices || [];
     renderDevices();
@@ -525,82 +519,128 @@ async function startScan(deep = false) {
   const prog = document.getElementById('scan-progress');
   const log  = document.getElementById('sp-log');
   const bar  = document.getElementById('sp-bar');
-  btn.classList.add('scanning'); btn.textContent = '⟳ SCANNING…';
+
+  btn.classList.add('scanning');
+  btn.textContent = '⟳ SCANNING…';
   prog.classList.add('visible');
   document.getElementById('empty-state').style.display = 'none';
+
   let pct = 0;
-  const ticker = setInterval(() => { pct = Math.min(pct + Math.random() * 6, 85); bar.style.width = pct + '%'; }, 400);
-  const pollLog = setInterval(async () => { try { const r = await fetch('/api/home/scan-status'); const d = await r.json(); if (d.log) log.textContent = d.log; } catch {} }, 700);
+  const ticker = setInterval(() => {
+    pct = Math.min(pct + Math.random() * 5, 88);
+    bar.style.width = pct + '%';
+  }, 500);
+  const pollLog = setInterval(async () => {
+    try {
+      const r = await fetch('/api/home/scan-status');
+      const d = await r.json();
+      if (d.log) log.textContent = d.log;
+    } catch {}
+  }, 800);
+
   try {
-    const res  = await fetch('/api/home/scan', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ deep }) });
+    const res = await fetch('/api/home/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deep })
+    });
     const data = await res.json();
     clearInterval(ticker); clearInterval(pollLog);
     bar.style.width = '100%';
     allDevices = data.devices || [];
     renderDevices(); updateStats();
     setTimeout(() => { prog.classList.remove('visible'); bar.style.width = '0%'; }, 1500);
-    const needsPairing = allDevices.find(d => d._needsPairing);
-    document.getElementById('hue-pair-banner').classList.toggle('visible', !!needsPairing);
     toast(`Scan complete — ${allDevices.length} device(s) found`);
     updateLastScan();
-    // Update device count in accounts bar
-    document.getElementById('chip-device-count').textContent = `${allDevices.length} device${allDevices.length !== 1 ? 's' : ''}`;
-  } catch { clearInterval(ticker); clearInterval(pollLog); prog.classList.remove('visible'); toast('Scan failed — check server'); }
-  btn.classList.remove('scanning'); btn.textContent = '⟳ SCAN';
+  } catch {
+    clearInterval(ticker); clearInterval(pollLog);
+    prog.classList.remove('visible');
+    toast('Scan failed — check server connection');
+  }
+  btn.classList.remove('scanning');
+  btn.textContent = '⟳ FULL SCAN';
 }
 
 function updateLastScan() {
-  document.getElementById('last-scan-label').textContent = 'Last scan: ' + new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:true });
+  document.getElementById('last-scan-label').textContent =
+    'Last scan: ' + new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit', hour12:true });
 }
 
-// ── ADD LEPRO MANUALLY ────────────────────────────────────────
-async function addLeproManually() {
-  const ip   = document.getElementById('lepro-ip').value.trim();
-  const name = document.getElementById('lepro-name').value.trim() || 'Lepro Smart Plug';
+// ── MANUAL DEVICE ADD ─────────────────────────────────────────
+async function addManualDevice() {
+  const ip   = document.getElementById('manual-ip').value.trim();
+  const name = document.getElementById('manual-name').value.trim();
   if (!ip || !/^\d+\.\d+\.\d+\.\d+$/.test(ip)) { toast('Enter a valid IP address'); return; }
   try {
-    const res  = await fetch('/api/home/add-tuya', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ip, name }) });
+    const res  = await fetch('/api/home/add-tuya', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ip, name: name || `Device (${ip})` })
+    });
     const data = await res.json();
     if (data.device) {
       allDevices = allDevices.filter(d => d.ip !== ip);
       allDevices.push(data.device);
       renderDevices(); updateStats();
-      toast(`✓ ${name} added at ${ip}`);
-      document.getElementById('lepro-ip').value = '';
-      document.getElementById('lepro-name').value = '';
+      toast(`✓ Device added at ${ip}`);
+      document.getElementById('manual-ip').value = '';
+      document.getElementById('manual-name').value = '';
+    } else {
+      toast(`Added ${ip} (probe returned no data — device may be offline)`);
     }
   } catch { toast('Failed to add device'); }
 }
 
-// ── RENDER ────────────────────────────────────────────────────
+// ── FILTER ────────────────────────────────────────────────────
 function filterByRoom(room) {
-  currentRoom = room;
-  document.querySelectorAll('.room-btn').forEach(b => b.classList.toggle('active', b.dataset.room === room));
+  currentFilter = { mode: 'room', value: room };
+  document.querySelectorAll('.room-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.room === room);
+  });
+  renderDevices();
+}
+
+function filterByType(type) {
+  currentFilter = { mode: 'type', value: type };
+  document.querySelectorAll('.room-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.room === type);
+  });
   renderDevices();
 }
 
 function getFiltered() {
-  if (currentRoom === 'all')        return allDevices;
-  if (currentRoom === 'unassigned') return allDevices.filter(d => !d.room);
-  return allDevices.filter(d => (d.room || '').toLowerCase().includes(currentRoom));
+  if (currentFilter.mode === 'all' || currentFilter.value === 'all') return allDevices;
+  if (currentFilter.mode === 'type') return allDevices.filter(d => d.type === currentFilter.value);
+  if (currentFilter.value === 'unassigned') return allDevices.filter(d => !d.room);
+  return allDevices.filter(d => (d.room || '').toLowerCase().includes(currentFilter.value));
 }
 
+// ── RENDER ────────────────────────────────────────────────────
 function renderDevices() {
   const container = document.getElementById('device-sections');
   const empty     = document.getElementById('empty-state');
   const filtered  = getFiltered();
-  if (allDevices.length === 0) { empty.style.display = 'flex'; container.innerHTML = ''; return; }
+
+  if (allDevices.length === 0) {
+    empty.style.display = 'flex'; container.innerHTML = '';
+    return;
+  }
   empty.style.display = 'none';
 
+  // Group by type
+  const TYPE_ORDER = ['phone','tablet','laptop','chromebook','computer','tv','console','printer','router','echo','plug','smart','camera','nas','iot','unknown'];
   const groups = {};
-  for (const d of filtered) { const k = d.type || 'unknown'; if (!groups[k]) groups[k] = []; groups[k].push(d); }
-  const order  = ['light','plug','switch','sensor','hub','unknown'];
-  const labels = { light:'LIGHTS', plug:'SMART PLUGS', switch:'SWITCHES', sensor:'SENSORS', hub:'HUBS', unknown:'OTHER' };
+  for (const d of filtered) {
+    const k = d.type || 'unknown';
+    if (!groups[k]) groups[k] = [];
+    groups[k].push(d);
+  }
 
   let html = '';
-  for (const type of order) {
+  for (const type of TYPE_ORDER) {
     const list = groups[type]; if (!list?.length) continue;
-    html += `<div class="section-header"><div class="section-title">${labels[type]}</div><div class="section-count">${list.length} device${list.length > 1 ? 's' : ''}</div></div><div class="device-grid">`;
+    const label = TYPE_LABELS[type] ? TYPE_LABELS[type] + 'S' : 'OTHER';
+    html += `<div class="section-header"><div class="section-title">${TYPE_ICONS[type] || '⬡'} ${label}</div><div class="section-count">${list.length} device${list.length > 1 ? 's' : ''}</div></div><div class="device-grid">`;
     for (const d of list) html += renderCard(d);
     html += `</div>`;
   }
@@ -609,79 +649,106 @@ function renderDevices() {
 }
 
 function renderCard(d) {
-  const isTuya    = d.brand === 'tuya';
-  const onClass   = d.on ? ' on' : '';
-  const tuyaClass = isTuya ? ' tuya-card' : '';
-  const needsKey  = d._needsKey ? ' needs-key' : '';
-  const unreach   = !d.reachable ? ' unreachable' : '';
-  const icon      = ICONS[d.type] || '⚙';
-  const brandLabel = BRANDS[d.brand] || d.brand || 'Unknown';
-  const status    = d._needsPairing ? 'NEEDS PAIRING' : d._needsKey ? 'KEY NEEDED' : d.reachable === false ? 'UNREACHABLE' : d.on ? 'ON' : 'STANDBY';
-  const cardId    = 'card-' + d.id.replace(/[^a-zA-Z0-9]/g, '-');
+  const onClass  = d.on ? ' on' : '';
+  const unreach  = !d.reachable && d.reachable !== undefined ? ' unreachable' : '';
+  const icon     = TYPE_ICONS[d.type] || '⬡';
+  const typeLabel = TYPE_LABELS[d.type] || 'Device';
+  const status   = d.reachable === false ? 'UNREACHABLE' : d.on ? 'ON' : 'REACHABLE';
+  const brand    = d.brand ? d.brand : '';
+  const cardId   = 'card-' + d.id.replace(/[^a-zA-Z0-9]/g, '-');
 
-  let extra = '';
-  if (isTuya) extra += `<div class="lepro-badge">⬡ LEPRO / TUYA</div>`;
-  if (d._needsKey) extra += `<div class="needs-key-badge">⚠ Local key not set</div>`;
+  const ports = d.openPorts && d.openPorts.length
+    ? `<div class="open-ports-list">${d.openPorts.slice(0, 5).map(p => `<span class="port-tag">${p}</span>`).join('')}${d.openPorts.length > 5 ? `<span class="port-tag">+${d.openPorts.length - 5}</span>` : ''}</div>`
+    : '';
 
-  return `<div class="device-card${onClass}${tuyaClass}${needsKey}${unreach}" id="${cardId}" onclick="selectDevice('${d.id}')">
+  const canToggle = d.canControl || false;
+
+  return `<div class="device-card${onClass}${unreach}" id="${cardId}" onclick="selectDevice('${d.id}')">
     <div class="card-top">
       <div class="card-icon">${icon}</div>
-      ${!d._needsPairing ? `<div class="card-toggle" onclick="toggleDevice(event,'${d.id}')"></div>` : ''}
+      <div class="card-actions">
+        <div class="msg-icon-btn" title="Send message" onclick="openMsgOverlay(event,'${d.id}')">💬</div>
+        ${canToggle ? `<div class="card-toggle" onclick="toggleDevice(event,'${d.id}')"></div>` : ''}
+      </div>
     </div>
     <div class="card-name">${escHtml(d.name)}</div>
-    <div class="card-brand${isTuya ? ' tuya' : ''}">${brandLabel}</div>
-    <div class="card-status"><div class="card-dot"></div><span class="card-status-text">${status}</span></div>
-    ${extra}
+    ${brand ? `<div class="card-brand">${escHtml(brand)}</div>` : ''}
+    <div class="type-badge ${d.type || 'unknown'}">${typeLabel.toUpperCase()}</div>
+    <div class="card-status" style="margin-top:6px"><div class="card-dot"></div><span class="card-status-text">${status}</span></div>
+    <div class="card-ip">${d.ip}</div>
+    ${d.hostname ? `<div class="card-ports">${escHtml(d.hostname)}</div>` : ''}
+    ${ports}
   </div>`;
 }
 
 function updateRoomCounts() {
-  const m = { all:0, 'living room':0, bedroom:0, kitchen:0, office:0, bathroom:0, unassigned:0 };
-  m.all = allDevices.length;
+  const types = ['phone','laptop','chromebook','tv','printer','router','console','plug','unknown'];
+  const counts = {};
+  for (const t of types) counts[t] = 0;
+  counts.all = allDevices.length;
+  let phones = 0, computers = 0;
+
   for (const d of allDevices) {
-    const r = (d.room || '').toLowerCase();
-    if (!d.room) { m.unassigned++; continue; }
-    for (const key of Object.keys(m)) if (key !== 'all' && key !== 'unassigned' && r.includes(key)) m[key]++;
+    const t = d.type || 'unknown';
+    if (counts[t] !== undefined) counts[t]++;
+    if (t === 'phone' || t === 'tablet') phones++;
+    if (t === 'laptop' || t === 'chromebook' || t === 'computer') computers++;
   }
-  document.getElementById('count-all').textContent         = m.all;
-  document.getElementById('count-living').textContent      = m['living room'];
-  document.getElementById('count-bedroom').textContent     = m.bedroom;
-  document.getElementById('count-kitchen').textContent     = m.kitchen;
-  document.getElementById('count-office').textContent      = m.office;
-  document.getElementById('count-bathroom').textContent    = m.bathroom;
-  document.getElementById('count-unassigned').textContent  = m.unassigned;
+
+  document.getElementById('count-all').textContent         = counts.all;
+  document.getElementById('count-phones').textContent      = counts.phone + (counts.tablet || 0);
+  document.getElementById('count-laptops').textContent     = counts.laptop || 0;
+  document.getElementById('count-chromebooks').textContent = counts.chromebook || 0;
+  document.getElementById('count-tvs').textContent         = counts.tv || 0;
+  document.getElementById('count-printers').textContent    = counts.printer || 0;
+  document.getElementById('count-routers').textContent     = counts.router || 0;
+  document.getElementById('count-consoles').textContent    = counts.console || 0;
+  document.getElementById('count-plugs').textContent       = counts.plug || 0;
+  document.getElementById('count-unknown').textContent     = counts.unknown || 0;
+
+  document.getElementById('chip-phones').textContent       = phones;
+  document.getElementById('chip-computers').textContent    = computers;
 }
 
 function updateStats() {
-  const total   = allDevices.length;
-  const online  = allDevices.filter(d => d.reachable !== false).length;
-  const lights  = allDevices.filter(d => d.type === 'light').length;
-  const plugs   = allDevices.filter(d => d.type === 'plug').length;
-  const tuya    = allDevices.filter(d => d.brand === 'tuya').length;
+  const total     = allDevices.length;
+  const online    = allDevices.filter(d => d.reachable !== false).length;
+  const phones    = allDevices.filter(d => d.type === 'phone' || d.type === 'tablet').length;
+  const computers = allDevices.filter(d => ['laptop','chromebook','computer'].includes(d.type)).length;
+  const plugs     = allDevices.filter(d => d.type === 'plug' || d.type === 'smart').length;
 
-  document.getElementById('rp-total').textContent  = total;
-  document.getElementById('rp-online').textContent  = online;
-  document.getElementById('rp-lights').textContent  = lights;
-  document.getElementById('rp-plugs').textContent   = plugs;
+  document.getElementById('rp-total').textContent     = total;
+  document.getElementById('rp-online').textContent    = online;
+  document.getElementById('rp-phones').textContent    = phones;
+  document.getElementById('rp-computers').textContent = computers;
+  document.getElementById('rp-plugs').textContent     = plugs;
+  document.getElementById('rp-msgs').textContent      = msgsSent;
   document.getElementById('chip-device-count').textContent = `${total} device${total !== 1 ? 's' : ''}`;
+  document.getElementById('chip-msgs-sent').textContent    = msgsSent;
 
-  const brandSet = {};
-  allDevices.forEach(d => { brandSet[d.brand] = (brandSet[d.brand] || 0) + 1; });
+  // Type breakdown
+  const typeCount = {};
+  allDevices.forEach(d => { typeCount[d.type] = (typeCount[d.type] || 0) + 1; });
   const brandsEl = document.getElementById('rp-brands');
-  brandsEl.innerHTML = Object.entries(brandSet).map(([b,n]) =>
-    `<div class="rp-stat"><span class="rp-stat-key">${BRANDS[b] || b}</span><span class="rp-stat-val${b === 'tuya' ? ' purple' : ''}">${n}</span></div>`
-  ).join('') || '<div style="font-size:0.5rem;color:var(--text-dim)">None yet</div>';
+  brandsEl.innerHTML = Object.entries(typeCount)
+    .sort((a,b) => b[1]-a[1])
+    .map(([t, n]) => `<div class="rp-stat"><span class="rp-stat-key">${TYPE_LABELS[t] || t}</span><span class="rp-stat-val">${n}</span></div>`)
+    .join('') || '<div style="font-size:0.5rem;color:var(--text-dim)">None yet</div>';
 }
 
-// ── CONTROL ───────────────────────────────────────────────────
+// ── TOGGLE DEVICE ─────────────────────────────────────────────
 async function toggleDevice(event, id) {
   event.stopPropagation();
   const d = allDevices.find(x => x.id === id);
-  if (!d || d._needsPairing) return;
+  if (!d) return;
   const newState = !d.on; d.on = newState;
   updateCardState(id, d);
   try {
-    await fetch(`/api/home/control/${encodeURIComponent(id)}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ on: newState }) });
+    await fetch(`/api/home/control/${encodeURIComponent(id)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ on: newState })
+    });
   } catch {}
 }
 
@@ -691,68 +758,206 @@ function updateCardState(id, d) {
   if (d.on) card.classList.add('on'); else card.classList.remove('on');
 }
 
-async function bulkControl(cmd) {
-  const ctrl = allDevices.filter(d => !d._needsPairing && d.reachable !== false);
-  ctrl.forEach(d => { if (cmd.on !== undefined) { d.on = cmd.on; updateCardState(d.id, d); } });
-  try { await fetch('/api/home/control-all', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cmd) }); } catch {}
+async function allOn()  {
+  allDevices.filter(d => d.canControl).forEach(d => { d.on = true; updateCardState(d.id, d); });
+  await fetch('/api/home/control-all', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ on: true }) });
+  toast('All controllable devices ON');
 }
-async function allOn()  { await bulkControl({ on: true });         toast('All devices ON'); }
-async function allOff() { await bulkControl({ on: false });        toast('All devices OFF'); }
-async function allDim() { await bulkControl({ bri: 20, on: true }); toast('All dimmed to 20%'); }
+async function allOff() {
+  allDevices.filter(d => d.canControl).forEach(d => { d.on = false; updateCardState(d.id, d); });
+  await fetch('/api/home/control-all', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ on: false }) });
+  toast('All controllable devices OFF');
+}
 
-// ── DETAIL PANEL ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// ── MESSAGING ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+function openMsgOverlay(event, deviceId) {
+  event.stopPropagation();
+  const d = allDevices.find(x => x.id === deviceId);
+  if (!d) return;
+  msgTarget = d;
+
+  document.getElementById('msg-device-name').textContent =
+    `${TYPE_ICONS[d.type] || '⬡'}  ${d.name}  (${d.ip})`;
+  document.getElementById('msg-text').value = '';
+  document.getElementById('msg-result').style.display = 'none';
+  document.getElementById('msg-send-btn').disabled = false;
+  document.getElementById('msg-send-btn').textContent = '⏎ SEND TO DEVICE';
+  document.getElementById('msg-overlay').classList.add('active');
+  setTimeout(() => document.getElementById('msg-text').focus(), 100);
+}
+
+function closeMsgOverlay() {
+  document.getElementById('msg-overlay').classList.remove('active');
+  msgTarget = null;
+}
+
+// Close on backdrop click
+document.getElementById('msg-overlay').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('msg-overlay')) closeMsgOverlay();
+});
+
+// Ctrl+Enter to send
+document.getElementById('msg-text').addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') sendMsg();
+});
+
+async function sendMsg() {
+  if (!msgTarget) return;
+  const text = document.getElementById('msg-text').value.trim();
+  if (!text) { showMsgResult('Type a message first.', 'error'); return; }
+
+  const btn = document.getElementById('msg-send-btn');
+  btn.disabled = true;
+  btn.textContent = '⟳ SENDING…';
+
+  const resultEl = document.getElementById('msg-result');
+  resultEl.style.display = 'none';
+
+  try {
+    const res = await fetch(`/api/home/message/${encodeURIComponent(msgTarget.id)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, from: 'J.A.R.V.I.S' })
+    });
+    const data = await res.json();
+
+    if (data.ok) {
+      msgsSent++;
+      document.getElementById('chip-msgs-sent').textContent = msgsSent;
+      document.getElementById('rp-msgs').textContent = msgsSent;
+
+      const methodLabels = {
+        jarvis:  '✓ Delivered via JARVIS agent',
+        winmsg:  '✓ Delivered via Windows network message',
+        queued:  '⏳ Message queued — will appear when device opens JARVIS',
+        'http:8080': '✓ Delivered via HTTP',
+        'http:80': '✓ Delivered via HTTP',
+      };
+      const methodLabel = methodLabels[data.method] || `✓ Sent (${data.method || 'unknown method'})`;
+
+      showMsgResult(methodLabel, 'success');
+      btn.textContent = '✓ SENT';
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.textContent = '⏎ SEND TO DEVICE';
+      }, 2000);
+
+      // Mark card with sent indicator
+      const card = document.getElementById('card-' + msgTarget.id.replace(/[^a-zA-Z0-9]/g, '-'));
+      if (card && !card.querySelector('.msg-badge')) {
+        const badge = document.createElement('div');
+        badge.className = 'msg-badge';
+        badge.textContent = '✉ SENT';
+        card.appendChild(badge);
+        setTimeout(() => badge.remove(), 4000);
+      }
+    } else {
+      showMsgResult(`Error: ${data.error || 'Send failed'}`, 'error');
+      btn.disabled = false;
+      btn.textContent = '⏎ SEND TO DEVICE';
+    }
+  } catch (e) {
+    showMsgResult(`Network error: ${e.message}`, 'error');
+    btn.disabled = false;
+    btn.textContent = '⏎ SEND TO DEVICE';
+  }
+}
+
+function showMsgResult(text, type) {
+  const el = document.getElementById('msg-result');
+  el.textContent = text;
+  el.className = `msg-result ${type}`;
+  el.style.display = 'block';
+}
+
+async function broadcastAll() {
+  const input = document.getElementById('broadcast-input');
+  const text  = input.value.trim() || 'Message from J.A.R.V.I.S';
+  if (!text) { toast('Enter a message to broadcast'); return; }
+
+  try {
+    const res = await fetch('/api/home/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, from: 'J.A.R.V.I.S' })
+    });
+    const data = await res.json();
+    const sent = (data.results || []).filter(r => r.ok).length;
+    msgsSent += sent;
+    document.getElementById('chip-msgs-sent').textContent = msgsSent;
+    document.getElementById('rp-msgs').textContent = msgsSent;
+    toast(`Broadcast sent to ${sent}/${allDevices.length} device(s)`);
+    input.value = '';
+  } catch { toast('Broadcast failed'); }
+}
+
+// ── DEVICE DETAIL PANEL ───────────────────────────────────────
 function selectDevice(id) {
-  const d = allDevices.find(x => x.id === id); if (!d) return;
+  const d = allDevices.find(x => x.id === id);
+  if (!d) return;
   selectedDevice = d;
-  document.getElementById('dd-name').textContent   = d.name;
-  document.getElementById('dd-room-input').value   = d.room || '';
+
+  document.getElementById('dd-name').textContent    = `${TYPE_ICONS[d.type] || '⬡'} ${d.name}`;
+  document.getElementById('dd-room-input').value    = d.room || '';
+
   const rows = [
-    ['Type',    d.type || '—'],
-    ['Brand',   BRANDS[d.brand] || d.brand || '—'],
-    ['IP',      d.ip || '—'],
-    ['Status',  d.reachable === false ? 'Unreachable' : 'Reachable'],
-    ['Power',   d.on === null ? '—' : d.on ? 'ON' : 'OFF'],
-    ['Protocol',d.brand === 'tuya' ? 'Tuya Local (port 6668)' : d.brand],
-    ['Room',    d.room || 'Unassigned'],
+    ['Type',      TYPE_LABELS[d.type] || d.type || '—'],
+    ['Brand',     d.brand || '—'],
+    ['IP',        d.ip],
+    ['Hostname',  d.hostname || '—'],
+    ['MAC',       d.mac || '—'],
+    ['Status',    d.reachable === false ? 'Unreachable' : 'Reachable'],
+    ['Power',     d.on === null || d.on === undefined ? '—' : d.on ? 'ON' : 'OFF'],
+    ['Open Ports',d.openPorts?.join(', ') || 'None detected'],
+    ['Room',      d.room || 'Unassigned'],
   ];
-  document.getElementById('dd-rows').innerHTML = rows.map(([k,v]) => `<div class="dd-row"><span class="dd-key">${k}</span><span class="dd-val">${escHtml(String(v))}</span></div>`).join('');
-  const actions = !d._needsPairing
-    ? [`<div class="dd-btn" onclick="controlDevice('${id}',{on:true})">ON</div>`, `<div class="dd-btn" onclick="controlDevice('${id}',{on:false})">OFF</div>`]
-    : [];
+  document.getElementById('dd-rows').innerHTML =
+    rows.map(([k,v]) => `<div class="dd-row"><span class="dd-key">${k}</span><span class="dd-val">${escHtml(String(v))}</span></div>`).join('');
+
+  const actions = [
+    `<div class="dd-btn" onclick="openMsgOverlay(event,'${id}')">💬 Message</div>`,
+  ];
+  if (d.canControl) {
+    actions.push(`<div class="dd-btn" onclick="controlDevice('${id}',{on:true})">ON</div>`);
+    actions.push(`<div class="dd-btn" onclick="controlDevice('${id}',{on:false})">OFF</div>`);
+  }
   document.getElementById('dd-actions').innerHTML = actions.join('');
   document.getElementById('device-detail').classList.add('visible');
 }
 
-function closeDetail() { document.getElementById('device-detail').classList.remove('visible'); selectedDevice = null; }
+function closeDetail() {
+  document.getElementById('device-detail').classList.remove('visible');
+  selectedDevice = null;
+}
 
 async function controlDevice(id, cmd) {
   try {
-    const res = await fetch(`/api/home/control/${encodeURIComponent(id)}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cmd) });
-    const data = await res.json();
+    await fetch(`/api/home/control/${encodeURIComponent(id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(cmd)
+    });
     const d = allDevices.find(x => x.id === id);
     if (d && cmd.on !== undefined) { d.on = cmd.on; updateCardState(id, d); }
-    toast(data.ok ? 'Done' : 'Command sent (result unknown)');
-  } catch { toast('Request failed'); }
+    toast('Command sent');
+  } catch { toast('Command failed'); }
 }
 
 async function assignRoom() {
   if (!selectedDevice) return;
   const room = document.getElementById('dd-room-input').value.trim();
   try {
-    await fetch(`/api/home/device/${encodeURIComponent(selectedDevice.id)}/room`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ room }) });
-    const d = allDevices.find(x => x.id === selectedDevice.id); if (d) d.room = room;
-    renderDevices(); toast(`Room set: "${room}"`);
+    await fetch(`/api/home/device/${encodeURIComponent(selectedDevice.id)}/room`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room })
+    });
+    const d = allDevices.find(x => x.id === selectedDevice.id);
+    if (d) d.room = room;
+    renderDevices();
+    toast(`Room set: "${room}"`);
   } catch {}
-}
-
-async function pairHue() {
-  toast('Attempting Hue pairing…');
-  try {
-    const res = await fetch('/api/home/hue/pair', { method:'POST' });
-    const data = await res.json();
-    if (data.success) { toast(`Hue paired! ${data.lights} light(s) added.`); document.getElementById('hue-pair-banner').classList.remove('visible'); await fetchDevices(); }
-    else toast(data.error || 'Pairing failed — press link button first');
-  } catch { toast('Pairing request failed'); }
 }
 
 async function sendVoiceCmd() {
@@ -760,20 +965,26 @@ async function sendVoiceCmd() {
   const text  = input.value.trim(); if (!text) return;
   input.value = '';
   try {
-    const res  = await fetch('/api/home/voice', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text }) });
+    const res  = await fetch('/api/home/voice', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
     const data = await res.json();
     toast(data.reply || 'Done');
     await fetchDevices();
   } catch { toast('Command failed'); }
 }
 
+// ── UTILS ────────────────────────────────────────────────────
 function toast(msg, dur = 2800) {
   const el = document.getElementById('toast');
   el.textContent = msg; el.classList.add('show');
   clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), dur);
 }
 
-function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 </script>
 </body>
 </html>
