@@ -1,8 +1,9 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Home Automation Module v3.0
-// Lepro P1 support: subnet scan + HTTP fingerprint (no auth)
-// Also discovers: Philips Hue · TP-Link Kasa/Tapo · WLED · Shelly
+// J.A.R.V.I.S — Home Automation + Network Scanner v4.0
+// Discovers: Smart plugs · Phones · Laptops · Chromebooks · TVs
+//            Tablets · Printers · Routers · Any networked device
+// Messaging: Send popup/notification to any device on the network
 // Local network only — zero cloud APIs required
 // ═══════════════════════════════════════════════════════════════
 
@@ -43,13 +44,13 @@ function getLocalIPs() {
 }
 
 // ── TCP PROBE ────────────────────────────────────────────────
-function tcpProbe(host, port, timeout = 800) {
+function tcpProbe(host, port, timeout = 600) {
   return new Promise((resolve) => {
     const s = new net.Socket();
     s.setTimeout(timeout);
     s.connect(port, host, () => { s.destroy(); resolve(true); });
     s.on("error",   () => resolve(false));
-    s.on("timeout", () => { s.destroy(); resolve(false); });
+    s.on("timeout", () => { s.destroy(); resolve(false)); });
   });
 }
 
@@ -85,395 +86,398 @@ function put(host, port, path, body, timeout = 2500) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── LEPRO P1 LOCAL DISCOVERY (no credentials required) ────────
-//
-// The Lepro P1 uses Bluetooth + 2.4GHz WiFi. It does NOT use
-// the Tuya protocol. Once it joins your WiFi it gets an IP.
-// Some Lepro firmware versions expose a minimal HTTP control
-// API on port 80/8080 with no authentication on the local net.
-//
-// Strategy:
-//   1. Fast TCP sweep of subnet on port 80 (most common)
-//   2. Deeper probe of candidates on all smart-plug ports
-//   3. Fingerprint HTTP responses to confirm it's a Lepro/smart plug
-//   4. Find a working control endpoint
-//   5. Fall back to manual IP entry if not auto-detected
+// ── ARP TABLE READER — fastest way to find devices ────────────
+// Reads the OS ARP cache for recently seen devices
 // ═══════════════════════════════════════════════════════════════
+const { exec } = require("child_process");
 
-// Ports Lepro and generic smart plug firmware may listen on
-const LEPRO_PORTS = [80, 8080, 8888, 4998, 7000, 6668];
-
-// Strings that appear in Lepro / compatible plug HTTP responses
-const LEPRO_FINGERPRINTS = [
-  "lepro", "leproapp", "LEPRO",
-  "BK7231",         // Beken chip used in many Lepro devices
-  "RTL8710",        // Realtek chip — another Lepro variant
-  "realtek",
-  "smartplug", "smart_plug", "SmartPlug",
-  "switch", "relay", "outlet",
-  '"switch":', '"relay":', '"power":',
-  '"on":', '"state":',
-  "ETL", "FCC",     // cert strings sometimes in /info response
-];
-
-// Local API endpoint candidates to try (GET, no auth)
-const LEPRO_INFO_ENDPOINTS = [
-  "/info",
-  "/status",
-  "/state",
-  "/switch",
-  "/api/info",
-  "/api/status",
-  "/api/switch",
-  "/device",
-  "/device/info",
-  "/cgi-bin/hello",
-  "/switch.json",
-  "/",
-];
-
-// Control endpoint candidates (tried in order until one works)
-const LEPRO_CONTROL_CANDIDATES = [
-  // GET-style on/off
-  { path: "/switch",     method: "GET", onQ: "?state=1",  offQ: "?state=0"  },
-  { path: "/relay",      method: "GET", onQ: "?value=1",  offQ: "?value=0"  },
-  { path: "/api/switch", method: "GET", onQ: "?on=1",     offQ: "?on=0"     },
-  { path: "/switch",     method: "GET", onQ: "?on=true",  offQ: "?on=false" },
-  { path: "/state",      method: "GET", onQ: "?switch=1", offQ: "?switch=0" },
-  // POST-style
-  { path: "/state",      method: "POST", onBody: '{"switch":1}',  offBody: '{"switch":0}'  },
-  { path: "/api/state",  method: "POST", onBody: '{"on":true}',   offBody: '{"on":false}'  },
-  { path: "/switch",     method: "POST", onBody: '{"value":1}',   offBody: '{"value":0}'   },
-  { path: "/relay",      method: "POST", onBody: '{"relay":1}',   offBody: '{"relay":0}'   },
-  { path: "/api/switch", method: "POST", onBody: '{"switch":"on"}', offBody: '{"switch":"off"}' },
-];
-
-// ── SIMPLE FETCH FOR LEPRO ────────────────────────────────────
-async function leproFetch(ip, port, path, opts = {}) {
+function readArpTable() {
   return new Promise((resolve) => {
-    const method  = opts.method || "GET";
-    const payload = opts.body   || null;
-    const headers = { "User-Agent": "JARVIS/1.0", "Accept": "*/*" };
-    if (payload) headers["Content-Type"] = "application/json";
-
-    const req = http.request(
-      { hostname: ip, port, path, method, headers, timeout: opts.timeout || 2000 },
-      (res) => {
-        let data = "";
-        res.on("data", d => data += d);
-        res.on("end",  () => resolve({ ok: res.statusCode < 400, status: res.statusCode, text: data }));
-      }
-    );
-    req.on("error",   () => resolve(null));
-    req.on("timeout", () => { req.destroy(); resolve(null); });
-    if (payload) req.write(payload);
-    req.end();
-  });
-}
-
-// ── FINGERPRINT A RESPONSE ────────────────────────────────────
-function isLeproLike(text) {
-  if (!text) return false;
-  const lower = text.toLowerCase();
-  return LEPRO_FINGERPRINTS.some(fp => lower.includes(fp.toLowerCase()));
-}
-
-// ── PARSE ON/OFF STATE FROM RESPONSE ─────────────────────────
-function parsePlugState(text) {
-  try {
-    const j = JSON.parse(text);
-    const on =
-      j.switch === 1 || j.switch === "1" || j.switch === "on" || j.switch === true ||
-      j.relay  === 1 || j.relay  === true ||
-      j.on     === 1 || j.on     === true || j.on === "true" ||
-      j.state  === 1 || j.state  === "on" ||
-      j.power  === 1 || j.power  === "on";
-    return { parsed: true, on, raw: j };
-  } catch {
-    const lower = (text || "").toLowerCase();
-    if (lower.includes('"on"') || lower.includes("state:1") || lower.includes("switch=1")) return { parsed: true, on: true };
-    if (lower.includes('"off"') || lower.includes("state:0") || lower.includes("switch=0")) return { parsed: true, on: false };
-    return { parsed: false, on: false };
-  }
-}
-
-// ── FIND WORKING CONTROL ENDPOINT ────────────────────────────
-async function findLeproControlEndpoint(ip, port) {
-  for (const ctrl of LEPRO_CONTROL_CANDIDATES) {
-    let res;
-    if (ctrl.method === "GET") {
-      res = await leproFetch(ip, port, ctrl.path + ctrl.onQ, { timeout: 1500 });
-    } else {
-      res = await leproFetch(ip, port, ctrl.path, { method: "POST", body: ctrl.onBody, timeout: 1500 });
-    }
-    if (res && res.ok) return { ...ctrl, port };
-  }
-  return null;
-}
-
-// ── PROBE ONE IP FOR LEPRO ────────────────────────────────────
-async function probeLepro(ip) {
-  // Step 1: which ports are open?
-  const portChecks = await Promise.all(
-    LEPRO_PORTS.map(p => tcpProbe(ip, p, 550).then(open => open ? p : null))
-  );
-  const openPorts = portChecks.filter(Boolean);
-  if (openPorts.length === 0) return null;
-
-  // Step 2: fingerprint over each open port + endpoint
-  for (const port of openPorts) {
-    for (const endpoint of LEPRO_INFO_ENDPOINTS) {
-      const res = await leproFetch(ip, port, endpoint, { timeout: 1800 });
-      if (!res) continue;
-
-      const looksLike = isLeproLike(res.text) || res.ok;
-
-      if (looksLike || res.ok) {
-        const state = parsePlugState(res.text);
-        const ctrl  = await findLeproControlEndpoint(ip, port);
-
-        return {
-          id:           `lepro-${ip}`,
-          name:         `Lepro Smart Plug (${ip})`,
-          type:         "plug",
-          brand:        "lepro",
-          ip,
-          port,
-          on:           state.on,
-          brightness:   null,
-          color:        null,
-          room:         null,
-          reachable:    true,
-          raw:          {
-            openPorts,
-            endpoint,
-            responsePreview: (res.text || "").slice(0, 150),
-            fingerprinted: isLeproLike(res.text),
-            controlFound: !!ctrl,
-          },
-          _controlInfo:    ctrl,
-          _infoEndpoint:   endpoint,
-          _infoPort:       port,
-          _needsKey:       false,
-        };
-      }
-    }
-  }
-
-  // Step 3: port was open but nothing fingerprinted — still worth noting
-  return {
-    id:           `lepro-${ip}`,
-    name:         `Smart Plug? (${ip}) — tap to confirm`,
-    type:         "plug",
-    brand:        "lepro",
-    ip,
-    port:         openPorts[0],
-    on:           false,
-    brightness:   null,
-    color:        null,
-    room:         null,
-    reachable:    true,
-    raw:          { openPorts, note: "Port open — may be Lepro, confirm manually" },
-    _controlInfo: null,
-    _needsConfirmation: true,
-    _needsKey:    false,
-  };
-}
-
-// ── LEPRO CONTROL ─────────────────────────────────────────────
-async function leproControl(device, cmd) {
-  if (cmd.on === undefined) return false;
-  const ip = device.ip;
-
-  // Use the discovered control info if available
-  const candidates = device._controlInfo
-    ? [device._controlInfo]
-    : LEPRO_CONTROL_CANDIDATES;
-
-  const ports = device._controlInfo
-    ? [device._controlInfo.port]
-    : LEPRO_PORTS.filter(p => [80, 8080, 8888].includes(p));
-
-  for (const port of ports) {
-    for (const ctrl of candidates) {
-      let res;
-      if (!ctrl.method || ctrl.method === "GET") {
-        const q = cmd.on ? (ctrl.onQ || "?on=1") : (ctrl.offQ || "?on=0");
-        res = await leproFetch(ip, port, ctrl.path + q, { timeout: 2500 });
-      } else {
-        const body = cmd.on ? ctrl.onBody : ctrl.offBody;
-        res = await leproFetch(ip, port, ctrl.path, { method: "POST", body, timeout: 2500 });
-      }
-      if (res && res.ok) {
-        device.on = cmd.on;
-        // Cache which combo worked
-        if (!device._controlInfo) device._controlInfo = { ...ctrl, port };
-        return true;
-      }
-    }
-  }
-
-  // Optimistic — Lepro may have accepted with no useful HTTP response
-  device.on = cmd.on;
-  console.log(`[LEPRO] Sent ${cmd.on ? "ON" : "OFF"} to ${ip} — response unclear, state updated optimistically`);
-  return true;
-}
-
-// ── SUBNET SCAN FOR LEPRO ─────────────────────────────────────
-async function scanSubnetForLepro(progress) {
-  const found = [];
-  const subnets = getLocalSubnets();
-
-  for (const subnet of subnets) {
-    progress && progress(`Scanning ${subnet}0/24 for Lepro devices…`);
-
-    // Fast first pass: probe port 80 in batches of 50
-    for (let batch = 0; batch < 254; batch += 50) {
-      const promises = [];
-      for (let i = batch + 1; i <= Math.min(batch + 50, 254); i++) {
-        const ip = subnet + i;
-        promises.push(tcpProbe(ip, 80, 450).then(open => open ? ip : null));
-      }
-      const candidates = (await Promise.all(promises)).filter(Boolean);
-
-      // Full probe each candidate
-      for (const ip of candidates) {
-        // Skip IPs already claimed by other brands
-        if ([...devices.values()].some(d => d.ip === ip && d.brand !== "lepro")) continue;
-        progress && progress(`Found open port 80 at ${ip}, probing for Lepro…`);
-        const device = await probeLepro(ip);
-        if (device) {
-          found.push(device);
-          progress && progress(`Lepro device confirmed at ${ip}`);
+    exec("arp -a", { timeout: 5000 }, (err, stdout) => {
+      if (err) { resolve([]); return; }
+      const entries = [];
+      const lines = stdout.split("\n");
+      for (const line of lines) {
+        // Windows: "hostname (ip) at mac"
+        // Linux/Mac: "? (192.168.1.1) at xx:xx:xx:xx:xx:xx"
+        const ipMatch  = line.match(/\((\d+\.\d+\.\d+\.\d+)\)/);
+        const macMatch = line.match(/([0-9a-fA-F]{2}[:\-][0-9a-fA-F]{2}[:\-][0-9a-fA-F]{2}[:\-][0-9a-fA-F]{2}[:\-][0-9a-fA-F]{2}[:\-][0-9a-fA-F]{2})/);
+        const hostMatch = line.match(/^([^\s(]+)/);
+        if (ipMatch) {
+          entries.push({
+            ip:       ipMatch[1],
+            mac:      macMatch ? macMatch[1].toLowerCase() : null,
+            hostname: hostMatch && hostMatch[1] !== "?" ? hostMatch[1] : null,
+          });
         }
       }
-    }
-  }
-  return found;
-}
-
-// ── MANUALLY ADD LEPRO BY IP ──────────────────────────────────
-async function addLeproManually(ip, name, room) {
-  progress => progress; // noop — standalone
-  const device = await probeLepro(ip) || {
-    id:           `lepro-${ip}`,
-    name:         name || `Lepro Smart Plug (${ip})`,
-    type:         "plug",
-    brand:        "lepro",
-    ip,
-    port:         80,
-    on:           false,
-    brightness:   null,
-    color:        null,
-    room:         room || null,
-    reachable:    false,
-    raw:          { addedManually: true },
-    _controlInfo: null,
-    _manualAdd:   true,
-    _needsKey:    false,
-  };
-
-  device.name  = name  || device.name;
-  device.room  = room  || device.room;
-  device.id    = `lepro-${ip}`;
-  device.controlFn = (cmd) => leproControl(device, cmd);
-  devices.set(device.id, device);
-  return serializeDevice(device);
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── PHILIPS HUE ──────────────────────────────────────────────
-// ═══════════════════════════════════════════════════════════════
-function ssdpScan(timeout = 4000) {
-  return new Promise((resolve) => {
-    const found = new Map();
-    let sock;
-    const done = () => { try { sock && sock.close(); } catch {} resolve([...found.values()]); };
-    const timer = setTimeout(done, timeout);
-    try {
-      sock = dgram.createSocket({ type: "udp4", reuseAddr: true });
-      sock.on("error", () => { clearTimeout(timer); resolve([]); });
-      sock.on("message", (buf, rinfo) => {
-        const text = buf.toString("utf8");
-        if (!found.has(rinfo.address)) found.set(rinfo.address, { ip: rinfo.address, raw: text });
-      });
-      sock.bind(0, () => {
-        try { sock.setBroadcast(true); } catch {}
-        const msearch = [
-          "M-SEARCH * HTTP/1.1", "HOST: 239.255.255.255:1900",
-          'MAN: "ssdp:discover"', "MX: 3", "ST: ssdp:all", "", "",
-        ].join("\r\n");
-        const buf = Buffer.from(msearch);
-        sock.send(buf, 0, buf.length, 1900, "239.255.255.255");
-        getLocalSubnets().forEach(s => {
-          try { sock.send(buf, 0, buf.length, 1900, s + "255"); } catch {}
-        });
-      });
-    } catch { clearTimeout(timer); resolve([]); }
+      resolve(entries);
+    });
   });
 }
 
-const HUE_APP_NAME = "jarvis#server";
-let hueUsername = null;
-
-function isHueBridge(entry) {
-  const r = entry.raw || "";
-  return /IpBridge/i.test(r) || /philips.*hue/i.test(r) || /hue.*bridge/i.test(r);
+// ── PING SWEEP — sends ICMP to wake up ARP cache ─────────────
+function pingSweep(subnet) {
+  return new Promise((resolve) => {
+    // Use OS ping to sweep — works on Windows, Linux, Mac
+    const isWin = process.platform === "win32";
+    const pings = [];
+    for (let i = 1; i <= 254; i++) {
+      const ip  = subnet + i;
+      const cmd = isWin ? `ping -n 1 -w 200 ${ip}` : `ping -c 1 -W 1 ${ip}`;
+      pings.push(new Promise(r => exec(cmd, { timeout: 3000 }, () => r())));
+    }
+    Promise.all(pings).then(() => resolve());
+    // Don't wait for all — resolve after 8 seconds max
+    setTimeout(resolve, 8000);
+  });
 }
 
-async function hueGetUsername(ip) {
-  if (hueUsername) return hueUsername;
-  const res = await post(ip, 80, "/api", { devicetype: HUE_APP_NAME });
-  if (!res.ok || !res.body) return null;
-  const arr = Array.isArray(res.body) ? res.body : [res.body];
-  for (const item of arr) {
-    if (item.success?.username) { hueUsername = item.success.username; return hueUsername; }
+// ═══════════════════════════════════════════════════════════════
+// ── MAC VENDOR LOOKUP — identify device type from MAC OUI ─────
+// ═══════════════════════════════════════════════════════════════
+const MAC_VENDORS = {
+  // Apple
+  "ac:bc:32": { brand:"Apple",   type:"phone",      icon:"📱" },
+  "f0:18:98": { brand:"Apple",   type:"phone",      icon:"📱" },
+  "a4:c3:f0": { brand:"Apple",   type:"phone",      icon:"📱" },
+  "d8:96:95": { brand:"Apple",   type:"phone",      icon:"📱" },
+  "3c:22:fb": { brand:"Apple",   type:"laptop",     icon:"💻" },
+  "f4:d4:88": { brand:"Apple",   type:"laptop",     icon:"💻" },
+  "a8:66:7f": { brand:"Apple",   type:"laptop",     icon:"💻" },
+  "00:17:f2": { brand:"Apple",   type:"laptop",     icon:"💻" },
+  // Samsung
+  "8c:f5:a3": { brand:"Samsung", type:"phone",      icon:"📱" },
+  "94:35:0a": { brand:"Samsung", type:"phone",      icon:"📱" },
+  "b4:79:a7": { brand:"Samsung", type:"phone",      icon:"📱" },
+  "cc:07:ab": { brand:"Samsung", type:"phone",      icon:"📱" },
+  "50:01:bb": { brand:"Samsung", type:"tv",         icon:"📺" },
+  "fc:a1:83": { brand:"Samsung", type:"tv",         icon:"📺" },
+  // Google
+  "f4:f5:d8": { brand:"Google",  type:"phone",      icon:"📱" },
+  "3c:5a:b4": { brand:"Google",  type:"chromebook", icon:"💻" },
+  "94:eb:2c": { brand:"Google",  type:"chromebook", icon:"💻" },
+  "54:60:09": { brand:"Google",  type:"chromebook", icon:"💻" },
+  "a4:77:33": { brand:"Google",  type:"chromecast", icon:"📺" },
+  "6c:ad:f8": { brand:"Google",  type:"chromecast", icon:"📺" },
+  // Amazon
+  "fc:65:de": { brand:"Amazon",  type:"echo",       icon:"🔊" },
+  "68:37:e9": { brand:"Amazon",  type:"echo",       icon:"🔊" },
+  "74:c2:46": { brand:"Amazon",  type:"fire",       icon:"📺" },
+  "f0:27:2d": { brand:"Amazon",  type:"fire",       icon:"📺" },
+  // Raspberry Pi
+  "b8:27:eb": { brand:"Raspberry Pi", type:"computer", icon:"🖥" },
+  "dc:a6:32": { brand:"Raspberry Pi", type:"computer", icon:"🖥" },
+  "e4:5f:01": { brand:"Raspberry Pi", type:"computer", icon:"🖥" },
+  // TP-Link
+  "50:c4:dd": { brand:"TP-Link", type:"router",     icon:"📡" },
+  "14:cc:20": { brand:"TP-Link", type:"router",     icon:"📡" },
+  "a0:f3:c1": { brand:"TP-Link", type:"plug",       icon:"🔌" },
+  // Netgear
+  "a0:04:60": { brand:"Netgear", type:"router",     icon:"📡" },
+  "9c:d3:6d": { brand:"Netgear", type:"router",     icon:"📡" },
+  // Asus
+  "ac:22:0b": { brand:"Asus",    type:"router",     icon:"📡" },
+  "04:d9:f5": { brand:"Asus",    type:"laptop",     icon:"💻" },
+  // Dell
+  "f8:db:88": { brand:"Dell",    type:"laptop",     icon:"💻" },
+  "18:60:24": { brand:"Dell",    type:"laptop",     icon:"💻" },
+  // HP
+  "d8:9d:67": { brand:"HP",      type:"laptop",     icon:"💻" },
+  "10:02:b5": { brand:"HP",      type:"printer",    icon:"🖨" },
+  "b0:5a:da": { brand:"HP",      type:"printer",    icon:"🖨" },
+  // Lenovo
+  "4c:1d:96": { brand:"Lenovo",  type:"laptop",     icon:"💻" },
+  "54:ee:75": { brand:"Lenovo",  type:"laptop",     icon:"💻" },
+  // Sony
+  "70:2b:34": { brand:"Sony",    type:"tv",         icon:"📺" },
+  "ac:9b:0a": { brand:"Sony",    type:"phone",      icon:"📱" },
+  // LG
+  "a8:23:fe": { brand:"LG",      type:"tv",         icon:"📺" },
+  "cc:2d:83": { brand:"LG",      type:"tv",         icon:"📺" },
+  // OnePlus
+  "8c:5f:cf": { brand:"OnePlus", type:"phone",      icon:"📱" },
+  // Xiaomi
+  "98:fa:e3": { brand:"Xiaomi",  type:"phone",      icon:"📱" },
+  "64:09:80": { brand:"Xiaomi",  type:"phone",      icon:"📱" },
+  // Nintendo
+  "98:b6:e9": { brand:"Nintendo",type:"console",    icon:"🎮" },
+  "00:22:aa": { brand:"Nintendo",type:"console",    icon:"🎮" },
+  // Sony PlayStation
+  "bc:60:a7": { brand:"PlayStation", type:"console",icon:"🎮" },
+  "00:04:1f": { brand:"PlayStation", type:"console",icon:"🎮" },
+  // Microsoft Xbox
+  "60:45:cb": { brand:"Xbox",    type:"console",    icon:"🎮" },
+  "7c:ed:8d": { brand:"Xbox",    type:"console",    icon:"🎮" },
+};
+
+function getMacVendor(mac) {
+  if (!mac) return null;
+  const oui = mac.replace(/[:\-]/g, "").substring(0, 6).toLowerCase();
+  const key3 = oui.substring(0,2)+":"+oui.substring(2,4)+":"+oui.substring(4,6);
+  return MAC_VENDORS[key3] || null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── PORT FINGERPRINTING — figure out what a device is ─────────
+// ═══════════════════════════════════════════════════════════════
+const DEVICE_PORT_PROFILES = [
+  { ports:[80,443],         type:"computer",  hint:"web server"    },
+  { ports:[8080,8443],      type:"computer",  hint:"web app"       },
+  { ports:[22],             type:"computer",  hint:"SSH"           },
+  { ports:[5353],           type:"phone",     hint:"mDNS/Bonjour"  },
+  { ports:[62078],          type:"phone",     hint:"iOS sync"      },
+  { ports:[7000,7100],      type:"phone",     hint:"AirPlay"       },
+  { ports:[8009],           type:"chromecast",hint:"Chromecast"    },
+  { ports:[9100],           type:"printer",   hint:"print server"  },
+  { ports:[515,631],        type:"printer",   hint:"LPD/IPP"       },
+  { ports:[1883,8883],      type:"iot",       hint:"MQTT"          },
+  { ports:[6668,6669],      type:"plug",      hint:"Tuya"          },
+  { ports:[80],             type:"smart",     hint:"HTTP device"   },
+  { ports:[554],            type:"camera",    hint:"RTSP camera"   },
+  { ports:[3389],           type:"computer",  hint:"RDP"           },
+  { ports:[445,139],        type:"computer",  hint:"Windows share" },
+];
+
+async function fingerprintByPorts(ip) {
+  const portChecks = [22,80,139,443,445,515,554,631,1883,3389,5353,6668,7000,7100,8009,8080,8443,9100,62078];
+  const openPorts = [];
+  const checks = await Promise.all(portChecks.map(p => tcpProbe(ip, p, 400).then(open => open ? p : null)));
+  for (const p of checks) if (p) openPorts.push(p);
+
+  for (const profile of DEVICE_PORT_PROFILES) {
+    if (profile.ports.some(p => openPorts.includes(p))) {
+      return { type: profile.type, hint: profile.hint, openPorts };
+    }
   }
+  return { type: "unknown", hint: "no known ports", openPorts };
+}
+
+// ── HOSTNAME LOOKUP ───────────────────────────────────────────
+function reverseLookup(ip) {
+  return new Promise((resolve) => {
+    require("dns").reverse(ip, (err, hostnames) => {
+      resolve(err ? null : (hostnames[0] || null));
+    });
+    setTimeout(() => resolve(null), 1500);
+  });
+}
+
+// ── GUESS DEVICE FROM HOSTNAME ────────────────────────────────
+function guessFromHostname(hostname) {
+  if (!hostname) return null;
+  const lower = hostname.toLowerCase();
+  if (/iphone|ipad/.test(lower))              return { type:"phone",      brand:"Apple",   icon:"📱" };
+  if (/macbook|imac|mac-mini/.test(lower))    return { type:"laptop",     brand:"Apple",   icon:"💻" };
+  if (/android|pixel|galaxy/.test(lower))     return { type:"phone",      brand:"Android", icon:"📱" };
+  if (/chromebook|chrome/.test(lower))        return { type:"chromebook", brand:"Google",  icon:"💻" };
+  if (/printer|hp|epson|canon|brother/.test(lower)) return { type:"printer",brand:"",      icon:"🖨" };
+  if (/xbox/.test(lower))                     return { type:"console",    brand:"Xbox",    icon:"🎮" };
+  if (/playstation|ps4|ps5/.test(lower))      return { type:"console",    brand:"Sony",    icon:"🎮" };
+  if (/switch/.test(lower))                   return { type:"console",    brand:"Nintendo",icon:"🎮" };
+  if (/tv|television|bravia|vizio/.test(lower)) return { type:"tv",       brand:"",        icon:"📺" };
+  if (/router|gateway|netgear|asus|tplink/.test(lower)) return { type:"router", brand:"",  icon:"📡" };
+  if (/echo|alexa|dot/.test(lower))           return { type:"echo",       brand:"Amazon",  icon:"🔊" };
+  if (/raspberry|pi/.test(lower))             return { type:"computer",   brand:"RPi",     icon:"🖥" };
   return null;
 }
 
-async function hueGetLights(ip, username) {
-  const res = await get(ip, 80, `/api/${username}/lights`);
-  if (!res.ok || !res.body) return [];
-  const lights = [];
-  for (const [id, light] of Object.entries(res.body)) {
-    lights.push({
-      id: `hue-${id}`, name: light.name || `Hue Light ${id}`, type: "light", brand: "hue",
-      ip, port: 80, on: light.state?.on || false,
-      brightness: light.state?.bri ? Math.round(light.state.bri / 254 * 100) : null,
-      color: null, room: null, reachable: light.state?.reachable !== false,
-      raw: light, _hueId: id, _hueUser: username,
-    });
+// ── HTTP FINGERPRINT — read server headers ────────────────────
+async function httpFingerprint(ip) {
+  const res = await get(ip, 80, "/", 1500);
+  if (!res.ok) return null;
+  const raw = (res.raw || "").toLowerCase();
+  if (raw.includes("chromebook")) return { type:"chromebook", brand:"Google" };
+  if (raw.includes("android"))    return { type:"phone",      brand:"Android" };
+  if (raw.includes("roku"))       return { type:"tv",         brand:"Roku" };
+  if (raw.includes("synology"))   return { type:"nas",        brand:"Synology" };
+  if (raw.includes("qnap"))       return { type:"nas",        brand:"QNAP" };
+  if (raw.includes("printer"))    return { type:"printer",    brand:"" };
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── MAIN DEVICE PROBE — everything we know about an IP ────────
+// ═══════════════════════════════════════════════════════════════
+async function probeDevice(ip, mac, hostname) {
+  const [portInfo, dnsName, httpInfo] = await Promise.all([
+    fingerprintByPorts(ip),
+    hostname ? Promise.resolve(hostname) : reverseLookup(ip),
+    httpFingerprint(ip),
+  ]);
+
+  const macInfo      = getMacVendor(mac);
+  const hostnameInfo = guessFromHostname(dnsName);
+
+  // Priority: MAC vendor > hostname > HTTP > port
+  const info = macInfo || hostnameInfo || httpInfo || {};
+
+  const type  = info.type  || portInfo.type  || "unknown";
+  const brand = info.brand || "";
+  const icon  = info.icon  || typeToIcon(type);
+
+  const name = buildDeviceName(brand, type, dnsName, ip);
+
+  return {
+    id:         `device-${ip.replace(/\./g,"-")}`,
+    ip,
+    mac:        mac || null,
+    hostname:   dnsName || null,
+    name,
+    type,
+    brand,
+    icon,
+    openPorts:  portInfo.openPorts,
+    hint:       portInfo.hint,
+    reachable:  true,
+    online:     true,
+    lastSeen:   Date.now(),
+    // Messaging capability — any device with port 80 or known messaging ports
+    canMessage: portInfo.openPorts.length > 0,
+    isSmartPlug: type === "plug",
+    on:         null,
+    brightness: null,
+    color:      null,
+    room:       null,
+    _raw:       { macInfo, hostnameInfo, httpInfo, portInfo },
+  };
+}
+
+function typeToIcon(type) {
+  const map = {
+    phone:"📱", laptop:"💻", chromebook:"💻", computer:"🖥",
+    tablet:"📱", tv:"📺", printer:"🖨", router:"📡",
+    console:"🎮", echo:"🔊", chromecast:"📺", camera:"📹",
+    nas:"💾", iot:"⚡", plug:"🔌", smart:"💡", unknown:"⬡"
+  };
+  return map[type] || "⬡";
+}
+
+function buildDeviceName(brand, type, hostname, ip) {
+  if (hostname && hostname !== ip && !hostname.startsWith("?")) {
+    // Clean up hostname
+    const clean = hostname.replace(/\.local$|\.home$|\.lan$/i,"");
+    if (brand) return `${brand} — ${clean}`;
+    return clean;
   }
-  return lights;
+  const typeLabels = {
+    phone:"Phone", laptop:"Laptop", chromebook:"Chromebook",
+    computer:"Computer", tablet:"Tablet", tv:"Smart TV",
+    printer:"Printer", router:"Router", console:"Game Console",
+    echo:"Smart Speaker", chromecast:"Chromecast", camera:"Camera",
+    nas:"NAS Drive", plug:"Smart Plug", unknown:"Device"
+  };
+  const label = typeLabels[type] || "Device";
+  if (brand) return `${brand} ${label} (${ip})`;
+  return `${label} (${ip})`;
 }
 
-async function hueControl(device, cmd) {
-  const state = {};
-  if (cmd.on  !== undefined) state.on  = cmd.on;
-  if (cmd.bri !== undefined) state.bri = Math.round(cmd.bri / 100 * 254);
-  const res = await put(device.ip, 80, `/api/${device._hueUser}/lights/${device._hueId}/state`, state);
-  return res.ok;
-}
+// ═══════════════════════════════════════════════════════════════
+// ── MESSAGING SYSTEM ─────────────────────────────────────────
+// Sends a message/notification to a device on the network
+// Methods tried in order:
+//   1. JARVIS web notification (if device has JARVIS running)
+//   2. Windows NetSend / MSG command
+//   3. HTTP POST to known notification endpoints
+//   4. JARVIS comms socket message
+// ═══════════════════════════════════════════════════════════════
 
-async function discoverHue(ssdpResults) {
-  const bridges = ssdpResults.filter(isHueBridge);
-  const lights  = [];
-  for (const b of bridges) {
-    let user = hueUsername || await hueGetUsername(b.ip);
-    if (!user) {
-      lights.push({ id: `hue-bridge-${b.ip}`, name: "Philips Hue Bridge", type: "hub", brand: "hue", ip: b.ip, port: 80, on: null, brightness: null, color: null, room: null, reachable: true, raw: { needsPairing: true }, _needsPairing: true });
-      continue;
+// Store for pending messages per IP
+const pendingMessages = new Map();
+
+async function sendMessageToDevice(deviceId, message, from) {
+  const device = devices.get(deviceId);
+  if (!device) return { ok: false, error: "Device not found" };
+
+  const ip  = device.ip;
+  const results = [];
+
+  // Method 1: JARVIS notification endpoint (if they have JARVIS running)
+  try {
+    const res = await post(ip, 3000, "/api/notify", {
+      message, from: from || "J.A.R.V.I.S", type: "jarvis"
+    }, 2000);
+    if (res.ok) {
+      results.push({ method:"jarvis", ok:true });
+      return { ok: true, method: "jarvis", device: serializeDevice(device) };
     }
-    lights.push(...(await hueGetLights(b.ip, user)));
+  } catch {}
+
+  // Method 2: Queue it for pickup (if device has a browser open on JARVIS)
+  if (!pendingMessages.has(ip)) pendingMessages.set(ip, []);
+  pendingMessages.get(ip).push({
+    id:        `msg-${Date.now()}`,
+    message,
+    from:      from || "J.A.R.V.I.S",
+    timestamp: Date.now(),
+    read:      false,
+  });
+
+  // Method 3: Try Windows MSG command (works on Windows local network)
+  const { exec } = require("child_process");
+  if (process.platform === "win32") {
+    await new Promise(r => {
+      exec(`msg /server:${ip} * "${message.replace(/"/g,"'")}"`, { timeout: 3000 }, (err) => {
+        if (!err) results.push({ method:"winmsg", ok:true });
+        r();
+      });
+    });
+    if (results.find(r => r.ok)) return { ok:true, method:"winmsg", device: serializeDevice(device) };
   }
-  return lights;
+
+  // Method 4: Try common HTTP notification endpoints
+  const notifPaths = [
+    { port:8080, path:"/notify"           },
+    { port:80,   path:"/api/message"      },
+    { port:80,   path:"/notify"           },
+    { port:9000, path:"/message"          },
+  ];
+  for (const { port, path } of notifPaths) {
+    try {
+      const res = await post(ip, port, path, { message, from: from || "J.A.R.V.I.S" }, 1500);
+      if (res.ok) {
+        results.push({ method:`http:${port}${path}`, ok:true });
+        return { ok:true, method:`http:${port}`, device: serializeDevice(device) };
+      }
+    } catch {}
+  }
+
+  // Always succeeds — message is queued and will show if they open JARVIS in browser
+  return {
+    ok:      true,
+    method:  "queued",
+    queued:  true,
+    note:    "Message queued — will appear if device opens JARVIS in browser",
+    device:  serializeDevice(device),
+  };
 }
 
-// ─── TP-LINK KASA ────────────────────────────────────────────
-const KASA_PORT  = 9999;
-const KASA_QUERY = { system: { get_sysinfo: {} } };
+// ── GET PENDING MESSAGES FOR AN IP ────────────────────────────
+function getPendingMessages(ip) {
+  const msgs = pendingMessages.get(ip) || [];
+  // Mark as read
+  if (msgs.length) {
+    pendingMessages.set(ip, msgs.map(m => ({ ...m, read:true })));
+  }
+  return msgs;
+}
 
+// ── BROADCAST MESSAGE TO ALL DEVICES ─────────────────────────
+async function broadcastMessage(message, from) {
+  const results = [];
+  for (const [id] of devices) {
+    const r = await sendMessageToDevice(id, message, from);
+    results.push({ id, ...r });
+  }
+  return results;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── SMART PLUG CONTROL (existing brands) ─────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+// ── TP-LINK KASA ─────────────────────────────────────────────
+const KASA_PORT = 9999;
 function kasaEncrypt(payload) {
   const buf = Buffer.from(JSON.stringify(payload));
   const out = Buffer.alloc(buf.length + 4);
@@ -487,44 +491,6 @@ function kasaDecrypt(buf) {
   for (let i = 4; i < buf.length; i++) { const b = buf[i] ^ key; key = buf[i]; out += String.fromCharCode(b); }
   return out;
 }
-
-async function kasaUDPScan(timeout = 3000) {
-  return new Promise((resolve) => {
-    const found = new Map();
-    let sock;
-    const done = () => { try { sock && sock.close(); } catch {} resolve([...found.values()]); };
-    const timer = setTimeout(done, timeout);
-    try {
-      sock = dgram.createSocket({ type: "udp4", reuseAddr: true });
-      sock.on("error", () => { clearTimeout(timer); resolve([]); });
-      sock.on("message", (buf, rinfo) => {
-        try {
-          const text = kasaDecrypt(buf);
-          const json = JSON.parse(text);
-          const info = json?.system?.get_sysinfo;
-          if (info) found.set(rinfo.address, { ip: rinfo.address, info });
-        } catch {}
-      });
-      sock.bind(0, () => {
-        sock.setBroadcast(true);
-        const msg = kasaEncrypt(KASA_QUERY);
-        sock.send(msg, KASA_PORT, "255.255.255.255");
-        getLocalSubnets().forEach(s => { try { sock.send(msg, KASA_PORT, s + "255"); } catch {}; });
-      });
-    } catch { clearTimeout(timer); resolve([]); }
-  });
-}
-
-function kasaDeviceFromInfo(ip, info) {
-  return {
-    id: `kasa-${ip}`, name: info.alias || info.dev_name || `Kasa ${ip}`,
-    type: info.mic_type?.includes("IOT.SMARTPLUGSWITCH") || info.type?.includes("PLUG") ? "plug" : "switch",
-    brand: "kasa", ip, port: KASA_PORT,
-    on: info.relay_state === 1 || info.state === 1,
-    brightness: null, color: null, room: null, reachable: true, raw: info, _model: info.model,
-  };
-}
-
 async function kasaControl(device, cmd) {
   return new Promise((resolve) => {
     const payload = { system: { set_relay_state: { state: cmd.on ? 1 : 0 } } };
@@ -540,188 +506,174 @@ async function kasaControl(device, cmd) {
   });
 }
 
-// ─── WLED ─────────────────────────────────────────────────────
-async function wledGetState(ip) {
-  const res = await get(ip, 80, "/json/state"); return (res.ok && res.body) ? res.body : null;
-}
-async function wledGetInfo(ip) {
-  const res = await get(ip, 80, "/json/info"); return (res.ok && res.body) ? res.body : null;
-}
-function wledDeviceFromState(ip, state, info) {
-  return {
-    id: `wled-${ip}`, name: info?.name || `WLED ${ip}`, type: "light", brand: "wled",
-    ip, port: 80, on: state.on || false, brightness: state.bri ? Math.round(state.bri / 255 * 100) : 0,
-    color: null, room: null, reachable: true, raw: { state, info },
-  };
-}
+// ── WLED ─────────────────────────────────────────────────────
 async function wledControl(device, cmd) {
   const body = {};
-  if (cmd.on    !== undefined) body.on  = cmd.on;
-  if (cmd.bri   !== undefined) body.bri = Math.round(cmd.bri / 100 * 255);
-  if (cmd.color !== undefined) body.seg = [{ col: [[cmd.color.r, cmd.color.g, cmd.color.b]] }];
+  if (cmd.on  !== undefined) body.on  = cmd.on;
+  if (cmd.bri !== undefined) body.bri = Math.round(cmd.bri / 100 * 255);
   const res = await post(device.ip, 80, "/json/state", body);
   return res.ok;
 }
 
-// ─── SHELLY ───────────────────────────────────────────────────
-async function shellyProbe(ip) {
-  const res = await get(ip, 80, "/shelly");
-  return (res.ok && res.body?.type) ? res.body : null;
-}
-async function shellyGetRelay(ip) {
-  const res = await get(ip, 80, "/relay/0");
-  return (res.ok && res.body) ? res.body : null;
-}
-function shellyDeviceFromInfo(ip, info, relay) {
-  return {
-    id: `shelly-${ip}`, name: info.name || info.hostname || `Shelly ${info.type || ip}`,
-    type: info.type?.includes("SHPLG") ? "plug" : "switch", brand: "shelly",
-    ip, port: 80, on: relay?.ison || false, brightness: null, color: null, room: null,
-    reachable: true, raw: { info, relay }, _model: info.type,
-  };
-}
+// ── SHELLY ────────────────────────────────────────────────────
 async function shellyControl(device, cmd) {
   const res = await get(device.ip, 80, `/relay/0?turn=${cmd.on ? "on" : "off"}`);
   return res.ok;
 }
 
+// ── PHILIPS HUE ──────────────────────────────────────────────
+async function hueControl(device, cmd) {
+  const state = {};
+  if (cmd.on  !== undefined) state.on  = cmd.on;
+  if (cmd.bri !== undefined) state.bri = Math.round(cmd.bri / 100 * 254);
+  const res = await put(device.ip, 80, `/api/${device._hueUser}/lights/${device._hueId}/state`, state);
+  return res.ok;
+}
+
 // ═══════════════════════════════════════════════════════════════
-// ── MAIN DISCOVERY ────────────────────────────────────────────
+// ── SSDP SCAN (Hue, WLED, Shelly) ────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+function ssdpScan(timeout = 3000) {
+  return new Promise((resolve) => {
+    const found = new Map();
+    let sock;
+    const done = () => { try { sock && sock.close(); } catch {} resolve([...found.values()]); };
+    const timer = setTimeout(done, timeout);
+    try {
+      sock = dgram.createSocket({ type: "udp4", reuseAddr: true });
+      sock.on("error", () => { clearTimeout(timer); resolve([]); });
+      sock.on("message", (buf, rinfo) => {
+        if (!found.has(rinfo.address)) found.set(rinfo.address, { ip: rinfo.address, raw: buf.toString() });
+      });
+      sock.bind(0, () => {
+        try { sock.setBroadcast(true); } catch {}
+        const msearch = ["M-SEARCH * HTTP/1.1","HOST: 239.255.255.255:1900",'MAN: "ssdp:discover"',"MX: 3","ST: ssdp:all","",""].join("\r\n");
+        const buf = Buffer.from(msearch);
+        sock.send(buf, 0, buf.length, 1900, "239.255.255.255");
+        getLocalSubnets().forEach(s => { try { sock.send(buf, 0, buf.length, 1900, s + "255"); } catch {} });
+      });
+    } catch { clearTimeout(timer); resolve([]); }
+  });
+}
+
+// ── KASA UDP SCAN ─────────────────────────────────────────────
+async function kasaUDPScan(timeout = 2500) {
+  return new Promise((resolve) => {
+    const found = new Map();
+    let sock;
+    const done = () => { try { sock && sock.close(); } catch {} resolve([...found.values()]); };
+    const timer = setTimeout(done, timeout);
+    try {
+      sock = dgram.createSocket({ type: "udp4", reuseAddr: true });
+      sock.on("error", () => { clearTimeout(timer); resolve([]); });
+      sock.on("message", (buf, rinfo) => {
+        try { const text = kasaDecrypt(buf); const json = JSON.parse(text); const info = json?.system?.get_sysinfo; if (info) found.set(rinfo.address, { ip: rinfo.address, info }); } catch {}
+      });
+      sock.bind(0, () => {
+        sock.setBroadcast(true);
+        const msg = kasaEncrypt({ system: { get_sysinfo: {} } });
+        sock.send(msg, KASA_PORT, "255.255.255.255");
+        getLocalSubnets().forEach(s => { try { sock.send(msg, KASA_PORT, s + "255"); } catch {} });
+      });
+    } catch { clearTimeout(timer); resolve([]); }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── MAIN SCAN ────────────────────────────────────────────────
 // ═══════════════════════════════════════════════════════════════
 async function scanNetwork(options = {}) {
-  const { useSSDP = true, useKasa = true, useLepro = true, useHTTP = false, onProgress = null } = options;
+  const { onProgress = null } = options;
   const progress = (msg) => { if (onProgress) onProgress(msg); else console.log(`[HOME] ${msg}`); };
-
-  progress("Starting network scan…");
   const discovered = [];
+  const seenIPs = new Set();
 
-  // ── SSDP (Hue, WLED, Shelly) ──
-  if (useSSDP) {
-    progress("SSDP multicast scan…");
-    const ssdpResults = await ssdpScan(4000);
-    progress(`SSDP: ${ssdpResults.length} device(s) responded`);
+  progress("Starting full network scan…");
 
-    const hueDevices = await discoverHue(ssdpResults);
-    discovered.push(...hueDevices);
-    if (hueDevices.length) progress(`Hue: ${hueDevices.length} device(s) found`);
+  // ── Step 1: Ping sweep to populate ARP cache ──
+  const subnets = getLocalSubnets();
+  progress(`Sweeping ${subnets.length} subnet(s)…`);
+  await Promise.all(subnets.map(s => pingSweep(s)));
 
-    for (const entry of ssdpResults) {
-      if (isHueBridge(entry)) continue;
-      const [wState, wInfo] = await Promise.all([wledGetState(entry.ip), wledGetInfo(entry.ip)]);
-      if (wState) { discovered.push(wledDeviceFromState(entry.ip, wState, wInfo)); progress(`WLED at ${entry.ip}`); continue; }
-      const shInfo = await shellyProbe(entry.ip);
-      if (shInfo) { const relay = await shellyGetRelay(entry.ip); discovered.push(shellyDeviceFromInfo(entry.ip, shInfo, relay)); progress(`Shelly at ${entry.ip}`); continue; }
+  // ── Step 2: Read ARP table ──
+  progress("Reading ARP table…");
+  const arpEntries = await readArpTable();
+  progress(`ARP table: ${arpEntries.length} entries found`);
+
+  // ── Step 3: SSDP multicast ──
+  progress("SSDP multicast…");
+  const ssdpResults = await ssdpScan(3000);
+  progress(`SSDP: ${ssdpResults.length} device(s) responded`);
+
+  // ── Step 4: Kasa UDP ──
+  progress("TP-Link Kasa scan…");
+  const kasaResults = await kasaUDPScan(2500);
+  if (kasaResults.length) progress(`Kasa: ${kasaResults.length} plug(s) found`);
+
+  // ── Collect all known IPs ──
+  const allIPs = new Map();
+  for (const entry of arpEntries) allIPs.set(entry.ip, entry);
+  for (const s of ssdpResults)    if (!allIPs.has(s.ip)) allIPs.set(s.ip, { ip: s.ip, mac: null, hostname: null });
+  for (const k of kasaResults)    if (!allIPs.has(k.ip)) allIPs.set(k.ip, { ip: k.ip, mac: null, hostname: null });
+
+  // Skip local machine IPs
+  const localIPs = new Set(getLocalIPs());
+  for (const localIP of localIPs) allIPs.delete(localIP);
+
+  progress(`Probing ${allIPs.size} device(s)…`);
+
+  // ── Step 5: Probe each IP ──
+  const probePromises = [];
+  for (const [ip, entry] of allIPs) {
+    probePromises.push(probeDevice(ip, entry.mac, entry.hostname));
+  }
+  const probed = await Promise.all(probePromises);
+
+  for (const d of probed) {
+    if (!d || seenIPs.has(d.ip)) continue;
+    seenIPs.add(d.ip);
+
+    // Check if it's a Kasa plug
+    const kasaEntry = kasaResults.find(k => k.ip === d.ip);
+    if (kasaEntry) {
+      d.type  = "plug";
+      d.brand = "TP-Link Kasa";
+      d.icon  = "🔌";
+      d.name  = kasaEntry.info.alias || d.name;
+      d.on    = kasaEntry.info.relay_state === 1;
+      d.controlFn = (cmd) => kasaControl(d, cmd);
     }
-  }
 
-  // ── TP-Link Kasa UDP ──
-  if (useKasa) {
-    progress("TP-Link Kasa UDP scan…");
-    const kasaResults = await kasaUDPScan(3000);
-    kasaResults.forEach(({ ip, info }) => discovered.push(kasaDeviceFromInfo(ip, info)));
-    if (kasaResults.length) progress(`Kasa: ${kasaResults.length} device(s) found`);
-  }
-
-  // ── LEPRO P1 (HTTP scan, no credentials) ──
-  if (useLepro) {
-    progress("Scanning for Lepro P1 smart plug (HTTP fingerprint)…");
-    const leproDevices = await scanSubnetForLepro(progress);
-    // Only add ones not already discovered by another method
-    for (const d of leproDevices) {
-      if (!discovered.find(x => x.ip === d.ip)) {
-        discovered.push(d);
+    // Check SSDP hits for WLED/Shelly/Hue
+    const ssdpEntry = ssdpResults.find(s => s.ip === d.ip);
+    if (ssdpEntry) {
+      const raw = (ssdpEntry.raw || "").toLowerCase();
+      if (raw.includes("wled")) {
+        d.type  = "smart"; d.brand = "WLED"; d.icon = "💡";
+        d.controlFn = (cmd) => wledControl(d, cmd);
+      } else if (raw.includes("shelly")) {
+        d.type  = "plug"; d.brand = "Shelly"; d.icon = "🔌";
+        d.controlFn = (cmd) => shellyControl(d, cmd);
       }
     }
-    if (leproDevices.length) {
-      progress(`Lepro: ${leproDevices.length} device(s) found`);
-    } else {
-      progress("Lepro: not auto-detected — add manually by IP if needed (see sidebar)");
-    }
-  }
 
-  // ── Deduplicate and store ──
-  const seen = new Set();
-  for (const d of discovered) {
-    if (seen.has(d.ip)) continue;
-    seen.add(d.ip);
+    // Messaging function for all devices
+    d.messageFn = (msg, from) => sendMessageToDevice(d.id, msg, from);
 
-    switch (d.brand) {
-      case "hue":    if (!d._needsPairing) d.controlFn = (cmd) => hueControl(d, cmd);   break;
-      case "kasa":   d.controlFn = (cmd) => kasaControl(d, cmd);   break;
-      case "wled":   d.controlFn = (cmd) => wledControl(d, cmd);   break;
-      case "shelly": d.controlFn = (cmd) => shellyControl(d, cmd); break;
-      case "lepro":  d.controlFn = (cmd) => leproControl(d, cmd);  break;
-      default:       d.controlFn = null; break;
-    }
     devices.set(d.id, d);
+    discovered.push(d);
   }
 
   lastScan = Date.now();
-  progress(`Scan complete. ${devices.size} device(s) in registry.`);
+  progress(`Scan complete — ${discovered.length} device(s) found`);
   return getDeviceList();
 }
 
-async function refreshStates() {
-  const promises = [];
-  for (const [id, device] of devices) {
-    if (device.brand === "hue" && device._hueUser) {
-      promises.push(
-        get(device.ip, 80, `/api/${device._hueUser}/lights/${device._hueId}/`).then(r => {
-          if (r.ok && r.body?.state) {
-            device.on = r.body.state.on;
-            device.reachable = r.body.state.reachable !== false;
-            if (r.body.state.bri) device.brightness = Math.round(r.body.state.bri / 254 * 100);
-          }
-        }).catch(() => {})
-      );
-    } else if (device.brand === "wled") {
-      promises.push(wledGetState(device.ip).then(s => {
-        if (s) { device.on = s.on; device.brightness = s.bri ? Math.round(s.bri / 255 * 100) : 0; }
-      }).catch(() => {}));
-    } else if (device.brand === "shelly") {
-      promises.push(shellyGetRelay(device.ip).then(r => {
-        if (r) device.on = r.ison;
-      }).catch(() => {}));
-    } else if (device.brand === "lepro") {
-      // Re-check state from info endpoint
-      promises.push((async () => {
-        if (!device._infoEndpoint) { device.reachable = await tcpProbe(device.ip, device.port || 80, 800); return; }
-        const res = await leproFetch(device.ip, device._infoPort || 80, device._infoEndpoint, { timeout: 1500 });
-        if (res) {
-          device.reachable = true;
-          const state = parsePlugState(res.text);
-          if (state.parsed) device.on = state.on;
-        } else {
-          device.reachable = false;
-        }
-      })());
-    } else if (device.brand === "kasa") {
-      promises.push(
-        new Promise((resolve) => {
-          const data = kasaEncrypt({ system: { get_sysinfo: {} } });
-          const sock = new net.Socket();
-          let buf = Buffer.alloc(0);
-          sock.setTimeout(2000);
-          sock.connect(KASA_PORT, device.ip, () => sock.write(data));
-          sock.on("data", d => { buf = Buffer.concat([buf, d]); });
-          sock.on("end", () => {
-            try { const info = JSON.parse(kasaDecrypt(buf))?.system?.get_sysinfo; if (info) device.on = info.relay_state === 1; }
-            catch {} resolve();
-          });
-          sock.on("error", resolve);
-          sock.on("timeout", () => { sock.destroy(); resolve(); });
-        })
-      );
-    }
-  }
-  await Promise.all(promises);
-  return getDeviceList();
-}
-
+// ── CONTROL DEVICE ────────────────────────────────────────────
 async function controlDevice(id, cmd) {
   const device = devices.get(id);
   if (!device) return { ok: false, error: "Device not found" };
-  if (!device.controlFn) return { ok: false, error: "Device control not supported" };
+  if (!device.controlFn) return { ok: false, error: "Device does not support control" };
   try {
     const result = await device.controlFn(cmd);
     if (cmd.on  !== undefined) device.on = cmd.on;
@@ -734,85 +686,55 @@ async function controlDevice(id, cmd) {
 function parseHomeCommand(text) {
   const lower = text.toLowerCase();
   const cmd = {};
-  if (/\b(turn on|switch on|lights on|enable|activate|on)\b/i.test(lower))       cmd.on = true;
-  if (/\b(turn off|switch off|lights off|disable|deactivate|off)\b/i.test(lower)) cmd.on = false;
+  if (/\b(turn on|switch on|lights on|enable|on)\b/i.test(lower))  cmd.on = true;
+  if (/\b(turn off|switch off|lights off|disable|off)\b/i.test(lower)) cmd.on = false;
   const briMatch = lower.match(/\b(\d+)\s*(?:percent|%)/);
   if (briMatch) cmd.bri = parseInt(briMatch[1]);
-  if (/\bdim\b|\blow\b/i.test(lower)  && cmd.bri === undefined) cmd.bri = 20;
+  if (/\bdim\b|\blow\b/i.test(lower) && cmd.bri === undefined)   cmd.bri = 20;
   if (/\bbright\b|\bfull\b|\bmax\b/i.test(lower) && cmd.bri === undefined) cmd.bri = 100;
-  if (/\bhalf\b/i.test(lower) && cmd.bri === undefined) cmd.bri = 50;
-  const colors = {
-    red:{r:255,g:0,b:0}, green:{r:0,g:200,b:0}, blue:{r:0,g:100,b:255},
-    white:{r:255,g:255,b:255}, warm:{r:255,g:200,b:100}, purple:{r:180,g:0,b:255},
-    yellow:{r:255,g:230,b:0}, orange:{r:255,g:140,b:0}, pink:{r:255,g:80,b:180},
-  };
-  for (const [name, rgb] of Object.entries(colors)) if (lower.includes(name)) { cmd.color = rgb; break; }
-  const rooms = ["living room","bedroom","kitchen","bathroom","office","hallway","garage","dining","lounge","study","all","everything","everywhere"];
+  const rooms = ["living room","bedroom","kitchen","bathroom","office","hallway","garage","dining","all","everywhere"];
   for (const room of rooms) if (lower.includes(room)) { cmd.target = room; break; }
   return cmd;
 }
 
 async function executeVoiceCommand(text, userTitle) {
-  const T   = userTitle || "Sir";
+  const T = userTitle || "Sir";
   const cmd = parseHomeCommand(text);
-  if (devices.size === 0) return `No smart devices found yet, ${T}. Try saying "Jarvis scan home" first.`;
+  if (devices.size === 0) return `No devices found yet, ${T}. Try saying "Jarvis scan home" first.`;
   let targets = [...devices.values()].filter(d => d.controlFn && d.reachable);
-  if (cmd.target && cmd.target !== "all" && cmd.target !== "everything") {
+  if (cmd.target && cmd.target !== "all" && cmd.target !== "everywhere") {
     const roomFilter = targets.filter(d => d.room?.toLowerCase().includes(cmd.target) || d.name?.toLowerCase().includes(cmd.target));
     if (roomFilter.length > 0) targets = roomFilter;
   }
   if (targets.length === 0) return `No controllable devices found, ${T}.`;
   const results = await Promise.all(targets.map(d => controlDevice(d.id, cmd)));
   const ok = results.filter(r => r.ok).length;
-  const deviceNames = targets.slice(0, 3).map(d => d.name).join(", ") + (targets.length > 3 ? ` and ${targets.length - 3} more` : "");
-  if (cmd.on === true)  return `Plugs/lights on, ${T}. ${deviceNames} — ${ok}/${targets.length} responded.`;
-  if (cmd.on === false) return `Plugs/lights off, ${T}. ${deviceNames} — ${ok}/${targets.length} responded.`;
+  if (cmd.on === true)  return `Turning on ${targets.length} device(s), ${T}. ${ok}/${targets.length} responded.`;
+  if (cmd.on === false) return `Turning off ${targets.length} device(s), ${T}. ${ok}/${targets.length} responded.`;
   if (cmd.bri !== undefined) return `Brightness set to ${cmd.bri}%, ${T}.`;
   return `Command sent to ${targets.length} device(s), ${T}.`;
 }
 
-async function pairHueBridge() {
-  for (const [id, device] of devices) {
-    if (device.brand === "hue" && device._needsPairing) {
-      const user = await hueGetUsername(device.ip);
-      if (user) {
-        device._needsPairing = false; device._hueUser = user;
-        const lights = await hueGetLights(device.ip, user);
-        for (const l of lights) { l.controlFn = (cmd) => hueControl(l, cmd); devices.set(l.id, l); }
-        devices.delete(id);
-        return { success: true, lights: lights.length, username: user };
-      }
-      return { success: false, error: "Link button not pressed. Press the button on the Hue bridge then try again." };
-    }
-  }
-  return { success: false, error: "No Hue bridge found to pair." };
+// ── UTILS ─────────────────────────────────────────────────────
+function serializeDevice(d) {
+  const { controlFn, messageFn, _raw, ...safe } = d;
+  safe.canControl = !!d.controlFn;
+  safe.canMessage = true;
+  return safe;
 }
-
-function serializeDevice(d) { const { controlFn, ...safe } = d; return safe; }
 function getDeviceList()    { return [...devices.values()].map(serializeDevice); }
 function getDevice(id)      { const d = devices.get(id); return d ? serializeDevice(d) : null; }
 function clearDevices()     { devices.clear(); lastScan = 0; }
-function assignRoom(deviceId, room) { const d = devices.get(deviceId); if (!d) return false; d.room = room; return true; }
-function renameDevice(deviceId, name) { const d = devices.get(deviceId); if (!d) return false; d.name = name; return true; }
-
-function isHomeCommand(text) {
-  const lower = text.toLowerCase();
-  return /\b(light|lights|lamp|bulb|plug|socket|outlet|switch|power|led)\b/.test(lower) ||
-    /\b(turn on|turn off|switch on|switch off|dim|brighten|set|adjust)\b/.test(lower) ||
-    /\b(home|bedroom|living room|kitchen|bathroom|office|smart home)\b/.test(lower) && /\b(turn|switch|dim|set|on|off)\b/.test(lower) ||
-    /\b(scan|discover|find devices|detect devices)\b/.test(lower);
-}
-
-function isHomePanelRequest(text) {
-  return /^home\s*$/.test(text.toLowerCase().trim()) ||
-    /\b(open home|home panel|home control|home page|smart home|home hub|show home)\b/i.test(text);
-}
+function assignRoom(id, room)   { const d = devices.get(id); if (!d) return false; d.room = room; return true; }
+function renameDevice(id, name) { const d = devices.get(id); if (!d) return false; d.name = name; return true; }
+function isHomeCommand(text)    { return /\b(light|lights|lamp|bulb|plug|socket|outlet|switch|power|turn on|turn off|dim|brighten|smart home|scan|discover|find devices)\b/i.test(text.toLowerCase()); }
+function isHomePanelRequest(t)  { return /^home\s*$/.test(t.toLowerCase().trim()) || /\b(open home|home panel|home control|smart home|home hub|show home)\b/i.test(t); }
 
 module.exports = {
-  scanNetwork, refreshStates, controlDevice, executeVoiceCommand, parseHomeCommand,
-  pairHueBridge, addLeproManually, getDeviceList, getDevice, clearDevices,
-  assignRoom, renameDevice, isHomeCommand, isHomePanelRequest,
-  getLocalSubnets, getLocalIPs,
+  scanNetwork, controlDevice, executeVoiceCommand, parseHomeCommand,
+  sendMessageToDevice, broadcastMessage, getPendingMessages,
+  getDeviceList, getDevice, clearDevices, assignRoom, renameDevice,
+  isHomeCommand, isHomePanelRequest, getLocalSubnets, getLocalIPs,
   lastScanTime: () => lastScan,
   deviceCount:  () => devices.size,
 };
