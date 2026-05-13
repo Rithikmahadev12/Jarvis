@@ -6,7 +6,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 // ── STATE ──
-const state = {
+const state = window.state = {
   phase: "idle",
   user: null,
   userTitle: null,
