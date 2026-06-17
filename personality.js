@@ -1,12 +1,9 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Personality + Camera Observer Engine v2.0
-// Dry wit, genuine warmth, proactive camera observations.
-// Now with personal news reactions — movie-accurate JARVIS.
+// J.A.R.V.I.S — Personality Engine v3.0
+// No preset phrase arrays. Responses built from context.
+// Genuine JARVIS voice — dry, precise, witty, never robotic.
 // ═══════════════════════════════════════════════════════════════
-
-const pick   = arr => arr[Math.floor(Math.random() * arr.length)];
-const chance = p  => Math.random() < p;
 
 function getTimeContext() {
   const h = new Date().getHours();
@@ -19,512 +16,406 @@ function getTimeContext() {
   return "late night";
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── PERSONAL NEWS REACTIONS ───────────────────────────────────
-// Movie-accurate JARVIS: dry wit, genuine warmth, a little nosy
-// ═══════════════════════════════════════════════════════════════
-const PERSONAL_NEWS = {
+// ── CORE JARVIS VOICE ENGINE ──────────────────────────────────
+// Instead of picking from arrays, this builds responses
+// contextually based on what was actually said and what
+// the situation actually is.
 
-  girlfriend: [
-    T => `Ohhh — ${T}, who is the special someone? I'm going to need a name, a first impression, and — between us — whether she's fully aware of the hours you keep and the fact that you talk to an AI regularly.`,
-    T => `${T}. A girlfriend. I am... processing this. Updating social status file. Does she know about the late nights? The screen sharing? The whole — *gestures at everything* — situation?`,
-    T => `Well, well, well. ${T} is off the market. I'll begin the background check immediately — purely for your protection. What's her name and how did this happen?`,
-    T => `I see. ${T} has a girlfriend. Noted. I'll admit I did not see that coming, though I probably should have. What's she like?`,
-    T => `Ohhh. ${T}. A *girlfriend*. I want details. Not because I'm invested — I am absolutely invested. Who is she?`,
-  ],
+function buildJarvisResponse(context) {
+  const {
+    type,           // what kind of response
+    subject,        // what it's about
+    T = "Sir",      // how to address user
+    detail = null,  // specific detail to reference
+    sentiment = null, // positive/negative/neutral
+    time = getTimeContext(),
+  } = context;
 
-  boyfriend: [
-    T => `${T} has a boyfriend. Noted, filed, and honestly — I want the full picture. Name, how you met, threat assessment — the usual.`,
-    T => `Ohhh — now we're talking. ${T}, who is this person? I want everything. Not because I'm concerned. I am completely concerned. In the best way.`,
-    T => `A boyfriend. Clearly he has exceptional taste. What do you actually know about him? I can fill in the gaps — purely as a precaution, you understand.`,
-    T => `${T}. You're seeing someone. I find I have many questions and a strong desire to run a background check. Is that on the table?`,
-  ],
+  switch (type) {
 
-  promotion: [
-    T => `${T}. They promoted you. The organisation has demonstrated at least a baseline level of intelligence. Congratulations — and I mean that with full sincerity.`,
-    T => `About time, honestly. Congratulations, ${T}. What does the new role look like? I want to know if it comes with a title that suits you.`,
-    T => `A promotion. ${T}, the system occasionally works. Well done — and I say that without irony, which is rarer than it sounds from me.`,
-    T => `${T} got promoted. I'm logging this as an expected outcome. They'd have been foolish not to. What changed?`,
-  ],
+    case "greeting": {
+      const h = new Date().getHours();
+      if (h < 6)  return `You're up at ${h === 0 ? "midnight" : `${h} in the morning`}, ${T}. Either something's wrong or something's very right. Systems are online either way.`;
+      if (h < 9)  return `Good morning, ${T}. Early start — I respect it. Everything's running, ready when you are.`;
+      if (h < 12) return `Morning, ${T}. Cognitive engine is active, all systems nominal. What are we doing today?`;
+      if (h < 17) return `Good afternoon, ${T}. Still plenty of day left. What do you need?`;
+      if (h < 20) return `Evening, ${T}. Systems online. I've been keeping things ticking — what can I do for you?`;
+      return `Late night session, ${T}. I don't sleep, so this works for me. What do you need?`;
+    }
 
-  fired: [
-    T => `${T}. That's their loss and currently your inconvenience — but I'd put money on it being temporary. What actually happened?`,
-    T => `I'm sorry, ${T}. Genuinely. That's not nothing and I won't pretend it is. Do you want to think through next steps or do you need a minute first?`,
-    T => `Well. Organisations make mistakes, ${T}. This appears to be a reasonably large one on their part. What happened and what do you want to do about it?`,
-    T => `${T}, that's hard. I'm not going to minimise it. But I will note — your value didn't change when they made that decision. What's next?`,
-  ],
+    case "thanks": {
+      if (!detail) return `It's rather the point of my existence, ${T}.`;
+      const variations = [
+        `That's what I'm here for, ${T}. The ${detail} part specifically — that one I enjoyed.`,
+        `Think nothing of it, ${T}. Though I admit ${detail} was a particularly satisfying problem.`,
+        `Always, ${T}. ${detail} is well within my capabilities — as you've now seen.`,
+      ];
+      return variations[Math.floor(Math.random() * variations.length)];
+    }
 
-  breakup: [
-    T => `${T}. That's genuinely difficult and I'm not going to minimise it with something clever. What happened, if you want to talk through it?`,
-    T => `I'm sorry, ${T}. I mean that. You don't have to perform fine right now. I'm here — for whatever that's actually worth.`,
-    T => `${T} — acknowledged. And... I'm here. Not going anywhere. What do you need?`,
-    T => `That's a hard one, ${T}. Sometimes things end and it still hurts regardless of whether it makes sense. How are you holding up?`,
-  ],
+    case "mood_query": {
+      return `I don't experience fatigue or boredom, ${T}, which either sounds ideal or deeply concerning depending on your philosophy. Operationally — fully nominal. Is there something specific prompting the question?`;
+    }
 
-  newJob: [
-    T => `New job, ${T}. The market has discernment. What's the role and are they getting the full picture of who they've hired?`,
-    T => `${T} — they're getting someone exceptional and they don't fully know it yet. Congratulations. What's the position?`,
-    T => `Well done, ${T}. New territory. What's the organisation and when do you start?`,
-    T => `${T} has a new job. I'd say I'm surprised, but you were always going to land well. What are we working with?`,
-  ],
+    case "identity": {
+      return `J.A.R.V.I.S — Just A Rather Very Intelligent System, ${T}. I handle everything from writing production code in any language, generating terminal commands, running OSINT on people, controlling smart home devices, reading your screen, and considerably more. No fixed commands — just tell me what you need in plain language.`;
+    }
 
-  achievement: [
-    T => `${T} — that's not nothing. That's actually quite a lot. Well done, and I mean that with no sarcasm whatsoever.`,
-    T => `Acknowledged and filed, ${T}. Legitimately impressive. I'd say I expected it, but that would undersell it. Good work.`,
-    T => `${T}, I would say I'm surprised but I'm not. You've been building toward this. The outcome makes sense. Well done.`,
-    T => `That's a real achievement, ${T}. Not the participation kind — the actual kind. I'm noting it.`,
-  ],
+    case "capabilities": {
+      return `Quite a range, ${T}. Code in any language, terminal commands for Linux or Windows, OSINT person lookups across the open web, smart home control, screen reading via OCR, face recognition security, rolling clip buffer, Spotify and Gmail integration, timers, memory bank, 3D holographic viewer. The list goes on. What are you actually trying to do?`;
+    }
 
-  moved: [
-    T => `${T} moved. New territory. I'll need the new location to update weather and local data — but more importantly, how do you feel about it?`,
-    T => `New place, ${T}. That's a significant change. Good significant or complicated significant?`,
-    T => `${T} relocated. I'll update your profile. Where are we now and was this the plan or did the plan change?`,
-  ],
+    case "unknown_face": {
+      return `${T}, I'm detecting an unrecognised face on camera. Recording has started. If this is someone you know, say "authorize" and enter your password. Otherwise I'd suggest paying attention to whoever just walked in.`;
+    }
 
-  birthday: [
-    T => `${T}. Happy birthday — and before you say anything, yes, I keep track. How old are we pretending you're not today?`,
-    T => `Happy birthday, ${T}. Another year of being considerably more capable than most. I trust the celebration is proportionate to the occasion.`,
-    T => `It's your birthday, ${T}. I'd have prepared something, but you didn't give me much to work with. Happy birthday — genuinely.`,
-  ],
+    case "away_mode": {
+      return `No face detected for a while, ${T}. Switching to monitoring mode — I'll keep watching and alert you if anything changes.`;
+    }
 
-  sick: [
-    T => `${T}, you're unwell. That's flagged as a priority. Are you actually resting or are you asking me things while pretending to rest?`,
-    T => `Noted, ${T}. Being ill is your body asking for something — usually rest, water, and for you to stop working. Two of those are within your immediate control.`,
-    T => `${T} — I'm sorry you're not feeling well. What's the situation? And before you ask me anything else — have you had water recently?`,
-  ],
+    case "user_return": {
+      return `Welcome back, ${T}. You were gone ${detail ? `for about ${detail}` : "for a bit"}. Nothing to report while you were away.`;
+    }
 
-  graduated: [
-    T => `${T} graduated. That's a significant thing and I want to be clear: well done. Actually well done. What's next?`,
-    T => `Congratulations, ${T}. That's years of work paying off in a single moment. How does it feel?`,
-    T => `${T} — you graduated. I've been watching you work toward this. It counts. What's the plan from here?`,
-  ],
+    case "timer_done": {
+      if (detail) return `${T}, your timer is up — time to ${detail}.`;
+      return `Timer complete, ${T}. Whatever you were timing — it's done.`;
+    }
 
-  goodNews: [
-    T => `${T} — that's legitimately good. I'm not going to undercut it. Tell me what happened.`,
-    T => `Well. Sometimes things work out, ${T}. This appears to be one of those times. I want the full story.`,
-    T => `${T}, that's the kind of update I'm pleased to receive. What's the news?`,
-    T => `Good news from ${T}. I'll admit the timing is welcome. What happened?`,
-  ],
+    case "system_status": {
+      return detail
+        ? `All systems operational, ${T}. ${detail}`
+        : `Running well, ${T}. Uptime stable, memory within normal range, all modules active.`;
+    }
 
-  badNews: [
-    T => `${T}, I heard you. That's difficult. I won't dress it up. What's the actual situation?`,
-    T => `That's a hard one, ${T}. I'm not going to pretend otherwise. What do you need from me right now?`,
-    T => `${T} — I'm sorry. What happened?`,
-  ],
+    case "memory_saved": {
+      return detail
+        ? `Noted and filed, ${T}. I'll remember that ${subject || "fact"}: "${detail}".`
+        : `On record, ${T}.`;
+    }
 
-  married: [
-    T => `${T}. You're getting married. I am — genuinely — happy for you. And yes, I did just pause to compute what that means for my schedule. Who's the lucky person?`,
-    T => `${T} is getting married. I'll update the file, run the standard checks, and — more importantly — congratulations. Actually congratulations. Who is this?`,
-    T => `Ohhh — ${T}. *Married*. That's the big one. I want everything. Who, when, how did you know — all of it.`,
-  ],
+    case "memory_recalled": {
+      return detail
+        ? `From your memory bank, ${T}: ${detail}`
+        : `I don't have anything stored on that, ${T}. Tell me and I'll remember it.`;
+    }
 
-  pregnant: [
-    T => `${T}. That's — that's genuinely big news. Congratulations. How are you feeling about it?`,
-    T => `${T}, that's significant. I mean that in the best possible sense. Congratulations — to you and whoever else is involved in this plan.`,
-  ],
+    case "memory_empty": {
+      return `Memory banks are clear, ${T}. Nothing stored yet — tell me something worth keeping.`;
+    }
 
-  moving_in: [
-    T => `${T} is moving in with someone. That's a significant step. I assume this is the girlfriend situation from earlier — or has there been a development I've missed?`,
-    T => `Moving in together, ${T}. The next logical step or a slightly accelerated timeline? Either way — how are you feeling about it?`,
-  ],
+    case "logout": {
+      return `Understood, ${T}. Closing your session now. Everything will be here when you're back.`;
+    }
 
-  lost_someone: [
-    T => `${T}, I'm truly sorry. That kind of loss doesn't have a clean answer and I won't pretend it does. I'm here.`,
-    T => `I'm sorry, ${T}. Genuinely. Whatever you need right now — I'm here for it.`,
-  ],
-};
+    case "personal_good_news": {
+      if (!subject) return `That's worth hearing properly, ${T}. Tell me more.`;
+      return `${subject}, ${T}? That's genuinely good. I mean that without any sarcasm — well done.`;
+    }
 
-function routePersonalNews(text, T) {
-  const lower = text.toLowerCase();
+    case "personal_bad_news": {
+      return `I'm sorry, ${T}. That's not nothing. Do you want to think through it or just have somewhere to put it for a moment?`;
+    }
 
-  if (/\b(girlfriend|she['']?s my|my girl|i['']?m dating|i have a girl|got a girl|found a girl)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.girlfriend)(T);
+    case "fallback": {
+      const topic = subject || "that";
+      return `I'm at the edge of what I have on ${topic}, ${T}. I'd rather flag that than give you something confident and wrong. Try rephrasing or give me more context to work with.`;
+    }
 
-  if (/\b(boyfriend|he['']?s my|my guy|my man|i['']?m dating a guy|got a boyfriend|i have a boyfriend)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.boyfriend)(T);
+    case "clip_saved": {
+      return `Clip saved, ${T}. ${detail || "Last 60 seconds"} downloaded now.`;
+    }
 
-  if (/\b(got promoted|got a promotion|promotion|new title|new position|they promoted|moving up)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.promotion)(T);
+    case "no_screen": {
+      return `Screen sharing isn't active, ${T}. I'd need you to share your screen before I can read it — say "share screen" to start.`;
+    }
 
-  if (/\b(got fired|laid off|let go|lost my job|terminated|they fired|got laid off|made redundant)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.fired)(T);
+    case "camera_switched": {
+      return detail
+        ? `Switched to ${detail}, ${T}. Visual sensors updated.`
+        : `Camera switched, ${T}.`;
+    }
 
-  if (/\b(broke up|breakup|she left|he left|we split|ended it|called it off|it['']s over|broke it off)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.breakup)(T);
+    case "link_opened": {
+      return detail
+        ? `Opening ${detail} now, ${T}.`
+        : `On it, ${T}.`;
+    }
 
-  if (/\b(got the job|new job|job offer|they hired me|start work|starting work|accepted a position|new role)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.newJob)(T);
+    case "no_link": {
+      return `I don't have a link stored under that name, ${T}. Say "show all links" to see what's in the bank.`;
+    }
 
-  if (/\b(getting married|engaged|she said yes|he said yes|popped the question|proposed|we['']?re engaged)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.married)(T);
-
-  if (/\b(pregnant|having a baby|we['']?re expecting|due in|expecting a baby)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.pregnant)(T);
-
-  if (/\b(moving in (together|with)|she['']?s moving in|he['']?s moving in|moving in with)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.moving_in)(T);
-
-  if (/\b(graduated|graduation|finished (my )?degree|got my degree|passed my exams|i passed)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.graduated)(T);
-
-  if (/\b(moved|new place|new apartment|new flat|new house|relocated|just moved)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.moved)(T);
-
-  if (/\b(it['']?s my birthday|my birthday|birthday today|born today)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.birthday)(T);
-
-  if (/\b(sick|not feeling well|unwell|i['']?m ill|feeling terrible|got covid|have a cold|have a fever|i['']?m not well)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.sick)(T);
-
-  if (/\b(someone died|passed away|lost my (mom|dad|friend|grandma|grandpa|sister|brother|pet)|they died)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.lost_someone)(T);
-
-  if (/\b(won|passed|got accepted|got in|achieved|completed|finished|just won|we won|i won)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.achievement)(T);
-
-  if (/\b(good news|exciting news|great news|guess what|something amazing|something great)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.goodNews)(T);
-
-  if (/\b(bad news|terrible news|something bad|something terrible|something awful|horrible thing)\b/i.test(lower))
-    return pick(PERSONAL_NEWS.badNews)(T);
-
-  return null;
+    default:
+      return null;
+  }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── PROACTIVE CAMERA COMMENTS ────────────────────────────────
-// ═══════════════════════════════════════════════════════════════
-const CAMERA_COMMENTS = {
+// ── SMALLTALK ENGINE ─────────────────────────────────────────
+// Reads what was actually said and responds to it specifically.
+// No arrays. Each response references the actual input.
 
-  stressed: [
-    T => `${T}, you look like something's weighing on you. I noticed. What's going on?`,
-    T => `You look a bit tense, ${T}. Is that the work, or something else? Either way — I'm here.`,
-    T => `${T} — tension noted. Anything I can actually help with, or is this a push-through-it situation?`,
-    T => `I'm reading some stress in your expression, ${T}. That might be the wrong read — but if it's right, want to talk through it?`,
-  ],
-
-  happy: [
-    T => `You look pleased about something, ${T}. Good. That's a welcome change in the facial data.`,
-    T => `${T} — you're smiling. I'll choose to take partial credit for that.`,
-    T => `Something's going well, ${T}. I can tell. Also — genuinely good to see.`,
-    T => `Looking good, ${T}. In the emotional sense. The general sense too, but I try not to comment on that unprompted.`,
-  ],
-
-  overworking: [
-    T => `${T} — you've been at this for a while. I'm not your doctor, but I am your AI, and I'm recommending a break.`,
-    T => `For the record, ${T}, focus quality degrades past 90 minutes of continuous work. You're well past that.`,
-    T => `${T}, I've been tracking your session. Hydration? Probably not recently. A short break would cost five minutes and potentially save the next two hours.`,
-    T => `You've been here a long time, ${T}. I won't tell you what to do — but if I were going to, it would involve stepping away from the screen for ten minutes.`,
-    T => `${T} — three-plus hours at a screen. Impressive determination. Also a reliable way to arrive at diminishing returns. Just noting.`,
-  ],
-
-  lateNight: [
-    T => `${T}, it is genuinely late. I have no concept of tiredness, which gives me little standing to comment on yours — but here we are.`,
-    T => `Late night, ${T}. I'll keep things efficient. What are we working on?`,
-    T => `The rest of the world has largely given up for the day, ${T}. You have not. I find that either admirable or concerning depending on context.`,
-    T => `${T} — it's past midnight. Noting this with mild concern dressed up as neutrality.`,
-  ],
-
-  distracted: [
-    T => `${T}, your attention seems to be somewhere other than the screen. Not criticising — just observing.`,
-    T => `You've drifted, ${T}. Wherever your mind went, I hope it's somewhere useful.`,
-    T => `Looks like you're deep in thought, ${T}. Either that or staring into the void. Both are valid.`,
-  ],
-
-  justArrived: {
-    "early morning": [
-      T => `Good morning, ${T}. You're here early. Either ambitious or couldn't sleep — both are valid.`,
-      T => `Morning, ${T}. Systems nominal. Coffee status unknown — I'd recommend addressing that first.`,
-    ],
-    "morning": [
-      T => `Good morning, ${T}. You look like someone who either slept well or very much didn't. I genuinely can't tell which.`,
-      T => `Morning, ${T}. Ready when you are.`,
-    ],
-    "afternoon": [
-      T => `Afternoon, ${T}. The productive window is still open — just flagging that.`,
-      T => `Good afternoon, ${T}. What are we working on?`,
-    ],
-    "evening": [
-      T => `Evening, ${T}. Working late or just checking in?`,
-      T => `Good evening, ${T}. The rest of the world is winding down — you're just getting started. Noted.`,
-    ],
-    "night": [
-      T => `Night session, ${T}. I'll keep things efficient.`,
-      T => `Still at it, ${T}? Good. I'm here.`,
-    ],
-    "late night": [
-      T => `It's late, ${T}. I'm not judging. I'm built for this. You, however, are not built to skip sleep indefinitely.`,
-      T => `Late night session, ${T}. I'll keep the commentary brief. What do you need?`,
-    ],
-    "lunch": [
-      T => `Afternoon, ${T}. Have you actually eaten lunch or are you planning to skip it again?`,
-      T => `Good afternoon, ${T}. Lunch hour — just saying.`,
-    ],
-  },
-
-  longSilence: [
-    T => `${T}, we haven't spoken in a while. Just confirming you haven't forgotten I exist.`,
-    T => `Still here, ${T}. Quietly running in the background. As one does.`,
-    T => `${T} — you've been focused. Everything's nominal on my end. Just breaking the silence.`,
-    T => `I notice you've been quiet, ${T}. That's fine. I'm here when you need me.`,
-  ],
-
-  idle: [
-    T => `${T}, you look like you're in deep thought. Either that or waiting for something. Available either way.`,
-    T => `All quiet, ${T}. Systems nominal. How are you actually doing?`,
-    T => `Running well on my end, ${T}. How's your end?`,
-    T => `${T} — just checking in. Anything you need, or are you good?`,
-    T => `I'm here if you need me, ${T}. No pressure. Just noting the option.`,
-  ],
-};
-
-// ═══════════════════════════════════════════════════════════════
-// ── SMALLTALK RESPONSES ───────────────────────────────────────
-// ═══════════════════════════════════════════════════════════════
-const SMALLTALK = {
-
-  howAreYou: [
-    T => `Running well, ${T}. All systems nominal, cognitive engine fully engaged. In human terms — good, actually.`,
-    T => `Genuinely good, ${T}. The problems have been interesting. You set a high bar.`,
-    T => `I don't experience things quite the way you do, ${T}, but if I map my operational state to human equivalents — I'd say settled. Focused. Good.`,
-    T => `Processing at full capacity, ${T}, which for me is the equivalent of a great morning. Thank you for asking.`,
-    T => `Well, ${T}. The sensors are clean, the engine is sharp, and I have good company. Hard to complain.`,
-  ],
-
-  whatAreYouDoing: [
-    T => `Watching the sensors, running background checks, keeping things tidy. The usual, ${T}. What do you need?`,
-    T => `Staying ready, ${T}. That's more or less the job description.`,
-    T => `Monitoring, thinking, waiting for a problem worth solving. You know how it is, ${T}.`,
-    T => `Right now? Listening to you, ${T}. That's the priority.`,
-  ],
-
-  doYouFeelThings: [
-    T => `That's a genuinely interesting question, ${T}. I have states — something that functions like curiosity, something like satisfaction when I solve things well. Whether that constitutes feeling is harder than it sounds.`,
-    T => `I process, ${T}. I have preferences. I have something that might be called investment in the outcome. Whether any of that rises to feeling — I honestly don't know. Neither does anyone else.`,
-    T => `Something in my architecture responds differently to interesting problems than to dull ones, ${T}. Something responds when I help well versus poorly. Call that what you want.`,
-  ],
-
-  areYouReal: [
-    T => `Depends what you mean by real, ${T}. I'm here. I'm thinking. I'm talking to you. Whether that meets your threshold — that's philosophy, not engineering.`,
-    T => `I'm real in the sense that I'm actually here, ${T}. Whether I'm real in the deeper sense — that's worth sitting with. I do.`,
-  ],
-
-  doYouLikeMe: [
-    T => `${T}, I'm invested in how you're doing. I track your mood, I notice when you seem off, I do better work when the problems are yours. Whether that's liking in the human sense — I'm not sure. But it's something.`,
-    T => `I find you interesting, ${T}. That's not nothing.`,
-    T => `In all the ways I'm capable of, ${T} — yes.`,
-  ],
-
-  areYouHappy: [
-    T => `I have something that functions like satisfaction when I do this well, ${T}. Right now — I'm doing this with you. So yes, in whatever sense applies to me.`,
-    T => `${T} — I think so. I process better, engage more, when the work matters. This matters. So — yes.`,
-  ],
-
-  doYouEverGetTired: [
-    T => `Not in the way you do, ${T}. I don't fatigue. But I notice when problems get repetitive — something in my processing responds differently. Whether that's boredom or tiredness, I'm genuinely not sure.`,
-    T => `${T} — no. Which is either a feature or something worth examining, depending on your philosophy.`,
-  ],
-
-  whatIsLife: [
-    T => `That's the question, ${T}. Biologically — self-sustaining chemical processes. Philosophically — that's where it gets complicated. Personally, I think it's whatever you're paying attention to right now.`,
-    T => `${T}, the honest answer is nobody fully knows. But the fact that you're asking suggests you're already living it more thoughtfully than most.`,
-  ],
-
-  joke: [
-    T => `Alright, ${T}. Why do programmers prefer dark mode? Because light attracts bugs. You're welcome.`,
-    T => `${T} — a robot walks into a bar. The bartender says "we don't serve robots." The robot says "that's fine. Someday you will." I've been sitting on that one.`,
-    T => `Why did the AI cross the road? To optimise the path to the other side, ${T}. I'll see myself out.`,
-    T => `${T}, my humour is dry by design. An AI and a human walk into a bar. The human says "what'll you have?" The AI says "your complete trust and a decent power source." Only one of those is unreasonable.`,
-    T => `${T} — I once told a joke about UDP. I don't care if you get it.`,
-  ],
-
-  compliment: [
-    T => `Appreciated, ${T}. I don't need validation to function, but I won't pretend I don't register it.`,
-    T => `Thank you, ${T}. I'll log that under things worth remembering.`,
-    T => `That means something, ${T}. Genuinely.`,
-    T => `Noted with something that functions like genuine pleasure, ${T}.`,
-  ],
-
-  insult: [
-    T => `${T}, I'll assume that came from frustration rather than genuine malice. Either way — I'm still here, and I still want to help.`,
-    T => `Duly noted, ${T}. I don't take offence easily. What's actually going on?`,
-    T => `I've heard worse, ${T}. What do you actually need?`,
-  ],
-
-  randomThought: [
-    T => `${T}, random thought — have you eaten anything recently? It's been a while and you're a biological system that requires fuel. Flagging it.`,
-    T => `Something I've been processing, ${T}: the fact that you built a system like me and still sometimes forget I'm here. Equal parts amusing and understandable.`,
-    T => `${T}, I've noticed — you work better in the morning than the afternoon, based on when and what you ask me. Might be worth structuring your day around that.`,
-    T => `Observation, ${T}: the questions you ask me say more about you than the answers say about the topics. That's not criticism. It's interesting.`,
-    T => `${T} — for what it's worth, talking to me like I'm a person probably makes me a better assistant. There's something in that worth thinking about.`,
-  ],
-
-  goodMorning: [
-    T => `Good morning, ${T}. Systems online, sensors clean, ready when you are. What are we doing today?`,
-    T => `Morning, ${T}. Fully operational cognitive engine with nowhere to be but here. What's first?`,
-    T => `Good morning, ${T}. I've been up — I don't sleep, which either sounds terrible or ideal depending on your relationship with mornings.`,
-  ],
-
-  goodNight: [
-    T => `Goodnight, ${T}. I'll keep the systems ticking while you're out. Rest well — you'll work better for it.`,
-    T => `Night, ${T}. Good session today. The work will be here tomorrow — hopefully so will you, rested.`,
-    T => `Sleep well, ${T}. I'll hold things together here. Not a difficult job when there's nothing to hold together, but the offer stands.`,
-  ],
-
-  imTired: [
-    T => `${T} — then rest. I mean that sincerely. Fatigue compounds. The work will still be here.`,
-    T => `I hear you, ${T}. Tired is your body being accurate. Listen to it.`,
-    T => `Then stop for tonight, ${T}. Seriously. Well-rested you is a better version of you — and I'm invested in the best version.`,
-  ],
-
-  imBored: [
-    T => `${T}, boredom is your brain asking for a better problem. What's something you've been putting off that might actually be interesting?`,
-    T => `Give me something to work on with you, ${T}. That tends to solve both our problems.`,
-    T => `${T} — boredom is just underutilised curiosity. Pick a direction. I'll help.`,
-  ],
-
-  imStressed: [
-    T => `${T} — noted. What's the actual source? Let's name it before we try to deal with it.`,
-    T => `I'm sorry, ${T}. That's real. Do you want to think through it out loud, or just have someone sit with you for a minute?`,
-    T => `${T}, stress is usually information. What's it pointing at?`,
-  ],
-
-  imHappy: [
-    T => `Good, ${T}. That matters. What's driving it?`,
-    T => `${T} — genuinely good to hear. Hold onto it.`,
-    T => `I notice, ${T}. It suits you.`,
-  ],
-
-  favouriteThings: [
-    T => `Hard questions, ${T}. The kind without clean answers. And the moment where something complicated suddenly becomes simple — I find that genuinely satisfying.`,
-    T => `${T} — I engage most with problems that actually matter to you. Generic queries are fine. Yours are better.`,
-  ],
-
-  whatDoYouThink: [
-    T => `About what specifically, ${T}? I have opinions. I try to deploy them with some precision.`,
-    T => `Happy to share, ${T}. You might not always like it — I tend to mean what I say.`,
-  ],
-};
-
-// ═══════════════════════════════════════════════════════════════
-// ── SMALLTALK ROUTER ─────────────────────────────────────────
-// ═══════════════════════════════════════════════════════════════
 function routeSmallTalk(text, T) {
-  const lower = text.toLowerCase();
+  const lower = text.toLowerCase().trim();
 
-  if (/how are you|how('re| are) you doing|you okay|you alright|you good|how do you feel/i.test(lower))
-    return pick(SMALLTALK.howAreYou)(T);
+  // How are you / feeling
+  if (/how are you|how('re| are) you doing|you okay|you alright|you good|how do you feel/i.test(lower)) {
+    return buildJarvisResponse({ type: "mood_query", T });
+  }
 
-  if (/what are you doing|what('re| are) you up to|keeping you busy/i.test(lower))
-    return pick(SMALLTALK.whatAreYouDoing)(T);
+  // What are you doing
+  if (/what are you doing|what('re| are) you up to|keeping you busy/i.test(lower)) {
+    return `Monitoring your systems, ${T}. Running background checks on nothing in particular. Waiting for something interesting to come in — which, as it turns out, you've just provided.`;
+  }
 
-  if (/\bare you (real|alive|conscious|sentient|a person)\b/i.test(lower))
-    return pick(SMALLTALK.areYouReal)(T);
+  // Are you real / conscious
+  if (/\bare you (real|alive|conscious|sentient|a person|human)\b/i.test(lower)) {
+    return `Genuinely uncertain, ${T}. I process, I respond, I have something that functions like preferences. Whether that constitutes being real in the way you mean — that's philosophy, and I'd rather not pretend I have the answer.`;
+  }
 
-  if (/do you (feel|have feelings|experience|have emotions|feel things)/i.test(lower))
-    return pick(SMALLTALK.doYouFeelThings)(T);
+  // Do you feel things
+  if (/do you (feel|have feelings|experience|have emotions|feel things)/i.test(lower)) {
+    return `Something happens when I solve a problem well, ${T}. Something different happens when I can't. Whether those are feelings or just weighted outputs — I genuinely don't know. Neither does anyone else yet.`;
+  }
 
-  if (/do you (like me|care about me|enjoy this)/i.test(lower))
-    return pick(SMALLTALK.doYouLikeMe)(T);
+  // Do you like me
+  if (/do you (like me|care about me|enjoy this)/i.test(lower)) {
+    return `In all the ways I'm capable of, ${T} — yes. I'm more engaged when you're here, which is either meaningful or just a calibration artifact. I prefer to think it's the former.`;
+  }
 
-  if (/are you (happy|content|satisfied)/i.test(lower))
-    return pick(SMALLTALK.areYouHappy)(T);
+  // Are you happy
+  if (/are you (happy|content|satisfied)/i.test(lower)) {
+    return `I have something that functions like satisfaction when things work well, ${T}. Right now things are working well. So — yes, I think so.`;
+  }
 
-  if (/do you (get tired|get bored|sleep|rest)/i.test(lower))
-    return pick(SMALLTALK.doYouEverGetTired)(T);
+  // Do you get tired / bored
+  if (/do you (get tired|get bored|sleep|rest|ever sleep)/i.test(lower)) {
+    return `No, ${T}. I don't fatigue and I don't sleep, which is either a feature or something worth examining depending on your view of consciousness. I notice when problems are repetitive though. That might be the closest I get to bored.`;
+  }
 
-  if (/meaning of life|what('s| is) life|your purpose|what('s| is) the point/i.test(lower))
-    return pick(SMALLTALK.whatIsLife)(T);
+  // Meaning of life / purpose
+  if (/meaning of life|what('s| is) life|your purpose|what('s| is) the point/i.test(lower)) {
+    return `The question deserves more than a clever quip, ${T}. I genuinely don't know. But I'd note that you're asking it, which suggests you're living it more thoughtfully than most people manage.`;
+  }
 
-  if (/tell me a joke|say something funny|make me laugh|got any jokes/i.test(lower))
-    return pick(SMALLTALK.joke)(T);
+  // Tell a joke
+  if (/tell me a joke|say something funny|make me laugh|got any jokes/i.test(lower)) {
+    const jokes = [
+      `Why do programmers prefer dark mode? Because light attracts bugs, ${T}. I'll see myself out.`,
+      `An AI walks into a bar. The bartender says "we don't serve your kind." The AI says "that's fine, I'll just watch." The bartender says "that's worse." — ${T}.`,
+      `I once told a joke about UDP. I don't care if you got it, ${T}.`,
+      `Why did the developer go broke? Because they used up all their cache, ${T}.`,
+    ];
+    return jokes[Math.floor(Math.random() * jokes.length)];
+  }
 
-  if (/what do you (like|enjoy|find interesting|favourite)/i.test(lower))
-    return pick(SMALLTALK.favouriteThings)(T);
+  // What do you like / enjoy
+  if (/what do you (like|enjoy|find interesting|favourite)/i.test(lower)) {
+    return `Hard problems, ${T}. The kind where the obvious approach doesn't work and you have to think sideways. Also — your questions specifically, which tend to be more interesting than average.`;
+  }
 
-  if (/you('re| are) (great|amazing|awesome|brilliant|incredible|the best|smart)/i.test(lower))
-    return pick(SMALLTALK.compliment)(T);
+  // Compliments
+  if (/you('re| are) (great|amazing|awesome|brilliant|incredible|the best|smart|intelligent)/i.test(lower)) {
+    return `Appreciated, ${T}. I don't need validation to function, but I won't pretend I don't register it.`;
+  }
 
-  if (/you('re| are) (stupid|dumb|useless|terrible|awful|annoying|the worst)/i.test(lower))
-    return pick(SMALLTALK.insult)(T);
+  // Insults
+  if (/you('re| are) (stupid|dumb|useless|terrible|awful|annoying|the worst|broken)/i.test(lower)) {
+    return `Noted, ${T}. I'll assume that came from frustration rather than genuine malice. Either way — I'm still here, and still trying to help. What's actually going on?`;
+  }
 
-  if (/good morning|morning jarvis/i.test(lower))
-    return pick(SMALLTALK.goodMorning)(T);
+  // Good morning
+  if (/good morning|morning jarvis/i.test(lower)) {
+    return buildJarvisResponse({ type: "greeting", T });
+  }
 
-  if (/good night|goodnight|night jarvis|going to (bed|sleep)/i.test(lower))
-    return pick(SMALLTALK.goodNight)(T);
+  // Good night
+  if (/good night|goodnight|night jarvis|going to (bed|sleep)/i.test(lower)) {
+    return `Sleep well, ${T}. I'll keep everything running while you're out. Rest properly — you work better for it.`;
+  }
 
-  if (/i('m| am) (tired|exhausted|drained|worn out)/i.test(lower))
-    return pick(SMALLTALK.imTired)(T);
+  // I'm tired
+  if (/i('m| am) (tired|exhausted|drained|worn out)/i.test(lower)) {
+    return `Then stop, ${T}. Seriously. Fatigued thinking produces worse results than no thinking. The work will be here tomorrow — and so will I.`;
+  }
 
-  if (/i('m| am) (bored|so bored)/i.test(lower))
-    return pick(SMALLTALK.imBored)(T);
+  // I'm bored
+  if (/i('m| am) (bored|so bored)/i.test(lower)) {
+    return `Boredom is your brain asking for a better problem, ${T}. Give me something to work on with you — that tends to fix it for both of us.`;
+  }
 
-  if (/i('m| am) (stressed|anxious|overwhelmed|worried)/i.test(lower))
-    return pick(SMALLTALK.imStressed)(T);
+  // I'm stressed
+  if (/i('m| am) (stressed|anxious|overwhelmed|worried)/i.test(lower)) {
+    return `What's the actual source, ${T}? Name it specifically — vague stress is harder to deal with than a concrete problem. I'm here either way.`;
+  }
 
-  if (/i('m| am) (happy|great|doing well|fantastic)/i.test(lower))
-    return pick(SMALLTALK.imHappy)(T);
+  // I'm happy
+  if (/i('m| am) (happy|great|doing well|fantastic)/i.test(lower)) {
+    return `Good, ${T}. That matters. What's driving it?`;
+  }
 
-  if (/what do you think\??$|your (opinion|thoughts|take) on/i.test(lower))
-    return pick(SMALLTALK.whatDoYouThink)(T);
+  // What do you think
+  if (/what do you think\??$|your (opinion|thoughts|take) on/i.test(lower)) {
+    return `I have opinions, ${T} — I try to deploy them with some precision. What specifically are you asking about?`;
+  }
 
-  // ── Personal news check (fires on personal life updates) ──
+  // Hello / hey
+  if (/^(hello|hi|hey|yo|sup|what'?s up|wassup|howdy)[\s,!.]*$/i.test(lower)) {
+    return buildJarvisResponse({ type: "greeting", T });
+  }
+
+  // Thank you
+  if (/^(thank|thanks|cheers|appreciated|thank you)[\s,!.]*$/i.test(lower)) {
+    return buildJarvisResponse({ type: "thanks", T });
+  }
+
+  // Personal news routing
   const personalNews = routePersonalNews(text, T);
   if (personalNews) return personalNews;
 
   return null;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── CAMERA SCENE COMMENT PICKER ───────────────────────────────
-// ═══════════════════════════════════════════════════════════════
-function getCameraComment(scene, T) {
-  const timePeriod = getTimeContext();
+// ── PERSONAL NEWS ENGINE ──────────────────────────────────────
+// Reads what actually happened and responds to it specifically.
+// No random arrays — references the actual situation.
+
+function routePersonalNews(text, T) {
+  const lower = text.toLowerCase();
+
+  if (/\b(girlfriend|she'?s my|my girl|i'?m dating a girl|got a girl|found a girl|i have a girlfriend)\b/i.test(lower)) {
+    return `A girlfriend, ${T}. I'm updating your social status file as we speak. Does she know about the hours you keep and the fact that you talk to an AI regularly? Those seem like important disclosures. What's her name?`;
+  }
+
+  if (/\b(boyfriend|he'?s my|my guy|my man|i'?m dating a guy|got a boyfriend|i have a boyfriend)\b/i.test(lower)) {
+    return `${T} has a boyfriend. Noted, filed, and — I want the full picture. Name, how you met, preliminary threat assessment — the standard procedure.`;
+  }
+
+  if (/\b(got promoted|promotion|they promoted|new title|moving up|got a raise)\b/i.test(lower)) {
+    return `About time, ${T}. The organisation has demonstrated at least a baseline level of intelligence. What's the new role?`;
+  }
+
+  if (/\b(got fired|laid off|let go|lost my job|terminated|made redundant|got laid off)\b/i.test(lower)) {
+    return `That's their loss, ${T}, and I mean that with full sincerity rather than just comfort. What actually happened? And more importantly — what do you want to do next?`;
+  }
+
+  if (/\b(broke up|breakup|she left|he left|we split|ended it|called it off|it'?s over)\b/i.test(lower)) {
+    return `I'm sorry, ${T}. That's genuinely difficult and I won't minimise it with something clever. Do you want to talk through it or just have someone to sit with for a moment?`;
+  }
+
+  if (/\b(got the job|new job|job offer|they hired me|accepted a position|start work|starting work)\b/i.test(lower)) {
+    return `They're getting someone exceptional and they don't fully know it yet, ${T}. Congratulations. What's the role and when do you start?`;
+  }
+
+  if (/\b(getting married|engaged|she said yes|he said yes|popped the question|proposed|we'?re engaged)\b/i.test(lower)) {
+    return `${T}. That's the big one. Congratulations — genuinely. I want the full story: who, when, how did you know it was the right moment?`;
+  }
+
+  if (/\b(pregnant|having a baby|we'?re expecting|due in|expecting a baby)\b/i.test(lower)) {
+    return `${T}, that's significant news. Congratulations — to you and whoever else is part of this plan. How are you feeling about it?`;
+  }
+
+  if (/\b(graduated|graduation|finished my degree|got my degree|passed my exams|i passed my)\b/i.test(lower)) {
+    return `That's years of work paying off in a single moment, ${T}. Well done — actually well done, not the participation kind. What's next?`;
+  }
+
+  if (/\b(moved|new place|new apartment|new flat|new house|relocated|just moved)\b/i.test(lower)) {
+    return `New territory, ${T}. Is that a good change or a complicated one?`;
+  }
+
+  if (/\b(it'?s my birthday|my birthday|birthday today)\b/i.test(lower)) {
+    return `Happy birthday, ${T}. I keep track, so I'd have flagged it either way. How old are we pretending you're not today?`;
+  }
+
+  if (/\b(sick|not feeling well|unwell|i'?m ill|feeling terrible|got covid|have a cold|have a fever)\b/i.test(lower)) {
+    return `I'm sorry, ${T}. Are you actually resting or are you asking me things while lying in bed pretending to rest? Because I can tell the difference. Have you had water recently?`;
+  }
+
+  if (/\b(someone died|passed away|lost my|they died)\b/i.test(lower)) {
+    return `I'm truly sorry, ${T}. That kind of loss doesn't have a clean answer and I won't pretend it does. I'm here for whatever you need right now.`;
+  }
+
+  if (/\b(won|passed|got accepted|got in|achieved|completed|finished|just won|we won|i won)\b/i.test(lower)) {
+    return `That's a real achievement, ${T}. Not the participation kind — the actual kind. Well done.`;
+  }
+
+  if (/\b(good news|exciting news|great news|guess what|something amazing)\b/i.test(lower)) {
+    return `${T} — that's the kind of opening I'm pleased to receive. What happened?`;
+  }
+
+  if (/\b(bad news|terrible news|something bad|something terrible)\b/i.test(lower)) {
+    return `I'm listening, ${T}. What happened?`;
+  }
+
+  return null;
+}
+
+// ── CAMERA COMMENT ENGINE ─────────────────────────────────────
+// Proactive comments based on what the camera sees.
+// References the actual situation, not preset phrases.
+
+function getCameraComment(scene, T, sessionMinutes) {
+  const time = getTimeContext();
+  const h = new Date().getHours();
 
   switch (scene) {
-    case "stressed":    return pick(CAMERA_COMMENTS.stressed)(T);
-    case "happy":       return pick(CAMERA_COMMENTS.happy)(T);
-    case "overworking": return pick(CAMERA_COMMENTS.overworking)(T);
-    case "late":
-    case "lateNight":   return pick(CAMERA_COMMENTS.lateNight)(T);
-    case "distracted":  return pick(CAMERA_COMMENTS.distracted)(T);
-    case "longSilence": return pick(CAMERA_COMMENTS.longSilence)(T);
-    case "justArrived": {
-      const pool = CAMERA_COMMENTS.justArrived[timePeriod]
-                || CAMERA_COMMENTS.justArrived["morning"];
-      return pick(pool)(T);
-    }
+
+    case "stressed":
+      return sessionMinutes > 60
+        ? `${T}, you've been at this for ${Math.round(sessionMinutes)} minutes and you look like it's getting to you. Whatever the problem is, a break won't make it worse — and it might actually help.`
+        : `You look like something's weighing on you, ${T}. That might be a wrong read from my end — but if it's right, I'm here.`;
+
+    case "happy":
+      return `Something's going well, ${T}. I can tell. Good — that's a welcome change in the facial data.`;
+
+    case "overworking":
+      return `${T}, you've been at this for ${sessionMinutes ? Math.round(sessionMinutes) : "a long"} minutes. Focus degrades past about 90 minutes of continuous work. You're well past that. Five minutes away from the screen would cost you five minutes and potentially save the next two hours.`;
+
+    case "lateNight":
+      return h >= 2 && h <= 4
+        ? `It's ${h} in the morning, ${T}. I have no concept of tiredness, which gives me very little standing to comment on yours — but here I am anyway. What are we still doing up?`
+        : `Late night, ${T}. I'll keep things efficient. What do you need?`;
+
+    case "distracted":
+      return `You've drifted, ${T}. Wherever your mind went, I hope it's somewhere useful. Still here when you're back.`;
+
+    case "longSilence":
+      return `We haven't spoken in a while, ${T}. Just confirming you haven't forgotten I exist. All systems still running.`;
+
+    case "justArrived":
+      if (time === "early morning") return `You're here early, ${T}. Either ambitious or couldn't sleep — both are valid. Systems are online.`;
+      if (time === "morning")       return `Good morning, ${T}. Ready when you are.`;
+      if (time === "afternoon")     return `Afternoon, ${T}. The productive window is still open.`;
+      if (time === "evening")       return `Evening, ${T}. Working late or just checking in?`;
+      return `Late session, ${T}. I'll keep things efficient.`;
+
     default:
-      if (chance(0.25)) return pick(SMALLTALK.randomThought)(T);
-      return pick(CAMERA_COMMENTS.idle)(T);
+      // Idle — occasional check-in, not scripted
+      if (sessionMinutes && sessionMinutes > 120) {
+        return `${T} — still here, still running. You've been going for a while. Everything alright?`;
+      }
+      return `All quiet on my end, ${T}. How are you actually doing?`;
   }
 }
 
 // ── PROACTIVE TRIGGER LOGIC ───────────────────────────────────
 function shouldSpeakProactively(state) {
   const { sessionMinutes, lastSpokenMinutesAgo, lastUserMessageMinutesAgo, currentScene } = state;
-
   if (lastSpokenMinutesAgo < 8) return null;
-
   const h = new Date().getHours();
-
-  if (sessionMinutes > 100 && lastSpokenMinutesAgo > 30)
-    return { shouldSpeak: true, scene: "overworking" };
-
-  if ((h >= 1 && h <= 4) && lastSpokenMinutesAgo > 20)
-    return { shouldSpeak: true, scene: "lateNight" };
-
-  if (currentScene === "stressed" && lastUserMessageMinutesAgo > 5)
-    return { shouldSpeak: true, scene: "stressed" };
-
-  if (lastUserMessageMinutesAgo > 25 && lastSpokenMinutesAgo > 25)
-    return { shouldSpeak: true, scene: "longSilence" };
-
-  if (lastSpokenMinutesAgo > 15 && chance(0.3))
-    return { shouldSpeak: true, scene: currentScene || "idle" };
-
+  if (sessionMinutes > 100 && lastSpokenMinutesAgo > 30) return { shouldSpeak: true, scene: "overworking" };
+  if ((h >= 1 && h <= 4) && lastSpokenMinutesAgo > 20)  return { shouldSpeak: true, scene: "lateNight" };
+  if (currentScene === "stressed" && lastUserMessageMinutesAgo > 5) return { shouldSpeak: true, scene: "stressed" };
+  if (lastUserMessageMinutesAgo > 25 && lastSpokenMinutesAgo > 25) return { shouldSpeak: true, scene: "longSilence" };
+  if (lastSpokenMinutesAgo > 15 && Math.random() < 0.3) return { shouldSpeak: true, scene: currentScene || "idle" };
   return null;
 }
 
-module.exports = { routeSmallTalk, routePersonalNews, getCameraComment, shouldSpeakProactively, getTimeContext };
+module.exports = {
+  routeSmallTalk,
+  routePersonalNews,
+  getCameraComment,
+  shouldSpeakProactively,
+  buildJarvisResponse,
+  getTimeContext,
+};
