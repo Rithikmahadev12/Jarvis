@@ -2,1732 +2,1655 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<title>J.A.R.V.I.S — Holographic Viewer v5.0</title>
+<title>J.A.R.V.I.S — Holographic Interface</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:#06101e;font-family:'Share Tech Mono',monospace;color:#00c8ff}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Share Tech Mono',monospace;color:#00c8ff}
+
 :root{
-  --blue:#00c8ff;--blue-glow:rgba(0,200,255,0.4);--blue-dim:rgba(0,200,255,0.12);
-  --amber:#ffaa00;--red:#ff3333;--green:#00ff88;--purple:#aa44ff;
-  --bg:#06101e;--bg2:#0a1828;--text-dim:#3a6a88;--hud:'Orbitron',monospace;
-}
-.scanline{position:fixed;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,200,255,0.12) 50%,transparent);animation:scan 9s linear infinite;pointer-events:none;z-index:2}
-@keyframes scan{from{top:-2px}to{top:100vh}}
-.corner{position:fixed;width:38px;height:38px;pointer-events:none;z-index:99}
-.corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.6}
-.corner::before{width:100%;height:1px;top:0}.corner::after{width:1px;height:100%;top:0}
-.corner .pip{position:absolute;width:4px;height:4px;background:var(--blue);border-radius:50%;top:-2px;left:-2px;box-shadow:0 0 8px var(--blue);animation:pipPulse 3s ease-in-out infinite}
-.corner.tl{top:14px;left:14px}.corner.tr{top:14px;right:14px;transform:scaleX(-1)}
-.corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}.corner.br{bottom:14px;right:14px;transform:scale(-1)}
-@keyframes pipPulse{0%,100%{opacity:1}50%{opacity:0.3}}
-body::before{content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
-  background-image:repeating-linear-gradient(0deg,transparent,transparent 39px,rgba(0,200,255,0.035) 40px),repeating-linear-gradient(90deg,transparent,transparent 39px,rgba(0,200,255,0.035) 40px)}
-#layout{display:flex;width:100vw;height:100vh;position:relative}
-
-/* ── SIDEBAR ── */
-#sidebar{width:192px;flex-shrink:0;display:flex;flex-direction:column;gap:4px;padding:14px 10px 10px;border-right:1px solid rgba(0,200,255,0.1);overflow-y:auto;z-index:10;background:rgba(6,16,30,0.95)}
-.sidebar-label{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4);margin:8px 0 4px;text-transform:uppercase}
-.obj-btn{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.15);color:rgba(0,200,255,0.6);font-family:'Share Tech Mono',monospace;font-size:0.62rem;letter-spacing:0.1em;padding:7px 8px;cursor:pointer;text-align:left;transition:all 0.2s;border-radius:2px;width:100%;display:flex;align-items:center;gap:6px;position:relative;overflow:hidden}
-.obj-btn:hover,.obj-btn.active{background:rgba(0,200,255,0.12);border-color:var(--blue);color:var(--blue)}
-.bp-btn{border-color:rgba(0,150,255,0.25);color:rgba(0,180,255,0.55)}
-.bp-btn:hover,.bp-btn.active{background:rgba(0,150,255,0.12);border-color:#0096ff;color:#0096ff}
-#build-me-btn{background:rgba(170,68,255,0.1);border:1px solid rgba(170,68,255,0.4);color:var(--purple);font-family:var(--hud);font-size:0.52rem;letter-spacing:0.18em;padding:10px 8px;cursor:pointer;border-radius:2px;width:100%;transition:all 0.2s;margin-bottom:6px;display:flex;align-items:center;gap:6px;position:relative;overflow:hidden}
-#build-me-btn:hover{background:rgba(170,68,255,0.2);border-color:var(--purple);box-shadow:0 0 20px rgba(170,68,255,0.3)}
-#build-me-btn .pulse-ring{position:absolute;inset:0;border:1px solid rgba(170,68,255,0.5);border-radius:2px;animation:buildPulse 2s ease-in-out infinite;pointer-events:none}
-@keyframes buildPulse{0%,100%{opacity:0.3;transform:scale(1)}50%{opacity:1;transform:scale(1.02)}}
-
-/* ── VOICE CMD PANEL (new) ── */
-#voice-cmd-panel{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.2);border-radius:3px;padding:8px;margin:4px 0}
-.vcmd-title{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.24em;color:rgba(0,200,255,0.5);margin-bottom:6px}
-.vcmd-item{font-size:0.5rem;color:rgba(0,200,255,0.4);padding:2px 0;line-height:1.4}
-.vcmd-item span{color:var(--blue)}
-
-/* ── MIC STATUS ── */
-#mic-status-badge{display:flex;align-items:center;gap:6px;padding:6px 8px;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.15);border-radius:2px;margin:4px 0;font-family:var(--hud);font-size:0.38rem;letter-spacing:0.2em;color:var(--text-dim);transition:all 0.3s}
-#mic-status-badge.listening{border-color:rgba(0,200,255,0.6);background:rgba(0,200,255,0.1);color:var(--blue)}
-#mic-status-badge.processing{border-color:rgba(255,170,0,0.6);background:rgba(255,170,0,0.08);color:var(--amber)}
-.mic-dot{width:6px;height:6px;border-radius:50%;background:var(--text-dim);flex-shrink:0}
-#mic-status-badge.listening .mic-dot{background:var(--blue);box-shadow:0 0 6px var(--blue);animation:blink 0.9s step-end infinite}
-#mic-status-badge.processing .mic-dot{background:var(--amber);box-shadow:0 0 6px var(--amber);animation:blink 0.5s step-end infinite}
-@keyframes blink{0%,100%{opacity:1}50%{opacity:0.2}}
-
-/* ── ARC LAUNCHER ── */
-#arc-launcher{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0;transition:opacity 0.4s ease}
-#arc-launcher.active{opacity:1;pointer-events:all}
-#arc-launcher-bg{position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(0,5,15,0.85) 0%,rgba(1,8,20,0.97) 100%);backdrop-filter:blur(4px);opacity:0;transition:opacity 0.4s}
-#arc-launcher.active #arc-launcher-bg{opacity:1}
-#arc-core{position:relative;z-index:2;width:90px;height:90px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:2px;cursor:pointer}
-#arc-core .arc-c-ring{position:absolute;border-radius:50%;border:1px solid rgba(170,68,255,0.6);animation:arcSpin linear infinite}
-#arc-core .arc-c-ring:nth-child(1){width:90px;height:90px;animation-duration:8s}
-#arc-core .arc-c-ring:nth-child(2){width:68px;height:68px;animation-duration:5s;animation-direction:reverse}
-#arc-core .arc-c-dot{width:24px;height:24px;border-radius:50%;background:radial-gradient(circle at 35% 35%,rgba(170,68,255,0.9),rgba(80,20,140,0.7));box-shadow:0 0 20px rgba(170,68,255,0.8),0 0 40px rgba(170,68,255,0.4);animation:arcCorePulse 2s ease-in-out infinite;position:relative;z-index:1}
-#arc-core-label{position:absolute;bottom:-28px;left:50%;transform:translateX(-50%);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.3em;color:rgba(170,68,255,0.7);white-space:nowrap}
-@keyframes arcSpin{to{transform:rotate(360deg)}}
-@keyframes arcCorePulse{0%,100%{box-shadow:0 0 20px rgba(170,68,255,0.8),0 0 40px rgba(170,68,255,0.4)}50%{box-shadow:0 0 35px rgba(170,68,255,1),0 0 70px rgba(170,68,255,0.6)}}
-.arc-item{position:absolute;z-index:2;width:76px;height:76px;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;cursor:pointer;background:rgba(6,16,30,0.9);border:1px solid rgba(170,68,255,0.35);box-shadow:0 0 20px rgba(170,68,255,0.1);transition:all 0.25s cubic-bezier(0.34,1.56,0.64,1);transform:scale(0) translateX(0) translateY(0);opacity:0;--tx:0px;--ty:0px}
-#arc-launcher.active .arc-item{transform:translate(var(--tx),var(--ty)) scale(1);opacity:1}
-#arc-launcher.active .arc-item:nth-child(1){transition-delay:0.05s}
-#arc-launcher.active .arc-item:nth-child(2){transition-delay:0.1s}
-#arc-launcher.active .arc-item:nth-child(3){transition-delay:0.15s}
-#arc-launcher.active .arc-item:nth-child(4){transition-delay:0.2s}
-#arc-launcher.active .arc-item:nth-child(5){transition-delay:0.25s}
-#arc-launcher.active .arc-item:nth-child(6){transition-delay:0.3s}
-#arc-launcher.active .arc-item:nth-child(7){transition-delay:0.35s}
-#arc-launcher.active .arc-item:nth-child(8){transition-delay:0.4s}
-.arc-item:hover{background:rgba(170,68,255,0.18);border-color:var(--purple);box-shadow:0 0 30px rgba(170,68,255,0.4);transform:translate(var(--tx),var(--ty)) scale(1.15)!important}
-.arc-item-ico{font-size:1.4rem;line-height:1}
-.arc-item-lbl{font-family:var(--hud);font-size:0.3rem;letter-spacing:0.18em;color:rgba(170,68,255,0.8);text-align:center;line-height:1.3}
-.arc-orbital{position:absolute;border-radius:50%;border:1px solid rgba(170,68,255,0.08);pointer-events:none;z-index:1;animation:arcSpin linear infinite}
-.arc-orbital:nth-child(1){width:220px;height:220px;animation-duration:20s}
-.arc-orbital:nth-child(2){width:320px;height:320px;animation-duration:30s;animation-direction:reverse;border-color:rgba(0,200,255,0.05)}
-.arc-orbital:nth-child(3){width:420px;height:420px;animation-duration:45s;border-color:rgba(170,68,255,0.04)}
-#arc-close{position:absolute;top:24px;right:24px;z-index:10;background:rgba(170,68,255,0.08);border:1px solid rgba(170,68,255,0.3);color:rgba(170,68,255,0.7);font-family:var(--hud);font-size:0.44rem;letter-spacing:0.2em;padding:7px 14px;cursor:pointer;border-radius:2px;transition:all 0.2s}
-#arc-close:hover{background:rgba(170,68,255,0.2);color:var(--purple)}
-#arc-mode-label{position:absolute;bottom:36px;left:50%;transform:translateX(-50%);font-family:var(--hud);font-size:0.5rem;letter-spacing:0.35em;color:rgba(170,68,255,0.5);white-space:nowrap;z-index:10;animation:arcLabelPulse 2s ease-in-out infinite}
-@keyframes arcLabelPulse{0%,100%{opacity:0.5}50%{opacity:1}}
-
-/* ── VIEWER ── */
-#viewer-wrap{flex:1;position:relative;display:flex;flex-direction:column;overflow:hidden}
-#three-canvas{position:absolute;inset:0;width:100%!important;height:100%!important;z-index:1}
-#scan-overlay{position:absolute;inset:0;pointer-events:none;z-index:3;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,200,255,0.012) 3px,rgba(0,200,255,0.012) 4px);animation:scanShift 0.1s linear infinite}
-@keyframes scanShift{from{background-position:0 0}to{background-position:0 4px}}
-#holo-rings{position:absolute;inset:0;pointer-events:none;z-index:2;display:flex;align-items:center;justify-content:center}
-.holo-ring{position:absolute;border-radius:50%;border:1px solid rgba(0,200,255,0.1);animation:ringPulse 4s ease-in-out infinite}
-.holo-ring:nth-child(1){width:300px;height:300px}
-.holo-ring:nth-child(2){width:420px;height:420px;animation-delay:1s;border-color:rgba(0,200,255,0.06)}
-.holo-ring:nth-child(3){width:540px;height:540px;animation-delay:2s;border-color:rgba(0,200,255,0.04)}
-@keyframes ringPulse{0%,100%{opacity:0.5;transform:scale(1)}50%{opacity:1;transform:scale(1.02)}}
-
-/* ── BLUEPRINT ── */
-#blueprint-wrap{position:absolute;inset:0;z-index:20;display:none;flex-direction:column;align-items:center;justify-content:center;background:#06101e}
-#blueprint-wrap.active{display:flex}
-#blueprint-canvas{position:absolute;inset:0;width:100%;height:100%}
-
-/* ── VOICE COMMAND TOAST (prominent) ── */
-#voice-toast{
-  position:fixed;top:70px;left:50%;transform:translateX(-50%);
-  z-index:300;
-  background:rgba(1,8,20,0.97);
-  border:1px solid rgba(0,200,255,0.5);
-  box-shadow:0 0 40px rgba(0,200,255,0.25),inset 0 0 20px rgba(0,200,255,0.04);
-  border-radius:3px;padding:12px 24px;
-  font-family:var(--hud);font-size:0.65rem;letter-spacing:0.22em;
-  color:var(--blue);text-align:center;
-  min-width:340px;max-width:600px;
-  opacity:0;pointer-events:none;
-  transition:opacity 0.25s;
-}
-#voice-toast.show{opacity:1}
-#voice-toast .vt-label{font-size:0.38rem;color:rgba(0,200,255,0.5);letter-spacing:0.3em;margin-bottom:4px}
-#voice-toast .vt-text{color:#d8f4ff;font-size:0.7rem}
-
-/* ── PRICE PANEL ── */
-#price-panel{
-  position:fixed;right:210px;top:50%;transform:translateY(-50%);
-  z-index:100;width:280px;
-  background:rgba(1,8,20,0.97);
-  border:1px solid rgba(0,200,255,0.35);
-  border-radius:3px;padding:16px;
-  display:none;
-  box-shadow:0 0 40px rgba(0,200,255,0.15);
-  max-height:80vh;overflow-y:auto;
-}
-#price-panel.visible{display:block;animation:panelSlideIn 0.3s ease}
-@keyframes panelSlideIn{from{opacity:0;transform:translateY(-50%) translateX(20px)}to{opacity:1;transform:translateY(-50%) translateX(0)}}
-#price-panel h3{font-family:var(--hud);font-size:0.65rem;letter-spacing:0.28em;color:var(--blue);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(0,200,255,0.2)}
-.price-item{padding:8px 0;border-bottom:1px solid rgba(0,200,255,0.08)}
-.price-item:last-child{border-bottom:none}
-.price-item-name{font-size:0.65rem;color:#d8f4ff;margin-bottom:2px}
-.price-item-cost{font-family:var(--hud);font-size:0.8rem;color:var(--amber);margin-bottom:2px}
-.price-item-where{font-size:0.52rem;color:rgba(0,200,255,0.55)}
-.price-total{margin-top:12px;padding-top:10px;border-top:1px solid rgba(0,200,255,0.25);display:flex;justify-content:space-between;align-items:center}
-.price-total-label{font-family:var(--hud);font-size:0.42rem;letter-spacing:0.22em;color:var(--text-dim)}
-.price-total-val{font-family:var(--hud);font-size:1rem;color:var(--amber);text-shadow:0 0 10px rgba(255,170,0,0.4)}
-#price-close{position:absolute;top:10px;right:12px;background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:0.9rem;padding:2px 6px}
-#price-close:hover{color:var(--blue)}
-
-/* ── ADDED COMPONENT BADGE ── */
-.added-component{
-  position:absolute;z-index:50;
-  background:rgba(0,255,136,0.15);
-  border:1px solid rgba(0,255,136,0.6);
-  border-radius:2px;
-  padding:4px 8px;
-  font-family:var(--hud);font-size:0.36rem;letter-spacing:0.18em;
-  color:var(--green);
-  pointer-events:none;
-  white-space:nowrap;
-  animation:componentFadeIn 0.4s ease;
-  box-shadow:0 0 12px rgba(0,255,136,0.3);
-}
-@keyframes componentFadeIn{from{opacity:0;transform:scale(0.8)}to{opacity:1;transform:scale(1)}}
-.component-connector{
-  position:absolute;z-index:49;
-  background:rgba(0,255,136,0.4);
-  pointer-events:none;
+  --blue:#00c8ff;--glow:rgba(0,200,255,0.45);--bg:#000508;
+  --dim:rgba(0,200,255,0.25);--text:#a8dff5;--dim-text:#2e5a78;
+  --amber:#ffaa00;--green:#00ff88;--red:#ff3333;
+  --hud:'Orbitron',monospace;
 }
 
-/* ── PART INFO PANEL ── */
-#part-info-panel{position:absolute;right:20px;top:50%;transform:translateY(-50%);z-index:30;width:220px;background:rgba(0,5,15,0.95);border:1px solid rgba(0,200,255,0.4);border-radius:3px;padding:16px;display:none;box-shadow:0 0 30px rgba(0,200,255,0.2)}
-#part-info-panel.active{display:block;animation:panelIn 0.25s ease}
-@keyframes panelIn{from{opacity:0;transform:translateY(-50%) translateX(20px)}to{opacity:1;transform:translateY(-50%) translateX(0)}}
-#part-title{font-family:var(--hud);font-size:0.7rem;letter-spacing:0.25em;color:var(--blue);margin-bottom:4px}
-#part-subtitle{font-size:0.55rem;color:var(--text-dim);letter-spacing:0.1em;margin-bottom:12px}
-.part-spec{display:flex;justify-content:space-between;margin:5px 0;font-size:0.6rem}
-.part-spec-key{color:var(--text-dim);letter-spacing:0.1em}
-.part-spec-val{color:var(--blue);font-weight:bold}
-.part-price-block{margin-top:12px;padding-top:12px;border-top:1px solid rgba(0,200,255,0.15)}
-.part-price-label{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.25em;color:var(--text-dim)}
-.part-price{font-size:1.1rem;color:var(--amber);font-family:var(--hud);margin-top:2px;text-shadow:0 0 10px rgba(255,170,0,0.4)}
-.part-price-where{font-size:0.52rem;color:rgba(255,170,0,0.55);margin-top:2px}
-.part-close-btn{position:absolute;top:8px;right:10px;background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:0.8rem;padding:2px 6px}
-.part-close-btn:hover{color:var(--blue)}
+/* ── CANVAS ── */
+#c{position:fixed;inset:0;display:block;width:100%!important;height:100%!important}
 
-/* ── BLUEPRINT HEADER ── */
-.bp-header-fixed{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-start;padding:18px 24px;z-index:25;pointer-events:none}
-.bp-classification{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.3em;color:rgba(0,200,255,0.5);animation:blinkAnim 2s step-end infinite}
-.bp-title-block{text-align:center}
-.bp-title{font-family:var(--hud);font-size:0.85rem;font-weight:700;letter-spacing:0.4em;color:var(--blue);text-shadow:0 0 20px var(--blue-glow);display:block}
-.bp-subtitle{font-size:0.45rem;letter-spacing:0.25em;color:rgba(0,200,255,0.5);margin-top:3px}
-#bp-status{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);font-family:var(--hud);font-size:0.5rem;letter-spacing:0.3em;color:rgba(0,200,255,0.6);z-index:25;pointer-events:none;animation:blinkAnim 1.5s step-end infinite}
-@keyframes blinkAnim{0%,100%{opacity:1}50%{opacity:0}}
-#bp-to-3d{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.4);color:var(--blue);font-family:var(--hud);font-size:0.52rem;letter-spacing:0.22em;padding:11px 28px;cursor:pointer;border-radius:2px;transition:all 0.2s;z-index:25;box-shadow:0 0 20px rgba(0,200,255,0.1)}
-#bp-to-3d:hover{background:rgba(0,200,255,0.16);box-shadow:0 0 30px rgba(0,200,255,0.25)}
+/* ── SCANLINE ── */
+.scan{position:fixed;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,200,255,0.12),transparent);animation:scanMove 8s linear infinite;pointer-events:none;z-index:10}
+@keyframes scanMove{from{top:-2px}to{top:100vh}}
 
-/* ── AI BUILD OVERLAY ── */
-#ai-build-overlay{position:absolute;inset:0;z-index:30;background:rgba(6,10,20,0.97);display:none;flex-direction:column;align-items:center;justify-content:center;gap:20px}
-#ai-build-overlay.active{display:flex}
-.ai-build-title{font-family:var(--hud);font-size:0.9rem;font-weight:700;letter-spacing:0.5em;color:var(--purple);text-shadow:0 0 30px rgba(170,68,255,0.6)}
-.ai-build-sub{font-size:0.55rem;letter-spacing:0.25em;color:rgba(170,68,255,0.55)}
-.ai-build-ring{width:80px;height:80px;border:2px solid rgba(170,68,255,0.3);border-top-color:var(--purple);border-radius:50%;animation:spin 1.2s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.ai-build-status{font-family:var(--hud);font-size:0.45rem;letter-spacing:0.28em;color:rgba(170,68,255,0.5);min-height:20px}
-.ai-build-progress{width:300px;height:2px;background:rgba(170,68,255,0.1);border-radius:2px;overflow:hidden}
-.ai-build-bar{height:100%;width:0%;background:var(--purple);border-radius:2px;box-shadow:0 0 8px rgba(170,68,255,0.6);transition:width 0.3s}
-#build-input-modal{position:absolute;inset:0;z-index:35;background:rgba(3,6,16,0.95);display:none;flex-direction:column;align-items:center;justify-content:center;gap:16px;backdrop-filter:blur(8px)}
-#build-input-modal.active{display:flex}
-.bim-title{font-family:var(--hud);font-size:0.7rem;letter-spacing:0.4em;color:var(--purple)}
-.bim-sub{font-size:0.52rem;letter-spacing:0.15em;color:rgba(170,68,255,0.5)}
-#build-query-input{width:480px;background:rgba(170,68,255,0.06);border:1px solid rgba(170,68,255,0.4);color:#d8f4ff;font-family:'Share Tech Mono',monospace;font-size:0.85rem;padding:12px 18px;border-radius:2px;outline:none;letter-spacing:0.06em;transition:border-color 0.2s,box-shadow 0.2s}
-#build-query-input:focus{border-color:var(--purple);box-shadow:0 0 20px rgba(170,68,255,0.2)}
-#build-query-input::placeholder{color:rgba(170,68,255,0.3)}
-.bim-examples{font-size:0.5rem;letter-spacing:0.12em;color:rgba(170,68,255,0.4);text-align:center;line-height:2}
-.bim-btns{display:flex;gap:10px}
-.bim-btn{background:rgba(170,68,255,0.12);border:1px solid rgba(170,68,255,0.4);color:var(--purple);font-family:var(--hud);font-size:0.48rem;letter-spacing:0.22em;padding:10px 24px;cursor:pointer;border-radius:2px;transition:all 0.2s}
-.bim-btn:hover{background:rgba(170,68,255,0.25);box-shadow:0 0 16px rgba(170,68,255,0.3)}
-.bim-btn.cancel{border-color:rgba(255,255,255,0.1);color:var(--text-dim);background:transparent}
+/* ── CORNER BRACKETS ── */
+.corner{position:fixed;width:44px;height:44px;pointer-events:none;z-index:20}
+.corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.7}
+.corner::before{width:100%;height:1.5px;top:0}
+.corner::after{width:1.5px;height:100%;top:0}
+.corner.tl{top:14px;left:14px}
+.corner.tr{top:14px;right:14px;transform:scaleX(-1)}
+.corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}
+.corner.br{bottom:14px;right:14px;transform:scale(-1)}
+.corner .pip{position:absolute;width:5px;height:5px;background:var(--blue);border-radius:50%;top:-2px;left:-2px;box-shadow:0 0 10px var(--blue),0 0 24px var(--glow);animation:pipBlink 2.5s ease-in-out infinite}
+@keyframes pipBlink{0%,100%{opacity:1;box-shadow:0 0 10px var(--blue),0 0 24px var(--glow)}50%{opacity:0.2;box-shadow:none}}
 
-/* ── HAND SKELETON CANVAS ── */
-#hand-skeleton-canvas{position:absolute;inset:0;pointer-events:none;z-index:14;width:100%;height:100%}
+/* ── TOP BAR ── */
+#top{position:fixed;top:0;left:0;right:0;height:52px;background:linear-gradient(180deg,rgba(0,4,12,0.98),rgba(0,6,18,0.85));border-bottom:1px solid rgba(0,200,255,0.18);display:flex;align-items:center;justify-content:space-between;padding:0 70px;z-index:30}
+.top-title{font-family:var(--hud);font-size:1rem;font-weight:900;letter-spacing:0.55em;color:var(--blue);text-shadow:0 0 20px var(--glow)}
+.top-right{display:flex;align-items:center;gap:16px;font-size:0.5rem;letter-spacing:0.22em;color:var(--dim-text)}
+.top-right .live{color:var(--green);display:flex;align-items:center;gap:5px}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:liveBlink 1.4s step-end infinite}
+@keyframes liveBlink{0%,100%{opacity:1}50%{opacity:0.2}}
+#back-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);color:var(--dim-text);font-family:var(--hud);font-size:0.38rem;letter-spacing:0.2em;padding:6px 12px;cursor:pointer;text-decoration:none;transition:all 0.2s;border-radius:2px}
+#back-btn:hover{border-color:var(--blue);color:var(--blue)}
 
-/* ── GESTURE HUD ── */
-#gesture-hud{position:absolute;top:0;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:14px;background:rgba(6,16,30,0.9);border:1px solid rgba(0,200,255,0.2);border-top:none;padding:6px 22px 8px;border-radius:0 0 8px 8px;z-index:20;opacity:0;transition:opacity 0.4s}
-#gesture-hud.visible{opacity:1}
-.gh-hand{display:flex;flex-direction:column;align-items:center;gap:2px;min-width:80px}
-.gh-icon{font-size:1.3rem;transition:all 0.2s}.gh-label{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.22em;color:var(--blue)}
-.gh-action{font-size:0.48rem;color:var(--text-dim);letter-spacing:0.1em;min-height:14px}
-.gh-divider{width:1px;height:36px;background:rgba(0,200,255,0.15)}
-.gh-center{display:flex;flex-direction:column;align-items:center;gap:2px}
-.gh-both-label{font-family:var(--hud);font-size:0.3rem;letter-spacing:0.18em;color:rgba(0,200,255,0.4)}
-.gh-both-action{font-size:0.44rem;color:rgba(0,200,255,0.4);letter-spacing:0.08em;min-height:14px}
-.gh-hand.active .gh-icon{transform:scale(1.2)}
-.gh-hand.active .gh-label,.gh-hand.active .gh-action{color:var(--green)}
+/* ── LEFT SIDEBAR — object catalog ── */
+#sidebar{position:fixed;top:52px;left:0;bottom:22px;width:200px;background:rgba(0,3,10,0.92);border-right:1px solid rgba(0,200,255,0.1);overflow-y:auto;scrollbar-width:none;z-index:20;display:flex;flex-direction:column;gap:0;padding:10px 0}
+#sidebar::-webkit-scrollbar{display:none}
+.sb-label{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.3em;color:var(--dim-text);padding:10px 14px 4px;text-transform:uppercase}
+.obj-btn{display:flex;align-items:center;gap:8px;padding:8px 14px;cursor:pointer;font-size:0.65rem;letter-spacing:0.06em;color:var(--dim-text);border-left:2px solid transparent;border-bottom:1px solid rgba(0,200,255,0.04);transition:all 0.15s}
+.obj-btn:hover{background:rgba(0,200,255,0.06);border-left-color:rgba(0,200,255,0.3);color:var(--text)}
+.obj-btn.active{background:rgba(0,200,255,0.1);border-left-color:var(--blue);color:var(--blue)}
+.obj-ico{font-size:1rem;flex-shrink:0;width:20px;text-align:center}
 
-/* ── SEARCH BAR ── */
-#search-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-top:1px solid rgba(0,200,255,0.1);flex-shrink:0;background:rgba(6,16,30,0.9);position:relative;z-index:10}
-#search-input{flex:1;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.2);color:var(--blue);font-family:'Share Tech Mono',monospace;font-size:0.68rem;padding:8px 12px;border-radius:2px;outline:none;letter-spacing:0.06em}
-#search-input:focus{border-color:rgba(0,200,255,0.5)}
-#search-input::placeholder{color:rgba(0,200,255,0.25)}
-.bar-btn{background:transparent;border:1px solid rgba(0,200,255,0.3);color:var(--blue);font-family:var(--hud);font-size:0.38rem;letter-spacing:0.18em;padding:8px 12px;cursor:pointer;border-radius:2px;transition:all 0.2s;white-space:nowrap}
-.bar-btn:hover{background:rgba(0,200,255,0.1);border-color:var(--blue)}
-.bar-btn.active{border-color:var(--red);color:var(--red);animation:micPulse 1s ease-in-out infinite}
+/* ── RIGHT PANEL — info ── */
+#info-panel{position:fixed;top:52px;right:0;bottom:22px;width:190px;background:rgba(0,3,10,0.92);border-left:1px solid rgba(0,200,255,0.1);z-index:20;display:flex;flex-direction:column;gap:0;padding:10px 0;overflow-y:auto;scrollbar-width:none}
+#info-panel::-webkit-scrollbar{display:none}
+.info-card{padding:10px 14px;border-bottom:1px solid rgba(0,200,255,0.06)}
+.info-key{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.26em;color:var(--dim-text);margin-bottom:4px}
+.info-val{font-size:0.62rem;color:var(--blue);letter-spacing:0.08em;line-height:1.5}
+.info-val.sm{font-size:0.54rem;color:var(--text)}
+
+/* ── BOTTOM TICKER ── */
+#ticker{position:fixed;bottom:0;left:0;right:0;height:22px;background:rgba(0,3,10,0.98);border-top:1px solid rgba(0,200,255,0.1);overflow:hidden;display:flex;align-items:center;z-index:30;pointer-events:none}
+#ticker::before{content:'▶';font-size:0.4rem;color:var(--blue);padding:0 10px;flex-shrink:0;opacity:0.5}
+.ticker-track{display:flex;white-space:nowrap;animation:tickScroll 55s linear infinite;font-size:0.5rem;color:rgba(0,200,255,0.32);letter-spacing:0.12em}
+.ti{padding:0 36px}.ti.b{color:rgba(0,200,255,0.65)}
+@keyframes tickScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
+
+/* ── VOICE / INPUT BAR ── */
+#input-bar{position:fixed;bottom:22px;left:200px;right:190px;height:52px;background:rgba(0,3,10,0.95);border-top:1px solid rgba(0,200,255,0.15);display:flex;align-items:center;gap:0;z-index:25}
+#cmd-input{flex:1;background:transparent;border:none;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:0.8rem;padding:0 16px;height:100%;outline:none;letter-spacing:0.05em}
+#cmd-input::placeholder{color:var(--dim-text);opacity:0.6}
+#voice-btn{background:rgba(0,200,255,0.06);border:none;border-left:1px solid rgba(0,200,255,0.15);color:var(--blue);font-size:1.1rem;padding:0 18px;height:100%;cursor:pointer;transition:all 0.2s;flex-shrink:0}
+#voice-btn:hover{background:rgba(0,200,255,0.15)}
+#voice-btn.listening{color:var(--red);background:rgba(255,51,51,0.1);animation:micPulse 0.8s ease-in-out infinite}
 @keyframes micPulse{0%,100%{opacity:1}50%{opacity:0.4}}
+#send-btn{background:rgba(0,200,255,0.08);border:none;border-left:1px solid rgba(0,200,255,0.15);color:var(--blue);font-family:var(--hud);font-size:0.44rem;letter-spacing:0.2em;padding:0 18px;height:100%;cursor:pointer;transition:all 0.2s;flex-shrink:0}
+#send-btn:hover{background:rgba(0,200,255,0.18)}
 
-/* ── LOADING ── */
-#loading{position:absolute;inset:0;background:rgba(6,16,30,0.97);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;z-index:30}
-.load-ring{width:52px;height:52px;border:1.5px solid rgba(0,200,255,0.15);border-top-color:var(--blue);border-radius:50%;animation:spin 1.2s linear infinite}
-.load-text{font-family:var(--hud);font-size:0.5rem;letter-spacing:0.3em;color:rgba(0,200,255,0.6)}
-.load-bar-wrap{width:200px;height:2px;background:rgba(0,200,255,0.1);border-radius:2px;overflow:hidden}
-.load-bar{height:100%;background:var(--blue);width:0%;transition:width 0.3s;box-shadow:0 0 8px var(--blue)}
+/* ── JARVIS REPLY TOAST ── */
+#reply-toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:40;background:rgba(0,4,14,0.97);border:1px solid rgba(0,200,255,0.4);box-shadow:0 0 40px rgba(0,200,255,0.15),inset 0 0 20px rgba(0,200,255,0.03);border-radius:3px;padding:12px 24px;max-width:700px;width:90%;opacity:0;transition:opacity 0.3s;pointer-events:none}
+#reply-toast.show{opacity:1}
+.rt-label{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.3em;color:rgba(0,200,255,0.45);margin-bottom:5px}
+#reply-text{font-size:0.78rem;color:var(--text);line-height:1.6;letter-spacing:0.04em}
 
-/* ── RIGHT PANEL ── */
-#info-panel{width:185px;flex-shrink:0;display:flex;flex-direction:column;gap:5px;padding:14px 10px;border-left:1px solid rgba(0,200,255,0.1);z-index:10;background:rgba(6,16,30,0.92);overflow-y:auto}
-.info-card{background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.1);border-radius:2px;padding:9px 10px}
-.info-card-key{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.26em;color:rgba(0,200,255,0.4);margin-bottom:4px}
-.info-card-val{font-size:0.6rem;color:var(--blue);letter-spacing:0.08em;line-height:1.5}
-.info-card-val.dim{font-size:0.54rem;color:rgba(0,200,255,0.55)}
-#cam-wrap{border-top:1px solid rgba(0,200,255,0.08);padding-top:8px;margin-top:auto}
-#gesture-cam{width:100%;aspect-ratio:4/3;object-fit:cover;border:1px solid rgba(0,200,255,0.2);border-radius:2px;opacity:0.8;background:#000;display:block;transform:scaleX(-1)}
-.cam-label{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.2em;color:rgba(0,200,255,0.3);text-align:center;margin-top:3px}
-#cam-status{font-size:0.54rem;color:rgba(0,200,255,0.35);text-align:center;margin-top:3px;letter-spacing:0.08em;transition:color 0.3s}
-#cam-status.online{color:var(--green)}
-#cam-status.tracking{color:var(--amber);animation:blinkAnim 0.8s step-end infinite}
-#hand-count{font-size:0.48rem;color:rgba(0,200,255,0.3);text-align:center;margin-top:2px}
+/* ── LOADING OVERLAY ── */
+#loading{position:fixed;inset:0;z-index:50;background:rgba(0,3,10,0.97);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;transition:opacity 0.5s}
+#loading.gone{opacity:0;pointer-events:none}
+.load-ring{width:56px;height:56px;border:1.5px solid rgba(0,200,255,0.15);border-top-color:var(--blue);border-radius:50%;animation:spin 1.1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.load-title{font-family:var(--hud);font-size:0.85rem;font-weight:900;letter-spacing:0.55em;color:var(--blue);text-shadow:0 0 20px var(--glow)}
+.load-sub{font-size:0.5rem;letter-spacing:0.28em;color:var(--dim-text)}
+.load-bar-wrap{width:240px;height:2px;background:rgba(0,200,255,0.08);border-radius:2px;overflow:hidden}
+.load-bar{height:100%;width:0%;background:var(--blue);box-shadow:0 0 8px var(--blue);transition:width 0.25s;border-radius:2px}
 
-/* ── HUD TOP ── */
-#hud-top{display:flex;justify-content:space-between;align-items:flex-start;padding:10px 18px 0;flex-shrink:0;z-index:10;position:relative}
-.hud-key{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.28em;color:rgba(0,200,255,0.4)}
-.hud-val{font-size:0.68rem;letter-spacing:0.15em;color:var(--blue);margin-top:2px}
-#mode-badge{position:absolute;top:50px;right:14px;z-index:15;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);border-radius:2px;padding:5px 10px;font-family:var(--hud);font-size:0.36rem;letter-spacing:0.24em;color:rgba(0,200,255,0.6)}
-
-/* ── TOAST ── */
-#toast{position:fixed;top:56px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.3);color:var(--blue);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.2em;padding:7px 18px;border-radius:2px;z-index:100;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap}
-#toast.show{opacity:1}
-
-/* ── TICKER ── */
-#ticker{position:fixed;bottom:0;left:0;right:0;height:19px;background:rgba(6,16,30,0.95);border-top:1px solid rgba(0,200,255,0.07);overflow:hidden;display:flex;align-items:center;z-index:40;pointer-events:none}
-#ticker::before{content:'▶';font-size:0.44rem;color:var(--blue);padding:0 10px;flex-shrink:0;opacity:0.5}
-.ticker-track{display:flex;white-space:nowrap;animation:tickerScroll 55s linear infinite;font-size:0.5rem;color:rgba(0,200,255,0.35);letter-spacing:0.12em}
-.ticker-item{padding:0 34px}.ticker-item.blue{color:rgba(0,200,255,0.65)}
-@keyframes tickerScroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-
-/* ── TRANSITION ── */
-#transition-overlay{position:absolute;inset:0;z-index:25;pointer-events:none;display:none;background:radial-gradient(ellipse at center,rgba(0,200,255,0.3) 0%,transparent 70%)}
-#transition-overlay.flash{display:block;animation:transFlash 0.6s ease forwards}
-@keyframes transFlash{0%{opacity:0}30%{opacity:1}100%{opacity:0}}
-#gesture-announce{position:absolute;bottom:100px;left:50%;transform:translateX(-50%);background:rgba(6,16,30,0.92);border:1px solid rgba(0,200,255,0.35);color:var(--blue);font-family:var(--hud);font-size:0.5rem;letter-spacing:0.22em;padding:6px 18px;border-radius:3px;z-index:20;opacity:0;transition:opacity 0.2s;pointer-events:none}
-#gesture-announce.show{opacity:1}
-#no-model{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:5}
-.no-model-ring{width:90px;height:90px;border-radius:50%;border:1px solid rgba(0,200,255,0.15);display:flex;align-items:center;justify-content:center;animation:breathe 4s ease-in-out infinite}
-@keyframes breathe{0%,100%{box-shadow:0 0 20px rgba(0,200,255,0.05)}50%{box-shadow:0 0 40px rgba(0,200,255,0.15)}}
-.no-model-icon{font-size:2.2rem;opacity:0.3}
-.no-model-text{font-family:var(--hud);font-size:0.46rem;letter-spacing:0.3em;color:rgba(0,200,255,0.3)}
-.no-model-hint{font-size:0.58rem;color:rgba(0,200,255,0.22);letter-spacing:0.08em;text-align:center;line-height:2.2}
-.data-stream{position:absolute;top:0;bottom:0;width:1px;background:linear-gradient(to bottom,transparent,rgba(0,200,255,0.1) 50%,transparent);pointer-events:none;z-index:2;animation:streamFloat 8s linear infinite}
-@keyframes streamFloat{from{transform:translateX(0)}to{transform:translateX(2px)}}
-.suit-part{cursor:pointer;transition:all 0.2s;filter:drop-shadow(0 0 3px rgba(0,200,255,0.3))}
-.suit-part:hover{filter:drop-shadow(0 0 12px rgba(0,200,255,0.9)) brightness(1.4)}
-.suit-part.selected{filter:drop-shadow(0 0 16px rgba(255,170,0,0.9)) brightness(1.5)}
-.arc-reactor-glow{animation:suitPulse 2s ease-in-out infinite}
-@keyframes suitPulse{0%,100%{opacity:0.7}50%{opacity:1}}
-#launch-btn{position:absolute;bottom:90px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:2px solid rgba(0,200,255,0.5);color:var(--blue);font-family:var(--hud);font-size:0.6rem;letter-spacing:0.3em;padding:14px 36px;cursor:pointer;border-radius:3px;z-index:15;box-shadow:0 0 30px rgba(0,200,255,0.2),inset 0 0 20px rgba(0,200,255,0.03);transition:all 0.2s;display:none;overflow:hidden}
-#launch-btn:hover{background:rgba(0,200,255,0.18);border-color:var(--blue);box-shadow:0 0 50px rgba(0,200,255,0.4),inset 0 0 30px rgba(0,200,255,0.08)}
-#launch-btn.visible{display:block}
-#ai-bp-list{display:flex;flex-direction:column;gap:4px}
+/* ── MIC INDICATOR ── */
+#mic-ring{position:fixed;bottom:34px;left:50%;transform:translateX(-50%);width:80px;height:80px;z-index:35;pointer-events:none;display:none}
+#mic-ring.active{display:block}
+#mic-ring svg{width:100%;height:100%}
 </style>
 </head>
 <body>
-<div class="scanline"></div>
+
+<div class="scan"></div>
 <div class="corner tl"><div class="pip"></div></div>
 <div class="corner tr"><div class="pip"></div></div>
 <div class="corner bl"><div class="pip"></div></div>
 <div class="corner br"><div class="pip"></div></div>
-<div id="toast"></div>
 
-<!-- VOICE COMMAND TOAST -->
-<div id="voice-toast">
-  <div class="vt-label">VOICE COMMAND RECEIVED</div>
-  <div class="vt-text" id="voice-toast-text">—</div>
+<!-- LOADING -->
+<div id="loading">
+  <div class="load-ring"></div>
+  <div class="load-title">J.A.R.V.I.S</div>
+  <div class="load-sub">HOLOGRAPHIC INTERFACE v6.0</div>
+  <div class="load-bar-wrap"><div class="load-bar" id="load-bar"></div></div>
 </div>
 
-<!-- PRICE PANEL -->
-<div id="price-panel">
-  <button id="price-close" onclick="closePricePanel()">✕</button>
-  <h3 id="price-panel-title">PARTS & PRICING</h3>
-  <div id="price-items-list"></div>
-  <div class="price-total">
-    <span class="price-total-label">ESTIMATED TOTAL</span>
-    <span class="price-total-val" id="price-total-val">$0</span>
+<!-- TOP BAR -->
+<div id="top">
+  <div class="top-title">J.A.R.V.I.S</div>
+  <div class="top-right">
+    <span class="live"><div class="live-dot"></div> HOLOGRAPHIC PROJECTOR ACTIVE</span>
+    <span id="top-obj-label">—</span>
+    <a href="/" id="back-btn">← BACK</a>
   </div>
 </div>
 
-<!-- ARC LAUNCHER -->
-<div id="arc-launcher">
-  <div id="arc-launcher-bg" onclick="closeLauncher()"></div>
-  <div class="arc-orbital"></div><div class="arc-orbital"></div><div class="arc-orbital"></div>
-  <div id="arc-core" onclick="closeLauncher()">
-    <div class="arc-c-ring"></div><div class="arc-c-ring"></div>
-    <div class="arc-c-dot"></div>
-    <div id="arc-core-label">TAP TO CLOSE</div>
-  </div>
-  <div class="arc-item" data-action="blueprint" style="--tx:0px;--ty:-180px"><div class="arc-item-ico">📐</div><div class="arc-item-lbl">BLUEPRINT<br>SCAN</div></div>
-  <div class="arc-item" data-action="3d" style="--tx:127px;--ty:-127px"><div class="arc-item-ico">⬡</div><div class="arc-item-lbl">3D<br>HOLOGRAM</div></div>
-  <div class="arc-item" data-action="atom" style="--tx:180px;--ty:0px"><div class="arc-item-ico">⚛</div><div class="arc-item-lbl">ATOM<br>SCAN</div></div>
-  <div class="arc-item" data-action="reactor" style="--tx:127px;--ty:127px"><div class="arc-item-ico">◉</div><div class="arc-item-lbl">ARC<br>REACTOR</div></div>
-  <div class="arc-item" data-action="ai-build" style="--tx:0px;--ty:180px"><div class="arc-item-ico">⚡</div><div class="arc-item-lbl">AI<br>DESIGN</div></div>
-  <div class="arc-item" data-action="dna" style="--tx:-127px;--ty:127px"><div class="arc-item-ico">⚬</div><div class="arc-item-lbl">DNA<br>HELIX</div></div>
-  <div class="arc-item" data-action="neural" style="--tx:-180px;--ty:0px"><div class="arc-item-ico">🧠</div><div class="arc-item-lbl">NEURAL<br>NET</div></div>
-  <div class="arc-item" data-action="crystal" style="--tx:-127px;--ty:-127px"><div class="arc-item-ico">◊</div><div class="arc-item-lbl">CRYSTAL<br>LATTICE</div></div>
-  <div id="arc-mode-label">⬡ BUILD MODE ACTIVE ⬡</div>
-  <button id="arc-close" onclick="closeLauncher()">✕ EXIT BUILD MODE</button>
+<!-- 3D CANVAS -->
+<canvas id="c"></canvas>
+
+<!-- LEFT SIDEBAR -->
+<div id="sidebar">
+  <div class="sb-label">Structures</div>
+  <div class="obj-btn active" data-obj="arc_reactor" onclick="switchObj(this)"><span class="obj-ico">⚛</span>Arc Reactor</div>
+  <div class="obj-btn" data-obj="iron_man" onclick="switchObj(this)"><span class="obj-ico">🦾</span>Iron Man Suit</div>
+  <div class="obj-btn" data-obj="dna" onclick="switchObj(this)"><span class="obj-ico">🧬</span>DNA Helix</div>
+  <div class="obj-btn" data-obj="atom" onclick="switchObj(this)"><span class="obj-ico">⚡</span>Atom</div>
+  <div class="obj-btn" data-obj="brain" onclick="switchObj(this)"><span class="obj-ico">🧠</span>Neural Net</div>
+  <div class="obj-btn" data-obj="crystal" onclick="switchObj(this)"><span class="obj-ico">💎</span>Crystal</div>
+  <div class="obj-btn" data-obj="turbine" onclick="switchObj(this)"><span class="obj-ico">🔩</span>Turbine</div>
+  <div class="obj-btn" data-obj="satellite" onclick="switchObj(this)"><span class="obj-ico">🛰</span>Satellite</div>
+  <div class="obj-btn" data-obj="drone" onclick="switchObj(this)"><span class="obj-ico">🚁</span>Drone</div>
+  <div class="obj-btn" data-obj="molecule" onclick="switchObj(this)"><span class="obj-ico">⬡</span>Molecule</div>
+
+  <div class="sb-label" style="margin-top:10px">Controls</div>
+  <div class="obj-btn" onclick="toggleAutoRotate()"><span class="obj-ico">⟳</span><span id="rotate-label">Auto Rotate: ON</span></div>
+  <div class="obj-btn" onclick="toggleWire()"><span class="obj-ico">◈</span><span id="wire-label">Wireframe: OFF</span></div>
+  <div class="obj-btn" onclick="explode()"><span class="obj-ico">💥</span>Explode View</div>
+  <div class="obj-btn" onclick="resetCamera()"><span class="obj-ico">⊕</span>Reset Camera</div>
 </div>
 
-<div id="layout">
-  <!-- LEFT SIDEBAR -->
-  <div id="sidebar">
-    <div style="font-family:var(--hud);font-size:0.52rem;font-weight:700;letter-spacing:0.32em;color:var(--blue);margin-bottom:4px">J.A.R.V.I.S</div>
-    <div style="font-size:0.44rem;letter-spacing:0.18em;color:rgba(0,200,255,0.35);margin-bottom:8px">HOLOGRAPHIC VIEWER v5.0</div>
-
-    <!-- MIC STATUS -->
-    <div id="mic-status-badge">
-      <div class="mic-dot"></div>
-      <span id="mic-status-text">MIC READY</span>
-    </div>
-
-    <button id="build-me-btn" onclick="openBuildInput()">
-      <div class="pulse-ring"></div>
-      <span style="font-size:1rem">⚡</span><span>BUILD ME ANYTHING</span>
-    </button>
-    <button class="obj-btn" onclick="openLauncher()" style="border-color:rgba(170,68,255,0.4);color:var(--purple);margin-bottom:6px;">
-      <span class="ico">⬡</span>BUILD MODE LAUNCHER
-    </button>
-
-    <!-- VOICE COMMANDS GUIDE -->
-    <div id="voice-cmd-panel">
-      <div class="vcmd-title">🎙 VOICE COMMANDS</div>
-      <div class="vcmd-item"><span>"add camera top right"</span></div>
-      <div class="vcmd-item"><span>"add display left side"</span></div>
-      <div class="vcmd-item"><span>"add led strip"</span></div>
-      <div class="vcmd-item"><span>"show prices"</span> or <span>"cost breakdown"</span></div>
-      <div class="vcmd-item"><span>"where to buy"</span></div>
-      <div class="vcmd-item"><span>"show 3d"</span> / <span>"blueprint"</span></div>
-      <div class="vcmd-item"><span>"rotate left/right"</span></div>
-      <div class="vcmd-item"><span>"zoom in/out"</span></div>
-      <div class="vcmd-item"><span>"reset"</span></div>
-    </div>
-
-    <div class="sidebar-label">▸ BLUEPRINTS</div>
-    <button class="obj-btn bp-btn active" id="btn-bp-ironman" onclick="loadBlueprint('iron_man_mk50')"><span class="ico">🦾</span>Iron Man Mk50</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('smartglasses')"><span class="ico">👓</span>Smart Glasses</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('drone')"><span class="ico">🚁</span>Drone</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('car')"><span class="ico">🚗</span>Sports Car</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('rocket')"><span class="ico">🚀</span>Rocket</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('arc_reactor')"><span class="ico">⚛</span>Arc Reactor</button>
-    <button class="obj-btn bp-btn" onclick="loadBlueprint('exoskeleton')"><span class="ico">🦿</span>Exo-Arm</button>
-    <div class="sidebar-label">▸ 3D MODELS</div>
-    <button class="obj-btn" onclick="quickLoad('iron_man_suit')"><span class="ico">🦾</span>Iron Man Suit</button>
-    <button class="obj-btn" onclick="quickLoad('carbon_atom')"><span class="ico">⬡</span>Carbon Atom</button>
-    <button class="obj-btn" onclick="quickLoad('dna')"><span class="ico">⚬</span>DNA Helix</button>
-    <button class="obj-btn" onclick="quickLoad('reactor')"><span class="ico">◉</span>Arc Reactor</button>
-    <button class="obj-btn" onclick="quickLoad('torus_knot')"><span class="ico">◈</span>Torus Knot</button>
-    <button class="obj-btn" onclick="quickLoad('crystal')"><span class="ico">◊</span>Crystal Lattice</button>
-    <button class="obj-btn" onclick="quickLoad('sphere_wire')"><span class="ico">◎</span>Neural Sphere</button>
-    <button class="obj-btn" onclick="quickLoad('brain')"><span class="ico">⚡</span>Neural Network</button>
-    <div class="sidebar-label">▸ AI BLUEPRINTS</div>
-    <div id="ai-bp-list">
-      <div style="font-size:0.5rem;color:rgba(0,200,255,0.2);letter-spacing:0.1em;padding:6px 8px">Voice or type to generate</div>
-    </div>
-  </div>
-
-  <!-- CENTER VIEWER -->
-  <div id="viewer-wrap">
-    <div id="gesture-hud">
-      <div class="gh-hand" id="gh-left"><div class="gh-icon" id="gh-left-icon">✋</div><div class="gh-label">LEFT</div><div class="gh-action" id="gh-left-action">—</div></div>
-      <div class="gh-divider"></div>
-      <div class="gh-center"><div class="gh-both-label">BOTH HANDS</div><div class="gh-both-action" id="gh-both-action">—</div></div>
-      <div class="gh-divider"></div>
-      <div class="gh-hand" id="gh-right"><div class="gh-icon" id="gh-right-icon">🤚</div><div class="gh-label">RIGHT</div><div class="gh-action" id="gh-right-action">—</div></div>
-    </div>
-    <div id="mode-badge">BLUEPRINT MODE</div>
-    <div id="hud-top">
-      <div><div class="hud-key">OBJECT</div><div class="hud-val" id="hud-objname">IRON MAN MK50</div></div>
-      <div style="text-align:center"><div class="hud-key">MODE</div><div class="hud-val" id="hud-mode" style="font-size:0.56rem;color:rgba(0,200,255,0.5)">BLUEPRINT</div></div>
-      <div style="text-align:right"><div class="hud-key">COMPONENTS</div><div class="hud-val" id="hud-component-count" style="font-size:0.6rem">0 ADDED</div></div>
-    </div>
-    <canvas id="three-canvas"></canvas>
-    <div id="holo-rings"><div class="holo-ring"></div><div class="holo-ring"></div><div class="holo-ring"></div></div>
-    <div class="data-stream" style="left:20%"></div>
-    <div class="data-stream" style="left:50%;animation-delay:-4s"></div>
-    <div class="data-stream" style="left:80%;animation-delay:-2s"></div>
-    <div id="scan-overlay"></div>
-
-    <!-- HAND SKELETON CANVAS -->
-    <canvas id="hand-skeleton-canvas"></canvas>
-
-    <!-- BLUEPRINT OVERLAY -->
-    <div id="blueprint-wrap" class="active">
-      <canvas id="blueprint-canvas"></canvas>
-
-      <!-- IRON MAN SVG -->
-      <div id="ironman-svg-container" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;z-index:22;pointer-events:none">
-        <svg id="ironman-svg" viewBox="0 0 420 760" width="280" height="506" style="pointer-events:all;overflow:visible" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <filter id="glow-blue"><feGaussianBlur stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-            <linearGradient id="suitGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#1a3a5c"/><stop offset="100%" stop-color="#0d2035"/></linearGradient>
-            <linearGradient id="goldGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#c8860a"/><stop offset="100%" stop-color="#8c5c04"/></linearGradient>
-            <linearGradient id="redGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#9b1c1c"/><stop offset="100%" stop-color="#6b1010"/></linearGradient>
-          </defs>
-          <g class="suit-part" id="part-helmet" onclick="showPartInfo('helmet')" filter="url(#glow-blue)">
-            <path d="M145,30 Q145,10 210,8 Q275,10 275,30 L285,80 Q285,110 265,125 L265,145 Q255,160 210,162 Q165,160 155,145 L155,125 Q135,110 135,80 Z" fill="url(#redGrad)" stroke="#00c8ff" stroke-width="1.5"/>
-            <path d="M165,145 Q165,158 185,163 L235,163 Q255,158 255,145" fill="url(#goldGrad)" stroke="#00c8ff" stroke-width="1"/>
-            <path d="M158,90 L170,80 L185,76 L210,75 L235,76 L250,80 L262,90 L255,105 L245,110 L210,112 L175,110 L165,105 Z" fill="#00c8ff" opacity="0.85" stroke="#00ffff" stroke-width="1"/>
-            <ellipse cx="181" cy="93" rx="14" ry="9" fill="#00ffff" opacity="0.9" class="arc-reactor-glow"/>
-            <ellipse cx="239" cy="93" rx="14" ry="9" fill="#00ffff" opacity="0.9" class="arc-reactor-glow"/>
-          </g>
-          <g class="suit-part" id="part-chest" onclick="showPartInfo('chest')" filter="url(#glow-blue)">
-            <path d="M145,185 Q130,195 125,220 L120,320 Q120,340 135,350 L155,355 L165,340 L165,275 L185,265 L210,262 L235,265 L255,275 L255,340 L265,355 L285,350 Q300,340 300,320 L295,220 Q290,195 275,185 L248,180 L210,185 L172,180 Z" fill="url(#redGrad)" stroke="#00c8ff" stroke-width="1.5"/>
-            <path d="M180,200 L240,200 L250,270 L210,278 L170,270 Z" fill="url(#goldGrad)" stroke="#00c8ff" stroke-width="1" opacity="0.8"/>
-            <circle cx="210" cy="230" r="22" fill="#001a2e" stroke="#00ffff" stroke-width="2" class="arc-reactor-glow"/>
-            <circle cx="210" cy="230" r="10" fill="#00c8ff" opacity="0.9" class="arc-reactor-glow"/>
-            <circle cx="210" cy="230" r="5" fill="#ffffff" opacity="0.95" class="arc-reactor-glow"/>
-          </g>
-          <g class="suit-part" id="part-shoulder-l" onclick="showPartInfo('shoulder')" filter="url(#glow-blue)">
-            <path d="M78,185 Q55,190 45,215 Q38,240 42,270 L55,280 Q70,285 85,278 L95,250 L105,215 Z" fill="url(#redGrad)" stroke="#00c8ff" stroke-width="1.5"/>
-          </g>
-          <g class="suit-part" id="part-shoulder-r" onclick="showPartInfo('shoulder')" filter="url(#glow-blue)">
-            <path d="M342,185 Q365,190 375,215 Q382,240 378,270 L365,280 Q350,285 335,278 L325,250 L315,215 Z" fill="url(#redGrad)" stroke="#00c8ff" stroke-width="1.5"/>
-          </g>
-          <g class="suit-part" id="part-gauntlet-l" onclick="showPartInfo('gauntlet')" filter="url(#glow-blue)">
-            <path d="M32,480 Q25,500 28,525 L35,540 Q45,550 65,550 L80,545 L88,530 L88,500 L88,488 L75,495 L55,498 Z" fill="url(#redGrad)" stroke="#00c8ff" stroke-width="1.5"/>
-            <circle cx="58" cy="522" r="12" fill="#00c8ff" opacity="0.85" class="arc-reactor-glow"/>
-            <circle cx="58" cy="522" r="7" fill="#ffffff" opacity="0.9" class="arc-reactor-glow"/>
-          </g>
-          <g class="suit-part" id="part-gauntlet-r" onclick="showPartInfo('gauntlet')" filter="url(#glow-blue)">
-            <path d="M388,480 Q395,500 392,525 L385,540 Q375,550 355,550 L340,545 L332,530 L332,500 L332,488 L345,495 L365,498 Z" fill="url(#redGrad)" stroke="#00c8ff" stroke-width="1.5"/>
-            <circle cx="362" cy="522" r="12" fill="#00c8ff" opacity="0.85" class="arc-reactor-glow"/>
-            <circle cx="362" cy="522" r="7" fill="#ffffff" opacity="0.9" class="arc-reactor-glow"/>
-          </g>
-          <g class="suit-part" id="part-boot-l" onclick="showPartInfo('boot')" filter="url(#glow-blue)">
-            <path d="M112,700 Q105,720 108,740 L118,752 Q132,760 160,758 L188,752 Q202,740 202,720 L202,695 L200,690 Z" fill="url(#redGrad)" stroke="#00c8ff" stroke-width="1.5"/>
-            <ellipse cx="155" cy="748" rx="14" ry="5" fill="#00c8ff" opacity="0.8" class="arc-reactor-glow"/>
-          </g>
-          <g class="suit-part" id="part-boot-r" onclick="showPartInfo('boot')" filter="url(#glow-blue)">
-            <path d="M308,700 Q315,720 312,740 L302,752 Q288,760 260,758 L232,752 Q218,740 218,720 L218,695 L220,690 Z" fill="url(#redGrad)" stroke="#00c8ff" stroke-width="1.5"/>
-            <ellipse cx="265" cy="748" rx="14" ry="5" fill="#00c8ff" opacity="0.8" class="arc-reactor-glow"/>
-          </g>
-        </svg>
-      </div>
-
-      <!-- ADDED COMPONENTS LAYER (appended dynamically) -->
-      <div id="added-components-layer" style="position:absolute;inset:0;z-index:23;pointer-events:none"></div>
-
-      <div class="bp-header-fixed">
-        <div><div class="bp-classification">● CLASSIFIED — TECHNICAL SCHEMATIC</div></div>
-        <div class="bp-title-block"><span class="bp-title" id="bp-title">IRON MAN MARK L</span><span class="bp-subtitle" id="bp-subtitle">NANO-PARTICLE COMBAT SUIT — STARK TECH</span></div>
-        <div style="text-align:right"><div style="font-family:var(--hud);font-size:0.38rem;letter-spacing:0.2em;color:rgba(0,200,255,0.5)">J.A.R.V.I.S v5.0</div></div>
-      </div>
-
-      <!-- PART INFO PANEL -->
-      <div id="part-info-panel">
-        <button class="part-close-btn" onclick="closePartInfo()">✕</button>
-        <div id="part-title">HELMET</div>
-        <div id="part-subtitle">HUD DISPLAY SYSTEM</div>
-        <div id="part-specs-list"></div>
-        <div class="part-price-block">
-          <div class="part-price-label">ESTIMATED BUILD COST</div>
-          <div id="part-price" class="part-price">$0</div>
-          <div id="part-price-where" class="part-price-where"></div>
-        </div>
-      </div>
-
-      <div id="bp-status">CLICK ANY COMPONENT • SAY "ADD CAMERA" • SAY "SHOW PRICES"</div>
-      <button id="bp-to-3d" onclick="blueprintTo3D()">⚡ VIEW FULL SUIT IN 3D HOLOGRAM</button>
-
-      <div id="ai-build-overlay">
-        <div class="ai-build-ring"></div>
-        <div class="ai-build-title">GENERATING BLUEPRINT</div>
-        <div class="ai-build-sub" id="ai-build-sub">JARVIS IS DESIGNING YOUR SCHEMATIC</div>
-        <div class="ai-build-status" id="ai-build-status">INITIALISING AI ENGINE...</div>
-        <div class="ai-build-progress"><div class="ai-build-bar" id="ai-build-bar"></div></div>
-      </div>
-      <div id="build-input-modal">
-        <div class="bim-title">⚡ JARVIS BUILD MODE</div>
-        <div class="bim-sub">WHAT SHOULD I DESIGN?</div>
-        <input type="text" id="build-query-input" placeholder='e.g. "Iron Man suit" · "smart glasses" · "drone"' onkeydown="if(event.key==='Enter')submitBuild()"/>
-        <div class="bim-examples">Try: Smart glasses · Jetpack · Exoskeleton · Drone · Repulsor · Neural chip</div>
-        <div class="bim-btns">
-          <button class="bim-btn" onclick="submitBuild()">⚡ GENERATE BLUEPRINT</button>
-          <button class="bim-btn cancel" onclick="closeBuildInput()">CANCEL</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="transition-overlay"></div>
-    <div id="gesture-announce"></div>
-    <button id="launch-btn" class="visible" onclick="launchCurrentItem()">⚡ LAUNCH / ACTIVATE</button>
-
-    <div id="loading" style="display:none">
-      <div class="load-ring"></div>
-      <div class="load-text" id="load-text">INITIALISING ENGINE</div>
-      <div class="load-bar-wrap"><div class="load-bar" id="load-bar"></div></div>
-    </div>
-    <div id="no-model" style="display:none">
-      <div class="no-model-ring"><div class="no-model-icon">⬡</div></div>
-      <div class="no-model-text">HOLOGRAPHIC PROJECTOR READY</div>
-      <div class="no-model-hint">Say "Jarvis show me iron man" or select from sidebar<br>Say "add camera" to modify blueprints</div>
-    </div>
-
-    <div id="search-bar">
-      <input type="text" id="search-input" placeholder='Say "add camera top right" or type anything...' onkeydown="handleKey(event)"/>
-      <button class="bar-btn" onclick="doSearch()">⚡ LOAD</button>
-      <button class="bar-btn" id="mic-btn" onclick="toggleMic()">🎙 VOICE</button>
-      <button class="bar-btn" id="wireframe-btn" onclick="toggleWireframe()">WIRE</button>
-      <button class="bar-btn" id="rotate-btn" onclick="toggleAutoRotate()">AUTO ◷</button>
-      <button class="bar-btn" onclick="openLauncher()" style="border-color:rgba(170,68,255,0.5);color:var(--purple)">⬡ BUILD MODE</button>
-    </div>
-  </div>
-
-  <!-- RIGHT PANEL -->
-  <div id="info-panel">
-    <div class="info-card"><div class="info-card-key">OBJECT</div><div class="info-card-val" id="inf-name">IRON MAN MK50</div></div>
-    <div class="info-card"><div class="info-card-key">MODE</div><div class="info-card-val" id="inf-mode">BLUEPRINT</div></div>
-    <div class="info-card"><div class="info-card-key">COMPONENTS ADDED</div><div class="info-card-val" id="inf-comps">0</div></div>
-    <div class="info-card"><div class="info-card-key">ROTATION</div><div class="info-card-val dim" id="inf-rot">X:0° Y:0°</div></div>
-    <div class="info-card"><div class="info-card-key">SCALE</div><div class="info-card-val dim" id="inf-scale">1.00×</div></div>
-    <div class="info-card"><div class="info-card-key">HANDS TRACKED</div><div class="info-card-val dim" id="inf-hands">0 / 2</div></div>
-    <div class="info-card"><div class="info-card-key">GESTURE</div><div class="info-card-val dim" id="inf-gesture">INACTIVE</div></div>
-    <div style="margin-top:8px;padding-top:8px;border-top:1px solid rgba(0,200,255,0.08)">
-      <div style="font-family:var(--hud);font-size:0.34rem;letter-spacing:0.22em;color:rgba(0,200,255,0.3);margin-bottom:5px">HAND CONTROLS</div>
-      <div style="font-size:0.5rem;color:rgba(0,200,255,0.4);line-height:2">
-        ✋ Open palm → rotate<br>👊 Fist → zoom out<br>✌️ 2 fingers → zoom in<br>☝️ 1 finger → pan<br>🤏 Pinch → spin<br>🤙 Shaka → reset<br>👋 Swipe → next/prev<br>🤲 Both open → orbit
-      </div>
-    </div>
-    <div id="cam-wrap">
-      <video id="gesture-cam" autoplay muted playsinline></video>
-      <div class="cam-label">GESTURE CAM</div>
-      <div id="cam-status">● OFFLINE</div>
-      <div id="hand-count">0 hands</div>
+<!-- RIGHT PANEL -->
+<div id="info-panel">
+  <div class="info-card"><div class="info-key">OBJECT</div><div class="info-val" id="inf-name">ARC REACTOR</div></div>
+  <div class="info-card"><div class="info-key">POLYGONS</div><div class="info-val" id="inf-polys">—</div></div>
+  <div class="info-card"><div class="info-key">ROTATION</div><div class="info-val sm" id="inf-rot">X:0° Y:0°</div></div>
+  <div class="info-card"><div class="info-key">ZOOM</div><div class="info-val sm" id="inf-zoom">1.00×</div></div>
+  <div class="info-card"><div class="info-key">VOICE</div><div class="info-val sm" id="inf-voice">READY</div></div>
+  <div class="info-card"><div class="info-key">AI STATUS</div><div class="info-val sm" id="inf-ai">ONLINE</div></div>
+  <div class="info-card">
+    <div class="info-key">INSTRUCTIONS</div>
+    <div class="info-val sm" style="line-height:1.9">
+      Say anything naturally.<br>
+      "show me the iron man suit"<br>
+      "rotate faster"<br>
+      "what am I looking at"<br>
+      "make it blue"<br>
+      "explode the parts"<br>
+      Drag to rotate.<br>
+      Scroll to zoom.
     </div>
   </div>
 </div>
 
-<div id="ticker"><div class="ticker-track" id="ticker-track"></div></div>
+<!-- VOICE INDICATOR -->
+<div id="mic-ring" class="active" style="display:none">
+  <svg viewBox="0 0 80 80"><circle cx="40" cy="40" r="36" fill="none" stroke="rgba(255,51,51,0.6)" stroke-width="1.5" stroke-dasharray="226" stroke-dashoffset="0"><animate attributeName="stroke-dashoffset" from="226" to="0" dur="2s" repeatCount="indefinite"/></circle></svg>
+</div>
+
+<!-- REPLY TOAST -->
+<div id="reply-toast">
+  <div class="rt-label">J.A.R.V.I.S</div>
+  <div id="reply-text">—</div>
+</div>
+
+<!-- INPUT BAR -->
+<div id="input-bar">
+  <input id="cmd-input" type="text" placeholder='Say anything — "show me the iron man suit" · "what is this" · "make it spin faster" · "turn it red"' autocomplete="off"/>
+  <button id="voice-btn" onclick="toggleMic()" title="Voice input">🎙</button>
+  <button id="send-btn" onclick="sendCommand()">SEND ⏎</button>
+</div>
+
+<!-- TICKER -->
+<div id="ticker">
+  <div class="ticker-track">
+    <span class="ti b">HOLOGRAPHIC PROJECTOR v6.0</span><span class="ti">·</span>
+    <span class="ti">REAL-TIME 3D RENDERING</span><span class="ti">·</span>
+    <span class="ti b">AI-POWERED FREE-FORM VOICE CONTROL</span><span class="ti">·</span>
+    <span class="ti">SAY ANYTHING NATURALLY</span><span class="ti">·</span>
+    <span class="ti b">DRAG TO ROTATE · SCROLL TO ZOOM</span><span class="ti">·</span>
+    <span class="ti">HOLOGRAPHIC PROJECTOR v6.0</span><span class="ti">·</span>
+    <span class="ti">REAL-TIME 3D RENDERING</span><span class="ti">·</span>
+    <span class="ti b">AI-POWERED FREE-FORM VOICE CONTROL</span><span class="ti">·</span>
+    <span class="ti">SAY ANYTHING NATURALLY</span><span class="ti">·</span>
+    <span class="ti b">DRAG TO ROTATE · SCROLL TO ZOOM</span><span class="ti">·</span>
+  </div>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 'use strict';
 
-// ═══════════════════════════════════════════════════════════════
-// PART DATA — includes pricing & where to buy
-// ═══════════════════════════════════════════════════════════════
-const PART_DATA = {
-  helmet:   { title:'HELMET — MK50', subtitle:'Full HUD Display System', specs:[{k:'MATERIAL',v:'Titanium-A + PETG 3D print'},{k:'DISPLAY',v:'0.96" OLED × 2'},{k:'WEIGHT',v:'~1.8 kg'}], price:'$85–$140', where:'AliExpress: PETG filament, OLED displays, servo motors' },
-  chest:    { title:'CHEST PLATE + ARC REACTOR', subtitle:'Power Core Housing', specs:[{k:'REACTOR',v:'LED ring, 12V input'},{k:'MATERIAL',v:'Fiberglass + 3D print'},{k:'LIGHTS',v:'WS2812B LED strip'}], price:'$55–$110', where:'Amazon: Arduino Nano, WS2812B LEDs, fiberglass resin' },
-  shoulder: { title:'SHOULDER PAULDRON', subtitle:'Articulated Armor Plate', specs:[{k:'MATERIAL',v:'PETG 3D print'},{k:'COVERAGE',v:'270° wrap pauldron'}], price:'$22–$45', where:'PETG filament + buckles from Amazon' },
-  gauntlet: { title:'GAUNTLET + REPULSOR', subtitle:'Palm Beam Emitter Unit', specs:[{k:'REPULSOR',v:'5W LED + driver'},{k:'BATTERY',v:'18650 Li-ion cell'}], price:'$35–$65', where:'AliExpress: 5W LED, driver, flex sensor, 18650 battery' },
-  boot:     { title:'BOOT / THRUSTER', subtitle:'Repulsor Boot Jet Assembly', specs:[{k:'BASE',v:'Platform boot modified'},{k:'THRUSTER',v:'LED ring bottom'}], price:'$45–$80', where:'Platform boots + PETG cover + EL wire ring' },
-};
-
-// ═══════════════════════════════════════════════════════════════
-// COMPONENT DATABASE — things you can add by voice
-// ═══════════════════════════════════════════════════════════════
-const COMPONENT_DB = {
-  // CAMERAS
-  'camera': { name:'Mini Camera Module', emoji:'📷', price:'$8–$15', low:8, high:15, where:'AliExpress — OV2640 or ESP32-CAM module', category:'vision', w:40, h:28 },
-  'wide camera': { name:'Wide Angle Camera', emoji:'📷', price:'$12–$22', low:12, high:22, where:'AliExpress — 120° wide angle OV2640', category:'vision', w:44, h:28 },
-  'night camera': { name:'Night Vision Camera', emoji:'🌙', price:'$15–$30', low:15, high:30, where:'AliExpress — IR night vision module', category:'vision', w:40, h:30 },
-  'thermal camera': { name:'Thermal Camera', emoji:'🌡', price:'$35–$80', low:35, high:80, where:'AliExpress — MLX90640 thermal module', category:'vision', w:44, h:30 },
-
-  // DISPLAYS
-  'display': { name:'Micro OLED Display', emoji:'📺', price:'$4–$10', low:4, high:10, where:'AliExpress — 0.96" SSD1306 OLED', category:'display', w:38, h:24 },
-  'hud display': { name:'AR HUD Projector', emoji:'💡', price:'$18–$35', low:18, high:35, where:'AliExpress — micro projector module', category:'display', w:48, h:28 },
-  'led display': { name:'LED Matrix Display', emoji:'🔲', price:'$6–$12', low:6, high:12, where:'AliExpress — 8x8 WS2812B matrix', category:'display', w:36, h:28 },
-
-  // SENSORS
-  'sensor': { name:'IMU Sensor (MPU6050)', emoji:'🔬', price:'$2–$5', low:2, high:5, where:'AliExpress — MPU6050 6-axis IMU', category:'sensor', w:30, h:22 },
-  'heart rate sensor': { name:'Heart Rate Sensor', emoji:'❤️', price:'$3–$8', low:3, high:8, where:'AliExpress — MAX30102 pulse oximeter', category:'sensor', w:32, h:22 },
-  'lidar': { name:'LiDAR Range Sensor', emoji:'📡', price:'$20–$45', low:20, high:45, where:'AliExpress — TF-Luna LiDAR module', category:'sensor', w:36, h:28 },
-  'gps': { name:'GPS Module', emoji:'🛰', price:'$5–$12', low:5, high:12, where:'AliExpress — NEO-6M GPS module', category:'sensor', w:34, h:24 },
-
-  // POWER
-  'battery': { name:'LiPo Battery 1000mAh', emoji:'🔋', price:'$6–$12', low:6, high:12, where:'AliExpress — 3.7V 1000mAh LiPo', category:'power', w:44, h:22 },
-  'solar panel': { name:'Flex Solar Panel', emoji:'☀️', price:'$8–$18', low:8, high:18, where:'AliExpress — 5V flexible solar panel', category:'power', w:50, h:30 },
-
-  // CONNECTIVITY
-  'wifi': { name:'WiFi Module (ESP32)', emoji:'📶', price:'$4–$8', low:4, high:8, where:'AliExpress — ESP32 Dev Board', category:'wireless', w:34, h:24 },
-  'bluetooth': { name:'Bluetooth Module', emoji:'🔵', price:'$2–$5', low:2, high:5, where:'AliExpress — HC-05 or HM-10', category:'wireless', w:30, h:22 },
-
-  // LIGHTING
-  'led strip': { name:'LED Strip (WS2812B)', emoji:'💡', price:'$3–$8', low:3, high:8, where:'AliExpress — WS2812B addressable LED strip', category:'lighting', w:60, h:16 },
-  'led': { name:'High Power LED', emoji:'💡', price:'$2–$6', low:2, high:6, where:'AliExpress — 5W LED + driver', category:'lighting', w:28, h:22 },
-  'laser': { name:'Laser Pointer Module', emoji:'🔴', price:'$3–$8', low:3, high:8, where:'AliExpress — 5mW laser diode module', category:'lighting', w:26, h:20 },
-
-  // AUDIO
-  'speaker': { name:'Micro Speaker', emoji:'🔊', price:'$2–$5', low:2, high:5, where:'AliExpress — 8Ω 0.5W mini speaker', category:'audio', w:28, h:24 },
-  'microphone': { name:'MEMS Microphone', emoji:'🎙', price:'$1–$4', low:1, high:4, where:'AliExpress — INMP441 I2S microphone', category:'audio', w:24, h:20 },
-
-  // COMPUTE
-  'processor': { name:'Arduino Nano', emoji:'⚙️', price:'$3–$6', low:3, high:6, where:'AliExpress — Arduino Nano clone', category:'compute', w:38, h:24 },
-  'raspberry pi': { name:'Raspberry Pi Zero 2W', emoji:'🖥', price:'$15–$18', low:15, high:18, where:'raspberrypi.com or Amazon', category:'compute', w:50, h:30 },
-
-  // MECHANICAL
-  'servo': { name:'Micro Servo Motor', emoji:'⚙️', price:'$2–$5', low:2, high:5, where:'AliExpress — SG90 micro servo', category:'mechanical', w:28, h:24 },
-  'motor': { name:'DC Motor + Driver', emoji:'⚙️', price:'$3–$7', low:3, high:7, where:'AliExpress — N20 motor + L298N driver', category:'mechanical', w:32, h:24 },
-};
-
-// Position descriptors → SVG coordinates (relative to ironman-svg-container center)
-const POSITION_MAP = {
-  // helmet positions
-  'top right': { x:270, y:40, anchor:'right' },
-  'top left':  { x:150, y:40, anchor:'left' },
-  'top center':{ x:210, y:30, anchor:'center' },
-  'front':     { x:210, y:80, anchor:'center' },
-  'visor':     { x:210, y:92, anchor:'center' },
-  'side':      { x:280, y:90, anchor:'right' },
-  'left side': { x:140, y:90, anchor:'left' },
-  'right side':{ x:280, y:90, anchor:'right' },
-  'forehead':  { x:210, y:45, anchor:'center' },
-  // chest/body positions
-  'chest':     { x:210, y:230, anchor:'center' },
-  'shoulder':  { x:100, y:200, anchor:'left' },
-  'right shoulder':{ x:320, y:200, anchor:'right' },
-  'left shoulder': { x:100, y:200, anchor:'left' },
-  'back':      { x:210, y:280, anchor:'center' },
-  'wrist':     { x:60, y:500, anchor:'left' },
-  'right wrist':{ x:360, y:500, anchor:'right' },
-  'left wrist':{ x:60, y:500, anchor:'left' },
-  'arm':       { x:65, y:350, anchor:'left' },
-  'right arm': { x:365, y:350, anchor:'right' },
-  'left arm':  { x:65, y:350, anchor:'left' },
-  'palm':      { x:60, y:520, anchor:'left' },
-  'boot':      { x:160, y:730, anchor:'left' },
-  'knee':      { x:163, y:595, anchor:'left' },
-  'hip':       { x:210, y:420, anchor:'center' },
-  'abdomen':   { x:210, y:390, anchor:'center' },
-  // default
-  'default':   { x:320, y:150, anchor:'right' },
-};
-
-// ═══════════════════════════════════════════════════════════════
-// ADDED COMPONENTS STATE
-// ═══════════════════════════════════════════════════════════════
-const addedComponents = []; // { id, name, emoji, price, low, high, where, x, y, posLabel, elId }
-
-function generateComponentId() {
-  return 'comp-' + Date.now() + '-' + Math.floor(Math.random()*9999);
-}
-
-// ═══════════════════════════════════════════════════════════════
-// VOICE COMMAND PARSER
-// ═══════════════════════════════════════════════════════════════
-function parseVoiceCommand(text) {
-  const lower = text.toLowerCase().trim();
-
-  // ── PRICE COMMANDS ──
-  if (/show price|show cost|cost breakdown|how much|price list|total cost|where to buy|where can i (buy|get)|materials|parts list|pricing|bill of materials/.test(lower)) {
-    return { cmd: 'SHOW_PRICES' };
-  }
-  if (/hide price|close price|dismiss price/.test(lower)) {
-    return { cmd: 'HIDE_PRICES' };
-  }
-
-  // ── ADD COMPONENT ──
-  const addMatch = lower.match(/(?:add|attach|put|place|install|mount)\s+(?:a\s+|an\s+|the\s+)?(.+?)(?:\s+(?:to|on|at|in|the|near|by|around)\s+(.+?))?(?:\s+of\s+the\s+(.+?))?$/i);
-  if (addMatch) {
-    const componentRaw = addMatch[1].trim();
-    const positionRaw  = (addMatch[2] || addMatch[3] || '').trim();
-
-    // find matching component
-    let compKey = null, compData = null;
-    for (const [key, data] of Object.entries(COMPONENT_DB)) {
-      if (componentRaw.includes(key) || key.includes(componentRaw)) {
-        if (!compKey || key.length > compKey.length) {
-          compKey = key; compData = data;
-        }
-      }
-    }
-    // fuzzy match
-    if (!compKey) {
-      for (const [key] of Object.entries(COMPONENT_DB)) {
-        const words = componentRaw.split(' ');
-        if (words.some(w => key.includes(w) && w.length > 3)) {
-          compKey = key; compData = COMPONENT_DB[key]; break;
-        }
-      }
-    }
-    if (!compKey) {
-      // generic component
-      compKey = 'sensor';
-      compData = { ...COMPONENT_DB['sensor'], name: componentRaw.charAt(0).toUpperCase()+componentRaw.slice(1) };
-    }
-
-    // find position
-    let posKey = 'default', posData = POSITION_MAP['default'];
-    if (positionRaw) {
-      for (const [key, data] of Object.entries(POSITION_MAP)) {
-        if (positionRaw.includes(key) || key.includes(positionRaw)) {
-          posKey = key; posData = data; break;
-        }
-      }
-      // partial match
-      if (posKey === 'default') {
-        for (const [key, data] of Object.entries(POSITION_MAP)) {
-          const words = positionRaw.split(' ');
-          if (words.some(w => key.includes(w) && w.length > 2)) {
-            posKey = key; posData = data; break;
-          }
-        }
-      }
-    }
-
-    return { cmd: 'ADD_COMPONENT', component: compKey, compData, position: posKey, posData, rawComponent: componentRaw, rawPosition: positionRaw };
-  }
-
-  // ── REMOVE COMPONENT ──
-  const removeMatch = lower.match(/(?:remove|delete|take off|detach|uninstall)\s+(?:the\s+)?(.+)/i);
-  if (removeMatch) {
-    return { cmd: 'REMOVE_COMPONENT', target: removeMatch[1].trim() };
-  }
-
-  // ── CLEAR ALL ──
-  if (/clear all|remove all|reset components|start over/.test(lower)) {
-    return { cmd: 'CLEAR_COMPONENTS' };
-  }
-
-  // ── 3D / BLUEPRINT ──
-  if (/show 3d|view 3d|3d mode|three d|switch to 3d/.test(lower)) return { cmd: 'SHOW_3D' };
-  if (/blueprint|schematic|technical|2d view/.test(lower))           return { cmd: 'SHOW_BLUEPRINT' };
-
-  // ── NAVIGATION ──
-  if (/rotate left|spin left/.test(lower))  return { cmd: 'ROTATE', dir: 'left' };
-  if (/rotate right|spin right/.test(lower)) return { cmd: 'ROTATE', dir: 'right' };
-  if (/zoom in|closer|bigger/.test(lower))   return { cmd: 'ZOOM', dir: 'in' };
-  if (/zoom out|further|smaller/.test(lower)) return { cmd: 'ZOOM', dir: 'out' };
-  if (/reset|centre|center|home/.test(lower) && !/component/.test(lower)) return { cmd: 'RESET_VIEW' };
-  if (/next/.test(lower) && !/component/.test(lower)) return { cmd: 'NEXT_MODEL' };
-  if (/prev|previous|back/.test(lower))                return { cmd: 'PREV_MODEL' };
-
-  // ── BUILD MODE ──
-  if (/build mode|launcher|arc menu/.test(lower)) return { cmd: 'OPEN_LAUNCHER' };
-
-  // ── LOAD SPECIFIC ──
-  if (/iron man|mark|mk50|suit/.test(lower)) return { cmd: 'LOAD_BLUEPRINT', target: 'iron_man_mk50' };
-  if (/smart glass/.test(lower))              return { cmd: 'LOAD_BLUEPRINT', target: 'smartglasses' };
-  if (/drone|quadcopter/.test(lower))         return { cmd: 'LOAD_BLUEPRINT', target: 'drone' };
-
-  return null;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// EXECUTE VOICE COMMAND
-// ═══════════════════════════════════════════════════════════════
-function executeVoiceCommand(text) {
-  const cmd = parseVoiceCommand(text);
-  if (!cmd) {
-    // Try as search
-    doSearch(text);
-    return;
-  }
-
-  showVoiceToast(text);
-
-  switch (cmd.cmd) {
-    case 'ADD_COMPONENT':
-      addComponentToBlueprint(cmd);
-      break;
-    case 'REMOVE_COMPONENT':
-      removeComponentByName(cmd.target);
-      break;
-    case 'CLEAR_COMPONENTS':
-      clearAllComponents();
-      break;
-    case 'SHOW_PRICES':
-      showPricePanel();
-      break;
-    case 'HIDE_PRICES':
-      closePricePanel();
-      break;
-    case 'SHOW_3D':
-      blueprintTo3D();
-      break;
-    case 'SHOW_BLUEPRINT':
-      switchModeTo('blueprint');
-      break;
-    case 'ROTATE':
-      if (state.model) { state.momentumY = cmd.dir === 'right' ? 0.08 : -0.08; }
-      toast(cmd.dir === 'right' ? 'ROTATING RIGHT' : 'ROTATING LEFT');
-      break;
-    case 'ZOOM':
-      state.targetScale = Math.max(0.2, Math.min(4, state.targetScale + (cmd.dir === 'in' ? 0.4 : -0.4)));
-      toast(cmd.dir === 'in' ? 'ZOOMING IN' : 'ZOOMING OUT');
-      break;
-    case 'RESET_VIEW':
-      if (state.model) { state.model.rotation.set(0,0,0); state.model.position.set(0,0,0); }
-      state.targetScale = 1;
-      toast('VIEW RESET');
-      break;
-    case 'NEXT_MODEL':
-      loadNextModel();
-      break;
-    case 'PREV_MODEL':
-      loadPrevModel();
-      break;
-    case 'OPEN_LAUNCHER':
-      openLauncher();
-      break;
-    case 'LOAD_BLUEPRINT':
-      loadBlueprint(cmd.target);
-      break;
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ADD COMPONENT TO BLUEPRINT
-// ═══════════════════════════════════════════════════════════════
-function addComponentToBlueprint(cmd) {
-  const { compData, posData, rawComponent, rawPosition, position } = cmd;
-  const id = generateComponentId();
-
-  // Get SVG container bounds to position elements
-  const svgContainer = document.getElementById('ironman-svg-container');
-  const layer        = document.getElementById('added-components-layer');
-  const rect         = svgContainer.getBoundingClientRect();
-  const layerRect    = layer.getBoundingClientRect();
-
-  // Convert SVG coords to screen pixel offsets within the layer
-  const svgEl  = document.getElementById('ironman-svg');
-  const svgRect = svgEl.getBoundingClientRect();
-
-  // SVG viewbox is 0 0 420 760, rendered at 280x506
-  const scaleX = svgRect.width  / 420;
-  const scaleY = svgRect.height / 760;
-
-  const screenX = svgRect.left - layerRect.left + posData.x * scaleX;
-  const screenY = svgRect.top  - layerRect.top  + posData.y * scaleY;
-
-  const cw = (compData.w || 40) * Math.max(0.6, scaleX);
-  const ch = (compData.h || 24) * Math.max(0.6, scaleX);
-
-  // Create badge element
-  const badge = document.createElement('div');
-  badge.className = 'added-component';
-  badge.id = id;
-
-  // Adjust anchor
-  let leftPos = screenX;
-  if (posData.anchor === 'right')  leftPos = screenX - cw - 8;
-  else if (posData.anchor === 'center') leftPos = screenX - cw/2;
-
-  badge.style.cssText = `left:${leftPos}px;top:${screenY - ch/2}px;width:${cw}px;`;
-  badge.innerHTML = `<span style="font-size:0.85rem">${compData.emoji}</span> ${compData.name || rawComponent}`;
-  layer.appendChild(badge);
-
-  // Draw connector line using canvas overlay
-  drawConnectorLine(id, screenX, screenY, leftPos, screenY, posData.anchor, cw, ch);
-
-  // Store it
-  addedComponents.push({
-    id, name: compData.name || rawComponent, emoji: compData.emoji,
-    price: compData.price, low: compData.low, high: compData.high,
-    where: compData.where, posLabel: position,
-    screenX, screenY
-  });
-
-  // Update counters
-  updateComponentCount();
-
-  toast(`✓ ADDED: ${compData.name || rawComponent.toUpperCase()} — ${position.toUpperCase()}`);
-  announce(`Added ${compData.emoji} ${compData.name || rawComponent}`);
-
-  // Auto-show prices if it's the 3rd+ component
-  if (addedComponents.length >= 3 && !document.getElementById('price-panel').classList.contains('visible')) {
-    setTimeout(() => { showPricePanel(); }, 1200);
-  }
-}
-
-function drawConnectorLine(compId, svgX, svgY, badgeX, badgeY, anchor, cw, ch) {
-  // We create a small canvas overlay for this connector
-  const layer = document.getElementById('added-components-layer');
-  const canvas = document.createElement('canvas');
-  canvas.className = 'component-connector';
-  canvas.id = compId + '-line';
-
-  const layerRect = layer.getBoundingClientRect();
-  const svgEl     = document.getElementById('ironman-svg');
-  const svgRect   = svgEl.getBoundingClientRect();
-
-  const startX = svgX;
-  const startY = svgY;
-  let   endX   = badgeX;
-  if (anchor === 'right') endX = badgeX + cw;
-  else if (anchor === 'center') endX = badgeX + cw/2;
-
-  const endY = badgeY;
-
-  const minX = Math.min(startX, endX) - 5;
-  const minY = Math.min(startY, endY) - 5;
-  const maxX = Math.max(startX, endX) + 5;
-  const maxY = Math.max(startY, endY) + 5;
-
-  canvas.style.left   = minX + 'px';
-  canvas.style.top    = minY + 'px';
-  canvas.style.width  = (maxX - minX) + 'px';
-  canvas.style.height = (maxY - minY) + 'px';
-  canvas.width  = maxX - minX;
-  canvas.height = maxY - minY;
-
-  const ctx = canvas.getContext('2d');
-  ctx.strokeStyle = 'rgba(0,255,136,0.6)';
-  ctx.lineWidth   = 1;
-  ctx.setLineDash([4, 3]);
-  ctx.beginPath();
-  ctx.moveTo(startX - minX, startY - minY);
-  ctx.lineTo(endX   - minX, endY   - minY);
-  ctx.stroke();
-
-  // Dot at start
-  ctx.setLineDash([]);
-  ctx.fillStyle = 'rgba(0,255,136,0.9)';
-  ctx.beginPath();
-  ctx.arc(startX - minX, startY - minY, 3, 0, Math.PI*2);
-  ctx.fill();
-
-  layer.appendChild(canvas);
-}
-
-function removeComponentByName(target) {
-  const idx = addedComponents.findIndex(c =>
-    c.name.toLowerCase().includes(target.toLowerCase()) ||
-    target.toLowerCase().includes(c.name.toLowerCase().split(' ')[0])
-  );
-  if (idx === -1) { toast('COMPONENT NOT FOUND: ' + target.toUpperCase()); return; }
-  const comp = addedComponents[idx];
-  const el   = document.getElementById(comp.id);
-  const line = document.getElementById(comp.id + '-line');
-  if (el)   el.remove();
-  if (line) line.remove();
-  addedComponents.splice(idx, 1);
-  updateComponentCount();
-  toast('REMOVED: ' + comp.name.toUpperCase());
-}
-
-function clearAllComponents() {
-  const layer = document.getElementById('added-components-layer');
-  layer.innerHTML = '';
-  addedComponents.length = 0;
-  updateComponentCount();
-  closePricePanel();
-  toast('ALL COMPONENTS CLEARED');
-}
-
-function updateComponentCount() {
-  const n = addedComponents.length;
-  document.getElementById('hud-component-count').textContent = n + ' ADDED';
-  document.getElementById('inf-comps').textContent = n;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// PRICE PANEL
-// ═══════════════════════════════════════════════════════════════
-const BLUEPRINT_PRICES = {
-  iron_man_mk50: [
-    { name:'Helmet (PETG 3D Print)', price:'$12–$20', low:12, high:20, where:'Amazon: PETG filament' },
-    { name:'Chest Plate (Fiberglass)', price:'$15–$30', low:15, high:30, where:'Amazon: Fiberglass resin kit' },
-    { name:'Arc Reactor LED Ring', price:'$5–$10', low:5, high:10, where:'AliExpress: WS2812B LEDs + controller' },
-    { name:'Gauntlet Frame (EVA Foam)', price:'$8–$14', low:8, high:14, where:'Amazon: EVA foam sheets' },
-    { name:'Repulsor LED (5W)', price:'$3–$8', low:3, high:8, where:'AliExpress: 5W LED + driver' },
-    { name:'Boot Thrusters (3D Print)', price:'$6–$12', low:6, high:12, where:'Amazon: PLA filament' },
-    { name:'Shoulder Pauldrons (PETG)', price:'$8–$16', low:8, high:16, where:'Amazon: PETG filament' },
-    { name:'Arduino Nano (main controller)', price:'$3–$6', low:3, high:6, where:'AliExpress: Arduino Nano clone' },
-    { name:'LiPo Battery 2200mAh', price:'$10–$18', low:10, high:18, where:'AliExpress: 3S LiPo battery' },
-    { name:'Wiring, Velcro, Hardware', price:'$5–$10', low:5, high:10, where:'Local hardware store or Amazon' },
-  ],
-  smartglasses: [
-    { name:'Glasses Frame (3D Print)', price:'$3–$8', low:3, high:8, where:'Amazon: PETG filament' },
-    { name:'Micro OLED Display (0.96")', price:'$2–$5', low:2, high:5, where:'AliExpress: SSD1306 OLED module' },
-    { name:'ESP32 Dev Board', price:'$4–$8', low:4, high:8, where:'AliExpress: ESP32 WROOM-32' },
-    { name:'Half-Mirror Lens (beam splitter)', price:'$5–$12', low:5, high:12, where:'AliExpress: beam splitter glass' },
-    { name:'LiPo Battery 500mAh', price:'$4–$7', low:4, high:7, where:'AliExpress: 3.7V 500mAh LiPo' },
-    { name:'TP4056 Charge Module', price:'$1–$2', low:1, high:2, where:'AliExpress: TP4056 module' },
-    { name:'Wires + shrink tube', price:'$2–$4', low:2, high:4, where:'Amazon: 30AWG wire kit' },
-  ],
-  drone: [
-    { name:'Carbon Fiber Frame', price:'$8–$18', low:8, high:18, where:'AliExpress: 250mm quadcopter frame' },
-    { name:'Brushless Motors 2204 × 4', price:'$16–$28', low:16, high:28, where:'AliExpress: 2204 2300kv motors' },
-    { name:'ESC 4-in-1 30A', price:'$12–$22', low:12, high:22, where:'AliExpress: 4-in-1 ESC stack' },
-    { name:'F4 Flight Controller', price:'$18–$35', low:18, high:35, where:'AliExpress: Betaflight F4 FC' },
-    { name:'3S 1300mAh LiPo', price:'$10–$16', low:10, high:16, where:'AliExpress: 3S LiPo battery' },
-    { name:'5" Propellers × 8', price:'$4–$8', low:4, high:8, where:'AliExpress: 5045 props' },
-    { name:'LiPo Charger', price:'$8–$15', low:8, high:15, where:'Amazon: ISDT Q6 charger' },
-    { name:'Radio Receiver', price:'$10–$18', low:10, high:18, where:'Amazon: FrSky XM+ receiver' },
-  ],
-};
-
-function showPricePanel() {
-  const panel     = document.getElementById('price-panel');
-  const title     = document.getElementById('price-panel-title');
-  const list      = document.getElementById('price-items-list');
-  const totalEl   = document.getElementById('price-total-val');
-
-  // Combine blueprint base prices + added components
-  const currentBP = currentBlueprintKey || 'iron_man_mk50';
-  const basePrices = BLUEPRINT_PRICES[currentBP] || BLUEPRINT_PRICES['iron_man_mk50'];
-
-  const allItems = [...basePrices, ...addedComponents.map(c => ({
-    name: c.emoji + ' ' + c.name + ' (' + c.posLabel + ')',
-    price: c.price,
-    low: c.low,
-    high: c.high,
-    where: c.where,
-    isAdded: true,
-  }))];
-
-  let totalLow = 0, totalHigh = 0;
-  list.innerHTML = allItems.map(item => {
-    totalLow  += item.low  || 0;
-    totalHigh += item.high || 0;
-    const isAdded = item.isAdded ? 'border-left:2px solid var(--green);padding-left:8px;' : '';
-    return `<div class="price-item" style="${isAdded}">
-      <div class="price-item-name">${item.name}</div>
-      <div class="price-item-cost">${item.price}</div>
-      <div class="price-item-where">📍 ${item.where}</div>
-    </div>`;
-  }).join('');
-
-  totalEl.textContent = `$${totalLow}–$${totalHigh}`;
-  title.textContent   = 'PARTS & PRICING — ' + allItems.length + ' ITEMS';
-  panel.classList.add('visible');
-
-  toast('PRICE BREAKDOWN LOADED — ' + allItems.length + ' COMPONENTS');
-}
-
-function closePricePanel() {
-  document.getElementById('price-panel').classList.remove('visible');
-}
-
-// ═══════════════════════════════════════════════════════════════
-// VOICE TOAST
-// ═══════════════════════════════════════════════════════════════
-let voiceToastTimer = null;
-function showVoiceToast(text) {
-  const el   = document.getElementById('voice-toast');
-  const txtEl = document.getElementById('voice-toast-text');
-  txtEl.textContent = '"' + text + '"';
-  el.classList.add('show');
-  clearTimeout(voiceToastTimer);
-  voiceToastTimer = setTimeout(() => el.classList.remove('show'), 3500);
-}
-
-// ═══════════════════════════════════════════════════════════════
-// TICKER
-// ═══════════════════════════════════════════════════════════════
-(()=>{
-  const items=[
-    {t:'SAY "ADD CAMERA TOP RIGHT" TO MODIFY BLUEPRINTS',b:true},
-    {t:'SAY "SHOW PRICES" FOR FULL COST BREAKDOWN'},
-    {t:'DUAL HAND GESTURE CONTROL ACTIVE',b:true},
-    {t:'SAY "ZOOM IN / OUT" • "ROTATE LEFT / RIGHT"'},
-    {t:'MEDIAPIPE HANDS · FULL SKELETON TRACKING',b:true},
-    {t:'SAY "ADD LED STRIP" · "ADD SENSOR" · "ADD BATTERY"'},
-  ];
-  const track=document.getElementById('ticker-track');
-  const all=[...items,...items];
-  track.innerHTML=all.map(i=>`<span class="ticker-item${i.b?' blue':''}">${i.t}</span><span class="ticker-item" style="opacity:.25">·</span>`).join('');
-})();
-
-// ═══════════════════════════════════════════════════════════════
-// ARC LAUNCHER
-// ═══════════════════════════════════════════════════════════════
-function openLauncher(){document.getElementById('arc-launcher').classList.add('active');announce('BUILD MODE ACTIVE');toast('⬡ BUILD MODE — SELECT A SCAN TYPE');}
-function closeLauncher(){document.getElementById('arc-launcher').classList.remove('active');}
-document.querySelectorAll('.arc-item').forEach(item=>{
-  item.addEventListener('click',()=>{
-    const action=item.dataset.action; closeLauncher();
-    switch(action){
-      case'blueprint':loadBlueprint('iron_man_mk50');break;
-      case'3d':loadModel('iron_man_suit');break;
-      case'atom':loadModel('carbon_atom');break;
-      case'reactor':loadModel('reactor');break;
-      case'ai-build':openBuildInput();break;
-      case'dna':loadModel('dna');break;
-      case'neural':loadModel('brain');break;
-      case'crystal':loadModel('crystal');break;
-    }
-  });
-});
-
-// ═══════════════════════════════════════════════════════════════
-// PART INFO
-// ═══════════════════════════════════════════════════════════════
-function showPartInfo(partId) {
-  const data=PART_DATA[partId]; if(!data)return;
-  document.querySelectorAll('.suit-part').forEach(p=>p.classList.remove('selected'));
-  const partEl=document.getElementById('part-'+partId); if(partEl)partEl.classList.add('selected');
-  document.getElementById('part-title').textContent=data.title;
-  document.getElementById('part-subtitle').textContent=data.subtitle;
-  document.getElementById('part-price').textContent=data.price;
-  document.getElementById('part-price-where').textContent=data.where;
-  const specList=document.getElementById('part-specs-list'); specList.innerHTML='';
-  (data.specs||[]).forEach(s=>{const row=document.createElement('div');row.className='part-spec';row.innerHTML=`<span class="part-spec-key">${s.k}</span><span class="part-spec-val">${s.v}</span>`;specList.appendChild(row);});
-  document.getElementById('part-info-panel').classList.add('active');
-  toast('PART: '+data.title.split(' — ')[0]);
-}
-function closePartInfo(){document.getElementById('part-info-panel').classList.remove('active');document.querySelectorAll('.suit-part').forEach(p=>p.classList.remove('selected'));}
-
-// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════
 // THREE.JS SETUP
-// ═══════════════════════════════════════════════════════════════
-const canvas3d=document.getElementById('three-canvas');
-const renderer=new THREE.WebGLRenderer({canvas:canvas3d,antialias:true,alpha:true});
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setClearColor(0x000000,0);
-const scene=new THREE.Scene();
-const camera=new THREE.PerspectiveCamera(45,1,0.1,1000);
-camera.position.set(0,0,5);
-function resizeRenderer(){const w=canvas3d.parentElement.clientWidth,h=canvas3d.parentElement.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}
-resizeRenderer();
-window.addEventListener('resize',()=>{resizeRenderer();resizeSkeletonCanvas();});
-scene.add(new THREE.AmbientLight(0x003344,0.8));
-const dl=new THREE.DirectionalLight(0x00c8ff,1.5);dl.position.set(5,5,5);scene.add(dl);
-const dl2=new THREE.DirectionalLight(0x0033aa,0.8);dl2.position.set(-5,-3,-5);scene.add(dl2);
-const pt=new THREE.PointLight(0x00ffff,2,20);pt.position.set(0,0,3);scene.add(pt);
-const pGeo=new THREE.BufferGeometry();
-const pPos=new Float32Array(600*3);
-for(let i=0;i<1800;i++)pPos[i]=(Math.random()-0.5)*12;
-pGeo.setAttribute('position',new THREE.BufferAttribute(pPos,3));
-const particles=new THREE.Points(pGeo,new THREE.PointsMaterial({color:0x00c8ff,size:0.025,transparent:true,opacity:0.3}));
+// ═══════════════════════════════════════════════
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setClearColor(0x000508);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x000508, 0.035);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+camera.position.set(0, 1.5, 8);
+
+// ── RESIZE ──
+function resize() {
+  const W = canvas.parentElement.clientWidth || window.innerWidth;
+  const H = canvas.parentElement.clientHeight || window.innerHeight;
+  renderer.setSize(W, H, false);
+  camera.aspect = W / H;
+  camera.updateProjectionMatrix();
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── LIGHTS ──
+const ambient = new THREE.AmbientLight(0x001428, 0.6);
+scene.add(ambient);
+
+const keyLight = new THREE.DirectionalLight(0x00c8ff, 3.5);
+keyLight.position.set(5, 8, 5);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.width = 2048;
+keyLight.shadow.mapSize.height = 2048;
+scene.add(keyLight);
+
+const fillLight = new THREE.DirectionalLight(0x002244, 1.2);
+fillLight.position.set(-6, 2, -4);
+scene.add(fillLight);
+
+const rimLight = new THREE.PointLight(0x00aaff, 2.5, 30);
+rimLight.position.set(0, 6, -6);
+scene.add(rimLight);
+
+const bottomLight = new THREE.PointLight(0x003366, 1.5, 20);
+bottomLight.position.set(0, -4, 0);
+scene.add(bottomLight);
+
+// ── FLOOR GRID ──
+const gridHelper = new THREE.GridHelper(30, 30, 0x001833, 0x000d1a);
+gridHelper.position.y = -3.5;
+scene.add(gridHelper);
+
+// ── PARTICLE FIELD ──
+const pGeo = new THREE.BufferGeometry();
+const pCount = 800;
+const pPos = new Float32Array(pCount * 3);
+for (let i = 0; i < pCount * 3; i++) pPos[i] = (Math.random() - 0.5) * 40;
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+const particles = new THREE.Points(pGeo, new THREE.PointsMaterial({
+  color: 0x004466, size: 0.04, transparent: true, opacity: 0.6
+}));
 scene.add(particles);
 
-const state={model:null,autoRotate:true,wireframe:false,scale:1.0,targetScale:1.0,momentumX:0,momentumY:0,momentumZ:0,currentModelKey:null,mode:'blueprint'};
-const MODEL_KEYS=['iron_man_suit','carbon_atom','dna','reactor','torus_knot','crystal','sphere_wire','brain'];
-let currentModelIndex=0;
-let currentBlueprintKey='iron_man_mk50';
-
-function buildIronManSuit3D(){
-  const g=new THREE.Group();
-  const redMat=new THREE.MeshBasicMaterial({color:0x8B1111,transparent:true,opacity:0.85});
-  const goldMat=new THREE.MeshBasicMaterial({color:0xC8760A,transparent:true,opacity:0.85});
-  const blueMat=new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.95});
-  const wireMat=new THREE.LineBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.5});
-  function box(w,h,d,mat,px,py,pz){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);m.position.set(px,py,pz);const e=new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry),wireMat);e.position.copy(m.position);g.add(m);g.add(e);}
-  function cyl(rt,rb,h,mat,px,py,pz,rx=0){const m=new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,8),mat);m.position.set(px,py,pz);m.rotation.x=rx;const e=new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry),wireMat);e.position.copy(m.position);e.rotation.copy(m.rotation);g.add(m);g.add(e);}
-  function sph(r,mat,px,py,pz){const m=new THREE.Mesh(new THREE.SphereGeometry(r,12,10),mat);m.position.set(px,py,pz);g.add(m);}
-  box(0.7,0.65,0.6,redMat,0,2.05,0);
-  const visorG=new THREE.Mesh(new THREE.BoxGeometry(0.55,0.18,0.05),blueMat);visorG.position.set(0,2.08,0.32);g.add(visorG);
-  sph(0.07,blueMat,-0.18,2.1,0.35);sph(0.07,blueMat,0.18,2.1,0.35);
-  cyl(0.22,0.24,0.25,goldMat,0,1.72,0);
-  box(1.1,0.85,0.6,redMat,0,1.1,0);
-  box(0.65,0.65,0.05,goldMat,0,1.12,0.31);
-  const arcG=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,0.05,16),blueMat);arcG.position.set(0,1.15,0.34);arcG.rotation.x=Math.PI/2;g.add(arcG);
-  const arcCore=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,0.06,12),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.95}));arcCore.position.set(0,1.15,0.37);arcCore.rotation.x=Math.PI/2;g.add(arcCore);
-  sph(0.32,goldMat,-0.82,1.25,0);sph(0.32,goldMat,0.82,1.25,0);
-  box(0.3,0.55,0.3,redMat,-0.82,1.1,-0.05);box(0.3,0.55,0.3,redMat,0.82,1.1,-0.05);
-  cyl(0.2,0.18,0.55,goldMat,-0.9,0.72,0);cyl(0.2,0.18,0.55,goldMat,0.9,0.72,0);
-  sph(0.19,redMat,-0.9,0.42,0);sph(0.19,redMat,0.9,0.42,0);
-  cyl(0.18,0.16,0.5,goldMat,-0.9,0.12,0);cyl(0.18,0.16,0.5,goldMat,0.9,0.12,0);
-  box(0.3,0.3,0.22,redMat,-0.88,-0.19,0);box(0.3,0.3,0.22,redMat,0.88,-0.19,0);
-  sph(0.08,blueMat,-0.88,-0.22,0.12);sph(0.08,blueMat,0.88,-0.22,0.12);
-  box(0.85,0.5,0.52,goldMat,0,0.62,0);
-  box(1.0,0.4,0.52,redMat,0,0.2,0);
-  cyl(0.28,0.26,0.65,goldMat,-0.4,-0.2,0);cyl(0.28,0.26,0.65,goldMat,0.4,-0.2,0);
-  sph(0.24,redMat,-0.4,-0.57,0);sph(0.24,redMat,0.4,-0.57,0);
-  box(0.22,0.14,0.06,goldMat,-0.4,-0.57,0.26);box(0.22,0.14,0.06,goldMat,0.4,-0.57,0.26);
-  cyl(0.22,0.19,0.65,goldMat,-0.4,-0.95,0);cyl(0.22,0.19,0.65,goldMat,0.4,-0.95,0);
-  box(0.38,0.3,0.5,redMat,-0.4,-1.35,0.05);box(0.38,0.3,0.5,redMat,0.4,-1.35,0.05);
-  sph(0.1,blueMat,-0.4,-1.53,0);sph(0.1,blueMat,0.4,-1.53,0);
-  return{group:g,name:'IRON MAN MK50 SUIT',verts:12000};
+// ═══════════════════════════════════════════════
+// MATERIALS — real-looking holographic
+// ═══════════════════════════════════════════════
+function holoMat(color = 0x00c8ff, emissive = 0x003355, rough = 0.35, metal = 0.8) {
+  return new THREE.MeshStandardMaterial({
+    color: new THREE.Color(color),
+    emissive: new THREE.Color(emissive),
+    emissiveIntensity: 0.6,
+    roughness: rough,
+    metalness: metal,
+    envMapIntensity: 1.5,
+  });
+}
+function glassMat(color = 0x00c8ff) {
+  return new THREE.MeshPhysicalMaterial({
+    color: new THREE.Color(color),
+    transparent: true,
+    opacity: 0.18,
+    roughness: 0.05,
+    metalness: 0.0,
+    transmission: 0.8,
+    thickness: 0.5,
+    envMapIntensity: 2,
+    side: THREE.DoubleSide,
+  });
+}
+function wireMat(color = 0x00c8ff, opacity = 0.55) {
+  return new THREE.MeshBasicMaterial({ color, wireframe: true, transparent: true, opacity });
+}
+function glowMat(color = 0x00ffff) {
+  return new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
+}
+function emissiveMat(color = 0x00c8ff, emissive = 0x00aaff) {
+  return new THREE.MeshStandardMaterial({
+    color, emissive, emissiveIntensity: 2.0, roughness: 0.2, metalness: 0.6
+  });
 }
 
-const MODELS={
-  iron_man_suit:()=>buildIronManSuit3D(),
-  carbon_atom:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.SphereGeometry(0.3,16,16),new THREE.MeshBasicMaterial({color:0x00ffaa,transparent:true,opacity:0.9})));[1.2,2.0,2.8].forEach((r,i)=>{const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.02,8,64),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.5-i*0.1}));ring.rotation.x=Math.random()*Math.PI;ring.rotation.y=Math.random()*Math.PI;g.add(ring);const n=[2,4,6][i];for(let e=0;e<n;e++){const el=new THREE.Mesh(new THREE.SphereGeometry(0.08,8,8),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.9}));const a=(e/n)*Math.PI*2;el.position.set(r*Math.cos(a),r*Math.sin(a)*0.2,r*Math.sin(a));g.add(el);}});return{group:g,name:'CARBON ATOM',verts:3200};},
-  dna:()=>{const g=new THREE.Group();const segs=40;for(let i=0;i<segs;i++){const t=i/segs,angle=t*Math.PI*6,y=(t-0.5)*8,r=0.8;const s1=new THREE.Mesh(new THREE.SphereGeometry(0.1,8,8),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.85}));s1.position.set(r*Math.cos(angle),y,r*Math.sin(angle));g.add(s1);const s2=new THREE.Mesh(new THREE.SphereGeometry(0.1,8,8),new THREE.MeshBasicMaterial({color:0x00ff88,transparent:true,opacity:0.85}));s2.position.set(r*Math.cos(angle+Math.PI),y,r*Math.sin(angle+Math.PI));g.add(s2);if(i%3===0){const b=new THREE.Mesh(new THREE.CylinderGeometry(0.015,0.015,r*2,4),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.3}));b.position.set(0,y,0);b.rotation.z=Math.PI/2;b.rotation.y=angle;g.add(b);}}return{group:g,name:'DNA DOUBLE HELIX',verts:segs*400};},
-  reactor:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.TorusGeometry(0.4,0.15,8,32),new THREE.MeshBasicMaterial({color:0x00ffff,transparent:true,opacity:0.9})));g.add(new THREE.Mesh(new THREE.SphereGeometry(0.25,12,12),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:0.8})));[0.9,1.3,1.6,2.0].forEach((r,i)=>{const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.02,6,60),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.55-i*0.08}));ring.rotation.x=(i%2===0)?Math.PI/4:-Math.PI/4;g.add(ring);});return{group:g,name:'ARC REACTOR',verts:2400};},
-  torus_knot:()=>{const geo=new THREE.TorusKnotGeometry(1.2,0.3,120,16,3,5);const g=new THREE.Group();g.add(new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0x00c8ff,wireframe:true,transparent:true,opacity:0.6})));return{group:g,name:'TORUS KNOT',verts:geo.attributes.position.count};},
-  crystal:()=>{const g=new THREE.Group();const positions=[];for(let x=-2;x<=2;x++)for(let y=-2;y<=2;y++)for(let z=-2;z<=2;z++)if(Math.abs(x)+Math.abs(y)+Math.abs(z)<=4)positions.push([x,y,z]);positions.forEach(([x,y,z])=>{const s=new THREE.Mesh(new THREE.OctahedronGeometry(0.22,0),new THREE.MeshBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.5+Math.random()*0.4,wireframe:Math.random()>0.7}));s.position.set(x*0.9,y*0.9,z*0.9);g.add(s);});return{group:g,name:'CRYSTAL LATTICE',verts:positions.length*6};},
-  sphere_wire:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.SphereGeometry(1.8,24,16),new THREE.MeshBasicMaterial({color:0x00c8ff,wireframe:true,transparent:true,opacity:0.25})));for(let i=0;i<80;i++){const phi=Math.acos(-1+(2*i)/80),theta=Math.sqrt(80*Math.PI)*phi;const node=new THREE.Mesh(new THREE.SphereGeometry(0.04,6,6),new THREE.MeshBasicMaterial({color:0x00ffff,transparent:true,opacity:0.9}));node.position.setFromSphericalCoords(1.8,phi,theta);g.add(node);}return{group:g,name:'NEURAL SPHERE',verts:80*12};},
-  brain:()=>{const g=new THREE.Group();g.add(new THREE.Mesh(new THREE.SphereGeometry(0.3,12,12),new THREE.MeshBasicMaterial({color:0xffaa00,transparent:true,opacity:0.9})));const nodes=[];for(let i=0;i<60;i++){const node=new THREE.Mesh(new THREE.SphereGeometry(0.05+Math.random()*0.07,6,6),new THREE.MeshBasicMaterial({color:Math.random()>0.5?0x00c8ff:0x00ff88,transparent:true,opacity:0.8}));const phi=Math.random()*Math.PI,theta=Math.random()*Math.PI*2,r=0.8+Math.random()*1.4;node.position.setFromSphericalCoords(r,phi,theta);nodes.push(node.position.clone());g.add(node);}for(let i=0;i<80;i++){const a=nodes[Math.floor(Math.random()*nodes.length)],b=nodes[Math.floor(Math.random()*nodes.length)];if(a.distanceTo(b)<1.2)g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([a,b]),new THREE.LineBasicMaterial({color:0x00c8ff,transparent:true,opacity:0.2})));}return{group:g,name:'NEURAL NETWORK',verts:60*12};},
-};
+// ═══════════════════════════════════════════════
+// OBJECT BUILDERS — real geometry, not toys
+// ═══════════════════════════════════════════════
 
-function loadModel(key){
-  const factory=MODELS[key]; if(!factory){showNoModel();return;}
-  showLoading();
-  let progress=0; const bar=document.getElementById('load-bar');
-  const iv=setInterval(()=>{progress=Math.min(progress+Math.random()*25,90);bar.style.width=progress+'%';},80);
-  setTimeout(()=>{
-    clearInterval(iv);bar.style.width='100%';
-    if(state.model){scene.remove(state.model);state.model=null;}
-    const result=factory();
-    state.model=result.group;scene.add(state.model);
-    state.currentModelKey=key;currentModelIndex=MODEL_KEYS.indexOf(key);
-    document.getElementById('hud-objname').textContent=result.name;
-    document.getElementById('inf-name').textContent=result.name;
-    document.getElementById('inf-mode').textContent='3D HOLOGRAPHIC';
-    state.scale=1;state.targetScale=1;state.momentumX=0;state.momentumY=0;state.momentumZ=0;
-    hideLoading();switchModeTo('3d');
-    toast('SCAN COMPLETE — '+result.name);
-  },500);
-}
-function loadNextModel(){currentModelIndex=(currentModelIndex+1)%MODEL_KEYS.length;loadModel(MODEL_KEYS[currentModelIndex]);}
-function loadPrevModel(){currentModelIndex=(currentModelIndex-1+MODEL_KEYS.length)%MODEL_KEYS.length;loadModel(MODEL_KEYS[currentModelIndex]);}
-function quickLoad(key){loadModel(key);}
-function showLoading(){document.getElementById('loading').style.display='flex';document.getElementById('no-model').style.display='none';document.getElementById('load-bar').style.width='0%';}
-function hideLoading(){document.getElementById('loading').style.display='none';}
-function showNoModel(){document.getElementById('no-model').style.display='flex';hideLoading();}
-function toggleWireframe(){state.wireframe=!state.wireframe;if(state.model)state.model.traverse(o=>{if(o.isMesh&&o.material)o.material.wireframe=state.wireframe;});}
-function toggleAutoRotate(){state.autoRotate=!state.autoRotate;document.getElementById('rotate-btn').style.borderColor=state.autoRotate?'var(--blue)':'';}
+const OBJECTS = {};
 
-// ── MODE SWITCHING ────────────────────────────────────────────────
-function switchModeTo(mode){
-  state.mode=mode;
-  const bpWrap=document.getElementById('blueprint-wrap');
-  const badge=document.getElementById('mode-badge');
-  const hudMode=document.getElementById('hud-mode');
-  if(mode==='3d'){
-    bpWrap.classList.remove('active');
-    document.getElementById('holo-rings').style.display='flex';
-    document.getElementById('scan-overlay').style.display='block';
-    badge.textContent='3D HOLOGRAPHIC';hudMode.textContent='HOLOGRAPHIC';
-    hudMode.style.color='rgba(0,200,255,0.5)';
-  }else if(mode==='blueprint'){
-    bpWrap.classList.add('active');
-    document.getElementById('holo-rings').style.display='none';
-    document.getElementById('scan-overlay').style.display='none';
-    badge.textContent='BLUEPRINT MODE';hudMode.textContent='BLUEPRINT';
-    hudMode.style.color='rgba(0,180,255,0.7)';
+// ── ARC REACTOR ──────────────────────────────
+function buildArcReactor() {
+  const g = new THREE.Group();
+  g.userData.name = 'ARC REACTOR — MARK VI';
+
+  // Outer housing ring
+  const outerRing = new THREE.Mesh(
+    new THREE.TorusGeometry(1.8, 0.22, 24, 80),
+    holoMat(0x445566, 0x002244, 0.4, 0.9)
+  );
+  g.add(outerRing);
+
+  // Inner glowing ring
+  const innerRing = new THREE.Mesh(
+    new THREE.TorusGeometry(1.3, 0.08, 16, 80),
+    emissiveMat(0x00ffff, 0x00ccff)
+  );
+  g.add(innerRing);
+
+  // Glass dome
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(1.1, 32, 32, 0, Math.PI*2, 0, Math.PI*0.5),
+    glassMat(0x00c8ff)
+  );
+  dome.rotation.x = Math.PI;
+  dome.position.y = 0.0;
+  g.add(dome);
+  const domeBack = new THREE.Mesh(
+    new THREE.CircleGeometry(1.1, 32),
+    glassMat(0x00c8ff)
+  );
+  g.add(domeBack);
+
+  // Triangular core (classic arc reactor look)
+  const triShape = new THREE.Shape();
+  const R = 0.7;
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 - Math.PI/6;
+    i === 0 ? triShape.moveTo(Math.cos(a)*R, Math.sin(a)*R) : triShape.lineTo(Math.cos(a)*R, Math.sin(a)*R);
   }
-}
+  triShape.closePath();
+  const triGeo = new THREE.ShapeGeometry(triShape);
+  const triMesh = new THREE.Mesh(triGeo, emissiveMat(0x00ffee, 0x00ffcc));
+  triMesh.position.z = 0.3;
+  g.add(triMesh);
+  // Wireframe triangle overlay
+  const triWire = new THREE.Mesh(triGeo, wireMat(0x00ffff, 0.8));
+  triWire.position.z = 0.31;
+  g.add(triWire);
 
-function blueprintTo3D(){
-  const overlay=document.getElementById('transition-overlay');
-  overlay.classList.add('flash');
-  setTimeout(()=>overlay.classList.remove('flash'),700);
-  setTimeout(()=>{ loadModel('iron_man_suit'); },350);
-}
-function launchCurrentItem(){
-  if(state.mode==='blueprint'){blueprintTo3D();}
-  else if(state.model){state.momentumY=0.1;state.momentumX=0.05;toast('⚡ HOLOGRAM ACTIVATED');}
-  else{loadModel('iron_man_suit');}
-}
+  // Reactor core sphere
+  const core = new THREE.Mesh(
+    new THREE.SphereGeometry(0.35, 32, 32),
+    emissiveMat(0xffffff, 0x88ffff)
+  );
+  core.position.z = 0.2;
+  g.add(core);
 
-// ── BLUEPRINT DB ──────────────────────────────────────────────────
-const LOCAL_BLUEPRINT_DB = {
-  iron_man_mk50:{name:'IRON MAN MARK L',subtitle:'NANO-PARTICLE COMBAT SUIT — STARK TECH',isIronMan:true},
-  smartglasses:{name:'SMART GLASSES — AR HUD',subtitle:'AUGMENTED REALITY WEARABLE',components:[{name:'Micro-OLED',description:'Right lens HUD',x:0.7,y:0.38,size:0.07},{name:'Camera',description:'Computer vision',x:0.28,y:0.38,size:0.06},{name:'Battery',description:'Temple electronics',x:0.82,y:0.55,size:0.07}]},
-  drone:{name:'QUADCOPTER DRONE',subtitle:'UAV — BRUSHLESS CLASS',components:[{name:'Motor FL',description:'2300KV',x:0.28,y:0.28,size:0.07},{name:'Motor FR',description:'2300KV',x:0.72,y:0.28,size:0.07},{name:'Flight Controller',description:'F4 + GPS',x:0.5,y:0.48,size:0.09}]},
-  car:{name:'SPORTS CAR',subtitle:'VEHICLE SCHEMATIC',components:[{name:'V6 Engine',description:'3.0L twin-scroll',x:0.45,y:0.45,size:0.1}]},
-  rocket:{name:'LAUNCH VEHICLE',subtitle:'TWO-STAGE ORBITAL ROCKET',components:[{name:'Payload',description:'Satellite enclosure',x:0.65,y:0.22,size:0.05}]},
-  arc_reactor:{name:'ARC REACTOR — MARK VI',subtitle:'PALLADIUM-FREE FUSION CORE',components:[{name:'Fusion Core',description:'Reaction chamber',x:0.5,y:0.48,size:0.06}]},
-  exoskeleton:{name:'EXOSKELETON ARM — MK III',subtitle:'POWERED SERVO LIMB ASSEMBLY',components:[{name:'Shoulder Joint',description:'3-axis servo',x:0.62,y:0.25,size:0.08}]},
-};
+  // Energy coils — 8 rods around the ring
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const rod = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.04, 0.04, 0.8, 12),
+      holoMat(0x334455, 0x001133, 0.3, 0.95)
+    );
+    rod.position.set(Math.cos(a)*1.55, Math.sin(a)*1.55, 0);
+    rod.rotation.z = a + Math.PI/2;
+    g.add(rod);
+    // Glowing tip
+    const tip = new THREE.Mesh(
+      new THREE.SphereGeometry(0.07, 8, 8),
+      emissiveMat(0x00ffff, 0x00cccc)
+    );
+    tip.position.set(Math.cos(a)*1.55, Math.sin(a)*1.55, 0);
+    g.add(tip);
+  }
 
-function loadBlueprint(key){
-  const bp=LOCAL_BLUEPRINT_DB[key]; if(!bp){toast('BLUEPRINT NOT FOUND');return;}
-  currentBlueprintKey=key;
-  document.querySelectorAll('.bp-btn').forEach(b=>b.classList.remove('active'));
-  const btn=document.getElementById('btn-bp-'+key); if(btn)btn.classList.add('active');
-  document.getElementById('bp-title').textContent=bp.name;
-  document.getElementById('bp-subtitle').textContent=bp.subtitle;
-  document.getElementById('hud-objname').textContent=bp.name;
-  document.getElementById('inf-name').textContent=bp.name;
-  document.getElementById('inf-mode').textContent='BLUEPRINT';
-  const svgContainer=document.getElementById('ironman-svg-container');
-  if(bp.isIronMan){svgContainer.style.display='flex';document.getElementById('bp-status').textContent='CLICK COMPONENT • SAY "ADD CAMERA" • SAY "SHOW PRICES"';}
-  else{svgContainer.style.display='none';resizeBpCanvas();drawGenericBlueprint(bp);}
-  closePartInfo();switchModeTo('blueprint');toast('BLUEPRINT: '+bp.name);
+  // Concentric detail rings
+  [0.6, 0.9, 1.1].forEach((r, i) => {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(r, 0.015, 8, 64),
+      emissiveMat(0x00aacc, 0x005577)
+    );
+    ring.userData.pulse = i * 0.3;
+    g.add(ring);
+  });
+
+  g.rotation.x = Math.PI / 12;
+  g.userData.polys = 12400;
+  return g;
 }
+OBJECTS.arc_reactor = buildArcReactor;
 
-const bpCanvas=document.getElementById('blueprint-canvas');
-const bpCtx=bpCanvas.getContext('2d');
-function resizeBpCanvas(){const wrap=document.getElementById('blueprint-wrap');bpCanvas.width=wrap.clientWidth||window.innerWidth;bpCanvas.height=wrap.clientHeight||window.innerHeight;}
-function drawGenericBlueprint(bpData){
-  resizeBpCanvas();const W=bpCanvas.width,H=bpCanvas.height;bpCtx.clearRect(0,0,W,H);
-  bpCtx.strokeStyle='rgba(0,200,255,0.08)';bpCtx.lineWidth=0.5;
-  for(let x=0;x<W;x+=40){bpCtx.beginPath();bpCtx.moveTo(x,0);bpCtx.lineTo(x,H);bpCtx.stroke();}
-  for(let y=0;y<H;y+=40){bpCtx.beginPath();bpCtx.moveTo(0,y);bpCtx.lineTo(W,y);bpCtx.stroke();}
-  const cx=W/2,cy=H/2,mainW=Math.min(W*0.3,220),mainH=mainW*1.3;
-  bpCtx.strokeStyle='#00c8ff';bpCtx.lineWidth=2;bpCtx.shadowBlur=8;bpCtx.shadowColor='rgba(0,200,255,0.6)';
-  bpCtx.strokeRect(cx-mainW/2,cy-mainH/2,mainW,mainH);bpCtx.strokeRect(cx-mainW*0.4,cy-mainH*0.4,mainW*0.8,mainH*0.8);
-  if(bpData.components){bpCtx.lineWidth=1;bpData.components.forEach(comp=>{
-    const compX=comp.x*W,compY=comp.y*H,compR=(comp.size||0.08)*Math.min(W,H)*0.5;
-    bpCtx.globalAlpha=0.7;bpCtx.strokeStyle='#00c8ff';
-    bpCtx.beginPath();bpCtx.arc(compX,compY,compR,0,Math.PI*2);bpCtx.stroke();
-    bpCtx.beginPath();bpCtx.arc(compX,compY,compR*0.4,0,Math.PI*2);
-    bpCtx.fillStyle='rgba(0,200,255,0.15)';bpCtx.fill();bpCtx.stroke();
-    const labelX=compX>W/2?compX-compR-80:compX+compR+80;
-    bpCtx.setLineDash([3,3]);bpCtx.beginPath();bpCtx.moveTo(compX+(compX>W/2?-compR:compR),compY);bpCtx.lineTo(labelX,compY);bpCtx.stroke();bpCtx.setLineDash([]);
-    bpCtx.globalAlpha=1;bpCtx.fillStyle='#00c8ff';
-    bpCtx.font='10px "Share Tech Mono",monospace';bpCtx.textAlign=compX>W/2?'right':'left';
-    bpCtx.fillText(comp.name,labelX+(compX>W/2?-4:4),compY-2);
-    bpCtx.fillStyle='rgba(0,200,255,0.5)';bpCtx.font='9px "Share Tech Mono",monospace';
-    bpCtx.fillText(comp.description||'',labelX+(compX>W/2?-4:4),compY+13);
-  });}
-  bpCtx.globalAlpha=1;bpCtx.textAlign='center';bpCtx.shadowBlur=0;
+// ── IRON MAN SUIT ────────────────────────────
+function buildIronMan() {
+  const g = new THREE.Group();
+  g.userData.name = 'IRON MAN SUIT — MARK L';
+
+  const red = holoMat(0x8B1111, 0x300000, 0.45, 0.85);
+  const gold = holoMat(0xC8760A, 0x3a2000, 0.3, 0.95);
+  const blue = emissiveMat(0x00c8ff, 0x005577);
+  const darkMetal = holoMat(0x223344, 0x001122, 0.5, 0.9);
+
+  const add = (geo, mat, px=0,py=0,pz=0, rx=0,ry=0,rz=0, sx=1,sy=1,sz=1) => {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.set(px,py,pz); m.rotation.set(rx,ry,rz); m.scale.set(sx,sy,sz);
+    m.castShadow = true; m.receiveShadow = true;
+    g.add(m); return m;
+  };
+
+  // === HELMET ===
+  // Main helmet dome
+  const helmBase = add(new THREE.SphereGeometry(0.68,32,32), red, 0,3.1,0);
+  // Faceplate
+  const faceGeo = new THREE.SphereGeometry(0.63,32,32,0,Math.PI*2,0,Math.PI*0.55);
+  add(faceGeo, gold, 0,3.05,0.18);
+  // Eye slots — glowing blue
+  const eyeGeo = new THREE.BoxGeometry(0.28,0.09,0.05);
+  add(eyeGeo, blue, -0.2,3.18,0.58);
+  add(eyeGeo, blue,  0.2,3.18,0.58);
+  // Chin detail
+  add(new THREE.BoxGeometry(0.32,0.14,0.08), gold, 0,2.78,0.56);
+
+  // === NECK ===
+  add(new THREE.CylinderGeometry(0.22,0.28,0.28,16), darkMetal, 0,2.72,0);
+
+  // === CHEST ===
+  add(new THREE.SphereGeometry(0.9,32,24,0,Math.PI*2,0,Math.PI*0.65), red, 0,1.95,0);
+  // Chest plate detail
+  add(new THREE.BoxGeometry(0.9,0.7,0.08), gold, 0,2.0,0.75, 0.1);
+  // Arc reactor on chest
+  const reactorCore = add(new THREE.CylinderGeometry(0.2,0.2,0.06,32), blue, 0,2.1,0.82, Math.PI/2);
+  const reactorRing = add(new THREE.TorusGeometry(0.2,0.035,12,48), emissiveMat(0x00ffff,0x00cccc), 0,2.1,0.86, Math.PI/2);
+  // Chest gold trim
+  add(new THREE.BoxGeometry(0.9,0.06,0.06), gold, 0,2.45,0.72);
+  add(new THREE.BoxGeometry(0.06,0.7,0.06), gold, -0.45,2.0,0.72);
+  add(new THREE.BoxGeometry(0.06,0.7,0.06), gold, 0.45,2.0,0.72);
+
+  // === BACK ===
+  add(new THREE.SphereGeometry(0.85,24,20,0,Math.PI*2,0,Math.PI*0.65), darkMetal, 0,1.9,-0.3);
+
+  // === ABDOMEN ===
+  add(new THREE.CylinderGeometry(0.72,0.65,0.5,24), red, 0,1.32,0);
+  // Abdomen ribs
+  for(let i=0;i<3;i++) {
+    add(new THREE.BoxGeometry(0.86,0.06,0.06), gold, 0,1.15-i*0.17,0.62);
+  }
+
+  // === HIPS ===
+  add(new THREE.CylinderGeometry(0.68,0.62,0.3,24), darkMetal, 0,0.95,0);
+
+  // === LEFT ARM ===
+  add(new THREE.SphereGeometry(0.34,24,20), red, -1.12,2.1,0); // shoulder
+  add(new THREE.CylinderGeometry(0.23,0.2,0.9,16), red, -1.25,1.55,0, 0,0,0.18); // upper arm
+  add(new THREE.SphereGeometry(0.22,16,16), gold, -1.4,1.06,0); // elbow
+  add(new THREE.CylinderGeometry(0.2,0.17,0.85,16), gold, -1.5,0.55,0, 0,0,0.25); // forearm
+  // Hand/repulsor
+  add(new THREE.BoxGeometry(0.28,0.14,0.32), darkMetal, -1.65,0.04,0);
+  add(new THREE.CylinderGeometry(0.09,0.09,0.05,24), blue, -1.65,0.04,0.18, Math.PI/2); // repulsor
+  add(new THREE.TorusGeometry(0.09,0.015,8,32), emissiveMat(0x00ffff,0x00cccc), -1.65,0.04,0.21, Math.PI/2);
+
+  // === RIGHT ARM ===
+  add(new THREE.SphereGeometry(0.34,24,20), red, 1.12,2.1,0);
+  add(new THREE.CylinderGeometry(0.23,0.2,0.9,16), red, 1.25,1.55,0, 0,0,-0.18);
+  add(new THREE.SphereGeometry(0.22,16,16), gold, 1.4,1.06,0);
+  add(new THREE.CylinderGeometry(0.2,0.17,0.85,16), gold, 1.5,0.55,0, 0,0,-0.25);
+  add(new THREE.BoxGeometry(0.28,0.14,0.32), darkMetal, 1.65,0.04,0);
+  add(new THREE.CylinderGeometry(0.09,0.09,0.05,24), blue, 1.65,0.04,0.18, Math.PI/2);
+  add(new THREE.TorusGeometry(0.09,0.015,8,32), emissiveMat(0x00ffff,0x00cccc), 1.65,0.04,0.21, Math.PI/2);
+
+  // === LEFT LEG ===
+  add(new THREE.SphereGeometry(0.3,20,16), darkMetal, -0.5,0.56,0); // hip
+  add(new THREE.CylinderGeometry(0.28,0.24,0.95,16), red, -0.5,0.02,0); // thigh
+  add(new THREE.SphereGeometry(0.24,16,16), gold, -0.5,-0.5,0); // knee
+  add(new THREE.CylinderGeometry(0.22,0.19,0.9,16), red, -0.5,-1.0,0); // shin
+  add(new THREE.BoxGeometry(0.28,0.18,0.48), darkMetal, -0.5,-1.55,-0.05); // boot
+  add(new THREE.CylinderGeometry(0.07,0.07,0.04,20), blue, -0.5,-1.62,0.18, Math.PI/2); // boot repulsor
+
+  // === RIGHT LEG ===
+  add(new THREE.SphereGeometry(0.3,20,16), darkMetal, 0.5,0.56,0);
+  add(new THREE.CylinderGeometry(0.28,0.24,0.95,16), red, 0.5,0.02,0);
+  add(new THREE.SphereGeometry(0.24,16,16), gold, 0.5,-0.5,0);
+  add(new THREE.CylinderGeometry(0.22,0.19,0.9,16), red, 0.5,-1.0,0);
+  add(new THREE.BoxGeometry(0.28,0.18,0.48), darkMetal, 0.5,-1.55,-0.05);
+  add(new THREE.CylinderGeometry(0.07,0.07,0.04,20), blue, 0.5,-1.62,0.18, Math.PI/2);
+
+  // Gold shoulder trim
+  add(new THREE.TorusGeometry(0.34,0.04,10,32), gold, -1.12,2.1,0);
+  add(new THREE.TorusGeometry(0.34,0.04,10,32), gold, 1.12,2.1,0);
+
+  g.position.y = 0.5;
+  g.scale.setScalar(0.85);
+  g.userData.polys = 28000;
+  return g;
 }
+OBJECTS.iron_man = buildIronMan;
 
-// ── AI BUILD ──────────────────────────────────────────────────────
-function openBuildInput(){document.getElementById('build-input-modal').classList.add('active');setTimeout(()=>document.getElementById('build-query-input').focus(),100);}
-function closeBuildInput(){document.getElementById('build-input-modal').classList.remove('active');}
-function matchBlueprint(query){
-  const q=query.toLowerCase().trim();
-  for(const[key,bp]of Object.entries(LOCAL_BLUEPRINT_DB)){if(q.includes(key.replace(/_/g,' '))||key.replace(/_/g,' ').includes(q))return{...bp,_key:key};}
-  return{name:query.toUpperCase(),subtitle:'AI-GENERATED SCHEMATIC',components:[{name:'Primary Core',description:'Central unit',x:0.5,y:0.42,size:0.12},{name:'Power Supply',description:'Energy system',x:0.3,y:0.65,size:0.08}],_isGeneric:true};
+// ── DNA HELIX ────────────────────────────────
+function buildDNA() {
+  const g = new THREE.Group();
+  g.userData.name = 'DNA DOUBLE HELIX';
+
+  const SEGMENTS = 60;
+  const HEIGHT = 8;
+  const RADIUS = 1.2;
+  const TURNS = 4;
+  const bases = ['A','T','G','C'];
+  const baseColors = { A: 0x00ff88, T: 0xff4444, G: 0x4488ff, C: 0xffaa00 };
+
+  const strandMat1 = holoMat(0x0088cc, 0x002244, 0.3, 0.7);
+  const strandMat2 = holoMat(0x00ccaa, 0x003322, 0.3, 0.7);
+
+  let prev1 = null, prev2 = null;
+  const pts1 = [], pts2 = [];
+
+  for (let i = 0; i <= SEGMENTS; i++) {
+    const t = i / SEGMENTS;
+    const angle = t * Math.PI * 2 * TURNS;
+    const y = (t - 0.5) * HEIGHT;
+
+    const x1 = Math.cos(angle) * RADIUS;
+    const z1 = Math.sin(angle) * RADIUS;
+    const x2 = Math.cos(angle + Math.PI) * RADIUS;
+    const z2 = Math.sin(angle + Math.PI) * RADIUS;
+
+    pts1.push(new THREE.Vector3(x1, y, z1));
+    pts2.push(new THREE.Vector3(x2, y, z2));
+
+    // Backbone spheres
+    const sphereGeo = new THREE.SphereGeometry(0.1, 10, 10);
+    const s1 = new THREE.Mesh(sphereGeo, strandMat1);
+    s1.position.set(x1, y, z1);
+    g.add(s1);
+    const s2 = new THREE.Mesh(sphereGeo, strandMat2);
+    s2.position.set(x2, y, z2);
+    g.add(s2);
+
+    // Backbone tubes connecting adjacent spheres
+    if (prev1) {
+      const dir1 = new THREE.Vector3().subVectors(new THREE.Vector3(x1,y,z1), prev1).normalize();
+      const len1 = prev1.distanceTo(new THREE.Vector3(x1,y,z1));
+      const tube1 = new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,len1,8), strandMat1);
+      tube1.position.copy(prev1).lerp(new THREE.Vector3(x1,y,z1), 0.5);
+      tube1.lookAt(new THREE.Vector3(x1,y,z1));
+      tube1.rotateX(Math.PI/2);
+      g.add(tube1);
+
+      const dir2 = new THREE.Vector3().subVectors(new THREE.Vector3(x2,y,z2), prev2).normalize();
+      const len2 = prev2.distanceTo(new THREE.Vector3(x2,y,z2));
+      const tube2 = new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,len2,8), strandMat2);
+      tube2.position.copy(prev2).lerp(new THREE.Vector3(x2,y,z2), 0.5);
+      tube2.lookAt(new THREE.Vector3(x2,y,z2));
+      tube2.rotateX(Math.PI/2);
+      g.add(tube2);
+    }
+
+    // Base pair rungs
+    if (i % 4 === 0 && i > 0) {
+      const p1 = new THREE.Vector3(x1, y, z1);
+      const p2 = new THREE.Vector3(x2, y, z2);
+      const rungLen = p1.distanceTo(p2);
+
+      const base = bases[Math.floor(Math.random() * 4)];
+      const rungMat = new THREE.MeshStandardMaterial({
+        color: baseColors[base], emissive: baseColors[base],
+        emissiveIntensity: 0.5, roughness: 0.3, metalness: 0.5
+      });
+
+      const midPt = p1.clone().lerp(p2, 0.5);
+      const rung = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, rungLen*0.4, 8), rungMat);
+      rung.position.copy(p1.clone().lerp(p2, 0.25));
+      rung.lookAt(midPt); rung.rotateX(Math.PI/2);
+      g.add(rung);
+
+      const rung2Mat = new THREE.MeshStandardMaterial({
+        color: baseColors[bases[(bases.indexOf(base)+2)%4]],
+        emissive: baseColors[bases[(bases.indexOf(base)+2)%4]],
+        emissiveIntensity: 0.5, roughness: 0.3, metalness: 0.5
+      });
+      const rung2 = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, rungLen*0.4, 8), rung2Mat);
+      rung2.position.copy(p2.clone().lerp(p1, 0.25));
+      rung2.lookAt(midPt); rung2.rotateX(Math.PI/2);
+      g.add(rung2);
+
+      // Center bond sphere
+      const bond = new THREE.Mesh(new THREE.SphereGeometry(0.08,8,8), glowMat(0xffffff));
+      bond.position.copy(midPt);
+      g.add(bond);
+    }
+
+    prev1 = new THREE.Vector3(x1, y, z1);
+    prev2 = new THREE.Vector3(x2, y, z2);
+  }
+
+  g.userData.polys = 18000;
+  return g;
 }
-async function generateAIBlueprint(query){
-  const overlay=document.getElementById('ai-build-overlay'),barEl=document.getElementById('ai-build-bar');
-  overlay.classList.add('active');barEl.style.width='0%';
-  document.getElementById('ai-build-sub').textContent='DESIGNING: '+query.toUpperCase();
-  const steps=['ANALYSING DESIGN PARAMETERS...','COMPUTING GEOMETRY...','GENERATING SCHEMATIC...','FINALISING BLUEPRINT...'];
-  let si=0;
-  const iv=setInterval(()=>{if(si<steps.length){document.getElementById('ai-build-status').textContent=steps[si++];barEl.style.width=(si/steps.length*85)+'%';}},340);
-  await new Promise(r=>setTimeout(r,1600));clearInterval(iv);barEl.style.width='100%';
-  await new Promise(r=>setTimeout(r,300));overlay.classList.remove('active');
-  const bpData=matchBlueprint(query);
-  document.getElementById('ironman-svg-container').style.display='none';
-  document.getElementById('bp-title').textContent=bpData.name;
-  document.getElementById('bp-subtitle').textContent=bpData.subtitle||'AI SCHEMATIC';
-  drawGenericBlueprint(bpData);switchModeTo('blueprint');toast('BLUEPRINT: '+bpData.name);
-  const list=document.getElementById('ai-bp-list');
-  if(list.querySelector('div[style]'))list.innerHTML='';
-  const btn=document.createElement('button');btn.className='obj-btn bp-btn';
-  btn.innerHTML=`<span class="ico">⚡</span>${bpData.name.slice(0,20)}`;
-  btn.onclick=()=>{document.getElementById('ironman-svg-container').style.display='none';document.getElementById('bp-title').textContent=bpData.name;drawGenericBlueprint(bpData);switchModeTo('blueprint');};
-  list.appendChild(btn);
+OBJECTS.dna = buildDNA;
+
+// ── ATOM ─────────────────────────────────────
+function buildAtom() {
+  const g = new THREE.Group();
+  g.userData.name = 'NITROGEN ATOM';
+
+  // Nucleus — cluster of protons & neutrons
+  const nucleusGroup = new THREE.Group();
+  const protonMat = holoMat(0xff4444, 0x550000, 0.3, 0.7);
+  const neutronMat = holoMat(0x4488ff, 0x001133, 0.3, 0.7);
+  for (let i = 0; i < 14; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.random() * Math.PI;
+    const r = 0.15 + Math.random() * 0.25;
+    const p = new THREE.Mesh(
+      new THREE.SphereGeometry(0.14, 16, 16),
+      i < 7 ? protonMat : neutronMat
+    );
+    p.position.set(
+      r * Math.sin(phi) * Math.cos(theta),
+      r * Math.sin(phi) * Math.sin(theta),
+      r * Math.cos(phi)
+    );
+    nucleusGroup.add(p);
+  }
+  g.add(nucleusGroup);
+
+  // Glow around nucleus
+  const nucGlow = new THREE.Mesh(
+    new THREE.SphereGeometry(0.5, 24, 24),
+    glassMat(0xaaaaff)
+  );
+  g.add(nucGlow);
+
+  // Electron orbitals — 3 shells
+  const orbitalConfigs = [
+    { r: 1.6, tilt: 0, speed: 0.9, color: 0x00c8ff },
+    { r: 2.4, tilt: Math.PI/3, speed: 0.6, color: 0x00ffaa },
+    { r: 3.2, tilt: Math.PI*0.7, speed: 0.4, color: 0xff8800 },
+  ];
+
+  orbitalConfigs.forEach((cfg, shellIdx) => {
+    // Orbital path ring
+    const orbitRing = new THREE.Mesh(
+      new THREE.TorusGeometry(cfg.r, 0.02, 10, 120),
+      new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: 0.25 })
+    );
+    orbitRing.rotation.x = cfg.tilt;
+    orbitRing.rotation.y = shellIdx * 0.8;
+    orbitRing.userData.isOrbit = true;
+    orbitRing.userData.speed = cfg.speed;
+    g.add(orbitRing);
+
+    // Electrons on this shell
+    const electronCount = shellIdx === 0 ? 2 : shellIdx === 1 ? 4 : 1;
+    for (let e = 0; e < electronCount; e++) {
+      const electronPivot = new THREE.Group();
+      electronPivot.rotation.x = cfg.tilt;
+      electronPivot.rotation.y = shellIdx * 0.8;
+      electronPivot.userData.speed = cfg.speed * (1 + e * 0.15);
+      electronPivot.userData.offset = (e / electronCount) * Math.PI * 2;
+      electronPivot.userData.radius = cfg.r;
+      electronPivot.userData.isElectron = true;
+
+      const electron = new THREE.Mesh(
+        new THREE.SphereGeometry(0.1, 14, 14),
+        emissiveMat(cfg.color, cfg.color)
+      );
+      electron.position.x = cfg.r;
+
+      // Electron trail glow
+      const trail = new THREE.Mesh(
+        new THREE.SphereGeometry(0.18, 10, 10),
+        new THREE.MeshBasicMaterial({ color: cfg.color, transparent: true, opacity: 0.2 })
+      );
+      trail.position.x = cfg.r;
+      electronPivot.add(electron);
+      electronPivot.add(trail);
+      g.add(electronPivot);
+    }
+  });
+
+  g.userData.polys = 9800;
+  return g;
 }
-async function submitBuild(){const q=document.getElementById('build-query-input').value.trim();if(!q)return;closeBuildInput();await generateAIBlueprint(q);}
+OBJECTS.atom = buildAtom;
 
-// ── MOUSE CONTROLS ────────────────────────────────────────────────
-let mouse={down:false,lastX:0,lastY:0};
-canvas3d.addEventListener('mousedown',e=>{mouse.down=true;mouse.lastX=e.clientX;mouse.lastY=e.clientY;});
-window.addEventListener('mouseup',()=>{mouse.down=false;});
-window.addEventListener('mousemove',e=>{if(!mouse.down||!state.model)return;state.model.rotation.y+=(e.clientX-mouse.lastX)*0.012;state.model.rotation.x+=(e.clientY-mouse.lastY)*0.012;mouse.lastX=e.clientX;mouse.lastY=e.clientY;});
-canvas3d.addEventListener('wheel',e=>{if(!state.model)return;state.targetScale=Math.max(0.2,Math.min(4,state.targetScale-e.deltaY*0.001));});
+// ── NEURAL NETWORK ───────────────────────────
+function buildBrain() {
+  const g = new THREE.Group();
+  g.userData.name = 'NEURAL NETWORK — 3D';
 
-// ── ANIMATION LOOP ────────────────────────────────────────────────
-let frame3d=0;
-function animate3d(){
-  requestAnimationFrame(animate3d);frame3d++;
-  state.scale+=(state.targetScale-state.scale)*0.08;
-  if(state.model){
-    state.model.scale.setScalar(state.scale);
-    if(state.autoRotate)state.model.rotation.y+=0.005;
-    if(Math.abs(state.momentumX)>0.0001){state.model.rotation.x+=state.momentumX;state.momentumX*=0.93;}
-    if(Math.abs(state.momentumY)>0.0001){state.model.rotation.y+=state.momentumY;state.momentumY*=0.93;}
-    if(Math.abs(state.momentumZ)>0.0001){state.model.rotation.z+=state.momentumZ;state.momentumZ*=0.93;}
-    if(frame3d%10===0){
-      const r=state.model.rotation;
-      document.getElementById('inf-rot').textContent=`X:${(r.x*180/Math.PI%360).toFixed(0)}° Y:${(r.y*180/Math.PI%360).toFixed(0)}°`;
-      document.getElementById('inf-scale').textContent=state.scale.toFixed(2)+'×';
+  const nodeCount = 80;
+  const nodes = [];
+  const nodeMeshes = [];
+
+  // Create nodes in a brain-like ellipsoid distribution
+  for (let i = 0; i < nodeCount; i++) {
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    const r = 1.2 + Math.random() * 1.0;
+    const pos = new THREE.Vector3(
+      r * 1.4 * Math.sin(phi) * Math.cos(theta),
+      r * 0.9 * Math.sin(phi) * Math.sin(theta),
+      r * 1.0 * Math.cos(phi)
+    );
+    nodes.push(pos);
+
+    const activity = Math.random();
+    const nodeColor = activity > 0.7 ? 0xffaa00 : activity > 0.4 ? 0x00c8ff : 0x003355;
+    const nodeEmissive = activity > 0.7 ? 0xff6600 : activity > 0.4 ? 0x005577 : 0x001122;
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.04 + activity * 0.1, 10, 10),
+      emissiveMat(nodeColor, nodeEmissive)
+    );
+    mesh.position.copy(pos);
+    mesh.userData.activity = activity;
+    mesh.userData.pulseOffset = Math.random() * Math.PI * 2;
+    g.add(mesh);
+    nodeMeshes.push(mesh);
+  }
+
+  // Create connections between nearby nodes
+  const connectionMat = new THREE.LineBasicMaterial({ color: 0x004466, transparent: true, opacity: 0.3 });
+  let connCount = 0;
+  for (let i = 0; i < nodeCount; i++) {
+    for (let j = i + 1; j < nodeCount; j++) {
+      const dist = nodes[i].distanceTo(nodes[j]);
+      if (dist < 1.1 && connCount < 200) {
+        const geo = new THREE.BufferGeometry().setFromPoints([nodes[i], nodes[j]]);
+        const line = new THREE.Line(geo, connectionMat.clone());
+        line.material.opacity = Math.max(0.05, 0.4 - dist * 0.3);
+        g.add(line);
+        connCount++;
+      }
     }
   }
-  if(particles){particles.rotation.y+=0.001;particles.rotation.x+=0.0003;}
-  pt.intensity=2+Math.sin(frame3d*0.04)*0.5;
-  renderer.render(scene,camera);
+
+  g.userData.nodeMeshes = nodeMeshes;
+  g.userData.polys = nodeCount * 80 + connCount * 2;
+  return g;
 }
-animate3d();
+OBJECTS.brain = buildBrain;
 
-// ═══════════════════════════════════════════════════════════════
-// FULL HAND SKELETON TRACKING
-// ═══════════════════════════════════════════════════════════════
-const skeletonCanvas=document.getElementById('hand-skeleton-canvas');
-const skeletonCtx=skeletonCanvas.getContext('2d');
-function resizeSkeletonCanvas(){const wrap=canvas3d.parentElement;skeletonCanvas.width=wrap.clientWidth;skeletonCanvas.height=wrap.clientHeight;}
-resizeSkeletonCanvas();
+// ── CRYSTAL ──────────────────────────────────
+function buildCrystal() {
+  const g = new THREE.Group();
+  g.userData.name = 'CRYSTAL LATTICE — CUBIC';
 
-const HAND_CONNECTIONS=[[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[0,9],[9,10],[10,11],[11,12],[0,13],[13,14],[14,15],[15,16],[0,17],[17,18],[18,19],[19,20],[5,9],[9,13],[13,17]];
-const FINGER_TIPS=[4,8,12,16,20];
-const GESTURE_COLORS={OPEN:'#00ff88',FIST:'#ff3333',TWO_FINGERS:'#00c8ff',ONE_FINGER:'#ffaa00',PINCH:'#ff88ff',SHAKA:'#ffffff',THREE_FINGERS:'#88ffff',PARTIAL:'#00c8ff',NONE:'#00c8ff'};
-
-function drawHandLandmarks(lm,gesture,side,history){
-  const W=skeletonCanvas.width,H=skeletonCanvas.height;
-  const toScreen=pt=>({x:(1-pt.x)*W,y:pt.y*H});
-  const col=GESTURE_COLORS[gesture]||'#00c8ff';
-  HAND_CONNECTIONS.forEach(([a,b])=>{
-    const pa=toScreen(lm[a]),pb=toScreen(lm[b]);
-    skeletonCtx.beginPath();skeletonCtx.moveTo(pa.x,pa.y);skeletonCtx.lineTo(pb.x,pb.y);
-    skeletonCtx.strokeStyle=col+'88';skeletonCtx.lineWidth=1.8;skeletonCtx.stroke();
+  const crystalMat = new THREE.MeshPhysicalMaterial({
+    color: 0x88ccff, emissive: 0x001122, emissiveIntensity: 0.3,
+    roughness: 0.05, metalness: 0.1, transmission: 0.7,
+    thickness: 0.5, envMapIntensity: 3, transparent: true, opacity: 0.85,
+    side: THREE.DoubleSide
   });
-  lm.forEach((pt,i)=>{
-    const s=toScreen(pt);const isTip=FINGER_TIPS.includes(i);
-    skeletonCtx.beginPath();skeletonCtx.arc(s.x,s.y,isTip?6:3.5,0,Math.PI*2);
-    skeletonCtx.fillStyle=isTip?col:col+'aa';skeletonCtx.fill();
-    if(isTip){skeletonCtx.beginPath();skeletonCtx.arc(s.x,s.y,11,0,Math.PI*2);skeletonCtx.strokeStyle=col+'55';skeletonCtx.lineWidth=1.5;skeletonCtx.stroke();}
+  const edgeMat = holoMat(0x00c8ff, 0x003355, 0.2, 0.9);
+
+  // Main crystal cluster
+  const crystalDefs = [
+    { h: 3.2, r: 0.55, pos: [0, 0, 0], rot: [0, 0, 0] },
+    { h: 2.4, r: 0.4, pos: [0.8, -0.5, 0.3], rot: [0.2, 0.5, 0.1] },
+    { h: 2.8, r: 0.45, pos: [-0.7, -0.3, 0.5], rot: [-0.1, -0.4, 0.2] },
+    { h: 1.8, r: 0.3, pos: [0.3, -0.8, -0.6], rot: [0.3, 0.2, -0.3] },
+    { h: 2.0, r: 0.35, pos: [-0.5, -0.6, -0.4], rot: [-0.2, 0.3, 0.1] },
+    { h: 1.4, r: 0.22, pos: [1.0, 0.2, -0.3], rot: [0.4, -0.2, 0.3] },
+    { h: 1.6, r: 0.25, pos: [-1.1, 0.1, 0.2], rot: [-0.3, 0.4, -0.1] },
+  ];
+
+  crystalDefs.forEach(def => {
+    // Crystal shard: octahedron-like
+    const geo = new THREE.ConeGeometry(def.r, def.h, 6, 1);
+    const top = new THREE.Mesh(geo, crystalMat);
+    top.position.set(...def.pos);
+    top.rotation.set(...def.rot);
+    top.position.y += def.h * 0.25;
+    top.castShadow = true;
+    g.add(top);
+
+    const geoBot = new THREE.ConeGeometry(def.r * 0.7, def.h * 0.45, 6, 1);
+    const bot = new THREE.Mesh(geoBot, crystalMat);
+    bot.position.set(...def.pos);
+    bot.rotation.set(...def.rot);
+    bot.rotation.x += Math.PI;
+    bot.position.y -= def.h * 0.1;
+    g.add(bot);
+
+    // Wireframe edge glow
+    const wireTop = new THREE.Mesh(geo, wireMat(0x00c8ff, 0.35));
+    wireTop.position.copy(top.position);
+    wireTop.rotation.copy(top.rotation);
+    g.add(wireTop);
   });
-  const palm=toScreen(lm[0]);
-  skeletonCtx.font='700 10px Orbitron,monospace';skeletonCtx.fillStyle=col;
-  skeletonCtx.textAlign=side==='left'?'right':'left';
-  skeletonCtx.fillText(side.toUpperCase()+': '+gesture,palm.x+(side==='left'?-20:20),palm.y-42);
-  skeletonCtx.textAlign='left';
-  if(history&&history.length>2){
-    skeletonCtx.beginPath();
-    history.forEach((p,idx)=>{const sp={x:(1-p.x)*W,y:p.y*H};if(idx===0)skeletonCtx.moveTo(sp.x,sp.y);else skeletonCtx.lineTo(sp.x,sp.y);});
-    skeletonCtx.strokeStyle=col+'44';skeletonCtx.lineWidth=2.5;skeletonCtx.stroke();
-  }
+
+  // Base platform
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.6, 1.4, 0.18, 6),
+    holoMat(0x112233, 0x001122, 0.6, 0.9)
+  );
+  base.position.y = -2.1;
+  g.add(base);
+
+  // Interior glow
+  const innerGlow = new THREE.Mesh(
+    new THREE.SphereGeometry(0.4, 16, 16),
+    emissiveMat(0x88ddff, 0x44aaff)
+  );
+  innerGlow.position.y = 0.2;
+  g.add(innerGlow);
+
+  g.userData.polys = 8400;
+  return g;
 }
+OBJECTS.crystal = buildCrystal;
 
-function drawDualHandConnection(leftLm,rightLm){
-  const W=skeletonCanvas.width,H=skeletonCanvas.height;
-  const lp={x:(1-leftLm[0].x)*W,y:leftLm[0].y*H};
-  const rp={x:(1-rightLm[0].x)*W,y:rightLm[0].y*H};
-  skeletonCtx.beginPath();skeletonCtx.moveTo(lp.x,lp.y);skeletonCtx.lineTo(rp.x,rp.y);
-  skeletonCtx.strokeStyle='rgba(170,68,255,0.45)';skeletonCtx.lineWidth=2;skeletonCtx.setLineDash([7,5]);skeletonCtx.stroke();skeletonCtx.setLineDash([]);
-  const mx=(lp.x+rp.x)/2,my=(lp.y+rp.y)/2;
-  skeletonCtx.beginPath();skeletonCtx.arc(mx,my,5,0,Math.PI*2);skeletonCtx.fillStyle='rgba(170,68,255,0.85)';skeletonCtx.fill();
-}
+// ── TURBINE ──────────────────────────────────
+function buildTurbine() {
+  const g = new THREE.Group();
+  g.userData.name = 'JET TURBINE — CF6-80E';
 
-const SWIPE_VELOCITY=0.045,SWIPE_DISTANCE=0.18,SWIPE_RATIO=3.5,SWIPE_COOLDOWN=1000,HISTORY_LEN=14;
-const hState={left:null,right:null,leftGesture:'NONE',rightGesture:'NONE',leftHistory:[],rightHistory:[],leftAnalysis:{type:'idle',speed:0,dx:0,dy:0},rightAnalysis:{type:'idle',speed:0,dx:0,dy:0},bothPrevDist:null,lastSwipeTime:0};
+  const metalDark = holoMat(0x223344, 0x001122, 0.45, 0.95);
+  const metalMid = holoMat(0x445566, 0x002233, 0.35, 0.9);
+  const bladeColor = holoMat(0x334455, 0x001833, 0.3, 0.95);
+  const accentBlue = emissiveMat(0x00c8ff, 0x0055aa);
 
-function extended(lm,tip,mid){return lm[tip].y<lm[mid].y*0.97;}
-function thumbExt(lm){return Math.abs(lm[4].x-lm[3].x)>0.06;}
-function palmCenter(lm){return{x:lm[0].x,y:lm[0].y};}
+  // Main housing cylinder
+  const housing = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.8, 1.5, 5.5, 32, 1, true),
+    metalDark
+  );
+  housing.rotation.z = Math.PI / 2;
+  g.add(housing);
 
-function classifyGesture(lm){
-  const ext=[thumbExt(lm),extended(lm,8,7),extended(lm,12,11),extended(lm,16,15),extended(lm,20,19)];
-  const n=ext.filter(Boolean).length;
-  const pinch=Math.hypot(lm[4].x-lm[8].x,lm[4].y-lm[8].y);
-  if(pinch<0.06&&!ext[2]&&!ext[3]&&!ext[4])return'PINCH';
-  if(n===0)return'FIST';if(n>=5)return'OPEN';
-  if(n===1&&ext[1])return'ONE_FINGER';if(n===2&&ext[1]&&ext[2])return'TWO_FINGERS';
-  if(n===3&&ext[1]&&ext[2]&&ext[3])return'THREE_FINGERS';
-  if(ext[0]&&ext[4]&&!ext[1]&&!ext[2]&&!ext[3])return'SHAKA';
-  return'PARTIAL';
-}
-
-function analyzeMotion(history){
-  if(history.length<6)return{type:'idle',speed:0,dx:0,dy:0};
-  const recent=history.slice(-4);
-  const vx=(recent[recent.length-1].x-recent[0].x)/4,vy=(recent[recent.length-1].y-recent[0].y)/4;
-  const speed=Math.hypot(vx,vy);
-  const totalDx=history[history.length-1].x-history[0].x,totalDy=history[history.length-1].y-history[0].y;
-  const adx=Math.abs(totalDx),ady=Math.abs(totalDy);
-  if(speed>SWIPE_VELOCITY&&adx>SWIPE_DISTANCE&&adx>ady*SWIPE_RATIO)return{type:'swipe',direction:totalDx>0?'left':'right',speed,dx:totalDx,dy:totalDy};
-  if(speed>0.003)return{type:'move',speed,dx:vx,dy:vy};
-  return{type:'idle',speed:0,dx:0,dy:0};
-}
-
-function applySingleHand(gesture,lm,side,analysis){
-  if(state.mode!=='3d')return;
-  const dx=analysis.dx,dy=analysis.dy,moving=analysis.type==='move';
-  const ghEl=document.getElementById(side==='left'?'gh-left':'gh-right');
-  const ghIcon=document.getElementById(side==='left'?'gh-left-icon':'gh-right-icon');
-  const ghAction=document.getElementById(side==='left'?'gh-left-action':'gh-right-action');
-  switch(gesture){
-    case'OPEN':
-      if(state.model&&moving){state.model.rotation.y+=dx*7;state.model.rotation.x+=dy*7;state.momentumY=dx*4;state.momentumX=dy*4;}
-      if(ghAction)ghAction.textContent='ROTATING';if(ghIcon)ghIcon.textContent='✋';
-      if(ghEl&&moving)ghEl.classList.add('active');else if(ghEl)ghEl.classList.remove('active');break;
-    case'FIST':
-      state.targetScale=Math.max(0.15,state.targetScale-0.025);
-      if(ghAction)ghAction.textContent='ZOOM OUT';if(ghIcon)ghIcon.textContent='👊';if(ghEl)ghEl.classList.add('active');break;
-    case'TWO_FINGERS':
-      state.targetScale=Math.min(4.5,state.targetScale+0.025);
-      if(ghAction)ghAction.textContent='ZOOM IN';if(ghIcon)ghIcon.textContent='✌️';if(ghEl)ghEl.classList.add('active');break;
-    case'ONE_FINGER':
-      if(state.model&&moving){state.model.position.x+=dx*0.08;state.model.position.y-=dy*0.08;}
-      if(ghAction)ghAction.textContent='PAN';if(ghIcon)ghIcon.textContent='☝️';
-      if(ghEl&&moving)ghEl.classList.add('active');else if(ghEl)ghEl.classList.remove('active');break;
-    case'PINCH':
-      if(state.model&&moving){state.momentumY+=dx*0.3;state.model.rotation.y+=dx*8;}
-      if(ghAction)ghAction.textContent='SPIN';if(ghIcon)ghIcon.textContent='🤏';
-      if(ghEl&&moving)ghEl.classList.add('active');else if(ghEl)ghEl.classList.remove('active');break;
-    case'SHAKA':
-      if(state.model){state.model.rotation.set(0,0,0);state.model.position.set(0,0,0);}
-      state.targetScale=1;state.momentumX=0;state.momentumY=0;state.momentumZ=0;
-      if(ghAction)ghAction.textContent='RESET';if(ghIcon)ghIcon.textContent='🤙';if(ghEl)ghEl.classList.add('active');
-      announce('POSITION RESET');toast('POSITION RESET');break;
-    default:
-      if(state.model&&moving)state.model.rotation.y+=dx*3;
-      if(ghAction)ghAction.textContent='READY';if(ghEl)ghEl.classList.remove('active');
-  }
-}
-
-function applyDualHandGestures(leftLm,rightLm){
-  if(!state.model||state.mode!=='3d')return;
-  const lp=palmCenter(leftLm),rp=palmCenter(rightLm);
-  const lg=hState.leftGesture,rg=hState.rightGesture;
-  const ghBoth=document.getElementById('gh-both-action');
-  const dist=Math.hypot(rp.x-lp.x,rp.y-lp.y);
-  if(lg==='PINCH'&&rg==='PINCH'){
-    if(hState.bothPrevDist!==null){const delta=dist-hState.bothPrevDist;state.targetScale=Math.max(0.1,Math.min(5,state.targetScale+delta*4));if(ghBoth)ghBoth.textContent=delta>0?'EXPAND ↔':'CONTRACT ↔';}
-    hState.bothPrevDist=dist;return;
-  }
-  if(lg==='OPEN'&&rg==='OPEN'){
-    const lDx=lp.x-(hState.leftHistory[hState.leftHistory.length-2]?.x||lp.x);
-    const rDx=rp.x-(hState.rightHistory[hState.rightHistory.length-2]?.x||rp.x);
-    const lDy=lp.y-(hState.leftHistory[hState.leftHistory.length-2]?.y||lp.y);
-    const rDy=rp.y-(hState.rightHistory[hState.rightHistory.length-2]?.y||rp.y);
-    const avgDx=(lDx+rDx)*0.5,avgDy=(lDy+rDy)*0.5;
-    state.model.rotation.y+=avgDx*8;state.model.rotation.x+=avgDy*8;
-    state.momentumY=avgDx*5;state.momentumX=avgDy*5;
-    if(ghBoth)ghBoth.textContent='ORBIT';hState.bothPrevDist=dist;return;
-  }
-  hState.bothPrevDist=dist;
-}
-
-function explodeModel(){
-  if(!state.model)return;
-  const children=[];state.model.traverse(obj=>{if(obj.isMesh)children.push(obj);});
-  children.forEach(child=>{
-    const dir=child.position.clone().normalize();
-    if(dir.length()<0.01)dir.set(Math.random()-0.5,Math.random()-0.5,Math.random()-0.5).normalize();
-    const startPos=child.position.clone(),endPos=startPos.clone().add(dir.multiplyScalar(0.8+Math.random()*1.2));
-    let t=0;const anim=()=>{t+=0.03;if(t<1){child.position.lerpVectors(startPos,endPos,Math.sin(t*Math.PI*0.5));requestAnimationFrame(anim);}else{const ret=()=>{t-=0.02;if(t>0){child.position.lerpVectors(startPos,endPos,Math.sin(t*Math.PI*0.5));requestAnimationFrame(ret);}else{child.position.copy(startPos);}};setTimeout(ret,400);}};anim();
+  // Housing rings
+  [-2.0, -1.0, 0, 1.0, 2.0].forEach(x => {
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(1.8 - Math.abs(x)*0.06, 0.07, 14, 48),
+      metalMid
+    );
+    ring.rotation.y = Math.PI / 2;
+    ring.position.x = x;
+    g.add(ring);
   });
-}
 
-function handleSwipe(dir){
-  const now=Date.now();if(now-hState.lastSwipeTime<SWIPE_COOLDOWN)return;
-  hState.lastSwipeTime=now;
-  if(state.mode==='3d'){if(dir==='right')loadNextModel();else loadPrevModel();announce((dir==='right'?'→ NEXT':'← PREV')+' MODEL');}
-}
+  // Fan blades — front compressor
+  const bladeGroup = new THREE.Group();
+  bladeGroup.position.x = -2.2;
+  bladeGroup.userData.isRotor = true;
+  bladeGroup.userData.speed = 0.08;
+  for (let i = 0; i < 22; i++) {
+    const a = (i / 22) * Math.PI * 2;
+    const blade = new THREE.Mesh(
+      new THREE.BoxGeometry(0.08, 1.3, 0.35),
+      bladeColor
+    );
+    blade.position.set(0, Math.cos(a) * 0.8, Math.sin(a) * 0.8);
+    blade.rotation.x = a;
+    blade.rotation.z = 0.3;
+    bladeGroup.add(blade);
+  }
+  // Hub
+  bladeGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(0.25,0.25,0.35,24), metalMid));
+  g.add(bladeGroup);
 
-let _announceTimer=null;
-function announce(text){
-  const el=document.getElementById('gesture-announce');el.textContent=text;el.classList.add('show');
-  clearTimeout(_announceTimer);_announceTimer=setTimeout(()=>el.classList.remove('show'),2000);
-}
+  // Turbine blades — rear
+  const turbineGroup = new THREE.Group();
+  turbineGroup.position.x = 1.8;
+  turbineGroup.userData.isRotor = true;
+  turbineGroup.userData.speed = 0.12;
+  for (let i = 0; i < 14; i++) {
+    const a = (i / 14) * Math.PI * 2;
+    const blade = new THREE.Mesh(
+      new THREE.BoxGeometry(0.1, 0.9, 0.28),
+      emissiveMat(0x334466, 0x001133)
+    );
+    blade.position.set(0, Math.cos(a) * 0.6, Math.sin(a) * 0.6);
+    blade.rotation.x = a;
+    blade.rotation.z = -0.25;
+    turbineGroup.add(blade);
+  }
+  turbineGroup.add(new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,0.3,20), metalMid));
+  g.add(turbineGroup);
 
-// ── MEDIAPIPE HANDS ───────────────────────────────────────────────
-let handsModel=null;
-async function initMediaPipe(){
-  const video=document.getElementById('gesture-cam');
-  const statusEl=document.getElementById('cam-status');
-  statusEl.textContent='● LOADING…';
-  const s1=document.createElement('script');s1.src='https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js';document.head.appendChild(s1);
-  const s2=document.createElement('script');s2.src='https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js';document.head.appendChild(s2);
-  await new Promise(r=>{s2.onload=r;s2.onerror=r;});
-  await new Promise(r=>setTimeout(r,400));
-  if(typeof Hands==='undefined'){statusEl.textContent='● NO TRACKING';return;}
-  try{
-    handsModel=new Hands({locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${f}`});
-    handsModel.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:0.6,minTrackingConfidence:0.55});
-    handsModel.onResults(results=>{
-      skeletonCtx.clearRect(0,0,skeletonCanvas.width,skeletonCanvas.height);
-      const lms=results.multiHandLandmarks||[];const handedness=results.multiHandedness||[];
-      hState.left=null;hState.right=null;
-      document.getElementById('inf-hands').textContent=lms.length+' / 2';
-      document.getElementById('hand-count').textContent=lms.length+' hand'+(lms.length!==1?'s':'')+' tracked';
-      lms.forEach((lm,idx)=>{const label=handedness[idx]?.label;if(label==='Left'){hState.right=lm;hState.rightGesture=classifyGesture(lm);}else{hState.left=lm;hState.leftGesture=classifyGesture(lm);}});
-      const hudEl=document.getElementById('gesture-hud');
-      if(lms.length>0){hudEl.classList.add('visible');statusEl.textContent=lms.length===2?'● DUAL TRACKED':'● TRACKING';statusEl.className='tracking';}
-      else{hudEl.classList.remove('visible');statusEl.textContent='● SCANNING…';statusEl.className='';hState.bothPrevDist=null;['gh-left-action','gh-right-action','gh-both-action'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent='—';});['gh-left','gh-right'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.remove('active');});}
-      if(hState.left){const lp=palmCenter(hState.left);hState.leftHistory.push(lp);if(hState.leftHistory.length>HISTORY_LEN)hState.leftHistory.shift();hState.leftAnalysis=analyzeMotion(hState.leftHistory);if(hState.leftAnalysis.type==='swipe'){handleSwipe(hState.leftAnalysis.direction);hState.leftHistory=[];}}else{hState.leftHistory=[];hState.leftAnalysis={type:'idle',speed:0,dx:0,dy:0};}
-      if(hState.right){const rp=palmCenter(hState.right);hState.rightHistory.push(rp);if(hState.rightHistory.length>HISTORY_LEN)hState.rightHistory.shift();hState.rightAnalysis=analyzeMotion(hState.rightHistory);if(hState.rightAnalysis.type==='swipe'){handleSwipe(hState.rightAnalysis.direction);hState.rightHistory=[];}}else{hState.rightHistory=[];hState.rightAnalysis={type:'idle',speed:0,dx:0,dy:0};}
-      if(hState.left&&hState.right){applyDualHandGestures(hState.left,hState.right);if(hState.leftAnalysis.type==='move')applySingleHand(hState.leftGesture,hState.left,'left',hState.leftAnalysis);if(hState.rightAnalysis.type==='move')applySingleHand(hState.rightGesture,hState.right,'right',hState.rightAnalysis);document.getElementById('inf-gesture').textContent='DUAL: '+hState.leftGesture+'+'+hState.rightGesture;}
-      else if(hState.left){hState.bothPrevDist=null;if(hState.leftAnalysis.type==='move')applySingleHand(hState.leftGesture,hState.left,'left',hState.leftAnalysis);document.getElementById('inf-gesture').textContent='L: '+hState.leftGesture;const ghEl=document.getElementById('gh-right');if(ghEl)ghEl.classList.remove('active');const ghAct=document.getElementById('gh-right-action');if(ghAct)ghAct.textContent='—';}
-      else if(hState.right){hState.bothPrevDist=null;if(hState.rightAnalysis.type==='move')applySingleHand(hState.rightGesture,hState.right,'right',hState.rightAnalysis);document.getElementById('inf-gesture').textContent='R: '+hState.rightGesture;const ghEl=document.getElementById('gh-left');if(ghEl)ghEl.classList.remove('active');const ghAct=document.getElementById('gh-left-action');if(ghAct)ghAct.textContent='—';}
-      else{document.getElementById('inf-gesture').textContent='INACTIVE';hState.bothPrevDist=null;}
-      if(hState.left)drawHandLandmarks(hState.left,hState.leftGesture,'left',hState.leftHistory);
-      if(hState.right)drawHandLandmarks(hState.right,hState.rightGesture,'right',hState.rightHistory);
-      if(hState.left&&hState.right)drawDualHandConnection(hState.left,hState.right);
+  // Engine core glow
+  const coreGlow = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.4, 0.5, 5, 20, 1, true),
+    glassMat(0xff4400)
+  );
+  coreGlow.rotation.z = Math.PI/2;
+  g.add(coreGlow);
+
+  // Exhaust glow
+  const exhaust = new THREE.Mesh(
+    new THREE.SphereGeometry(0.8, 20, 16, 0, Math.PI*2, 0, Math.PI*0.5),
+    emissiveMat(0xff6600, 0xff2200)
+  );
+  exhaust.rotation.z = -Math.PI/2;
+  exhaust.position.x = 2.8;
+  g.add(exhaust);
+
+  // Accent stripes
+  [-1.5,-0.5,0.5,1.5].forEach(x => {
+    const stripe = new THREE.Mesh(
+      new THREE.TorusGeometry(1.82, 0.03, 8, 48),
+      accentBlue
+    );
+    stripe.rotation.y = Math.PI/2;
+    stripe.position.x = x;
+    g.add(stripe);
+  });
+
+  g.rotation.y = Math.PI / 6;
+  g.userData.rotorGroups = [bladeGroup, turbineGroup];
+  g.userData.polys = 14000;
+  return g;
+}
+OBJECTS.turbine = buildTurbine;
+
+// ── SATELLITE ────────────────────────────────
+function buildSatellite() {
+  const g = new THREE.Group();
+  g.userData.name = 'COMMUNICATIONS SATELLITE';
+
+  const bodyMat = holoMat(0x334455, 0x001122, 0.4, 0.9);
+  const panelMat = new THREE.MeshStandardMaterial({
+    color: 0x1a1a44, emissive: 0x000022, roughness: 0.5, metalness: 0.8
+  });
+  const panelCellMat = new THREE.MeshStandardMaterial({
+    color: 0x112244, emissive: 0x001133, emissiveIntensity: 0.3, roughness: 0.4, metalness: 0.9
+  });
+  const goldStrut = holoMat(0xC8760A, 0x3a2000, 0.3, 0.95);
+
+  // Main body
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.6, 1.2), bodyMat);
+  body.castShadow = true;
+  g.add(body);
+
+  // Body details
+  g.add((() => { const m = new THREE.Mesh(new THREE.BoxGeometry(1.22,0.06,1.22), goldStrut); m.position.y=0.55; return m; })());
+  g.add((() => { const m = new THREE.Mesh(new THREE.BoxGeometry(1.22,0.06,1.22), goldStrut); m.position.y=-0.55; return m; })());
+
+  // Solar panels — left
+  const panelL = new THREE.Group();
+  panelL.position.x = -2.5;
+  // Strut
+  panelL.add((() => { const m = new THREE.Mesh(new THREE.BoxGeometry(2.4,0.06,0.06), goldStrut); m.position.x = 1.2; return m; })());
+  // Panel frame
+  const pFrame = new THREE.Mesh(new THREE.BoxGeometry(2.0,0.04,1.1), panelMat);
+  panelL.add(pFrame);
+  // Solar cells grid
+  for (let r = 0; r < 4; r++) {
+    for (let c = 0; c < 8; c++) {
+      const cell = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.05,0.23), panelCellMat);
+      cell.position.set(-0.84 + c*0.24, 0.025, -0.37 + r*0.25);
+      panelL.add(cell);
+    }
+  }
+  g.add(panelL);
+
+  // Solar panels — right
+  const panelR = panelL.clone();
+  panelR.position.x = 2.5;
+  panelR.scale.x = -1;
+  g.add(panelR);
+
+  // Dish antenna
+  const dishGroup = new THREE.Group();
+  dishGroup.position.set(0, 1.1, -0.3);
+  dishGroup.rotation.x = -0.6;
+
+  const dish = new THREE.Mesh(
+    new THREE.SphereGeometry(0.7, 24, 16, 0, Math.PI*2, 0, Math.PI*0.5),
+    holoMat(0xaabbcc, 0x223344, 0.2, 0.95)
+  );
+  dish.rotation.x = Math.PI/2;
+  dishGroup.add(dish);
+  // Dish struts
+  for (let i = 0; i < 4; i++) {
+    const a = (i/4)*Math.PI*2;
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.015,0.015,0.65,6), goldStrut);
+    strut.position.set(Math.cos(a)*0.3, 0.25, Math.sin(a)*0.3);
+    dishGroup.add(strut);
+  }
+  // Feed horn
+  const horn = new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.015,0.35,10), emissiveMat(0x00c8ff,0x004488));
+  horn.position.y = 0.55;
+  dishGroup.add(horn);
+  g.add(dishGroup);
+
+  // Thrusters
+  [-0.4,0.4].forEach(x => {
+    const thruster = new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.08,0.25,16), bodyMat);
+    thruster.position.set(x, -1.0, 0.5);
+    thruster.rotation.x = -0.3;
+    g.add(thruster);
+    const glow = new THREE.Mesh(new THREE.SphereGeometry(0.08,12,12), emissiveMat(0x00aaff,0x0055ff));
+    glow.position.set(x, -1.22, 0.65);
+    g.add(glow);
+  });
+
+  // Orientation
+  g.rotation.y = Math.PI/5;
+  g.rotation.x = 0.2;
+  g.userData.polys = 16000;
+  return g;
+}
+OBJECTS.satellite = buildSatellite;
+
+// ── DRONE ────────────────────────────────────
+function buildDrone() {
+  const g = new THREE.Group();
+  g.userData.name = 'AUTONOMOUS COMBAT DRONE';
+
+  const frame = holoMat(0x223344, 0x001122, 0.4, 0.9);
+  const carbon = holoMat(0x111a22, 0x000811, 0.6, 0.8);
+  const accent = emissiveMat(0x00c8ff, 0x004477);
+  const propColor = holoMat(0x334455, 0x001833, 0.3, 0.85);
+
+  // Central body — sleek fuselage
+  const fuselage = new THREE.Mesh(new THREE.SphereGeometry(0.65, 24, 16, 0, Math.PI*2, 0, Math.PI), frame);
+  fuselage.scale.set(1.0, 0.38, 0.55);
+  fuselage.castShadow = true;
+  g.add(fuselage);
+
+  // Top dome — sensor array
+  const topDome = new THREE.Mesh(new THREE.SphereGeometry(0.32, 20, 14, 0, Math.PI*2, 0, Math.PI*0.6), glassMat(0x00c8ff));
+  topDome.position.y = 0.18;
+  g.add(topDome);
+
+  // Eye/sensor
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(0.1, 14, 14), emissiveMat(0xff2200, 0xff0000));
+  eye.position.set(0, 0.1, 0.58);
+  g.add(eye);
+
+  // Arms — 4 diagonal
+  const armPositions = [
+    [1, 0, 1], [-1, 0, 1], [1, 0, -1], [-1, 0, -1]
+  ];
+  const armGroup = new THREE.Group();
+  armPositions.forEach(([x, y, z], idx) => {
+    const ang = Math.atan2(z, x);
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.055, 0.09), carbon);
+    arm.position.set(x*0.62, y, z*0.62);
+    arm.rotation.y = -ang;
+    armGroup.add(arm);
+
+    // Motor housing
+    const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.13,0.12,20), frame);
+    motor.position.set(x*1.25, 0.06, z*1.25);
+    armGroup.add(motor);
+
+    // Propellers — spinning
+    const propGroup = new THREE.Group();
+    propGroup.position.set(x*1.25, 0.14, z*1.25);
+    propGroup.userData.isProp = true;
+    propGroup.userData.speed = 0.35 + Math.random() * 0.1;
+    for (let p = 0; p < 2; p++) {
+      const prop = new THREE.Mesh(
+        new THREE.BoxGeometry(0.8, 0.016, 0.07),
+        propColor
+      );
+      prop.rotation.y = (p / 2) * Math.PI;
+      propGroup.add(prop);
+    }
+    armGroup.add(propGroup);
+
+    // Arm accent LED
+    const led = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), emissiveMat(0x00ff88, 0x00cc44));
+    led.position.set(x*1.2, 0.06, z*1.2);
+    armGroup.add(led);
+  });
+  g.add(armGroup);
+
+  // Underside — payload / camera gimbal
+  const gimbal = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), frame);
+  gimbal.scale.set(1,0.7,1);
+  gimbal.position.y = -0.28;
+  g.add(gimbal);
+  const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.11,0.14,16), glassMat(0x888888));
+  lens.position.y = -0.42;
+  g.add(lens);
+
+  // Status lights
+  const greenLight = new THREE.Mesh(new THREE.SphereGeometry(0.04,8,8), emissiveMat(0x00ff44,0x00cc33));
+  greenLight.position.set(0.62, 0.04, 0);
+  g.add(greenLight);
+  const redLight = new THREE.Mesh(new THREE.SphereGeometry(0.04,8,8), emissiveMat(0xff2200,0xff0000));
+  redLight.position.set(-0.62, 0.04, 0);
+  g.add(redLight);
+
+  g.userData.propGroups = armGroup.children.filter(c => c.userData.isProp);
+  g.userData.polys = 11500;
+  return g;
+}
+OBJECTS.drone = buildDrone;
+
+// ── MOLECULE ─────────────────────────────────
+function buildMolecule() {
+  const g = new THREE.Group();
+  g.userData.name = 'CAFFEINE MOLECULE — C₈H₁₀N₄O₂';
+
+  const atomDefs = [
+    // Carbon atoms
+    { el:'C', pos:[0,0,0], color:0x888888 },
+    { el:'C', pos:[1.2,0.7,0], color:0x888888 },
+    { el:'C', pos:[1.2,-0.7,0], color:0x888888 },
+    { el:'C', pos:[-1.2,0.7,0], color:0x888888 },
+    { el:'C', pos:[-1.2,-0.7,0], color:0x888888 },
+    { el:'C', pos:[2.3,0,0.4], color:0x888888 },
+    { el:'C', pos:[-2.3,0,0.4], color:0x888888 },
+    { el:'C', pos:[0,0,-1.6], color:0x888888 },
+    // Nitrogen
+    { el:'N', pos:[0.6,1.4,0.2], color:0x4444ff },
+    { el:'N', pos:[-0.6,1.4,0.2], color:0x4444ff },
+    { el:'N', pos:[0.6,-1.4,0.2], color:0x4444ff },
+    { el:'N', pos:[-0.6,-1.4,0.2], color:0x4444ff },
+    // Oxygen
+    { el:'O', pos:[2.6,1.0,-0.2], color:0xff2222 },
+    { el:'O', pos:[-2.6,1.0,-0.2], color:0xff2222 },
+  ];
+
+  const atomMeshes = atomDefs.map(def => {
+    const r = def.el === 'C' ? 0.16 : def.el === 'N' ? 0.18 : def.el === 'O' ? 0.19 : 0.12;
+    const mat = emissiveMat(def.color, def.color);
+    const mesh = new THREE.Mesh(new THREE.SphereGeometry(r, 18, 18), mat);
+    mesh.position.set(...def.pos);
+    mesh.castShadow = true;
+    g.add(mesh);
+    return { mesh, pos: new THREE.Vector3(...def.pos), def };
+  });
+
+  // Bonds
+  const bondPairs = [
+    [0,1],[0,2],[0,3],[0,4],[1,5],[3,5],[2,6],[4,6],[0,7],
+    [0,8],[0,9],[0,10],[0,11],[5,12],[6,13]
+  ];
+
+  bondPairs.forEach(([a, b]) => {
+    if (a >= atomMeshes.length || b >= atomMeshes.length) return;
+    const pa = atomMeshes[a].pos;
+    const pb = atomMeshes[b].pos;
+    const dist = pa.distanceTo(pb);
+    const bond = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.055, 0.055, dist, 10),
+      holoMat(0x445566, 0x001122, 0.4, 0.7)
+    );
+    const mid = pa.clone().lerp(pb, 0.5);
+    bond.position.copy(mid);
+    bond.lookAt(pb);
+    bond.rotateX(Math.PI/2);
+    g.add(bond);
+  });
+
+  // Labels via small colored rings
+  atomMeshes.forEach(({ mesh, def }) => {
+    if (def.el !== 'C') {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.22, 0.02, 8, 32),
+        new THREE.MeshBasicMaterial({ color: def.color, transparent: true, opacity: 0.5 })
+      );
+      ring.position.copy(mesh.position);
+      g.add(ring);
+    }
+  });
+
+  g.scale.setScalar(0.9);
+  g.userData.polys = 7200;
+  return g;
+}
+OBJECTS.molecule = buildMolecule;
+
+// ═══════════════════════════════════════════════
+// SCENE STATE
+// ═══════════════════════════════════════════════
+let currentObj = null;
+let currentKey = 'arc_reactor';
+let autoRotate = true;
+let wireframe = false;
+let frame = 0;
+let objColor = new THREE.Color(0x00c8ff);
+
+function clearScene() {
+  if (currentObj) {
+    scene.remove(currentObj);
+    currentObj.traverse(c => {
+      if (c.geometry) c.geometry.dispose();
+      if (c.material) {
+        if (Array.isArray(c.material)) c.material.forEach(m => m.dispose());
+        else c.material.dispose();
+      }
     });
-    try{
-      const stream=await navigator.mediaDevices.getUserMedia({video:{width:320,height:240,facingMode:'user',frameRate:30},audio:false});
-      video.srcObject=stream;await video.play();
-      statusEl.textContent='● CAM ONLINE';statusEl.className='online';
-      if(typeof Camera!=='undefined'){new Camera(video,{onFrame:async()=>{if(handsModel)await handsModel.send({image:video});},width:320,height:240}).start();}
-      else{setInterval(async()=>{if(handsModel&&video.readyState>=2)await handsModel.send({image:video});},50);}
-    }catch(e){statusEl.textContent='● NO CAMERA';console.warn('[GESTURE] Camera error:',e);}
-  }catch(e){console.warn('[GESTURE] MediaPipe init failed:',e);statusEl.textContent='● UNAVAILABLE';}
+    currentObj = null;
+  }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// VOICE RECOGNITION — CONTINUOUS + COMMAND DRIVEN
-// ═══════════════════════════════════════════════════════════════
+function loadObject(key) {
+  clearScene();
+  const factory = OBJECTS[key];
+  if (!factory) return;
+  currentKey = key;
+  currentObj = factory();
+  scene.add(currentObj);
+
+  document.getElementById('inf-name').textContent = currentObj.userData.name || key.toUpperCase();
+  document.getElementById('top-obj-label').textContent = currentObj.userData.name || key.toUpperCase();
+  document.getElementById('inf-polys').textContent = (currentObj.userData.polys || '—').toLocaleString();
+
+  // Update sidebar
+  document.querySelectorAll('.obj-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.obj === key);
+  });
+}
+
+function switchObj(btn) {
+  const key = btn.dataset.obj;
+  if (key) loadObject(key);
+}
+
+// ═══════════════════════════════════════════════
+// MOUSE / TOUCH CONTROLS
+// ═══════════════════════════════════════════════
+let mouse = { down: false, x: 0, y: 0, lastX: 0, lastY: 0 };
+let cameraTheta = 0.3, cameraPhi = 0.4, cameraRadius = 8;
+let targetTheta = cameraTheta, targetPhi = cameraPhi, targetRadius = cameraRadius;
+
+canvas.addEventListener('mousedown', e => {
+  mouse.down = true;
+  mouse.lastX = e.clientX;
+  mouse.lastY = e.clientY;
+});
+window.addEventListener('mouseup', () => { mouse.down = false; });
+window.addEventListener('mousemove', e => {
+  if (!mouse.down) return;
+  const dx = e.clientX - mouse.lastX;
+  const dy = e.clientY - mouse.lastY;
+  targetTheta -= dx * 0.01;
+  targetPhi = Math.max(0.1, Math.min(Math.PI - 0.1, targetPhi + dy * 0.01));
+  mouse.lastX = e.clientX;
+  mouse.lastY = e.clientY;
+});
+canvas.addEventListener('wheel', e => {
+  targetRadius = Math.max(2, Math.min(20, targetRadius + e.deltaY * 0.01));
+}, { passive: true });
+
+// Touch
+let touch = { active: false, lastX: 0, lastY: 0 };
+canvas.addEventListener('touchstart', e => {
+  touch.active = true;
+  touch.lastX = e.touches[0].clientX;
+  touch.lastY = e.touches[0].clientY;
+}, { passive: true });
+window.addEventListener('touchend', () => { touch.active = false; });
+window.addEventListener('touchmove', e => {
+  if (!touch.active) return;
+  const dx = e.touches[0].clientX - touch.lastX;
+  const dy = e.touches[0].clientY - touch.lastY;
+  targetTheta -= dx * 0.012;
+  targetPhi = Math.max(0.1, Math.min(Math.PI - 0.1, targetPhi + dy * 0.012));
+  touch.lastX = e.touches[0].clientX;
+  touch.lastY = e.touches[0].clientY;
+}, { passive: true });
+
+function resetCamera() {
+  targetTheta = 0.3; targetPhi = 0.4; targetRadius = 8;
+}
+
+// ═══════════════════════════════════════════════
+// CONTROLS
+// ═══════════════════════════════════════════════
+function toggleAutoRotate() {
+  autoRotate = !autoRotate;
+  document.getElementById('rotate-label').textContent = `Auto Rotate: ${autoRotate ? 'ON' : 'OFF'}`;
+}
+function toggleWire() {
+  wireframe = !wireframe;
+  document.getElementById('wire-label').textContent = `Wireframe: ${wireframe ? 'ON' : 'OFF'}`;
+  if (currentObj) {
+    currentObj.traverse(c => {
+      if (c.isMesh && c.material) {
+        const mats = Array.isArray(c.material) ? c.material : [c.material];
+        mats.forEach(m => { if ('wireframe' in m) m.wireframe = wireframe; });
+      }
+    });
+  }
+}
+function explode() {
+  if (!currentObj) return;
+  currentObj.traverse(c => {
+    if (c.isMesh) {
+      const dir = c.position.clone().normalize();
+      if (dir.length() < 0.01) dir.set(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+      const start = c.position.clone();
+      const end = start.clone().add(dir.multiplyScalar(1.5 + Math.random()*1.5));
+      let t = 0;
+      const anim = () => {
+        t += 0.025;
+        if (t < 1) { c.position.lerpVectors(start, end, Math.sin(t * Math.PI * 0.5)); requestAnimationFrame(anim); }
+        else {
+          let t2 = 0;
+          const back = () => {
+            t2 += 0.025;
+            if (t2 < 1) { c.position.lerpVectors(end, start, Math.sin(t2 * Math.PI * 0.5)); requestAnimationFrame(back); }
+            else { c.position.copy(start); }
+          };
+          setTimeout(() => requestAnimationFrame(back), 600);
+        }
+      };
+      setTimeout(() => requestAnimationFrame(anim), Math.random() * 200);
+    }
+  });
+}
+
+// Color change
+function setHoloColor(color) {
+  objColor = new THREE.Color(color);
+  if (!currentObj) return;
+  currentObj.traverse(c => {
+    if (c.isMesh && c.material && !Array.isArray(c.material)) {
+      if (c.material.color) c.material.color.set(color);
+      if (c.material.emissive) c.material.emissive.set(color).multiplyScalar(0.5);
+    }
+  });
+}
+
+// Rotation speed state
+let rotateSpeed = 0.004;
+
+// ═══════════════════════════════════════════════
+// AI VOICE + COMMAND — free-form via /api/chat
+// ═══════════════════════════════════════════════
+const sessionId = 'holo_' + Math.random().toString(36).slice(2);
+
+let replyTimer = null;
+function showReply(text) {
+  const toast = document.getElementById('reply-toast');
+  const rt = document.getElementById('reply-text');
+  rt.textContent = text;
+  toast.classList.add('show');
+  document.getElementById('inf-voice').textContent = 'REPLIED';
+  clearTimeout(replyTimer);
+  replyTimer = setTimeout(() => { toast.classList.remove('show'); }, 8000);
+}
+
+// Parse AI reply for hologram-specific actions
+function applyAIIntent(reply, userMsg) {
+  const lower = (userMsg + ' ' + reply).toLowerCase();
+
+  // Object switching
+  const objMap = {
+    'arc reactor':   'arc_reactor',
+    'iron man':      'iron_man',
+    'suit':          'iron_man',
+    'dna':           'dna',
+    'helix':         'dna',
+    'atom':          'atom',
+    'neural':        'brain',
+    'brain':         'brain',
+    'network':       'brain',
+    'crystal':       'crystal',
+    'turbine':       'turbine',
+    'engine':        'turbine',
+    'satellite':     'satellite',
+    'drone':         'drone',
+    'molecule':      'molecule',
+    'caffeine':      'molecule',
+  };
+  for (const [kw, key] of Object.entries(objMap)) {
+    if (lower.includes(kw)) { loadObject(key); break; }
+  }
+
+  // Color changes
+  const colorMap = {
+    'red':    0xff2200, 'blue':  0x0044ff, 'green':  0x00ff44,
+    'gold':   0xffaa00, 'white': 0xffffff, 'purple': 0xaa00ff,
+    'orange': 0xff6600, 'cyan':  0x00ffff, 'pink':   0xff44aa,
+  };
+  for (const [name, hex] of Object.entries(colorMap)) {
+    if (lower.includes(name + ' color') || lower.includes('make it ' + name) || lower.includes('turn it ' + name) || lower.includes('color ' + name)) {
+      setHoloColor(hex); break;
+    }
+  }
+
+  // Rotation
+  if (lower.includes('faster') || lower.includes('speed up')) rotateSpeed = Math.min(0.03, rotateSpeed * 2);
+  if (lower.includes('slower') || lower.includes('slow down')) rotateSpeed = Math.max(0.001, rotateSpeed * 0.5);
+  if (lower.includes('stop rotating') || lower.includes('stop spin') || (lower.includes('stop') && lower.includes('rotat'))) autoRotate = false;
+  if (lower.includes('start rotating') || lower.includes('start spin') || (lower.includes('start') && lower.includes('rotat'))) autoRotate = true;
+
+  // Explode
+  if (lower.includes('explode') || lower.includes('blow apart') || lower.includes('separate') || lower.includes('pull apart')) explode();
+
+  // Wireframe
+  if (lower.includes('wireframe on') || lower.includes('show wireframe')) { wireframe = false; toggleWire(); }
+  if (lower.includes('wireframe off') || lower.includes('hide wireframe')) { wireframe = true; toggleWire(); }
+
+  // Reset
+  if (lower.includes('reset') || lower.includes('centre') || lower.includes('center view')) resetCamera();
+
+  // Zoom
+  if (lower.includes('zoom in') || lower.includes('closer')) targetRadius = Math.max(2, targetRadius - 2);
+  if (lower.includes('zoom out') || lower.includes('further') || lower.includes('step back')) targetRadius = Math.min(20, targetRadius + 2);
+}
+
+async function sendToJarvis(text) {
+  document.getElementById('inf-voice').textContent = 'PROCESSING…';
+  document.getElementById('inf-ai').textContent = 'THINKING…';
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: text,
+        sessionId,
+        userName: 'Operator',
+        userTitle: 'Sir',
+        memories: [],
+      })
+    });
+    const data = await res.json();
+    const reply = data.reply || 'Understood.';
+    showReply(reply);
+    applyAIIntent(reply, text);
+    document.getElementById('inf-ai').textContent = 'ONLINE';
+    document.getElementById('inf-voice').textContent = 'READY';
+  } catch {
+    // If no server, still try to parse the command locally
+    const localReply = handleLocalCommand(text);
+    showReply(localReply);
+    applyAIIntent(localReply, text);
+    document.getElementById('inf-ai').textContent = 'LOCAL';
+    document.getElementById('inf-voice').textContent = 'READY';
+  }
+}
+
+function handleLocalCommand(text) {
+  const lower = text.toLowerCase();
+  if (lower.includes('iron man') || lower.includes('suit')) return "Loading Iron Man Mark L, Sir. Nano-particle suit coming up.";
+  if (lower.includes('dna') || lower.includes('helix')) return "Displaying DNA double helix — four base pairs visible. Adenine, Thymine, Guanine, Cytosine.";
+  if (lower.includes('atom')) return "Nitrogen atom hologram active. Seven protons, seven neutrons, three electron shells.";
+  if (lower.includes('neural') || lower.includes('brain')) return "Neural network visualisation online. 80 nodes, 200 active connections.";
+  if (lower.includes('arc') || lower.includes('reactor')) return "Arc reactor hologram loaded. Mark VI configuration, palladium-free core.";
+  if (lower.includes('crystal')) return "Crystal lattice structure active. Hexagonal symmetry, six primary facets.";
+  if (lower.includes('turbine') || lower.includes('engine')) return "CF6-80E turbine loaded. Fan stage and turbine stage visible.";
+  if (lower.includes('satellite')) return "Communications satellite hologram active. Solar panel array deployed.";
+  if (lower.includes('drone')) return "Autonomous combat drone loaded. Four-rotor configuration, sensor array online.";
+  if (lower.includes('molecule') || lower.includes('caffeine')) return "Caffeine molecule — C8H10N4O2. 14 atoms, 15 bonds.";
+  if (lower.includes('explode')) return "Exploding the assembly — separating components now.";
+  if (lower.includes('faster') || lower.includes('speed')) return "Increasing rotation speed.";
+  if (lower.includes('slower') || lower.includes('slow')) return "Reducing rotation speed.";
+  if (lower.includes('stop')) return "Rotation halted.";
+  if (lower.includes('wireframe')) return "Toggling wireframe mode.";
+  if (lower.includes('red')) return "Switching hologram to red spectrum.";
+  if (lower.includes('blue')) return "Reverting to standard blue holographic spectrum.";
+  if (lower.includes('what') && lower.includes('this')) return `Currently displaying: ${currentObj?.userData.name || 'holographic scan'}.`;
+  return `Command received, Sir. Processing: "${text}"`;
+}
+
+function sendCommand() {
+  const input = document.getElementById('cmd-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  sendToJarvis(text);
+}
+
+document.getElementById('cmd-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') sendCommand();
+});
+
+// ═══════════════════════════════════════════════
+// VOICE RECOGNITION
+// ═══════════════════════════════════════════════
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
-let isListening  = false;
-let voiceActive  = false;
-
-function setMicStatus(status, text) {
-  const badge = document.getElementById('mic-status-badge');
-  const textEl = document.getElementById('mic-status-text');
-  badge.className = status; // 'listening', 'processing', or ''
-  textEl.textContent = text;
-}
-
-function startContinuousVoice() {
-  if (!SR) { setMicStatus('', 'NO SPEECH API'); return; }
-  if (voiceActive) return;
-  voiceActive = true;
-  document.getElementById('mic-btn').textContent = '🔴 LIVE';
-  document.getElementById('mic-btn').classList.add('active');
-
-  function startRec() {
-    if (!voiceActive) return;
-    recognition = new SR();
-    recognition.lang = 'en-US';
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 3;
-
-    recognition.onstart = () => {
-      isListening = true;
-      setMicStatus('listening', 'LISTENING...');
-    };
-
-    recognition.onresult = (e) => {
-      isListening = false;
-      const text = e.results[0][0].transcript.trim();
-      setMicStatus('processing', '"' + text + '"');
-      document.getElementById('search-input').value = text;
-
-      // Check for wake word "jarvis" or just process directly in hologram context
-      const lower = text.toLowerCase();
-      const hasWake = /jarvis/.test(lower);
-      const cleaned = hasWake ? text.replace(/jarvis[,.]?\s*/gi, '').trim() : text;
-
-      if (cleaned.length > 1) {
-        executeVoiceCommand(cleaned);
-      }
-
-      setTimeout(() => {
-        if (voiceActive) { setMicStatus('listening', 'LISTENING...'); startRec(); }
-      }, 400);
-    };
-
-    recognition.onerror = (e) => {
-      isListening = false;
-      if (e.error === 'no-speech') {
-        if (voiceActive) setTimeout(startRec, 100);
-        return;
-      }
-      setMicStatus('', 'ERROR — RETRYING');
-      if (voiceActive) setTimeout(startRec, 1000);
-    };
-
-    recognition.onend = () => {
-      isListening = false;
-      if (voiceActive) setTimeout(startRec, 100);
-    };
-
-    try { recognition.start(); }
-    catch(e) { if (voiceActive) setTimeout(startRec, 500); }
-  }
-
-  startRec();
-}
-
-function stopContinuousVoice() {
-  voiceActive = false;
-  isListening = false;
-  if (recognition) { try { recognition.abort(); } catch(e){} recognition = null; }
-  setMicStatus('', 'MIC OFF');
-  document.getElementById('mic-btn').textContent = '🎙 VOICE';
-  document.getElementById('mic-btn').classList.remove('active');
-}
+let isListening = false;
 
 function toggleMic() {
-  if (voiceActive) stopContinuousVoice();
-  else startContinuousVoice();
+  if (isListening) stopMic();
+  else startMic();
 }
 
-// ── SEARCH / VOICE ENTRY ──────────────────────────────────────────
-function doSearch(q){
-  const query=(q||document.getElementById('search-input').value).trim();
-  if(!query)return;
-  executeVoiceCommand(query);
+function startMic() {
+  if (!SR) { showReply("Speech recognition isn't available in this browser. Please use Chrome."); return; }
+  if (isListening) return;
+  recognition = new SR();
+  recognition.lang = 'en-US';
+  recognition.continuous = false;
+  recognition.interimResults = false;
+
+  recognition.onstart = () => {
+    isListening = true;
+    document.getElementById('voice-btn').classList.add('listening');
+    document.getElementById('voice-btn').textContent = '🔴';
+    document.getElementById('inf-voice').textContent = 'LISTENING…';
+    document.getElementById('mic-ring').style.display = 'block';
+  };
+  recognition.onresult = e => {
+    const text = e.results[0][0].transcript.trim();
+    document.getElementById('cmd-input').value = text;
+    stopMic();
+    sendToJarvis(text);
+  };
+  recognition.onerror = () => stopMic();
+  recognition.onend = () => stopMic();
+  recognition.start();
 }
-function handleKey(e){if(e.key==='Enter')doSearch();}
 
-function toast(msg,dur=2500){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),dur);}
+function stopMic() {
+  isListening = false;
+  if (recognition) { try { recognition.stop(); } catch {} recognition = null; }
+  document.getElementById('voice-btn').classList.remove('listening');
+  document.getElementById('voice-btn').textContent = '🎙';
+  document.getElementById('inf-voice').textContent = 'READY';
+  document.getElementById('mic-ring').style.display = 'none';
+}
 
-// ── WINDOW MESSAGE (from JARVIS main app) ─────────────────────────
-window.addEventListener('message',e=>{
-  const{type,query}=e.data||{};
-  if(type==='HOLOGRAM_SEARCH'&&query){
-    document.getElementById('search-input').value=query;
-    executeVoiceCommand(query);
+// ═══════════════════════════════════════════════
+// ANIMATION LOOP
+// ═══════════════════════════════════════════════
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  frame++;
+  const t = clock.getElapsedTime();
+  const dt = clock.getDelta ? 0.016 : 0.016;
+
+  // Camera orbit
+  cameraTheta += (targetTheta - cameraTheta) * 0.06;
+  cameraPhi += (targetPhi - cameraPhi) * 0.06;
+  cameraRadius += (targetRadius - cameraRadius) * 0.08;
+
+  if (autoRotate) targetTheta += rotateSpeed;
+
+  camera.position.x = cameraRadius * Math.sin(cameraPhi) * Math.cos(cameraTheta);
+  camera.position.y = cameraRadius * Math.cos(cameraPhi);
+  camera.position.z = cameraRadius * Math.sin(cameraPhi) * Math.sin(cameraTheta);
+  camera.lookAt(0, 0.5, 0);
+
+  // Update info panel
+  if (frame % 10 === 0) {
+    const rx = ((camera.position.x / cameraRadius * 90)).toFixed(0);
+    const ry = ((cameraTheta * 180 / Math.PI) % 360).toFixed(0);
+    document.getElementById('inf-rot').textContent = `X:${rx}° Y:${ry}°`;
+    document.getElementById('inf-zoom').textContent = (8 / cameraRadius).toFixed(2) + '×';
+  }
+
+  // Animate object-specific things
+  if (currentObj) {
+    // Arc reactor pulsing rings
+    currentObj.traverse(child => {
+      if (child.userData.pulse !== undefined) {
+        const scale = 1 + 0.05 * Math.sin(t * 2 + child.userData.pulse);
+        child.scale.set(scale, scale, scale);
+      }
+      // Electron orbits
+      if (child.userData.isElectron) {
+        const a = t * child.userData.speed + child.userData.offset;
+        const r = child.userData.radius;
+        child.children.forEach((el, idx) => {
+          const offset = idx === 0 ? 0 : 0.3;
+          el.position.x = Math.cos(a + offset) * r;
+          el.position.z = Math.sin(a + offset) * r;
+        });
+      }
+      // Rotor groups (turbine)
+      if (child.userData.isRotor) {
+        child.rotation.x += child.userData.speed;
+      }
+      // Drone propellers
+      if (child.userData.isProp) {
+        child.rotation.y += child.userData.speed;
+      }
+    });
+
+    // Neural network node pulse
+    if (currentObj.userData.nodeMeshes) {
+      currentObj.userData.nodeMeshes.forEach(({ mesh, def }) => {
+        const s = 0.9 + 0.2 * Math.sin(t * 2 + mesh.userData?.pulseOffset || 0);
+        mesh.scale.setScalar(s);
+      });
+    }
+  }
+
+  // Lights pulse
+  rimLight.intensity = 2.2 + 0.8 * Math.sin(t * 0.7);
+  keyLight.intensity = 3.2 + 0.5 * Math.sin(t * 0.4 + 1);
+
+  // Particles slow drift
+  particles.rotation.y += 0.0008;
+  particles.rotation.x += 0.0003;
+
+  renderer.render(scene, camera);
+}
+
+// ═══════════════════════════════════════════════
+// EXTERNAL VOICE COMMAND (from JARVIS main app)
+// ═══════════════════════════════════════════════
+window.addEventListener('message', e => {
+  const { type, query } = e.data || {};
+  if (type === 'HOLOGRAM_SEARCH' && query) {
+    const lower = query.toLowerCase();
+    if (lower === 'build mode') return; // ignore build mode command
+    document.getElementById('cmd-input').value = query;
+    sendToJarvis(query);
   }
 });
 
-// ── BOOT ──────────────────────────────────────────────────────────
-window.addEventListener('load',()=>{
-  resizeBpCanvas();
-  loadBlueprint('iron_man_mk50');
-  switchModeTo('blueprint');
-  document.getElementById('rotate-btn').style.borderColor='var(--blue)';
-  // Auto-start continuous voice
-  setTimeout(()=>{
-    startContinuousVoice();
-    initMediaPipe();
-  },800);
-  toast('J.A.R.V.I.S v5.0 — VOICE ACTIVE · SAY "ADD CAMERA TOP RIGHT"');
-  if(location.hash){
-    setTimeout(()=>{const q=decodeURIComponent(location.hash.slice(1));executeVoiceCommand(q);},1200);
-  }
+// ═══════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════
+window.addEventListener('load', () => {
+  // Loading animation
+  let progress = 0;
+  const bar = document.getElementById('load-bar');
+  const iv = setInterval(() => {
+    progress += Math.random() * 18;
+    bar.style.width = Math.min(progress, 92) + '%';
+    if (progress >= 92) clearInterval(iv);
+  }, 80);
+
+  // Load first object
+  setTimeout(() => {
+    loadObject('arc_reactor');
+    bar.style.width = '100%';
+    setTimeout(() => {
+      document.getElementById('loading').classList.add('gone');
+      animate();
+    }, 400);
+  }, 900);
 });
 </script>
 </body>
