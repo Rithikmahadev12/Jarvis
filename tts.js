@@ -1,21 +1,36 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
 // J.A.R.V.I.S — Piper TTS Engine
-// Uses spawn() with stdin pipe so text is correctly passed to Piper
-// LD_LIBRARY_PATH ensures bundled libespeak-ng.so.1 is found
+// Supports both the JARVIS voice model and the alan-low fallback
+// Uses spawn() + stdin pipe + LD_LIBRARY_PATH for bundled libs
 // ═══════════════════════════════════════════════════════════════
 
-const { spawn }  = require("child_process");
-const path        = require("path");
-const fs          = require("fs");
-const os          = require("os");
+const { spawn } = require("child_process");
+const path       = require("path");
+const fs         = require("fs");
+const os         = require("os");
 
-const PIPER_DIR   = path.join(__dirname, "bin/piper_dir");
-const PIPER_BIN   = path.join(PIPER_DIR, "piper");
-const VOICE_MODEL = path.join(__dirname, "voices/jarvis/en_GB-jarvis-medium.onnx");
+const PIPER_DIR  = path.join(__dirname, "bin/piper_dir");
+const PIPER_BIN  = path.join(PIPER_DIR, "piper");
+const VOICE_DIR  = path.join(__dirname, "voices/jarvis");
+
+// Pick whichever model file actually exists and is a real size (>1MB)
+function getModelPath() {
+  const candidates = [
+    path.join(VOICE_DIR, "en_GB-jarvis-medium.onnx"),
+    path.join(VOICE_DIR, "en_GB-alan-low.onnx"),
+  ];
+  for (const f of candidates) {
+    try {
+      const stat = fs.statSync(f);
+      if (stat.size > 1_000_000) return f;
+    } catch {}
+  }
+  return null;
+}
 
 function isReady() {
-  return fs.existsSync(VOICE_MODEL) && fs.existsSync(PIPER_BIN);
+  return fs.existsSync(PIPER_BIN) && !!getModelPath();
 }
 
 function cleanText(text) {
@@ -31,8 +46,14 @@ function cleanText(text) {
 
 function synthesize(text) {
   return new Promise((resolve) => {
-    if (!isReady()) {
-      console.warn("[TTS] Voice model or Piper binary not ready yet");
+    const model = getModelPath();
+
+    if (!fs.existsSync(PIPER_BIN)) {
+      console.warn("[TTS] Piper binary not found");
+      return resolve(null);
+    }
+    if (!model) {
+      console.warn("[TTS] No valid voice model found");
       return resolve(null);
     }
 
@@ -42,7 +63,7 @@ function synthesize(text) {
     const tmpOutput = path.join(os.tmpdir(), `jarvis_out_${Date.now()}.wav`);
 
     const piper = spawn(PIPER_BIN, [
-      "--model",        VOICE_MODEL,
+      "--model",        model,
       "--output_file",  tmpOutput,
       "--length_scale", "1.0",
       "--noise_scale",  "0.667",
@@ -58,7 +79,6 @@ function synthesize(text) {
     let stderr = "";
     piper.stderr.on("data", (d) => { stderr += d.toString(); });
 
-    // Write the text to Piper's stdin, then close it
     piper.stdin.write(clean, "utf8");
     piper.stdin.end();
 
