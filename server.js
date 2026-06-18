@@ -17,6 +17,7 @@ const Groq        = require("./groq-engine");
 const Improve     = require("./self-improve");
 const Trainer     = require("./trainer");
 const Brain       = require("./brain");
+const TTS = require("./tts");
 
 const app        = express();
 const httpServer = http.createServer(app);
@@ -948,6 +949,33 @@ Improve.ensureDirs();
 
 Improve.startImprovementLoop(5 * 60 * 1000);
 Trainer.startTrainingLoop(15 * 60 * 1000);
+// ═══════════════════════════════════════════════════════════════
+// ── PIPER TTS ROUTE
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/tts", async (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: "Missing text" });
+
+  if (!TTS.isReady()) {
+    // Model still downloading — tell client to use browser voice
+    return res.status(503).json({ error: "Voice model loading", fallback: true });
+  }
+
+  const audio = await TTS.synthesize(text);
+  if (!audio) {
+    return res.status(500).json({ error: "Synthesis failed", fallback: true });
+  }
+
+  res.setHeader("Content-Type",  "audio/wav");
+  res.setHeader("Content-Length", audio.length);
+  res.setHeader("Cache-Control",  "no-cache");
+  res.send(audio);
+});
+
+// Status check — client can poll this on startup to know when voice is ready
+app.get("/api/tts/status", (req, res) => {
+  res.json({ ready: TTS.isReady() });
+});
 
 httpServer.listen(PORT, () => {
   console.log(`\nJ.A.R.V.I.S online → http://localhost:${PORT}`);
