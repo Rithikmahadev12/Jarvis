@@ -1,7 +1,8 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════════════════
 # J.A.R.V.I.S — Startup Script (Render-compatible)
-# Installs Piper into ./bin/ (no root needed)
+# Installs Piper into ./bin/piper_dir/ (no root needed)
+# Copies the ENTIRE piper folder so bundled libs are available
 # ═══════════════════════════════════════════════════════════════
 
 set -e
@@ -9,7 +10,8 @@ set -e
 echo "[STARTUP] Beginning J.A.R.V.I.S boot sequence..."
 
 # ── 1. INSTALL PIPER INTO LOCAL BIN ──────────────────────────
-PIPER_BIN="./bin/piper"
+PIPER_DIR="./bin/piper_dir"
+PIPER_BIN="$PIPER_DIR/piper"
 mkdir -p ./bin
 
 if [ -f "$PIPER_BIN" ]; then
@@ -26,10 +28,12 @@ else
 
   curl -L "$PIPER_URL" -o /tmp/piper.tar.gz
   tar -xzf /tmp/piper.tar.gz -C /tmp/
-  # Copy binary AND the lib folder it needs
-  cp /tmp/piper/piper ./bin/piper
-  cp -r /tmp/piper/lib ./bin/lib 2>/dev/null || true
-  chmod +x ./bin/piper
+
+  # Copy the ENTIRE piper folder (includes libespeak-ng.so.1 and other bundled libs)
+  cp -r /tmp/piper "$PIPER_DIR"
+  chmod +x "$PIPER_BIN"
+
+  # Cleanup
   rm -rf /tmp/piper.tar.gz /tmp/piper
 
   echo "[STARTUP] Piper installed at $PIPER_BIN"
