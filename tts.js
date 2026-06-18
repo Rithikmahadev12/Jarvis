@@ -3,6 +3,9 @@
 // J.A.R.V.I.S — Piper TTS Engine
 // Uses the actual JARVIS voice model from jgkawell/jarvis
 // Runs locally via Piper binary — zero API cost, zero rate limits
+//
+// FIX: Uses LD_LIBRARY_PATH so Piper can find its bundled
+// libespeak-ng.so.1 without needing system-level installation.
 // ═══════════════════════════════════════════════════════════════
 
 const { execFile } = require("child_process");
@@ -12,11 +15,13 @@ const path           = require("path");
 const fs             = require("fs");
 const os             = require("os");
 
+// Piper binary and its bundled lib folder (both inside piper_dir/)
+const PIPER_DIR  = path.join(__dirname, "bin/piper_dir");
+const PIPER_BIN  = path.join(PIPER_DIR, "piper");
 const VOICE_MODEL = path.join(__dirname, "voices/jarvis/en_GB-jarvis-medium.onnx");
-const PIPER_BIN = path.join(__dirname, "bin/piper");
 
 function isReady() {
-  return fs.existsSync(VOICE_MODEL);
+  return fs.existsSync(VOICE_MODEL) && fs.existsSync(PIPER_BIN);
 }
 
 function cleanText(text) {
@@ -32,30 +37,38 @@ function cleanText(text) {
 
 async function synthesize(text) {
   if (!isReady()) {
-    console.warn("[TTS] Voice model not ready yet");
+    console.warn("[TTS] Voice model or Piper binary not ready yet");
     return null;
   }
 
   const clean = cleanText(text);
   if (!clean || clean.length < 2) return null;
 
-  // Write text to a temp file to avoid shell injection issues
-  const tmpInput  = path.join(os.tmpdir(), `jarvis_in_${Date.now()}.txt`);
   const tmpOutput = path.join(os.tmpdir(), `jarvis_out_${Date.now()}.wav`);
 
   try {
-    fs.writeFileSync(tmpInput, clean, "utf8");
-
+    // Pass text via stdin — avoids temp file and shell injection
+    // LD_LIBRARY_PATH tells the OS where to find libespeak-ng.so.1
+    // which ships bundled inside the piper_dir folder
     await execFileAsync(PIPER_BIN, [
       "--model",        VOICE_MODEL,
       "--output_file",  tmpOutput,
-      "--length_scale", "1.0",  // 1.0 = normal speed, 0.9 = slightly faster
+      "--length_scale", "1.0",
       "--noise_scale",  "0.667",
       "--noise_w",      "0.8",
     ], {
-      stdin:   fs.createReadStream(tmpInput),
+      input:   clean,
       timeout: 15000,
+      env: {
+        ...process.env,
+        LD_LIBRARY_PATH: PIPER_DIR + (process.env.LD_LIBRARY_PATH ? ":" + process.env.LD_LIBRARY_PATH : ""),
+      },
     });
+
+    if (!fs.existsSync(tmpOutput)) {
+      console.error("[TTS] Output file was not created");
+      return null;
+    }
 
     const audio = fs.readFileSync(tmpOutput);
     return audio;
@@ -64,8 +77,6 @@ async function synthesize(text) {
     console.error("[TTS] Piper synthesis failed:", e.message);
     return null;
   } finally {
-    // Always clean up temp files
-    try { fs.unlinkSync(tmpInput);  } catch {}
     try { fs.unlinkSync(tmpOutput); } catch {}
   }
 }
