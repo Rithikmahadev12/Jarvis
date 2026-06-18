@@ -241,8 +241,10 @@ async function ocrScreenFrame() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── VOICE ENGINE ──
+// ── VOICE ENGINE — Piper JARVIS voice + browser fallback
 // ═══════════════════════════════════════════════════════════════
+
+// Browser fallback voice names (used if Piper not ready)
 const MALE_VOICE_NAMES   = ["Google UK English Male","Microsoft George - English (United Kingdom)","Microsoft David Desktop - English (United States)","Microsoft Mark - English (United States)","Daniel","Alex","Fred","Thomas","Arthur","James"];
 const FEMALE_VOICE_NAMES = ["Google UK English Female","Google US English","Samantha","Karen","Moira","Tessa","Fiona","Victoria","Serena","Susan","Nicky"];
 
@@ -259,9 +261,78 @@ function pickVoice() {
 }
 window.speechSynthesis.onvoiceschanged = () => {};
 
-function speak(text, onEnd) {
+// ── PIPER STATE ───────────────────────────────────────────────
+let _currentAudio = null;
+let _ttsReady     = false;
+
+async function checkTTSReady() {
+  try {
+    const res  = await fetch("/api/tts/status");
+    const data = await res.json();
+    _ttsReady  = data.ready;
+    if (!_ttsReady) setTimeout(checkTTSReady, 3000);
+    else console.log("[JARVIS] JARVIS voice model ready ✓");
+  } catch {
+    setTimeout(checkTTSReady, 5000);
+  }
+}
+checkTTSReady();
+
+// ── MAIN SPEAK FUNCTION ───────────────────────────────────────
+async function speak(text, onEnd) {
+  if (!text) { if (onEnd) onEnd(); return; }
+
+  // Stop anything currently playing
   state.synth.cancel();
-  const utter = new SpeechSynthesisUtterance(text);
+  if (_currentAudio) { _currentAudio.pause(); _currentAudio = null; }
+
+  setOrb("speaking");
+
+  // Piper not ready yet — use browser voice immediately
+  if (!_ttsReady) {
+    return _speakBrowser(text, onEnd);
+  }
+
+  try {
+    const res = await fetch("/api/tts", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ text }),
+    });
+
+    // 503 = model still loading
+    if (res.status === 503) {
+      _ttsReady = false;
+      return _speakBrowser(text, onEnd);
+    }
+
+    if (!res.ok) throw new Error(`TTS ${res.status}`);
+
+    const blob  = await res.blob();
+    const url   = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    _currentAudio = audio;
+
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+      _currentAudio = null;
+      setOrb("idle");
+      if (onEnd) onEnd();
+    };
+
+    audio.onended = cleanup;
+    audio.onerror = () => { cleanup(); _speakBrowser(text, onEnd); };
+    await audio.play();
+
+  } catch (e) {
+    console.warn("[JARVIS] Piper TTS failed, using browser voice:", e.message);
+    _speakBrowser(text, onEnd);
+  }
+}
+
+// ── BROWSER FALLBACK ──────────────────────────────────────────
+function _speakBrowser(text, onEnd) {
+  const utter  = new SpeechSynthesisUtterance(text);
   utter.rate   = 0.93;
   utter.pitch  = (state.userTitle === "Sir") ? 0.75 : 0.8;
   utter.volume = 1;
@@ -278,13 +349,13 @@ function speak(text, onEnd) {
   state.synth.speak(utter);
 }
 
+// ── ORB STATE ─────────────────────────────────────────────────
 function setOrb(s) {
   const orb = $("orb"); if (!orb) return;
   orb.className = "orb" + (s !== "idle" ? " " + s : "");
   const labels = { idle: "STANDBY", listening: "LISTENING", thinking: "PROCESSING", speaking: "SPEAKING" };
   const st = $("status-text"); if (st) st.textContent = labels[s] || "STANDBY";
 }
-
 // ═══════════════════════════════════════════════════════════════
 // ── CAMERA ──
 // ═══════════════════════════════════════════════════════════════
