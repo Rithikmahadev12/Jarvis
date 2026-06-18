@@ -9,7 +9,7 @@
     "name": "J.A.R.V.I.S",
     "wit": 0.7,
     "warmth": 0.55,
-    "sarcasm": 0.3,
+    "sarcasm": 0.5,
     "verbosity": "medium",
     "tone": "formal",
     "customRules": []
