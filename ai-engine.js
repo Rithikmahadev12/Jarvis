@@ -71,7 +71,7 @@ function overlap(setA, setB) { let c=0; for (const v of setA) if (setB.has(v)) c
 
 // ═══════════════════════════════════════════════════════════════
 // ── PERSONALITY ENGINE ────────────────────────────────────────
-// ══════════════════════════════════════════════════════��════════
+// ══════════════════════════════════════════════════════════════���════════
 function getPersonality() {
   const cfg = getCfg().personality || {};
   return {
@@ -132,7 +132,7 @@ const CODE_PATTERNS = {
   csharp:     /\b(c#|csharp|dotnet|\.net|unity|using |namespace |public class)\b/i,
 };
 
-const CODE_INTENT = /\b(write|create|build|make|generate|code|script|program|function|class|implement|develop|give me|show me|debug|fix|refactor|optimise|optimize|explain|review|improve)\b.*\b(co[...]
+const CODE_INTENT = /\b(?:write|create|build|make|generate|code|script|program|function|class|implement|develop|give me|show me|debug|fix|refactor|optimise|optimize|explain|review|improve)\b.*\b(?:code|script|function|snippet|example|module|component|program)\b/i;
 
 // ── TERMINAL COMMAND PATTERNS ─────────────────────────────────
 const TERMINAL_INTENT = /\b(terminal|command|cmd|bash|shell|run|execute|how do i|what command|linux command|windows command|powershell)\b/i;
