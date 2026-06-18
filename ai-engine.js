@@ -71,7 +71,7 @@ function overlap(setA, setB) { let c=0; for (const v of setA) if (setB.has(v)) c
 
 // ═══════════════════════════════════════════════════════════════
 // ── PERSONALITY ENGINE ────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════���════════
+// ══════════════════════════════════════════════════════════════���[...]
 function getPersonality() {
   const cfg = getCfg().personality || {};
   return {
@@ -223,4 +223,10 @@ const watcher = chokidar.watch('.', {
 });
 
 watcher
-  .on('add',    path => console.log(`...[truncated for brevity]`
+  .on('add', path => console.log('[JARVIS] File added: ' + path))
+  .on('change', path => console.log('[JARVIS] File changed: ' + path))
+  .on('unlink', path => console.log('[JARVIS] File removed: ' + path));
+
+module.exports = watcher;` 
+};
+
