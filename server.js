@@ -860,6 +860,38 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
+const GitDeploy = require("./github-deploy");
+let _pendingPR = null; // tracks the last opened PR for "ship it"
+
+app.post("/api/feature/draft", async (req, res) => {
+  const { description, filePath } = req.body;
+  const T = "Sir";
+  try {
+    const code = await Groq.generateCode(
+      `Add this feature to a JARVIS assistant codebase: ${description}. Return only the full file contents for ${filePath}.`
+    );
+    const branchName = `feature/${Date.now()}`;
+    await GitDeploy.createFeatureBranch(branchName);
+    await GitDeploy.commitFile(filePath, code, `Add: ${description}`, branchName);
+    const pr = await GitDeploy.openPullRequest(branchName, description, "Drafted by JARVIS — review before merging.");
+    _pendingPR = pr.number;
+    res.json({ reply: `Drafted "${description}", ${T}. PR #${pr.number} is open for review: ${pr.html_url}. Say "ship it" to merge.` });
+  } catch (e) {
+    res.json({ reply: `Couldn't draft that, ${T}: ${e.message}` });
+  }
+});
+
+app.post("/api/feature/ship", async (req, res) => {
+  if (!_pendingPR) return res.json({ reply: "Nothing drafted to ship yet, Sir." });
+  try {
+    await GitDeploy.mergePullRequest(_pendingPR);
+    res.json({ reply: `Merged, Sir. Render will redeploy automatically.` });
+    _pendingPR = null;
+  } catch (e) {
+    res.json({ reply: `Merge failed, Sir: ${e.message}` });
+  }
+});
+
 // ══════════════════════════════════════════════════════════════
 // ── BOOT ──────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════
@@ -882,3 +914,4 @@ httpServer.listen(PORT, () => {
   console.log(`  Training data: /data/training_data.json`);
   console.log(`  Learned:       /data/learned/\n`);
 });
+
