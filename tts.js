@@ -1,23 +1,17 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
 // J.A.R.V.I.S — Piper TTS Engine
-// Uses the actual JARVIS voice model from jgkawell/jarvis
-// Runs locally via Piper binary — zero API cost, zero rate limits
-//
-// FIX: Uses LD_LIBRARY_PATH so Piper can find its bundled
-// libespeak-ng.so.1 without needing system-level installation.
+// Uses spawn() with stdin pipe so text is correctly passed to Piper
+// LD_LIBRARY_PATH ensures bundled libespeak-ng.so.1 is found
 // ═══════════════════════════════════════════════════════════════
 
-const { execFile } = require("child_process");
-const { promisify } = require("util");
-const execFileAsync  = promisify(execFile);
-const path           = require("path");
-const fs             = require("fs");
-const os             = require("os");
+const { spawn }  = require("child_process");
+const path        = require("path");
+const fs          = require("fs");
+const os          = require("os");
 
-// Piper binary and its bundled lib folder (both inside piper_dir/)
-const PIPER_DIR  = path.join(__dirname, "bin/piper_dir");
-const PIPER_BIN  = path.join(PIPER_DIR, "piper");
+const PIPER_DIR   = path.join(__dirname, "bin/piper_dir");
+const PIPER_BIN   = path.join(PIPER_DIR, "piper");
 const VOICE_MODEL = path.join(__dirname, "voices/jarvis/en_GB-jarvis-medium.onnx");
 
 function isReady() {
@@ -26,59 +20,80 @@ function isReady() {
 
 function cleanText(text) {
   return text
-    .replace(/\*\*(.+?)\*\*/g, "$1")   // strip bold markdown
-    .replace(/\*(.+?)\*/g,   "$1")     // strip italic markdown
-    .replace(/[`#*_~]/g,     "")       // strip remaining markdown
-    .replace(/→|⬡|●|◈|▲|◌|◯|⚡|🎙|📱|💻|🖥|📺|🖨|📡|🎮|🔊|📹|💾|⚡|🔌|💡/g, "")
-    .replace(/\s+/g,         " ")      // collapse whitespace
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g,   "$1")
+    .replace(/[`#*_~]/g,     "")
+    .replace(/→|⬡|●|◈|▲|◌|◯|⚡|🎙|📱|💻|🖥|📺|🖨|📡|🎮|🔊|📹|💾|🔌|💡/g, "")
+    .replace(/\s+/g,         " ")
     .trim()
     .slice(0, 500);
 }
 
-async function synthesize(text) {
-  if (!isReady()) {
-    console.warn("[TTS] Voice model or Piper binary not ready yet");
-    return null;
-  }
+function synthesize(text) {
+  return new Promise((resolve) => {
+    if (!isReady()) {
+      console.warn("[TTS] Voice model or Piper binary not ready yet");
+      return resolve(null);
+    }
 
-  const clean = cleanText(text);
-  if (!clean || clean.length < 2) return null;
+    const clean = cleanText(text);
+    if (!clean || clean.length < 2) return resolve(null);
 
-  const tmpOutput = path.join(os.tmpdir(), `jarvis_out_${Date.now()}.wav`);
+    const tmpOutput = path.join(os.tmpdir(), `jarvis_out_${Date.now()}.wav`);
 
-  try {
-    // Pass text via stdin — avoids temp file and shell injection
-    // LD_LIBRARY_PATH tells the OS where to find libespeak-ng.so.1
-    // which ships bundled inside the piper_dir folder
-    await execFileAsync(PIPER_BIN, [
+    const piper = spawn(PIPER_BIN, [
       "--model",        VOICE_MODEL,
       "--output_file",  tmpOutput,
       "--length_scale", "1.0",
       "--noise_scale",  "0.667",
       "--noise_w",      "0.8",
     ], {
-      input:   clean,
-      timeout: 15000,
       env: {
         ...process.env,
-        LD_LIBRARY_PATH: PIPER_DIR + (process.env.LD_LIBRARY_PATH ? ":" + process.env.LD_LIBRARY_PATH : ""),
+        LD_LIBRARY_PATH: PIPER_DIR +
+          (process.env.LD_LIBRARY_PATH ? ":" + process.env.LD_LIBRARY_PATH : ""),
       },
     });
 
-    if (!fs.existsSync(tmpOutput)) {
-      console.error("[TTS] Output file was not created");
-      return null;
-    }
+    let stderr = "";
+    piper.stderr.on("data", (d) => { stderr += d.toString(); });
 
-    const audio = fs.readFileSync(tmpOutput);
-    return audio;
+    // Write the text to Piper's stdin, then close it
+    piper.stdin.write(clean, "utf8");
+    piper.stdin.end();
 
-  } catch (e) {
-    console.error("[TTS] Piper synthesis failed:", e.message);
-    return null;
-  } finally {
-    try { fs.unlinkSync(tmpOutput); } catch {}
-  }
+    const timeout = setTimeout(() => {
+      piper.kill();
+      console.error("[TTS] Piper timed out");
+      try { fs.unlinkSync(tmpOutput); } catch {}
+      resolve(null);
+    }, 15000);
+
+    piper.on("close", (code) => {
+      clearTimeout(timeout);
+      if (code !== 0) {
+        console.error(`[TTS] Piper exited ${code}: ${stderr.trim()}`);
+        try { fs.unlinkSync(tmpOutput); } catch {}
+        return resolve(null);
+      }
+      try {
+        const audio = fs.readFileSync(tmpOutput);
+        resolve(audio);
+      } catch (e) {
+        console.error("[TTS] Could not read output wav:", e.message);
+        resolve(null);
+      } finally {
+        try { fs.unlinkSync(tmpOutput); } catch {}
+      }
+    });
+
+    piper.on("error", (e) => {
+      clearTimeout(timeout);
+      console.error("[TTS] Piper spawn error:", e.message);
+      try { fs.unlinkSync(tmpOutput); } catch {}
+      resolve(null);
+    });
+  });
 }
 
 module.exports = { synthesize, isReady, cleanText };
