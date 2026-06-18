@@ -16,6 +16,7 @@ const Home        = require("./home");
 const Groq        = require("./groq-engine");
 const Improve     = require("./self-improve");
 const Trainer     = require("./trainer");
+const Brain       = require("./brain");
 
 const app        = express();
 const httpServer = http.createServer(app);
@@ -106,6 +107,7 @@ function getAllLinksFormatted() {
 app.get("/api/links",         (req, res) => res.json({ groups: Object.keys(LINKS), summary: getLinksSummary(), all: getAllLinksFormatted() }));
 app.get("/api/links/summary", (req, res) => res.json(getLinksSummary()));
 app.get("/api/links/all",     (req, res) => res.json({ links: getAllLinksFormatted() }));
+app.get("/api/brain/stats", (req, res) => res.json(Brain.getGrowthStats()));
 app.post("/api/link",         (req, res) => {
   const { query } = req.body;
   if (!query) return res.status(400).json({ found: false });
@@ -900,112 +902,40 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ reply, action: action || "COMMAND", intent: intent || hardCommandType, topic, meta });
   }
 
-  // ── 4. Everything else → Groq (primary brain) ──
-  if (!Groq.isConfigured()) {
-    const linkSummary = getLinksSummary();
-    const serverData  = { ...linkSummary, allLinks: getAllLinksFormatted(), ...lookupLink(message) };
+// ── 4. Everything else → local brain first, Groq as tutor only when needed ──
+  const linkSummary2 = getLinksSummary();
+  const serverData2  = { ...linkSummary2, allLinks: getAllLinksFormatted(), ...lookupLink(message) };
 
-    let aiResult;
-    try {
-      aiResult = AI.process({ message, sessionId, userName, userTitle, memories, moodContext, serverData });
-    } catch (err) {
-      console.error("[AI] Error:", err);
-      Improve.failures.log(message, "AI engine crashed", "CRASH", sessionId);
-      return res.json({ reply: `Something went sideways, ${T}. Add GROQ_API_KEY to .env for full AI power.`, action: "ERROR" });
-    }
-
-    const { reply, action, meta, intent, topic, needsFetch, fetchType } = aiResult;
-
-    if (needsFetch) {
-      switch (fetchType) {
-        case "weather":  return res.json(await handleWeatherFetch(message, T));
-        case "spotify":  return res.json(await handleSpotifyFetch(message, T));
-        case "gmail":    return res.json(await handleGmailFetch(message, T));
-        case "calendar": return res.json(await handleCalendarFetch(message, T));
-        case "person":   return res.json(await handlePersonFetch(message, meta, T));
-        case "diy":      return res.json(await handleDIYFetch(message, userTitle));
-      }
-    }
-
-    const isWeakResponse = action === "FALLBACK" || (reply && reply.length < 50);
-    if (isWeakResponse) {
-      Improve.failures.log(message, reply || "", action, sessionId);
-      if (Research.shouldResearch(message)) {
-        try {
-          const researched = await Research.research(message, userTitle);
-          if (researched?.reply) {
-            Trainer.addExample(message, researched.reply, "research", researched.query, 0.78, "research");
-            return res.json({ reply: researched.reply, action: "RESEARCH", intent: "research", topic: researched.query });
-          }
-        } catch {}
-      }
-    } else {
-      const quality = Trainer.scoreQuality(message, reply, action);
-      Trainer.addExample(message, reply, intent || action, topic, quality, "jarvis");
-      if (topic) Improve.conversationLearner.learnFromSuccess(message, reply, topic).catch(() => {});
-    }
-
-    return res.json({ ...aiResult });
-  }
-
-  // ── Groq is configured — use it as primary brain ──
-  const memoryFacts = (memories || []).slice(0, 8).map(m => typeof m === "string" ? m : m.fact);
-
+  let result;
   try {
-    const relevantExamples = Trainer.findRelevantExamples(message, 2);
-    const contextHint = relevantExamples.length > 0
-      ? `Similar past conversations:\n${relevantExamples.map(e => `Q: ${e.input}\nA: ${e.output}`).join("\n\n")}\n\n`
-      : "";
+    result = await Brain.respond({ message, sessionId, userName, userTitle, memories, moodContext, serverData: serverData2 });
+  } catch (err) {
+    console.error("[BRAIN] Error:", err);
+    Improve.failures.log(message, "", "BRAIN_CRASH", sessionId);
+    return res.json({ reply: `Something went sideways, ${T}.`, action: "ERROR" });
+  }
 
-    const groqResult = await Groq.chat(message, {
-      userTitle,
-      memories:  memoryFacts,
-      context:   contextHint,
-      autoLearn: true,
-    });
-
-    Trainer.addExample(message, groqResult.reply, groqResult.action || "groq_answer", null, 0.75, groqResult.learned ? "learned" : "groq");
-
-    if (groqResult.learned) {
-      console.log(`[GROQ] ⚡ Served from learned intent cache`);
-    }
-
-    return res.json({
-      reply:   groqResult.reply,
-      action:  groqResult.learned ? "LEARNED_INTENT" : "GROQ_ANSWER",
-      intent:  "groq",
-      source:  groqResult.source,
-      learned: groqResult.learned,
-      meta:    { model: groqResult.model },
-    });
-
-  } catch (groqErr) {
-    console.error("[GROQ] Primary brain error:", groqErr.message);
-    Improve.failures.log(message, "", "GROQ_ERROR", sessionId);
-
-    try {
-      const linkSummary = getLinksSummary();
-      const serverData  = { ...linkSummary, allLinks: getAllLinksFormatted(), ...lookupLink(message) };
-      const aiResult    = AI.process({ message, sessionId, userName, userTitle, memories, moodContext, serverData });
-
-      Improve.failures.log(message, aiResult.reply || "", aiResult.action || "FALLBACK", sessionId);
-
-      if (aiResult.needsFetch) {
-        switch (aiResult.fetchType) {
-          case "weather":  return res.json(await handleWeatherFetch(message, T));
-          case "spotify":  return res.json(await handleSpotifyFetch(message, T));
-          case "gmail":    return res.json(await handleGmailFetch(message, T));
-          case "calendar": return res.json(await handleCalendarFetch(message, T));
-          case "person":   return res.json(await handlePersonFetch(message, aiResult.meta, T));
-          case "diy":      return res.json(await handleDIYFetch(message, userTitle));
-        }
-      }
-
-      return res.json({ ...aiResult });
-    } catch (aiErr) {
-      return res.json({ reply: `Both AI systems are down, ${T}. Check your GROQ_API_KEY in .env.`, action: "ERROR" });
+  if (result.needsFetch) {
+    switch (result.fetchType) {
+      case "weather":  return res.json(await handleWeatherFetch(message, T));
+      case "spotify":  return res.json(await handleSpotifyFetch(message, T));
+      case "gmail":    return res.json(await handleGmailFetch(message, T));
+      case "calendar": return res.json(await handleCalendarFetch(message, T));
+      case "person":   return res.json(await handlePersonFetch(message, result.meta, T));
+      case "diy":      return res.json(await handleDIYFetch(message, userTitle));
     }
   }
+
+  if (result.source === "tutor") {
+    Trainer.addExample(message, result.reply, "tutored", result.topic, 0.75, "groq_tutor");
+  } else if (result.action === "FALLBACK") {
+    Improve.failures.log(message, result.reply || "", result.action, sessionId);
+  } else {
+    const quality = Trainer.scoreQuality(message, result.reply, result.action);
+    Trainer.addExample(message, result.reply, result.intent || result.action, result.topic, quality, result.source || "local");
+  }
+
+  return res.json(result);
 });
 
 // ═══════════════════════════════════════════════════════════════
