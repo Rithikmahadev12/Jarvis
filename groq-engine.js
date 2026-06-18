@@ -12,9 +12,9 @@ const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 const MODELS = {
-  fast:  "llama3-8b-8192",
-  smart: "llama3-70b-8192",
-  mix:   "mixtral-8x7b-32768",
+  fast:  "llama-3.1-8b-instant",
+  smart: "llama-3.3-70b-versatile",
+  mix:   "llama-3.1-8b-instant",
 };
 
 // ── LEARNED INTENTS STORE ─────────────────────────────────────
