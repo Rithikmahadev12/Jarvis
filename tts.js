@@ -13,7 +13,7 @@ const fs             = require("fs");
 const os             = require("os");
 
 const VOICE_MODEL = path.join(__dirname, "voices/jarvis/en_GB-jarvis-medium.onnx");
-const PIPER_BIN   = "piper"; // on PATH after startup.sh
+const PIPER_BIN = path.join(__dirname, "bin/piper");
 
 function isReady() {
   return fs.existsSync(VOICE_MODEL);
