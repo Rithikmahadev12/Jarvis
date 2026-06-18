@@ -32,9 +32,9 @@ app.use(express.static(path.join(__dirname, "public"), {
   }
 }));
 
-// ══════════════════════════════════════════════════════════════
-// ── COMMS ─────────────────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── COMMS
+// ═══════════════════════════════════════════════════════════════
 const attachComms = require("./comms-server");
 const io          = attachComms(httpServer);
 
@@ -161,9 +161,9 @@ function bootstrapOwnerAccount() {
 
 app.get("/favicon.ico", (req, res) => res.status(204).end());
 
-// ══════════════════════════════════════════════════════════════
-// ── HOME AUTOMATION ───────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── HOME AUTOMATION
+// ═══════════════════════════════════════════════════════════════
 let _scanLog = "";
 
 app.get("/home", (req, res) => res.sendFile(path.join(__dirname, "public", "home.html")));
@@ -183,9 +183,9 @@ app.post("/api/home/scan", async (req, res) => {
     res.json({ devices, count: devices.length });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
-app.get("/api/home/scan-status",         (req, res) => res.json({ log: _scanLog }));
-app.post("/api/home/control/:id",    async (req, res) => res.json(await Home.controlDevice(decodeURIComponent(req.params.id), req.body)));
-app.post("/api/home/control-all",    async (req, res) => {
+app.get("/api/home/scan-status",      (req, res) => res.json({ log: _scanLog }));
+app.post("/api/home/control/:id", async (req, res) => res.json(await Home.controlDevice(decodeURIComponent(req.params.id), req.body)));
+app.post("/api/home/control-all", async (req, res) => {
   const devices = Home.getDeviceList().filter(d => d.reachable !== false);
   const results = await Promise.all(devices.map(d => Home.controlDevice(d.id, req.body)));
   res.json({ ok: true, count: results.filter(r => r.ok).length });
@@ -227,9 +227,9 @@ app.get("/api/home/pending-messages", (req, res) => {
   res.json({ messages: Home.getPendingMessages(ip) });
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── SELF-IMPROVEMENT API ──────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── SELF-IMPROVEMENT API
+// ═══════════════════════════════════════════════════════════════
 app.get("/api/improve/stats", (req, res) => {
   res.json({
     improve:  Improve.getStats(),
@@ -274,9 +274,9 @@ app.post("/api/improve/analyze", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── LEARNED INTENTS API ───────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── LEARNED INTENTS API
+// ═══════════════════════════════════════════════════════════════
 app.get("/api/learned", (req, res) => {
   res.json({
     stats:   Groq.getLearnedIntentsStats(),
@@ -299,9 +299,9 @@ app.post("/api/learned/teach", (req, res) => {
   res.json({ ok, keywords: kw });
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── PROFILE ROUTES ────────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── PROFILE ROUTES
+// ═══════════════════════════════════════════════════════════════
 app.post("/api/register", (req, res) => {
   const { name, passwordHash, title, voiceAliases } = req.body;
   if (!name || !passwordHash) return res.status(400).json({ error: "Missing fields" });
@@ -341,9 +341,9 @@ app.get("/api/profiles", (req, res) => {
   res.json({ profiles: list });
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── MEMORY ROUTES ─────────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── MEMORY ROUTES
+// ═══════════════════════════════════════════════════════════════
 app.get("/api/memory/:user", (req, res) => {
   const mem = loadMemories();
   res.json({ memories: mem[req.params.user.toLowerCase().trim()] || [] });
@@ -371,17 +371,17 @@ app.post("/api/memory/forget", (req, res) => {
   res.json({ removed: before - mem[key].length });
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── WEATHER ───────────────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── WEATHER
+// ═══════════════════════════════════════════════════════════════
 app.post("/api/weather", async (req, res) => {
   try { res.json(await Weather.handleWeatherCommand(req.body.message || "weather")); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── SPOTIFY ───────────────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── SPOTIFY
+// ═══════════════════════════════════════════════════════════════
 app.get("/api/spotify/auth", (req, res) => {
   if (!Spotify.isConfigured()) return res.status(400).json({ error: "Spotify credentials not configured in .env" });
   res.redirect(Spotify.getAuthUrl());
@@ -401,9 +401,9 @@ app.post("/api/spotify", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── GOOGLE ────────────────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── GOOGLE
+// ═══════════════════════════════════════════════════════════════
 app.get("/api/google/auth", (req, res) => {
   if (!Google.isConfigured()) return res.status(400).json({ error: "Google credentials not configured in .env" });
   res.redirect(Google.getAuthUrl());
@@ -429,9 +429,9 @@ app.post("/api/calendar", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── PERSONALITY ───────────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── PERSONALITY
+// ═══════════════════════════════════════════════════════════════
 app.post("/api/personality/comment", (req, res) => {
   const { scene, userTitle, sessionMinutes, previousScene } = req.body;
   const T = userTitle || "Sir";
@@ -447,16 +447,16 @@ app.post("/api/personality/smalltalk", (req, res) => {
   res.json({ reply: Personality.routeSmallTalk(message, T) || null });
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── EXTENSION API ─────────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── EXTENSION API
+// ═══════════════════════════════════════════════════════════════
 const extensionQueue  = [];
 let   extensionStatus = { phase: "idle", user: null, userTitle: null, mood: "neutral" };
 
-app.get("/api/extension/poll",         (req, res) => res.json({ commands: extensionQueue.splice(0), status: extensionStatus }));
-app.post("/api/extension/status",      (req, res) => { extensionStatus = { ...req.body }; res.json({ ok: true }); });
-app.get("/api/extension/status",       (req, res) => res.json(extensionStatus));
-app.post("/api/extension/command",     (req, res) => {
+app.get("/api/extension/poll",     (req, res) => res.json({ commands: extensionQueue.splice(0), status: extensionStatus }));
+app.post("/api/extension/status",  (req, res) => { extensionStatus = { ...req.body }; res.json({ ok: true }); });
+app.get("/api/extension/status",   (req, res) => res.json(extensionStatus));
+app.post("/api/extension/command", (req, res) => {
   const { action, data } = req.body;
   if (!action) return res.status(400).json({ error: "Missing action" });
   extensionQueue.push({ action, data: data || {} });
@@ -474,9 +474,9 @@ app.get("/api/extension/download", (req, res) => {
   archive.finalize();
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── RESEARCH ──────────────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── RESEARCH
+// ═══════════════════════════════════════════════════════════════
 app.post("/api/research", async (req, res) => {
   const { query, userTitle } = req.body;
   if (!query) return res.status(400).json({ error: "Missing query" });
@@ -493,9 +493,9 @@ app.post("/api/research/person", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── SCREEN ANALYSIS ───────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── SCREEN ANALYSIS
+// ═══════════════════════════════════════════════════════════════
 app.post("/api/screen", (req, res) => {
   const { ocrText, question, userName, userTitle, memories } = req.body;
   const T = userTitle || "Sir";
@@ -513,9 +513,9 @@ app.post("/api/screen", (req, res) => {
   }
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── NOTIFY ENDPOINT ───────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── NOTIFY ENDPOINT
+// ═══════════════════════════════════════════════════════════════
 app.post("/api/notify", (req, res) => {
   const { message, from, type } = req.body;
   if (!message) return res.status(400).json({ error: "Missing message" });
@@ -523,10 +523,54 @@ app.post("/api/notify", (req, res) => {
   res.json({ ok: true, received: true });
 });
 
-// ══════════════════════════════════════════════════════════════
-// ── HARD COMMAND PATTERNS ─────────────────────────────────────
-// These must be routed by the server, not Groq
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── GITHUB DEPLOY (feature draft/ship)
+// ═══════════════════════════════════════════════════════════════
+let _pendingPR = null;
+
+// Direct API endpoints (still available for manual use)
+app.post("/api/feature/draft", async (req, res) => {
+  const { description, filePath } = req.body;
+  const T = "Sir";
+  if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPO) {
+    return res.json({ reply: `GitHub isn't configured, ${T}. Add GITHUB_TOKEN and GITHUB_REPO to your .env file.` });
+  }
+  if (!Groq.isConfigured()) {
+    return res.json({ reply: `Groq isn't configured, ${T}. Add GROQ_API_KEY to .env.` });
+  }
+  try {
+    const GitDeploy  = require("./github-deploy");
+    const code = await Groq.generateCode(
+      `Add this feature to a JARVIS Node.js assistant codebase: ${description}. Return only the complete updated file contents for ${filePath || "server.js"}. No explanation, no markdown fences.`
+    );
+    const branchName = `feature/${Date.now()}`;
+    await GitDeploy.createFeatureBranch(branchName);
+    await GitDeploy.commitFile(filePath || "server.js", code, `feat: ${description}`, branchName);
+    const pr = await GitDeploy.openPullRequest(branchName, description, "Drafted by JARVIS — review before merging.");
+    _pendingPR = pr.number;
+    res.json({ reply: `Drafted "${description}", ${T}. PR #${pr.number} is open: ${pr.html_url}. Say "ship it" to merge.` });
+  } catch (e) {
+    res.json({ reply: `Couldn't draft that, ${T}: ${e.message}` });
+  }
+});
+
+app.post("/api/feature/ship", async (req, res) => {
+  const T = "Sir";
+  if (!_pendingPR) return res.json({ reply: `Nothing drafted to ship yet, ${T}.` });
+  try {
+    const GitDeploy = require("./github-deploy");
+    await GitDeploy.mergePullRequest(_pendingPR);
+    const prNum = _pendingPR;
+    _pendingPR  = null;
+    res.json({ reply: `PR #${prNum} merged, ${T}. Deployment will trigger automatically if CI is configured.` });
+  } catch (e) {
+    res.json({ reply: `Merge failed, ${T}: ${e.message}` });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── HARD COMMAND PATTERNS
+// ═══════════════════════════════════════════════════════════════
 const HARD_COMMANDS = {
   timer:        /\b(set a timer|timer for|remind me in|remind me to .+ in|alarm in|alert me in)\b/i,
   clip:         /\b(clip that|save clip|clip the last|save the last|record that|capture that)\b/i,
@@ -549,19 +593,26 @@ const HARD_COMMANDS = {
   showHUD:      /\b(show hud|pull up hud|open hud|solve|calculate|annotate screen)\b/i,
   hideHUD:      /\b(hide hud|close hud|dismiss hud|hud off)\b/i,
   call:         /\b(call|ring|facetime|video call|voice call)\b.{1,30}\b\w+\b/i,
+  // ── NEW: GitHub feature draft & ship ──
+  featureDraft: /\b(draft|build|add|create|implement|write)\s+.{3,80}(feature|function|route|endpoint|module|handler|integration|support|capability)\b/i,
+  featureShip:  /\b(ship it|ship that|merge it|deploy it|push it|go live|merge the pr|ship the pr|merge and deploy)\b/i,
 };
 
 function isHardCommand(message) {
+  // featureDraft must be checked before generic "create/build" patterns
+  // to avoid collision with the diy pattern
+  if (HARD_COMMANDS.featureShip.test(message))  return "featureShip";
+  if (HARD_COMMANDS.featureDraft.test(message)) return "featureDraft";
   for (const [type, pattern] of Object.entries(HARD_COMMANDS)) {
+    if (type === "featureDraft" || type === "featureShip") continue;
     if (pattern.test(message)) return type;
   }
   return null;
 }
 
-// ══════════════════════════════════════════════════════════════
-// ── SHARED FETCH HANDLERS (used by both hard command path
-//    and the old AI path — no duplication) ────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── SHARED FETCH HANDLERS
+// ═══════════════════════════════════════════════════════════════
 async function handleWeatherFetch(message, T) {
   try {
     const wd = await Weather.handleWeatherCommand(message);
@@ -642,15 +693,115 @@ async function handleDIYFetch(message, userTitle) {
   }
 }
 
-// ══════════════════════════════════════════════════════════════
-// ── MAIN CHAT ROUTE ───────────────────────────────────────────
-// Flow:
-//   1. Home commands
-//   2. Personality shortcuts (instant)
-//   3. Hard commands → AI engine for routing/meta, then fetch
-//   4. Everything else → Groq (primary brain)
-//      Groq not configured → AI engine fallback
-// ══════════════════════════════════════════════════════════════
+// ── NEW: Feature draft/ship handlers ─────────────────────────
+async function handleFeatureDraft(message, T) {
+  if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPO) {
+    return {
+      reply:  `GitHub isn't configured, ${T}. Add GITHUB_TOKEN and GITHUB_REPO to your .env file, then try again.`,
+      action: "FEATURE_DRAFT",
+      intent: "feature_draft",
+    };
+  }
+  if (!Groq.isConfigured()) {
+    return {
+      reply:  `Groq isn't configured, ${T}. Add GROQ_API_KEY to .env — it's needed to generate the code.`,
+      action: "FEATURE_DRAFT",
+      intent: "feature_draft",
+    };
+  }
+
+  // Strip filler words to get the core description
+  const desc = message
+    .replace(/\b(jarvis[,.]?\s*)?(draft|build|add|create|implement|write|a|an|the)\b/gi, "")
+    .replace(/\b(feature|function|route|endpoint|module|handler|integration|support|capability)\b/gi, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    || message.trim();
+
+  // Pick the most likely file to edit
+  const fileMap = {
+    route:       "server.js",
+    endpoint:    "server.js",
+    api:         "server.js",
+    server:      "server.js",
+    integration: "server.js",
+    handler:     "ai-engine.js",
+    intent:      "ai-engine.js",
+    personality: "personality.js",
+    research:    "research.js",
+    diy:         "diy-builder.js",
+    home:        "home.js",
+    groq:        "groq-engine.js",
+    spotify:     "spotify.js",
+    weather:     "weather.js",
+    google:      "google.js",
+  };
+  const lower    = message.toLowerCase();
+  const fileKey  = Object.keys(fileMap).find(k => lower.includes(k)) || "feature";
+  const filePath = fileMap[fileKey] || "server.js";
+
+  try {
+    const GitDeploy = require("./github-deploy");
+    const code = await Groq.generateCode(
+      `Add this feature to a JARVIS Node.js AI assistant codebase: "${desc}". ` +
+      `Return ONLY the complete updated file contents for ${filePath}. ` +
+      `No explanation, no markdown code fences, no preamble — just the raw JavaScript.`
+    );
+    const safeName   = desc.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 40);
+    const branchName = `feature/${safeName}-${Date.now()}`;
+    await GitDeploy.createFeatureBranch(branchName);
+    await GitDeploy.commitFile(filePath, code, `feat: ${desc}`, branchName);
+    const pr = await GitDeploy.openPullRequest(
+      branchName,
+      desc,
+      `Drafted by J.A.R.V.I.S\n\nFile: \`${filePath}\`\n\nReview before merging.`
+    );
+    _pendingPR = pr.number;
+    return {
+      reply:  `Drafted "${desc}", ${T}. PR #${pr.number} is open for review: ${pr.html_url}. Say "ship it" to merge.`,
+      action: "FEATURE_DRAFT",
+      intent: "feature_draft",
+      meta:   { pr: pr.number, url: pr.html_url, branch: branchName, file: filePath },
+    };
+  } catch (e) {
+    return {
+      reply:  `Draft failed, ${T}: ${e.message}`,
+      action: "FEATURE_DRAFT",
+      intent: "feature_draft",
+    };
+  }
+}
+
+async function handleFeatureShip(T) {
+  if (!_pendingPR) {
+    return {
+      reply:  `Nothing drafted to ship yet, ${T}. Say "draft a [description] feature" first.`,
+      action: "FEATURE_SHIP",
+      intent: "feature_ship",
+    };
+  }
+  try {
+    const GitDeploy = require("./github-deploy");
+    await GitDeploy.mergePullRequest(_pendingPR);
+    const prNum = _pendingPR;
+    _pendingPR  = null;
+    return {
+      reply:  `PR #${prNum} merged, ${T}. If CI/CD is configured the deployment will trigger automatically.`,
+      action: "FEATURE_SHIP",
+      intent: "feature_ship",
+    };
+  } catch (e) {
+    return {
+      reply:  `Merge failed, ${T}: ${e.message}`,
+      action: "FEATURE_SHIP",
+      intent: "feature_ship",
+    };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── MAIN CHAT ROUTE
+// ═══════════════════════════════════════════════════════════════
 app.post("/api/chat", async (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
@@ -683,6 +834,14 @@ app.post("/api/chat", async (req, res) => {
   const hardCommandType = isHardCommand(message);
 
   if (hardCommandType) {
+    // ── Feature draft/ship — handled directly, no AI engine needed ──
+    if (hardCommandType === "featureDraft") {
+      return res.json(await handleFeatureDraft(message, T));
+    }
+    if (hardCommandType === "featureShip") {
+      return res.json(await handleFeatureShip(T));
+    }
+
     const linkSummary = getLinksSummary();
     const serverData  = { ...linkSummary, allLinks: getAllLinksFormatted(), ...lookupLink(message) };
 
@@ -738,13 +897,11 @@ app.post("/api/chat", async (req, res) => {
       return res.json({ reply: removed > 0 ? `Done, ${T}. ${removed} memory entry removed.` : `Nothing matching that on file, ${T}.`, action, intent });
     }
 
-    // All other hard commands — return AI result directly
     return res.json({ reply, action: action || "COMMAND", intent: intent || hardCommandType, topic, meta });
   }
 
   // ── 4. Everything else → Groq (primary brain) ──
   if (!Groq.isConfigured()) {
-    // Groq not set up — fall back to old AI engine + self-improve
     const linkSummary = getLinksSummary();
     const serverData  = { ...linkSummary, allLinks: getAllLinksFormatted(), ...lookupLink(message) };
 
@@ -759,7 +916,6 @@ app.post("/api/chat", async (req, res) => {
 
     const { reply, action, meta, intent, topic, needsFetch, fetchType } = aiResult;
 
-    // Handle fetches for the fallback path too
     if (needsFetch) {
       switch (fetchType) {
         case "weather":  return res.json(await handleWeatherFetch(message, T));
@@ -771,7 +927,6 @@ app.post("/api/chat", async (req, res) => {
       }
     }
 
-    // Research fallback for weak responses
     const isWeakResponse = action === "FALLBACK" || (reply && reply.length < 50);
     if (isWeakResponse) {
       Improve.failures.log(message, reply || "", action, sessionId);
@@ -797,7 +952,6 @@ app.post("/api/chat", async (req, res) => {
   const memoryFacts = (memories || []).slice(0, 8).map(m => typeof m === "string" ? m : m.fact);
 
   try {
-    // Pull relevant training examples to enhance the prompt
     const relevantExamples = Trainer.findRelevantExamples(message, 2);
     const contextHint = relevantExamples.length > 0
       ? `Similar past conversations:\n${relevantExamples.map(e => `Q: ${e.input}\nA: ${e.output}`).join("\n\n")}\n\n`
@@ -810,10 +964,8 @@ app.post("/api/chat", async (req, res) => {
       autoLearn: true,
     });
 
-    // Log to trainer
     Trainer.addExample(message, groqResult.reply, groqResult.action || "groq_answer", null, 0.75, groqResult.learned ? "learned" : "groq");
 
-    // Log to self-improvement if it was a learned intent hit
     if (groqResult.learned) {
       console.log(`[GROQ] ⚡ Served from learned intent cache`);
     }
@@ -829,11 +981,8 @@ app.post("/api/chat", async (req, res) => {
 
   } catch (groqErr) {
     console.error("[GROQ] Primary brain error:", groqErr.message);
-
-    // Log the failure
     Improve.failures.log(message, "", "GROQ_ERROR", sessionId);
 
-    // Last resort — original AI engine
     try {
       const linkSummary = getLinksSummary();
       const serverData  = { ...linkSummary, allLinks: getAllLinksFormatted(), ...lookupLink(message) };
@@ -841,7 +990,6 @@ app.post("/api/chat", async (req, res) => {
 
       Improve.failures.log(message, aiResult.reply || "", aiResult.action || "FALLBACK", sessionId);
 
-      // Handle fetches even in last-resort path
       if (aiResult.needsFetch) {
         switch (aiResult.fetchType) {
           case "weather":  return res.json(await handleWeatherFetch(message, T));
@@ -860,49 +1008,16 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-const GitDeploy = require("./github-deploy");
-let _pendingPR = null; // tracks the last opened PR for "ship it"
-
-app.post("/api/feature/draft", async (req, res) => {
-  const { description, filePath } = req.body;
-  const T = "Sir";
-  try {
-    const code = await Groq.generateCode(
-      `Add this feature to a JARVIS assistant codebase: ${description}. Return only the full file contents for ${filePath}.`
-    );
-    const branchName = `feature/${Date.now()}`;
-    await GitDeploy.createFeatureBranch(branchName);
-    await GitDeploy.commitFile(filePath, code, `Add: ${description}`, branchName);
-    const pr = await GitDeploy.openPullRequest(branchName, description, "Drafted by JARVIS — review before merging.");
-    _pendingPR = pr.number;
-    res.json({ reply: `Drafted "${description}", ${T}. PR #${pr.number} is open for review: ${pr.html_url}. Say "ship it" to merge.` });
-  } catch (e) {
-    res.json({ reply: `Couldn't draft that, ${T}: ${e.message}` });
-  }
-});
-
-app.post("/api/feature/ship", async (req, res) => {
-  if (!_pendingPR) return res.json({ reply: "Nothing drafted to ship yet, Sir." });
-  try {
-    await GitDeploy.mergePullRequest(_pendingPR);
-    res.json({ reply: `Merged, Sir. Render will redeploy automatically.` });
-    _pendingPR = null;
-  } catch (e) {
-    res.json({ reply: `Merge failed, Sir: ${e.message}` });
-  }
-});
-
-// ══════════════════════════════════════════════════════════════
-// ── BOOT ──────────────────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── BOOT
+// ═══════════════════════════════════════════════════════════════
 const PORT = process.env.PORT || 3000;
 
 bootstrapOwnerAccount();
 Improve.ensureDirs();
 
-// Start background loops
-Improve.startImprovementLoop(5 * 60 * 1000);   // analyse failures every 5 min
-Trainer.startTrainingLoop(15 * 60 * 1000);       // reinforce weak areas every 15 min
+Improve.startImprovementLoop(5 * 60 * 1000);
+Trainer.startTrainingLoop(15 * 60 * 1000);
 
 httpServer.listen(PORT, () => {
   console.log(`\nJ.A.R.V.I.S online → http://localhost:${PORT}`);
@@ -911,7 +1026,7 @@ httpServer.listen(PORT, () => {
   console.log(`  Spotify:       ${Spotify.isConfigured() ? "✓ configured" : "✗ add SPOTIFY_CLIENT_ID to .env"}`);
   console.log(`  Google:        ${Google.isConfigured()  ? "✓ configured" : "✗ add GOOGLE_CLIENT_ID to .env"}`);
   console.log(`  Weather:       ${process.env.OPENWEATHER_API_KEY ? "✓ configured" : "✗ add OPENWEATHER_API_KEY to .env"}`);
+  console.log(`  GitHub deploy: ${process.env.GITHUB_TOKEN ? "✓ configured" : "✗ add GITHUB_TOKEN + GITHUB_REPO to .env"}`);
   console.log(`  Training data: /data/training_data.json`);
   console.log(`  Learned:       /data/learned/\n`);
 });
-
