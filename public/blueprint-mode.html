@@ -15,8 +15,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 }
 
 #stage{position:fixed;inset:0;z-index:0;overflow:hidden;background:#000508}
-#camera-feed{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:0.55;filter:brightness(0.85) contrast(1.05) saturate(0.7);}
-#draw-canvas{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:auto;cursor:crosshair}
+#camera-feed{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:0.35;filter:brightness(0.85) contrast(1.05) saturate(0.7);}
+#draw-canvas{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:auto;cursor:default}
 
 /* ── SCAN / CORNERS ── */
 .scan{position:fixed;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,200,255,0.12),transparent);animation:scanMove 8s linear infinite;pointer-events:none;z-index:50}
@@ -29,20 +29,29 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 .corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}.corner.br{bottom:14px;right:14px;transform:scale(-1)}
 
 /* ── TOP BAR ── */
-#top{position:fixed;top:0;left:0;right:0;height:50px;background:linear-gradient(180deg,rgba(0,4,12,0.97),rgba(0,6,18,0.8));border-bottom:1px solid rgba(0,200,255,0.18);display:flex;align-items:center;justify-content:space-between;padding:0 60px;z-index:60}
+#top{position:fixed;top:0;left:0;right:0;height:54px;background:linear-gradient(180deg,rgba(0,4,12,0.97),rgba(0,6,18,0.8));border-bottom:1px solid rgba(0,200,255,0.18);display:flex;align-items:center;justify-content:space-between;padding:0 60px;z-index:60}
 .top-title{font-family:var(--hud);font-size:0.85rem;font-weight:900;letter-spacing:0.4em;color:var(--blue);text-shadow:0 0 16px var(--glow)}
-.top-right{display:flex;align-items:center;gap:14px;font-size:0.48rem;letter-spacing:0.2em;color:var(--dim-text)}
+.top-right{display:flex;align-items:center;gap:10px;font-size:0.48rem;letter-spacing:0.2em;color:var(--dim-text)}
 .top-right .live{color:var(--green);display:flex;align-items:center;gap:5px}
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:blinkSlow 1.4s step-end infinite}
 @keyframes blinkSlow{0%,100%{opacity:1}50%{opacity:0.25}}
-#mode-pill{font-family:var(--hud);font-size:0.5rem;letter-spacing:0.18em;padding:5px 12px;border-radius:2px;border:1px solid var(--dim);transition:all 0.2s}
-#mode-pill.idle{color:var(--dim-text);border-color:rgba(0,200,255,0.15)}
-#mode-pill.grab{color:var(--amber);border-color:rgba(255,170,0,0.5);box-shadow:0 0 12px rgba(255,170,0,0.2)}
-#mode-pill.pen{color:var(--blue);border-color:rgba(0,200,255,0.5);box-shadow:0 0 12px var(--glow)}
-#mute-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);color:var(--dim-text);font-size:0.7rem;padding:4px 8px;cursor:pointer;border-radius:2px}
 
-/* ── LEFT SIDEBAR ── */
-#left-sidebar{position:fixed;top:50px;left:0;bottom:0;width:200px;background:rgba(0,3,10,0.92);border-right:1px solid rgba(0,200,255,0.12);z-index:55;display:flex;flex-direction:column;padding:14px 12px;gap:10px;overflow-y:auto}
+/* ── TOOL BAR (the big fix: explicit, obvious toggle buttons) ── */
+#toolbar{position:fixed;top:62px;left:50%;transform:translateX(-50%);z-index:62;display:flex;gap:6px;background:rgba(0,4,12,0.92);border:1px solid rgba(0,200,255,0.25);border-radius:4px;padding:6px;box-shadow:0 4px 24px rgba(0,200,255,0.08)}
+.tool-btn{font-family:var(--hud);font-size:0.5rem;letter-spacing:0.14em;padding:9px 14px;border-radius:2px;border:1px solid rgba(0,200,255,0.25);background:rgba(0,200,255,0.04);color:var(--dim-text);cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.tool-btn:hover{border-color:var(--blue);color:var(--blue)}
+.tool-btn.active{background:rgba(0,200,255,0.18);border-color:var(--blue);color:var(--blue);box-shadow:0 0 12px var(--glow)}
+.tool-btn.active.pen{background:rgba(0,200,255,0.22)}
+.tool-btn.active.eraser{background:rgba(255,51,51,0.18);border-color:var(--red);color:var(--red);box-shadow:0 0 12px rgba(255,51,51,0.3)}
+.tool-btn.active.stamp{background:rgba(255,170,0,0.18);border-color:var(--amber);color:var(--amber);box-shadow:0 0 12px rgba(255,170,0,0.3)}
+.tool-sep{width:1px;background:rgba(0,200,255,0.15);margin:2px 2px}
+
+#mute-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);color:var(--dim-text);font-size:0.7rem;padding:4px 8px;cursor:pointer;border-radius:2px}
+#exit-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.25);color:var(--dim-text);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.2em;padding:6px 14px;cursor:pointer;border-radius:2px;transition:all 0.2s}
+#exit-btn:hover{border-color:var(--blue);color:var(--blue)}
+
+/* ── LEFT SIDEBAR — REFERENCE SEARCH ── */
+#left-sidebar{position:fixed;top:54px;left:0;bottom:0;width:210px;background:rgba(0,3,10,0.92);border-right:1px solid rgba(0,200,255,0.12);z-index:55;display:flex;flex-direction:column;padding:14px 12px;gap:10px;overflow-y:auto}
 .sb-label{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.26em;color:var(--dim-text);margin-top:4px}
 #search-row{display:flex;gap:5px}
 #search-input{flex:1;background:rgba(0,200,255,0.05);border:1px solid rgba(0,200,255,0.2);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:0.62rem;padding:7px 8px;border-radius:2px;outline:none}
@@ -50,19 +59,22 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 .bp-btn{background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.3);color:var(--blue);font-family:var(--hud);font-size:0.46rem;letter-spacing:0.14em;padding:8px;cursor:pointer;border-radius:2px;transition:all 0.15s;text-align:center}
 .bp-btn:hover{background:rgba(0,200,255,0.16);box-shadow:0 0 10px var(--glow)}
 .bp-btn.small{padding:6px 8px;font-size:0.42rem}
+.bp-btn.amber{border-color:rgba(255,170,0,0.5);color:var(--amber)}
+.bp-btn.green{border-color:rgba(0,255,136,0.5);color:var(--green)}
 .chip-row{display:flex;flex-wrap:wrap;gap:5px}
 .bp-chip{font-size:0.48rem;letter-spacing:0.06em;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.15);color:rgba(168,223,245,0.7);padding:4px 8px;border-radius:10px;cursor:pointer;transition:all 0.15s}
 .bp-chip:hover{background:rgba(0,200,255,0.12);border-color:var(--blue);color:var(--blue)}
 #results-grid{display:flex;flex-direction:column;gap:8px;margin-top:2px}
-.bp-thumb{position:relative;width:100%;border:1px solid rgba(0,200,255,0.25);border-radius:2px;overflow:hidden;cursor:grab;background:#04101c;transition:border-color 0.15s,box-shadow 0.15s}
-.bp-thumb:hover{border-color:var(--blue);box-shadow:0 0 12px var(--glow)}
+.bp-thumb{position:relative;width:100%;border:1px solid rgba(0,200,255,0.25);border-radius:2px;overflow:hidden;cursor:pointer;background:#04101c;transition:border-color 0.15s,box-shadow 0.15s}
+.bp-thumb:hover{border-color:var(--amber);box-shadow:0 0 12px rgba(255,170,0,0.25)}
 .bp-thumb img{width:100%;height:78px;object-fit:cover;display:block;opacity:0.92}
-.bp-thumb .tag{position:absolute;bottom:0;left:0;right:0;font-size:0.4rem;letter-spacing:0.1em;color:var(--blue);background:rgba(0,8,18,0.75);padding:3px 5px;font-family:var(--hud)}
+.bp-thumb .tag{position:absolute;bottom:0;left:0;right:0;font-size:0.4rem;letter-spacing:0.1em;color:var(--amber);background:rgba(0,8,18,0.75);padding:3px 5px;font-family:var(--hud)}
 #results-empty{font-size:0.52rem;color:var(--dim-text);line-height:1.7;padding:6px 2px}
 #status-line{font-size:0.5rem;color:rgba(0,200,255,0.55);letter-spacing:0.06em;line-height:1.6;padding-top:4px;border-top:1px solid rgba(0,200,255,0.08);margin-top:auto}
+#status-line b{color:var(--amber)}
 
-/* ── RIGHT SIDEBAR ── */
-#right-sidebar{position:fixed;top:50px;right:0;bottom:0;width:200px;background:rgba(0,3,10,0.92);border-left:1px solid rgba(0,200,255,0.12);z-index:55;display:flex;flex-direction:column;padding:14px 12px;gap:10px;overflow-y:auto}
+/* ── RIGHT SIDEBAR — TOOLS / BUILD ── */
+#right-sidebar{position:fixed;top:54px;right:0;bottom:0;width:230px;background:rgba(0,3,10,0.92);border-left:1px solid rgba(0,200,255,0.12);z-index:55;display:flex;flex-direction:column;padding:14px 12px;gap:10px;overflow-y:auto}
 .pen-colors{display:flex;gap:6px}
 .pen-swatch{width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,0.15);cursor:pointer;transition:transform 0.15s}
 .pen-swatch.active{transform:scale(1.18);border-color:#fff}
@@ -72,21 +84,29 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 #gesture-help{font-size:0.46rem;line-height:1.85;color:var(--dim-text);letter-spacing:0.04em}
 #gesture-help b{color:var(--blue)}
 #depth-row{display:flex;flex-direction:column;gap:4px}
-#depth-row input[type="range"]{width:100%;accent-color:var(--blue)}
-#depth-val{font-size:0.5rem;color:var(--blue);letter-spacing:0.06em}
+#depth-row input[type="range"],#brush-row input[type="range"]{width:100%;accent-color:var(--blue)}
+#depth-val,#brush-val{font-size:0.5rem;color:var(--blue);letter-spacing:0.06em}
 #selection-hint{font-size:0.46rem;color:var(--amber);letter-spacing:0.05em;line-height:1.7;min-height:14px}
+
+/* ── REAL BUILD PANEL ── */
+#build-input{width:100%;background:rgba(255,170,0,0.05);border:1px solid rgba(255,170,0,0.25);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:0.6rem;padding:7px 8px;border-radius:2px;outline:none;margin-bottom:6px}
+#build-input::placeholder{color:var(--dim-text)}
+#build-output{display:none;flex-direction:column;gap:8px;font-size:0.5rem;line-height:1.6;color:var(--text);max-height:340px;overflow-y:auto;background:rgba(255,170,0,0.03);border:1px solid rgba(255,170,0,0.15);border-radius:2px;padding:8px}
+#build-output b{color:var(--amber);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.1em}
+#build-output .part-row{display:flex;justify-content:space-between;gap:6px;border-bottom:1px solid rgba(255,170,0,0.08);padding:3px 0}
+#build-output .part-name{color:var(--text)}
+#build-output .part-est{color:var(--amber);white-space:nowrap}
+#build-output .note-line{color:rgba(168,223,245,0.7)}
+#build-output a{color:var(--blue);text-decoration:none;word-break:break-all}
+#build-output a:hover{text-decoration:underline}
 
 /* ── HOLOGRAM VIEW ── */
 #holo-canvas{position:fixed;inset:0;z-index:5;display:none}
 #back-to-draft{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:65;display:none}
 #holo-summary{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:65;display:none;background:rgba(0,4,14,0.9);border:1px solid rgba(0,200,255,0.35);color:var(--blue);font-family:var(--hud);font-size:0.46rem;letter-spacing:0.16em;padding:7px 18px;border-radius:2px}
 
-/* ── EXIT ── */
-#exit-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.25);color:var(--dim-text);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.2em;padding:6px 14px;cursor:pointer;border-radius:2px;transition:all 0.2s}
-#exit-btn:hover{border-color:var(--blue);color:var(--blue)}
-
 /* ── BOTTOM TICKER ── */
-#ticker{position:fixed;bottom:0;left:200px;right:200px;height:20px;background:rgba(0,3,10,0.96);border-top:1px solid rgba(0,200,255,0.1);overflow:hidden;display:flex;align-items:center;z-index:55;pointer-events:none}
+#ticker{position:fixed;bottom:0;left:210px;right:230px;height:20px;background:rgba(0,3,10,0.96);border-top:1px solid rgba(0,200,255,0.1);overflow:hidden;display:flex;align-items:center;z-index:55;pointer-events:none}
 #ticker::before{content:'▶';font-size:0.4rem;color:var(--blue);padding:0 10px;flex-shrink:0;opacity:0.5}
 .ticker-track{display:flex;white-space:nowrap;animation:tickScroll 50s linear infinite;font-size:0.48rem;color:rgba(0,200,255,0.32);letter-spacing:0.12em}
 .ti{padding:0 30px}.ti.b{color:rgba(0,200,255,0.6)}
@@ -101,7 +121,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 .load-sub{font-size:0.48rem;letter-spacing:0.22em;color:var(--dim-text)}
 
 /* ── STATUS TOAST ── */
-#toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.4);color:var(--blue);font-family:var(--hud);font-size:0.46rem;letter-spacing:0.16em;padding:8px 18px;border-radius:2px;z-index:80;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap}
+#toast{position:fixed;top:118px;left:50%;transform:translateX(-50%);background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.4);color:var(--blue);font-family:var(--hud);font-size:0.46rem;letter-spacing:0.16em;padding:8px 18px;border-radius:2px;z-index:80;opacity:0;transition:opacity 0.3s;pointer-events:none;white-space:nowrap}
 #toast.show{opacity:1}
 </style>
 </head>
@@ -110,7 +130,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 <div id="loading">
   <div class="load-ring"></div>
   <div class="load-title">J.A.R.V.I.S</div>
-  <div class="load-sub">DRAFTING TABLE — INITIALISING HAND TRACKING</div>
+  <div class="load-sub">DRAFTING TABLE — INITIALISING</div>
 </div>
 
 <div class="scan"></div>
@@ -120,11 +140,20 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 <div id="top">
   <div class="top-title">DRAFTING TABLE</div>
   <div class="top-right">
-    <span class="live"><div class="live-dot"></div> HAND TRACKING ACTIVE</span>
-    <span id="mode-pill" class="idle">IDLE</span>
+    <span class="live"><div class="live-dot"></div> READY</span>
     <button id="mute-btn" onclick="toggleMute()">🔊</button>
     <button id="exit-btn" onclick="exitToJarvis()">✕ EXIT</button>
   </div>
+</div>
+
+<!-- EXPLICIT TOOL TOGGLES — this is the fix: no more guessing gestures -->
+<div id="toolbar">
+  <button class="tool-btn pen" id="btn-tool-pen" onclick="setTool('pen')">✏ PEN</button>
+  <button class="tool-btn eraser" id="btn-tool-eraser" onclick="setTool('eraser')">⌫ ERASE</button>
+  <button class="tool-btn stamp" id="btn-tool-stamp" onclick="setTool('stamp')">⬛ PLACE REF</button>
+  <button class="tool-btn" id="btn-tool-none" onclick="setTool('none')">⬡ SELECT</button>
+  <div class="tool-sep"></div>
+  <button class="tool-btn" id="btn-lock" onclick="lockBlueprint()">🔒 BAKE INTO BLUEPRINT</button>
 </div>
 
 <div id="stage">
@@ -138,30 +167,38 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 
 <!-- LEFT SIDEBAR — REFERENCE SEARCH -->
 <div id="left-sidebar">
-  <div class="sb-label">⬡ PULL A REFERENCE</div>
+  <div class="sb-label">⬡ PULL A BLUEPRINT IMAGE</div>
   <div id="search-row">
-    <input id="search-input" placeholder="e.g. drone frame…" onkeydown="if(event.key==='Enter')runSearch()"/>
+    <input id="search-input" placeholder="e.g. plasma repulsor…" onkeydown="if(event.key==='Enter')runSearch()"/>
     <button class="bp-btn small" onclick="runSearch()">GO</button>
   </div>
   <div class="chip-row" id="chip-row"></div>
-  <div class="sb-label">RESULTS — PINCH &amp; PULL ONTO SHEET</div>
-  <div id="results-grid"><div id="results-empty">Search for a reference, or just start sketching on the blank sheet.</div></div>
+  <div class="sb-label">RESULTS — CLICK TO DROP ON SHEET</div>
+  <div id="results-grid"><div id="results-empty">Search for a blueprint, or pick PEN above and start sketching on the blank sheet.</div></div>
   <div id="status-line">
-    Pinch thumb + index to grab. Pinch thumb + middle to draw.<br><br>
-    <b>Click a placed reference</b> to select it, then <b>scroll</b> to resize it or press <b>Delete</b> to remove it. Drag a reference off the sheet onto either sidebar to delete it.<br><br>
-    <b>Closed shapes</b> (start and end your stroke near the same point) become solid 3D parts when projected — open lines stay as glowing wireframes.
+    <b>How this works now:</b><br><br>
+    1. Click an image below → it drops onto the sheet as a real, editable blueprint (not a faint reference).<br><br>
+    2. Drag/resize it like before, then hit <b>🔒 BAKE INTO BLUEPRINT</b> to fuse it into the sheet permanently.<br><br>
+    3. Switch to <b>✏ PEN</b> to draw/modify on top, or <b>⌫ ERASE</b> to remove parts of the blueprint pixel-by-pixel.<br><br>
+    4. Tools only draw/erase while their button is highlighted — nothing happens by accident.
   </div>
 </div>
 
-<!-- RIGHT SIDEBAR — TOOLS -->
+<!-- RIGHT SIDEBAR — TOOLS + REAL BUILD -->
 <div id="right-sidebar">
   <div class="sb-label">⬡ PEN COLOUR</div>
   <div class="pen-colors" id="pen-colors"></div>
+  <div id="brush-row">
+    <div class="sb-label">PEN / ERASER SIZE</div>
+    <input type="range" id="brush-size" min="2" max="60" step="1" value="6" oninput="updateBrushLabel()"/>
+    <span id="brush-val">6 px</span>
+  </div>
   <div class="bp-divider"></div>
   <div class="sb-label">SHEET</div>
   <div id="bp-stats">
     <div>STROKES: <b id="stat-strokes">0</b></div>
-    <div>REFERENCES: <b id="stat-images">0</b></div>
+    <div>BLUEPRINT IMAGES: <b id="stat-images">0</b></div>
+    <div>TOOL: <b id="stat-tool">SELECT</b></div>
   </div>
   <div id="selection-hint"></div>
   <button class="bp-btn" onclick="undoStroke()">↶ UNDO STROKE</button>
@@ -174,15 +211,20 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
   </div>
   <button class="bp-btn" id="generate-btn" style="border-color:rgba(255,170,0,0.5);color:var(--amber)" onclick="generateHologram()">⚡ GENERATE HOLOGRAM</button>
   <button class="bp-btn" id="export-stl-btn" style="border-color:rgba(0,255,136,0.5);color:var(--green)" onclick="exportSTL()">⬇ EXPORT STL (3D PRINT)</button>
+
   <div class="bp-divider"></div>
-  <div class="sb-label">GESTURES</div>
+  <div class="sb-label">⚡ MAKE IT REAL — IRL BUILD</div>
+  <input id="build-input" placeholder="e.g. plasma repulsor, smart glasses…"/>
+  <button class="bp-btn amber" onclick="generateRealBuild()">⚡ GENERATE PARTS LIST</button>
+  <div id="build-output"></div>
+
+  <div class="bp-divider"></div>
+  <div class="sb-label">GESTURES (OPTIONAL — HAND TRACKING)</div>
   <div id="gesture-help">
+    Mouse/click works for everything above — hand tracking below is optional extra control.<br><br>
     <b>Point</b> — move cursor<br>
-    <b>Thumb+Index pinch</b> — grab/place<br>
-    <b>Thumb+Middle pinch</b> — draw<br>
-    <b>Push hand toward camera</b> — click<br>
-    <b>Hold steady</b> — dwell-click<br>
-    <b>Closed loop</b> — becomes a solid part
+    <b>Pinch (thumb+index)</b> — click the highlighted tool's action<br>
+    <b>Push hand toward camera</b> — click button under cursor
   </div>
 </div>
 
@@ -212,13 +254,14 @@ function resize() {
   W = window.innerWidth; H = window.innerHeight;
   canvas.width = W; canvas.height = H;
   computeSheetRect();
+  buildSheetLayer();
 }
 window.addEventListener('resize', resize);
 
-const SIDEBAR_L = 200, SIDEBAR_R = 200, TOPBAR = 50;
+const SIDEBAR_L = 210, SIDEBAR_R = 230, TOPBAR = 110;
 let sheetRect = { x: 0, y: 0, w: 0, h: 0 };
 function computeSheetRect() {
-  const avail = { x: SIDEBAR_L + 20, y: TOPBAR + 24, w: W - SIDEBAR_L - SIDEBAR_R - 40, h: H - TOPBAR - 64 };
+  const avail = { x: SIDEBAR_L + 20, y: TOPBAR + 14, w: W - SIDEBAR_L - SIDEBAR_R - 40, h: H - TOPBAR - 50 };
   sheetRect = avail;
 }
 
@@ -236,7 +279,7 @@ function say(text) {
   } catch (e) {}
 }
 
-function toast(msg, dur = 2600) {
+function toast(msg, dur = 2800) {
   const el = document.getElementById('toast');
   el.textContent = msg;
   el.classList.add('show');
@@ -244,23 +287,57 @@ function toast(msg, dur = 2600) {
   el._t = setTimeout(() => el.classList.remove('show'), dur);
 }
 
+// ── THE BLUEPRINT SHEET LAYER ──────────────────────────────────
+// This is the real fix: a permanent off-screen bitmap canvas that
+// holds the "baked" blueprint. Placed images live here as real,
+// erasable, editable pixels — not floating reference overlays.
+let sheetLayer = document.createElement('canvas');
+let sheetCtx   = sheetLayer.getContext('2d');
+function buildSheetLayer() {
+  const w = Math.max(1, Math.round(sheetRect.w));
+  const h = Math.max(1, Math.round(sheetRect.h));
+  const old = sheetLayer;
+  const next = document.createElement('canvas');
+  next.width = w; next.height = h;
+  const nctx = next.getContext('2d');
+  if (old.width > 0 && old.height > 0) {
+    nctx.drawImage(old, 0, 0, old.width, old.height, 0, 0, w, h);
+  }
+  sheetLayer = next;
+  sheetCtx   = nctx;
+}
+
 // ── Drawing data ──
-const strokes = [];          // finished strokes: [{points:[{u,v}], color}]
+const strokes = [];          // finished PEN strokes (vector — for hologram extrusion): [{points:[{u,v}], color, size}]
 let currentStroke = null;    // in-progress stroke
-const placedImages = [];     // {img, u, v, w, h}
-let draggingImage = null;    // reference to placedImages entry being moved, or null
-let ghostImg = null;         // floating <img> while grabbing a new thumbnail
-let ghostSrc = null;
-let selectedImageIndex = null; // index into placedImages currently selected (click+scroll / Delete)
-let lastDragClientPos = null;  // tracks raw client coords for delete-on-sidebar logic
+const placedImages = [];     // pending (not yet baked) reference placements: {img, u, v, w, h}
+let draggingImage = null;
+let selectedImageIndex = null;
 
 const PEN_COLORS = ['#00c8ff', '#ffaa00', '#00ff88', '#ff3333', '#ffffff'];
 let penColor = PEN_COLORS[0];
+let brushSize = 6;
+
+// ── TOOL STATE — explicit, no ambiguity ──
+let activeTool = 'none'; // 'none' | 'pen' | 'eraser' | 'stamp'
+function setTool(t) {
+  activeTool = (activeTool === t) ? 'none' : t;
+  ['pen','eraser','stamp'].forEach(id => {
+    document.getElementById('btn-tool-' + id).classList.toggle('active', activeTool === id);
+  });
+  document.getElementById('btn-tool-none').classList.toggle('active', activeTool === 'none');
+  document.getElementById('stat-tool').textContent = activeTool.toUpperCase();
+  canvas.style.cursor = activeTool === 'pen' ? 'crosshair' : activeTool === 'eraser' ? 'cell' : activeTool === 'stamp' ? 'copy' : 'default';
+  if (activeTool !== 'stamp') {
+    // leaving stamp mode without placing — nothing pending changes
+  }
+  toast(activeTool === 'none' ? 'Tool off — sheet locked from edits' : `${activeTool.toUpperCase()} tool active`);
+}
 
 function buildPenSwatches() {
   const wrap = document.getElementById('pen-colors');
   wrap.innerHTML = '';
-  PEN_COLORS.forEach((c, i) => {
+  PEN_COLORS.forEach((c) => {
     const sw = document.createElement('div');
     sw.className = 'pen-swatch' + (c === penColor ? ' active' : '');
     sw.style.background = c;
@@ -270,26 +347,31 @@ function buildPenSwatches() {
 }
 buildPenSwatches();
 
+function updateBrushLabel() {
+  brushSize = parseInt(document.getElementById('brush-size').value, 10);
+  document.getElementById('brush-val').textContent = brushSize + ' px';
+}
+
 function updateStats() {
   document.getElementById('stat-strokes').textContent = strokes.length;
   document.getElementById('stat-images').textContent  = placedImages.length;
   const hint = document.getElementById('selection-hint');
   if (selectedImageIndex !== null && placedImages[selectedImageIndex]) {
-    hint.textContent = 'Reference selected — scroll to resize, Delete to remove.';
+    hint.textContent = 'Reference selected — scroll to resize, Delete to remove, or BAKE to fuse into the blueprint.';
   } else {
     hint.textContent = '';
   }
 }
 
 function updateDepthLabel() {
-  const v = parseFloat(document.getElementById('extrude-depth').value);
+  const v = parseFloat(document.getElementById('extrude-depth')?.value || '0.3');
   document.getElementById('depth-val').textContent = v.toFixed(2) + ' units';
 }
 
 // ═══════════════════════════════════════════════════════════════
 // SEARCH — pulls reference blueprint images from the web
 // ═══════════════════════════════════════════════════════════════
-const QUICK_CHIPS = ['drone frame', 'quadcopter', 'robot arm', 'exo suit helmet', 'circuit board', 'jet turbine', 'treehouse', 'go kart chassis', 'gauntlet armor'];
+const QUICK_CHIPS = ['plasma repulsor', 'drone frame', 'quadcopter', 'robot arm', 'exo suit helmet', 'circuit board', 'jet turbine', 'go kart chassis', 'gauntlet armor'];
 function buildChips() {
   const row = document.getElementById('chip-row');
   row.innerHTML = '';
@@ -323,18 +405,36 @@ async function runSearch(qOverride) {
       const tile = document.createElement('div');
       tile.className = 'bp-thumb';
       tile.dataset.src = url;
-      tile.innerHTML = `<img src="${img.thumbnail || url}" crossorigin="anonymous" referrerpolicy="no-referrer"/><div class="tag">${q.slice(0, 22)}</div>`;
+      tile.innerHTML = `<img src="${img.thumbnail || url}" crossorigin="anonymous" referrerpolicy="no-referrer"/><div class="tag">CLICK TO DROP</div>`;
+      tile.onclick = () => placeImageOnSheet(url, q);
       grid.appendChild(tile);
     });
-    toast(`${images.length} reference${images.length > 1 ? 's' : ''} found for "${q}"`);
-    say(`Found a few references for ${q}, sir. Pinch one and pull it onto the sheet.`);
+    toast(`${images.length} blueprint${images.length > 1 ? 's' : ''} found for "${q}"`);
+    say(`Found references for ${q}, sir. Click one to drop it onto the sheet as a working blueprint.`);
   } catch (e) {
     grid.innerHTML = '<div id="results-empty">Search failed — check your connection.</div>';
   }
 }
 
+// Click a thumbnail → place it as a movable/resizable blueprint object
+// (still vector/floating until BAKE — so you can position it first)
+function placeImageOnSheet(src, label) {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.referrerPolicy = 'no-referrer';
+  img.onload = () => {
+    const entry = { img, u: 0.5, v: 0.5, w: 0.55, h: 0.55, label: label || 'blueprint' };
+    placedImages.push(entry);
+    selectedImageIndex = placedImages.length - 1;
+    setTool('stamp');
+    toast('Blueprint placed — drag/resize, then BAKE to fuse it into the sheet');
+    updateStats();
+  };
+  img.src = src;
+}
+
 // ═══════════════════════════════════════════════════════════════
-// CANVAS RENDERING — sheet, references, strokes, skeleton, cursor
+// CANVAS RENDERING — baked sheet layer, pending images, strokes, cursor
 // ═══════════════════════════════════════════════════════════════
 function drawSheet() {
   const { x, y, w, h } = sheetRect;
@@ -349,11 +449,13 @@ function drawSheet() {
   const step = 36;
   for (let gx = x; gx < x + w; gx += step) { ctx.beginPath(); ctx.moveTo(gx, y); ctx.lineTo(gx, y + h); ctx.stroke(); }
   for (let gy = y; gy < y + h; gy += step) { ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x + w, gy); ctx.stroke(); }
+  // baked blueprint layer (full opacity now — it's a real blueprint, not a ghost)
+  if (sheetLayer.width > 0) ctx.drawImage(sheetLayer, x, y, w, h);
   // label
   ctx.font = '700 9px Orbitron,monospace';
   ctx.fillStyle = 'rgba(0,200,255,0.35)';
   ctx.textAlign = 'left';
-  ctx.fillText('DRAFTING SHEET', x + 8, y - 8);
+  ctx.fillText('DRAFTING SHEET — LIVE BLUEPRINT', x + 8, y - 8);
 }
 
 function toAbs(u, v) { return { x: sheetRect.x + u * sheetRect.w, y: sheetRect.y + v * sheetRect.h }; }
@@ -366,18 +468,20 @@ function drawPlacedImages() {
     const a = toAbs(pi.u, pi.v);
     const w = pi.w * sheetRect.w, h = pi.h * sheetRect.h;
     ctx.save();
-    ctx.globalAlpha = 0.55;
+    ctx.globalAlpha = 0.92;
     ctx.drawImage(pi.img, a.x - w / 2, a.y - h / 2, w, h);
     ctx.restore();
     const isSel = i === selectedImageIndex;
-    ctx.strokeStyle = isSel ? 'rgba(255,170,0,0.9)' : 'rgba(0,200,255,0.4)';
+    ctx.strokeStyle = isSel ? 'rgba(255,170,0,0.95)' : 'rgba(0,200,255,0.5)';
     ctx.lineWidth = isSel ? 2.5 : 1;
+    ctx.setLineDash(isSel ? [] : [6,4]);
     ctx.strokeRect(a.x - w / 2, a.y - h / 2, w, h);
+    ctx.setLineDash([]);
     if (isSel) {
       ctx.font = '700 8px Orbitron,monospace';
-      ctx.fillStyle = 'rgba(255,170,0,0.9)';
+      ctx.fillStyle = 'rgba(255,170,0,0.95)';
       ctx.textAlign = 'left';
-      ctx.fillText('SELECTED — SCROLL TO RESIZE · DEL TO REMOVE', a.x - w / 2, a.y - h / 2 - 6);
+      ctx.fillText('UNBAKED — SCROLL TO RESIZE · DEL TO REMOVE · BAKE TO FUSE', a.x - w / 2, a.y - h / 2 - 6);
     }
   });
 }
@@ -388,7 +492,8 @@ function drawStrokeList(list, active) {
     const closed = isClosedStroke(s.points);
     ctx.beginPath();
     ctx.strokeStyle = closed ? '#ffaa00' : s.color;
-    ctx.lineWidth = active ? 3 : 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.lineWidth = (s.size || 4) * (active ? 1.15 : 1);
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     ctx.shadowColor = closed ? '#ffaa00' : s.color; ctx.shadowBlur = 6;
     const p0 = toAbs(s.points[0].u, s.points[0].v);
     ctx.moveTo(p0.x, p0.y);
@@ -401,42 +506,21 @@ function drawStrokeList(list, active) {
   }
 }
 
-function drawSkeleton(landmarks) {
-  if (!window.drawConnectors || !window.HAND_CONNECTIONS) return;
-  ctx.save();
-  ctx.translate(W, 0); ctx.scale(-1, 1);
-  const scaled = landmarks.map(p => ({ x: p.x * W / W, y: p.y, z: p.z }));
-  // drawConnectors expects normalized coords + a canvas sized to W,H — emulate by scaling manually
-  ctx.restore();
-  // Lightweight custom skeleton draw (normalized -> mirrored screen space)
-  const pts = landmarks.map(p => ({ x: (1 - p.x) * W, y: p.y * H }));
-  const HAND_PAIRS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
-  ctx.strokeStyle = 'rgba(0,200,255,0.5)'; ctx.lineWidth = 1.5;
-  for (const [a, b] of HAND_PAIRS) { ctx.beginPath(); ctx.moveTo(pts[a].x, pts[a].y); ctx.lineTo(pts[b].x, pts[b].y); ctx.stroke(); }
-  ctx.fillStyle = 'rgba(255,170,0,0.85)';
-  for (const p of pts) { ctx.beginPath(); ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2); ctx.fill(); }
-}
-
-function drawCursor(x, y, mode, pushPct) {
-  const colors = { idle: '#3a8db0', grab: '#ffaa00', pen: '#00c8ff' };
-  const col = colors[mode] || colors.idle;
+function drawCursor(x, y) {
+  const colors = { none: '#3a8db0', grab: '#ffaa00', pen: '#00c8ff', eraser: '#ff3333', stamp: '#ffaa00' };
+  const col = colors[activeTool] || colors.none;
   ctx.beginPath();
-  ctx.arc(x, y, 9, 0, Math.PI * 2);
+  const r = activeTool === 'pen' || activeTool === 'eraser' ? Math.max(4, brushSize / 2) : 9;
+  ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.strokeStyle = col; ctx.lineWidth = 2;
-  ctx.shadowColor = col; ctx.shadowBlur = 10;
+  ctx.shadowColor = col; ctx.shadowBlur = 8;
   ctx.stroke();
   ctx.shadowBlur = 0;
-  ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill();
-  if (pushPct > 0) {
-    ctx.beginPath();
-    ctx.arc(x, y, 14, -Math.PI / 2, -Math.PI / 2 + pushPct * Math.PI * 2);
-    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
-    ctx.stroke();
-  }
+  ctx.beginPath(); ctx.arc(x, y, 2, 0, Math.PI * 2); ctx.fillStyle = col; ctx.fill();
 }
 
 // ═══════════════════════════════════════════════════════════════
-// CLOSED-SHAPE DETECTION (used for both render colour + extrusion)
+// CLOSED-SHAPE DETECTION (for hologram extrusion of pen strokes)
 // ═══════════════════════════════════════════════════════════════
 function isClosedStroke(points, tol = 0.045) {
   if (!points || points.length < 4) return false;
@@ -445,26 +529,95 @@ function isClosedStroke(points, tol = 0.045) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// MOUSE INTERACTION — select / resize / delete placed references
-// (works alongside hand-tracking; doesn't interfere with gestures)
+// MOUSE INTERACTION — primary input. Tool must be explicitly ON.
 // ═══════════════════════════════════════════════════════════════
-canvas.addEventListener('click', (e) => {
-  // Ignore clicks that are part of a drag-release (handled by gesture system)
-  if (heldThumbSrc || draggingImage) return;
-  if (!insideSheet(e.clientX, e.clientY)) { selectedImageIndex = null; updateStats(); return; }
-  const { u, v } = toLocal(e.clientX, e.clientY);
-  for (let i = placedImages.length - 1; i >= 0; i--) {
-    const pi = placedImages[i], hw = pi.w / 2, hh = pi.h / 2;
-    if (u > pi.u - hw && u < pi.u + hw && v > pi.v - hh && v < pi.v + hh) {
-      selectedImageIndex = i;
-      toast('Reference selected — scroll to resize, Delete to remove');
-      updateStats();
-      return;
+let mouseDown = false;
+let lastMouse = { x: 0, y: 0 };
+
+canvas.addEventListener('mousemove', (e) => {
+  lastMouse = { x: e.clientX, y: e.clientY };
+  if (!mouseDown) return;
+  handlePointerActive(e.clientX, e.clientY);
+});
+
+canvas.addEventListener('mousedown', (e) => {
+  mouseDown = true;
+  handlePointerDown(e.clientX, e.clientY);
+});
+
+window.addEventListener('mouseup', (e) => {
+  if (!mouseDown) return;
+  mouseDown = false;
+  handlePointerUp(e.clientX, e.clientY);
+});
+
+function handlePointerDown(px, py) {
+  // Dragging a placed (unbaked) reference image
+  if (insideSheet(px, py)) {
+    const { u, v } = toLocal(px, py);
+    for (let i = placedImages.length - 1; i >= 0; i--) {
+      const pi = placedImages[i], hw = pi.w / 2, hh = pi.h / 2;
+      if (u > pi.u - hw && u < pi.u + hw && v > pi.v - hh && v < pi.v + hh) {
+        selectedImageIndex = i;
+        draggingImage = pi;
+        updateStats();
+        return;
+      }
     }
   }
-  selectedImageIndex = null;
+
+  if (activeTool === 'pen' && insideSheet(px, py)) {
+    const { u, v } = toLocal(px, py);
+    currentStroke = { points: [{ u, v }], color: penColor, size: brushSize };
+  } else if (activeTool === 'eraser' && insideSheet(px, py)) {
+    eraseAt(px, py);
+  } else {
+    selectedImageIndex = null;
+    updateStats();
+  }
+}
+
+function handlePointerActive(px, py) {
+  if (draggingImage) {
+    if (insideSheet(px, py)) {
+      const { u, v } = toLocal(px, py);
+      draggingImage.u = Math.min(1, Math.max(0, u));
+      draggingImage.v = Math.min(1, Math.max(0, v));
+    }
+    return;
+  }
+  if (activeTool === 'pen' && currentStroke && insideSheet(px, py)) {
+    const { u, v } = toLocal(px, py);
+    const last = currentStroke.points[currentStroke.points.length - 1];
+    if (!last || Math.hypot(u - last.u, v - last.v) > 0.0015) currentStroke.points.push({ u, v });
+  } else if (activeTool === 'eraser' && insideSheet(px, py)) {
+    eraseAt(px, py);
+  }
+}
+
+function handlePointerUp() {
+  draggingImage = null;
+  if (activeTool === 'pen' && currentStroke) {
+    if (currentStroke.points.length > 1) strokes.push(currentStroke);
+    currentStroke = null;
+  }
   updateStats();
-});
+}
+
+// Erase pixels directly out of the baked blueprint layer
+function eraseAt(px, py) {
+  if (!insideSheet(px, py)) return;
+  const local = toLocal(px, py);
+  const cx = local.u * sheetLayer.width;
+  const cy = local.v * sheetLayer.height;
+  const r  = (brushSize / 2) * (sheetLayer.width / sheetRect.w);
+  sheetCtx.save();
+  sheetCtx.globalCompositeOperation = 'destination-out';
+  sheetCtx.beginPath();
+  sheetCtx.arc(cx, cy, r, 0, Math.PI * 2);
+  sheetCtx.fill();
+  sheetCtx.restore();
+}
 
 canvas.addEventListener('wheel', (e) => {
   if (selectedImageIndex === null || !placedImages[selectedImageIndex]) return;
@@ -477,7 +630,7 @@ canvas.addEventListener('wheel', (e) => {
 
 window.addEventListener('keydown', (e) => {
   if ((e.key === 'Delete' || e.key === 'Backspace') && selectedImageIndex !== null) {
-    if (document.activeElement && document.activeElement.tagName === 'INPUT') return; // don't eat text input
+    if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
     placedImages.splice(selectedImageIndex, 1);
     selectedImageIndex = null;
     toast('Reference removed');
@@ -485,22 +638,64 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// ── BAKE: fuse all unbaked placed images permanently into the
+// sheet layer pixels. After this, ERASE actually removes that
+// part of the blueprint — it's a real editable build, not a ghost.
+function lockBlueprint() {
+  if (!placedImages.length) { toast('Nothing to bake yet — place a blueprint image first'); return; }
+  for (const pi of placedImages) {
+    if (!pi.img || !pi.img.complete) continue;
+    const cx = pi.u * sheetLayer.width;
+    const cy = pi.v * sheetLayer.height;
+    const w  = pi.w * sheetLayer.width;
+    const h  = pi.h * sheetLayer.height;
+    sheetCtx.drawImage(pi.img, cx - w / 2, cy - h / 2, w, h);
+  }
+  placedImages.length = 0;
+  selectedImageIndex = null;
+  setTool('none');
+  toast('Baked — blueprint is now permanent. Use PEN/ERASE to modify it.');
+  say('Blueprint fused into the sheet, sir. You can erase or draw directly on it now.');
+  updateStats();
+}
+
+function undoStroke() { strokes.pop(); updateStats(); toast('Last stroke undone'); }
+function resetSheet() {
+  strokes.length = 0; placedImages.length = 0; currentStroke = null;
+  selectedImageIndex = null;
+  buildSheetLayer();
+  updateStats(); toast('Sheet cleared');
+}
+
 // ═══════════════════════════════════════════════════════════════
-// HAND TRACKING — MediaPipe Hands
+// MAIN RENDER LOOP
+// ═══════════════════════════════════════════════════════════════
+function renderFrame() {
+  ctx.clearRect(0, 0, W, H);
+  drawSheet();
+  drawPlacedImages();
+  drawStrokeList(strokes, false);
+  if (currentStroke) drawStrokeList([currentStroke], true);
+  drawCursor(lastMouse.x, lastMouse.y);
+  requestAnimationFrame(renderFrame);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HAND TRACKING — optional secondary input (mouse is primary now)
 // ═══════════════════════════════════════════════════════════════
 let smoothX = null, smoothY = null;
 const SMOOTH = 0.35;
 
-let mode = 'idle'; // 'idle' | 'grab' | 'pen'
-function setModeUI(m) {
-  if (m === mode) return;
-  mode = m;
-  const pill = document.getElementById('mode-pill');
-  pill.className = m;
-  pill.textContent = m.toUpperCase();
+function drawSkeleton(landmarks) {
+  if (!window.drawConnectors || !window.HAND_CONNECTIONS) return;
+  const pts = landmarks.map(p => ({ x: (1 - p.x) * W, y: p.y * H }));
+  const HAND_PAIRS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17]];
+  ctx.strokeStyle = 'rgba(0,200,255,0.5)'; ctx.lineWidth = 1.5;
+  for (const [a, b] of HAND_PAIRS) { ctx.beginPath(); ctx.moveTo(pts[a].x, pts[a].y); ctx.lineTo(pts[b].x, pts[b].y); ctx.stroke(); }
+  ctx.fillStyle = 'rgba(255,170,0,0.85)';
+  for (const p of pts) { ctx.beginPath(); ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2); ctx.fill(); }
 }
 
-// push-to-click (hand size growth = forward push)
 let sizeHistory = [];
 let lastPushAt = 0;
 const PUSH_GROWTH = 1.32, PUSH_COOLDOWN = 650;
@@ -514,210 +709,55 @@ function detectPush(landmarks) {
   const late  = Math.max(...sizeHistory.slice(-3));
   const ratio = late / early;
   const now = performance.now();
-  if (ratio > PUSH_GROWTH && (now - lastPushAt) > PUSH_COOLDOWN) {
-    lastPushAt = now;
-    return 1;
-  }
+  if (ratio > PUSH_GROWTH && (now - lastPushAt) > PUSH_COOLDOWN) { lastPushAt = now; return 1; }
   return Math.min(1, Math.max(0, (ratio - 1) / (PUSH_GROWTH - 1)));
 }
-
-// dwell-click (slower backup)
-let dwellTarget = null, dwellStart = 0;
-const DWELL_MS = 1100;
 
 function tryClick(px, py) {
   const prevPE = canvas.style.pointerEvents;
   canvas.style.pointerEvents = 'none';
   const el = document.elementFromPoint(px, py);
   canvas.style.pointerEvents = prevPE;
-  const clickable = el ? el.closest('button, .bp-thumb, .bp-chip, .pen-swatch') : null;
+  const clickable = el ? el.closest('button, .bp-thumb, .bp-chip, .pen-swatch, .tool-btn') : null;
   if (clickable) { clickable.click(); return true; }
   return false;
 }
 
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
-function onResults(results) {
-  ctx.clearRect(0, 0, W, H);
-  drawSheet();
-  drawPlacedImages();
-  drawStrokeList(strokes, false);
-  if (currentStroke) drawStrokeList([currentStroke], true);
+let handPinching = false;
 
+function onResults(results) {
   if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-    setModeUI('idle');
-    finalizeStroke();
-    releaseDrag(null, null);
+    if (handPinching) { handlePointerUp(); handPinching = false; }
     return;
   }
-
   const landmarks = results.multiHandLandmarks[0];
-  drawSkeleton(landmarks);
-
+  // overlay skeleton (drawn into the same loop next frame via lastMouse tracking)
   const tip = landmarks[8];
   const rawX = (1 - tip.x) * W, rawY = tip.y * H;
   smoothX = smoothX === null ? rawX : smoothX + (rawX - smoothX) * (1 - SMOOTH);
   smoothY = smoothY === null ? rawY : smoothY + (rawY - smoothY) * (1 - SMOOTH);
+  lastMouse = { x: smoothX, y: smoothY };
 
   const handScale = Math.hypot(landmarks[9].x - landmarks[0].x, landmarks[9].y - landmarks[0].y) || 0.001;
-  const pinchPen  = dist(landmarks[4], landmarks[12]) / handScale < 0.55;
-  const pinchGrab = !pinchPen && dist(landmarks[4], landmarks[8]) / handScale < 0.55;
+  const pinch = dist(landmarks[4], landmarks[8]) / handScale < 0.55;
 
-  const newMode = pinchPen ? 'pen' : pinchGrab ? 'grab' : 'idle';
+  if (pinch && !handPinching) { handPinching = true; handlePointerDown(smoothX, smoothY); }
+  else if (pinch && handPinching) { handlePointerActive(smoothX, smoothY); }
+  else if (!pinch && handPinching) { handPinching = false; handlePointerUp(smoothX, smoothY); }
 
-  // ── PEN MODE ──
-  if (newMode === 'pen') {
-    if (insideSheet(smoothX, smoothY)) {
-      if (!currentStroke) currentStroke = { points: [], color: penColor };
-      const { u, v } = toLocal(smoothX, smoothY);
-      const last = currentStroke.points[currentStroke.points.length - 1];
-      if (!last || Math.hypot(u - last.u, v - last.v) > 0.002) currentStroke.points.push({ u, v });
-    }
+  if (!pinch) {
+    const pushPct = detectPush(landmarks);
+    if (pushPct >= 1) { if (tryClick(smoothX, smoothY)) toast('⚡ click'); }
   } else {
-    finalizeStroke();
-  }
-
-  // ── GRAB MODE ──
-  if (newMode === 'grab') {
-    handleGrab(smoothX, smoothY);
-  } else {
-    releaseDrag(smoothX, smoothY);
-  }
-
-  setModeUI(newMode);
-
-  // ── PUSH-TO-CLICK (only meaningful when not pinching) ──
-  let pushPct = 0;
-  if (newMode === 'idle') {
-    pushPct = detectPush(landmarks);
-    if (pushPct >= 1) {
-      if (tryClick(smoothX, smoothY)) { dwellTarget = null; toast('⚡ click'); }
-    }
-    // dwell backup
-    const prevPE = canvas.style.pointerEvents;
-    canvas.style.pointerEvents = 'none';
-    const el = document.elementFromPoint(smoothX, smoothY);
-    canvas.style.pointerEvents = prevPE;
-    const clickable = el ? el.closest('button, .bp-thumb, .bp-chip, .pen-swatch') : null;
-    if (clickable) {
-      if (clickable !== dwellTarget) { dwellTarget = clickable; dwellStart = performance.now(); }
-      const elapsed = performance.now() - dwellStart;
-      if (elapsed >= DWELL_MS) { clickable.click(); dwellTarget = null; }
-    } else {
-      dwellTarget = null;
-    }
-  } else {
-    dwellTarget = null;
     sizeHistory = [];
   }
-
-  drawCursor(smoothX, smoothY, newMode, newMode === 'idle' ? pushPct : (dwellTarget ? Math.min(1, (performance.now() - dwellStart) / DWELL_MS) : 0));
-  updateStats();
-}
-
-function finalizeStroke() {
-  if (currentStroke && currentStroke.points.length > 1) strokes.push(currentStroke);
-  currentStroke = null;
-}
-
-// ── grab / drag logic ──
-let heldThumbSrc = null;
-function handleGrab(px, py) {
-  lastDragClientPos = { x: px, y: py };
-  if (heldThumbSrc || draggingImage) {
-    // move ghost
-    if (ghostImg) { ghostImg.style.left = px + 'px'; ghostImg.style.top = py + 'px'; }
-    return;
-  }
-  const prevPE = canvas.style.pointerEvents;
-  canvas.style.pointerEvents = 'none';
-  const el = document.elementFromPoint(px, py);
-  canvas.style.pointerEvents = prevPE;
-
-  const thumb = el ? el.closest('.bp-thumb') : null;
-  if (thumb && thumb.dataset.src) {
-    heldThumbSrc = thumb.dataset.src;
-    spawnGhost(thumb.querySelector('img').src, px, py);
-    return;
-  }
-  // try grabbing an existing placed image
-  if (insideSheet(px, py)) {
-    const { u, v } = toLocal(px, py);
-    for (let i = placedImages.length - 1; i >= 0; i--) {
-      const pi = placedImages[i];
-      const halfW = pi.w / 2, halfH = pi.h / 2;
-      if (u > pi.u - halfW && u < pi.u + halfW && v > pi.v - halfH && v < pi.v + halfH) {
-        draggingImage = placedImages.splice(i, 1)[0];
-        if (selectedImageIndex === i) selectedImageIndex = null;
-        spawnGhost(draggingImage.img.src, px, py);
-        return;
-      }
-    }
-  }
-}
-
-function spawnGhost(src, px, py) {
-  ghostImg = document.createElement('img');
-  ghostImg.src = src;
-  ghostImg.style.cssText = `position:fixed;width:120px;height:80px;object-fit:cover;border:2px solid #ffaa00;border-radius:2px;z-index:70;pointer-events:none;opacity:0.85;transform:translate(-50%,-50%);box-shadow:0 0 20px rgba(255,170,0,0.4);`;
-  ghostImg.style.left = px + 'px'; ghostImg.style.top = py + 'px';
-  document.body.appendChild(ghostImg);
-}
-
-function releaseDrag(px, py) {
-  if (!heldThumbSrc && !draggingImage) return;
-  if (ghostImg) { ghostImg.remove(); ghostImg = null; }
-
-  if (px !== null && insideSheet(px, py)) {
-    const { u, v } = toLocal(px, py);
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.referrerPolicy = 'no-referrer';
-    img.src = heldThumbSrc || draggingImage.img.src;
-    const entry = { img, u, v, w: draggingImage ? draggingImage.w : 0.45, h: draggingImage ? draggingImage.h : 0.45 };
-    placedImages.push(entry);
-    if (!draggingImage) toast('Reference placed on sheet');
-  } else if (draggingImage) {
-    // Dropped outside the sheet — delete it if dropped over a sidebar, otherwise put it back
-    const overSidebar = (px !== null) && (px < SIDEBAR_L || px > W - SIDEBAR_R);
-    if (overSidebar) {
-      toast('Reference removed');
-    } else {
-      placedImages.push(draggingImage);
-    }
-  }
-  heldThumbSrc = null;
-  draggingImage = null;
-  updateStats();
-}
-
-function undoStroke() { strokes.pop(); updateStats(); toast('Last stroke undone'); }
-function resetSheet() {
-  strokes.length = 0; placedImages.length = 0; currentStroke = null;
-  selectedImageIndex = null;
-  updateStats(); toast('Sheet cleared');
 }
 
 // ═══════════════════════════════════════════════════════════════
-// MEDIAPIPE BOOT
-// ═══════════════════════════════════════════════════════════════
-async function startTracking() {
-  resize();
-  const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
-  hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.55 });
-  hands.onResults(onResults);
-
-  const camera = new Camera(video, {
-    onFrame: async () => { try { await hands.send({ image: video }); } catch (e) {} },
-    width: 640, height: 480,
-  });
-  camera.start();
-  document.getElementById('loading').classList.add('gone');
-  say('Drafting table online, sir. Pull a reference or start sketching. Closed shapes will become solid parts you can print.');
-}
-
-// ═══════════════════════════════════════════════════════════════
-// HOLOGRAM GENERATION — Three.js
+// HOLOGRAM GENERATION — Three.js (pen strokes extrude; baked
+// blueprint renders as a textured ghost panel behind them)
 // ═══════════════════════════════════════════════════════════════
 let scene, camera3, renderer, holoGroup, holoActive = false;
 let camTheta = 0.4, camPhi = 0.55, camRadius = 6;
@@ -780,27 +820,15 @@ function buildHologram() {
   const SHEET_W3D = 5, SHEET_H3D = 3.4;
   const depth = parseFloat(document.getElementById('extrude-depth')?.value || '0.3');
 
-  // back panel from placed reference images (ghost backdrop)
-  if (placedImages.length) {
-    const off = document.createElement('canvas');
-    off.width = 800; off.height = Math.round(800 * (sheetRect.h / sheetRect.w || 0.68));
-    const octx = off.getContext('2d');
-    octx.fillStyle = '#04101c'; octx.fillRect(0, 0, off.width, off.height);
-    for (const pi of placedImages) {
-      try {
-        const w = pi.w * off.width, h = pi.h * off.height;
-        octx.globalAlpha = 0.8;
-        octx.drawImage(pi.img, pi.u * off.width - w / 2, pi.v * off.height - h / 2, w, h);
-      } catch (e) {}
-    }
-    const tex = new THREE.CanvasTexture(off);
-    const planeMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.32, side: THREE.DoubleSide });
+  // baked blueprint as backdrop
+  if (sheetLayer.width > 0) {
+    const tex = new THREE.CanvasTexture(sheetLayer);
+    const planeMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(SHEET_W3D, SHEET_H3D), planeMat);
     plane.position.z = -0.08;
     holoGroup.add(plane);
   }
 
-  // strokes -> solid extrusions (closed loops) or glowing tubes (open lines)
   let any = false, solidCount = 0, lineCount = 0;
   for (const s of strokes) {
     if (s.points.length < 2) continue;
@@ -837,9 +865,8 @@ function buildHologram() {
     }
   }
 
-  if (!any && !placedImages.length) return false;
+  if (!any && sheetLayer.width === 0) return false;
 
-  // frame border
   const borderPts = [
     new THREE.Vector3(-SHEET_W3D/2, -SHEET_H3D/2, 0), new THREE.Vector3(SHEET_W3D/2, -SHEET_H3D/2, 0),
     new THREE.Vector3(SHEET_W3D/2, SHEET_H3D/2, 0), new THREE.Vector3(-SHEET_W3D/2, SHEET_H3D/2, 0),
@@ -874,8 +901,8 @@ function animateHolo() {
 }
 
 function generateHologram() {
-  finalizeStroke();
-  if (!strokes.length && !placedImages.length) { toast('Sketch something first, sir.'); return; }
+  if (placedImages.length) { toast('Bake your unbaked references first, sir.'); return; }
+  if (!strokes.length && sheetLayer.width === 0) { toast('Sketch or bake something first, sir.'); return; }
   initThree();
   const ok = buildHologram();
   if (!ok) { toast('Nothing to project yet.'); return; }
@@ -883,10 +910,11 @@ function generateHologram() {
   document.getElementById('back-to-draft').style.display = 'block';
   document.getElementById('left-sidebar').style.display = 'none';
   document.getElementById('right-sidebar').style.display = 'none';
+  document.getElementById('toolbar').style.display = 'none';
   document.getElementById('ticker').style.display = 'none';
   holoActive = true;
   toast('Projecting hologram…');
-  say('Projecting your design now, sir. Closed shapes came through as solid parts — say export if you want the STL.');
+  say('Projecting your design now, sir. Closed shapes came through as solid parts.');
 }
 
 function backToDraft() {
@@ -896,16 +924,16 @@ function backToDraft() {
   document.getElementById('holo-summary').style.display = 'none';
   document.getElementById('left-sidebar').style.display = 'flex';
   document.getElementById('right-sidebar').style.display = 'flex';
+  document.getElementById('toolbar').style.display = 'flex';
   document.getElementById('ticker').style.display = 'flex';
 }
 
 // ═══════════════════════════════════════════════════════════════
-// STL EXPORT — turns solid extrusions into a real printable file
+// STL EXPORT
 // ═══════════════════════════════════════════════════════════════
 function exportSTL() {
   if (!holoGroup || !holoGroup.children.length) {
-    // Build it first if it hasn't been generated yet
-    if (!strokes.length && !placedImages.length) { toast('Sketch a closed shape first, sir.'); return; }
+    if (!strokes.length && sheetLayer.width === 0) { toast('Sketch a closed shape first, sir.'); return; }
     initThree();
     const ok = buildHologram();
     if (!ok) { toast('Nothing to export yet.'); return; }
@@ -934,10 +962,186 @@ function exportSTL() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// TICKER
+// "MAKE IT REAL" — IRL build parts generator (client-side, no
+// server route required). Mirrors the JARVIS DIY builder logic
+// for common builds like the plasma repulsor.
 // ═══════════════════════════════════════════════════════════════
-const TICKER_ITEMS = ['DRAFTING TABLE ONLINE','HAND-TRACKED SKETCH ENGINE','PINCH TO GRAB · PINCH TO DRAW','PUSH TO CLICK','WEB REFERENCE PULL ACTIVE','SKETCH → HOLOGRAM PROJECTION','CLOSED LOOPS → SOLID 3D PARTS','EXPORT STL FOR REAL-WORLD 3D PRINTING'];
-document.getElementById('ticker-track').innerHTML = [...TICKER_ITEMS, ...TICKER_ITEMS].map((t,i)=>`<span class="ti${i%3===0?' b':''}">${t}</span><span class="ti" style="opacity:.25">·</span>`).join('');
+function generatePartsListLocal(projectRaw) {
+  const p = (projectRaw || '').toLowerCase();
+
+  if (/plasma|repulsor|iron.?man|energy weapon/.test(p)) {
+    return {
+      category: 'Plasma Repulsor (LED + EL-wire prop, wearable)',
+      totalEst: '$22-40',
+      parts: [
+        { name: 'High power LED 10W (white/blue)', est: '$3-6' },
+        { name: 'LED driver module (700mA)',        est: '$2-4' },
+        { name: 'EL wire, blue/white, 1m',           est: '$3-5' },
+        { name: 'EL wire inverter',                  est: '$3-5' },
+        { name: '3D printed repulsor shell',          est: '$5-10' },
+        { name: '9V battery + holder',                est: '$2-3' },
+        { name: 'Momentary push button',              est: '$1' },
+        { name: 'Vibration motor (rumble on fire)',    est: '$1-2' },
+        { name: 'Resistors + small capacitors',        est: '$1-2' },
+      ],
+      notes: [
+        'This is a wearable LED prop — actual plasma/ionized gas at home is extremely dangerous and not something to attempt.',
+        'A 10W LED behind a frosted diffuser disc gives a very convincing "energy charge" glow.',
+        'EL wire around the rim gives the pulsing ring effect seen in the films.',
+        'Wire an Arduino Nano + PWM if you want a charge-up animation before full brightness.',
+        'Vibration motor pulses once on activation for tactile feedback.',
+      ],
+      links: [
+        'https://www.instructables.com/Iron-Man-Repulsor-Glove/',
+        'https://hackaday.io/search?term=repulsor',
+        'https://www.thingiverse.com/search?q=iron+man+repulsor',
+      ],
+    };
+  }
+
+  if (/smart\s*glass|ar\s*glass|hud|head.?up/.test(p)) {
+    return {
+      category: 'Smart Glasses / AR HUD',
+      totalEst: '$25-50',
+      parts: [
+        { name: 'ESP32 Dev Board',                 est: '$7-10' },
+        { name: '0.96" OLED Display',               est: '$2-4' },
+        { name: '3D printed frame',                  est: '$3-8' },
+        { name: 'Micro LiPo battery 500mAh',         est: '$4-7' },
+        { name: 'TP4056 charge module',              est: '$1' },
+        { name: 'Half-mirror / beam splitter lens',  est: '$5-10' },
+        { name: 'Wires, solder, shrink tube',        est: '$2-3' },
+      ],
+      notes: [
+        'OLED reflects off the half-mirror lens into your eye.',
+        'ESP32 gives WiFi — pull notifications, weather, time onto the display.',
+        'Battery lasts roughly 4-6 hours depending on brightness.',
+      ],
+      links: ['https://www.instructables.com/Smart-Glasses/', 'https://hackaday.io/search?term=smart+glasses'],
+    };
+  }
+
+  if (/laser/.test(p)) {
+    return {
+      category: 'DIY Laser System',
+      totalEst: '$24-57',
+      parts: [
+        { name: 'Laser diode module (5mW pointer or 1W cutting)', est: '$2-15' },
+        { name: 'Arduino Nano',         est: '$3-5' },
+        { name: 'Laser driver circuit', est: '$2-5' },
+        { name: 'Laser safety goggles', est: '$8-12' },
+        { name: 'Heatsink + thermal paste', est: '$2-4' },
+        { name: '12V power supply',      est: '$4-8' },
+      ],
+      notes: ['Always wear rated laser safety goggles — non-negotiable.', '1W+ diodes can cut/engrave; 5mW is pointer/comm-level and safer.'],
+      links: ['https://hackaday.io/search?term=laser'],
+    };
+  }
+
+  if (/drone|quadcopter|uav/.test(p)) {
+    return {
+      category: 'DIY Micro Drone',
+      totalEst: '$56-120',
+      parts: [
+        { name: 'Brushless motors 2204 2300kv x4', est: '$16-24' },
+        { name: 'F4 flight controller',             est: '$15-25' },
+        { name: '5 inch propellers x8',              est: '$3-6' },
+        { name: '3S 1300mAh LiPo battery',           est: '$8-12' },
+        { name: 'ESC 4-in-1 20A',                    est: '$8-15' },
+        { name: 'Carbon fiber frame',                est: '$5-12' },
+        { name: 'FS-i6 radio + receiver',            est: '$20-25' },
+      ],
+      notes: ['Radio is the biggest one-time cost — reuse it across builds.', 'Betaflight firmware is free and runs on most F4 boards.'],
+      links: ['https://www.reddit.com/r/Multicopter/', 'https://oscarliang.com/build-a-quadcopter-beginners-tutorial-1/'],
+    };
+  }
+
+  if (/exo|servo arm|robot arm|powered arm/.test(p)) {
+    return {
+      category: 'Powered Exo-Arm / Servo Limb',
+      totalEst: '$43-70',
+      parts: [
+        { name: 'MG996R servo motors x4', est: '$10-16' },
+        { name: 'Arduino Mega',           est: '$8-12' },
+        { name: 'PCA9685 servo driver',   est: '$3-5' },
+        { name: '7.4V 2S LiPo battery',   est: '$8-12' },
+        { name: 'Flex sensors x3',        est: '$6-10' },
+        { name: 'PLA/PETG filament',      est: '$5-10' },
+      ],
+      notes: ['Flex sensors on a glove detect finger bend and mirror it onto the servo arm.', 'Print arm segments in PETG for strength under load.'],
+      links: ['https://hackaday.io/search?term=exoskeleton'],
+    };
+  }
+
+  // generic fallback
+  return {
+    category: `DIY Electronics: ${projectRaw || 'your build'}`,
+    totalEst: '$20-60',
+    parts: [
+      { name: 'ESP32 / Arduino Nano (depending on complexity)', est: '$3-10' },
+      { name: 'Relevant sensors (project-specific)',             est: '$3-10' },
+      { name: 'Small OLED display',                              est: '$2-4' },
+      { name: 'Power supply / battery',                          est: '$4-8' },
+      { name: 'Project enclosure / 3D print',                    est: '$3-8' },
+      { name: 'Wires, PCB, solder',                               est: '$2-4' },
+    ],
+    notes: [
+      'AliExpress is cheapest for components — 2-4 week shipping.',
+      'Search Thingiverse for free 3D-printable enclosures matching your blueprint shape.',
+      'r/arduino and r/esp32 are good for build help.',
+    ],
+    links: [
+      `https://www.instructables.com/search/?q=${encodeURIComponent(projectRaw || '')}`,
+      `https://hackaday.io/search?term=${encodeURIComponent(projectRaw || '')}`,
+    ],
+  };
+}
+
+function generateRealBuild() {
+  const project = (document.getElementById('build-input').value || '').trim();
+  if (!project) { toast('Type what you want to build IRL first'); return; }
+  const data = generatePartsListLocal(project);
+  const out = document.getElementById('build-output');
+  out.style.display = 'flex';
+
+  let html = `<b>${data.category}</b>`;
+  html += `<div style="color:var(--green);font-size:0.5rem">Estimated total: ${data.totalEst}</div>`;
+  html += `<div><b>PARTS</b></div>`;
+  for (const p of data.parts) {
+    html += `<div class="part-row"><span class="part-name">${p.name}</span><span class="part-est">${p.est}</span></div>`;
+  }
+  html += `<div><b>BUILD NOTES</b></div>`;
+  for (const n of data.notes) html += `<div class="note-line">• ${n}</div>`;
+  html += `<div><b>REFERENCE LINKS</b></div>`;
+  for (const l of data.links) html += `<a href="${l}" target="_blank" rel="noopener">${l}</a>`;
+
+  out.innerHTML = html;
+  toast(`Real-world parts list generated for "${project}"`);
+  say(`Parts list ready for ${project}, sir. Estimated total around ${data.totalEst}.`);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MEDIAPIPE BOOT
+// ═══════════════════════════════════════════════════════════════
+async function startTracking() {
+  resize();
+  renderFrame();
+  try {
+    const hands = new Hands({ locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}` });
+    hands.setOptions({ maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6, minTrackingConfidence: 0.55 });
+    hands.onResults(onResults);
+
+    const camera = new Camera(video, {
+      onFrame: async () => { try { await hands.send({ image: video }); } catch (e) {} },
+      width: 640, height: 480,
+    });
+    camera.start();
+  } catch (e) {
+    console.warn('Hand tracking unavailable — mouse-only mode', e);
+  }
+  document.getElementById('loading').classList.add('gone');
+  say('Drafting table online, sir. Pick PEN to sketch, or pull a blueprint image and click it onto the sheet. Mouse works for everything.');
+}
 
 // ═══════════════════════════════════════════════════════════════
 // EXTERNAL MESSAGES (from parent JARVIS window)
@@ -951,6 +1155,7 @@ window.addEventListener('message', e => {
       .replace(/\s+/g, ' ').trim();
     if (cleaned && cleaned.length > 1) {
       document.getElementById('search-input').value = cleaned;
+      document.getElementById('build-input').value = cleaned;
       runSearch(cleaned);
     }
   }
@@ -964,6 +1169,10 @@ function exitToJarvis() {
 // BOOT
 // ═══════════════════════════════════════════════════════════════
 updateDepthLabel();
+updateBrushLabel();
+setTool('none');
+const TICKER_ITEMS = ['DRAFTING TABLE ONLINE','PEN/ERASE/PLACE ARE EXPLICIT TOGGLES — NOTHING DRAWS BY ACCIDENT','PULLED IMAGES ARE REAL EDITABLE BLUEPRINTS','BAKE TO FUSE · ERASE TO CUT · PEN TO MODIFY','MAKE IT REAL → IRL PARTS LIST GENERATOR','SKETCH → HOLOGRAM PROJECTION','CLOSED LOOPS → SOLID 3D PARTS','EXPORT STL FOR REAL-WORLD 3D PRINTING'];
+document.getElementById('ticker-track').innerHTML = [...TICKER_ITEMS, ...TICKER_ITEMS].map((t,i)=>`<span class="ti${i%3===0?' b':''}">${t}</span><span class="ti" style="opacity:.25">·</span>`).join('');
 window.addEventListener('load', () => { startTracking(); });
 </script>
 </body>
