@@ -58,11 +58,11 @@ function buildJarvisResponse(context) {
     }
 
     case "identity": {
-      return `J.A.R.V.I.S — Just A Rather Very Intelligent System, ${T}. I handle everything from writing production code in any language, generating terminal commands, running OSINT on people, controlling smart home devices, reading your screen, and considerably more. No fixed commands — just tell me what you need in plain language.`;
+      return `J.A.R.V.I.S — Just A Rather Very Intelligent System, ${T}. I handle everything from writing production code in any language, generating terminal commands, running OSINT on people, controlling smart home devices, reading your screen, hand-tracked drafting and holographic projection, and considerably more. No fixed commands — just tell me what you need in plain language.`;
     }
 
     case "capabilities": {
-      return `Quite a range, ${T}. Code in any language, terminal commands for Linux or Windows, OSINT person lookups across the open web, smart home control, screen reading via OCR, face recognition security, rolling clip buffer, Spotify and Gmail integration, timers, memory bank, 3D holographic viewer. The list goes on. What are you actually trying to do?`;
+      return `Quite a range, ${T}. Code in any language, terminal commands for Linux or Windows, OSINT person lookups across the open web, smart home control, screen reading via OCR, face recognition security, rolling clip buffer, Spotify and Gmail integration, timers, memory bank, a hand-tracked drafting table that projects your sketches as 3D holograms, and a 3D holographic viewer. The list goes on. What are you actually trying to do?`;
     }
 
     case "unknown_face": {
@@ -157,6 +157,12 @@ function buildJarvisResponse(context) {
 
 function routeSmallTalk(text, T) {
   const lower = text.toLowerCase().trim();
+
+  // "You up?" — a standing, unconditional check-in. Always the same
+  // answer, every time, regardless of title/persona settings.
+  if (/\b(you up|u up|you there|you awake)\b\??/i.test(lower)) {
+    return "For you, sir. Always.";
+  }
 
   // How are you / feeling
   if (/how are you|how('re| are) you doing|you okay|you alright|you good|how do you feel/i.test(lower)) {
