@@ -16,7 +16,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 
 #stage{position:fixed;inset:0;z-index:0;overflow:hidden;background:#000508}
 #camera-feed{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);opacity:0.55;filter:brightness(0.85) contrast(1.05) saturate(0.7);}
-#draw-canvas{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
+#draw-canvas{position:absolute;inset:0;width:100%;height:100%;z-index:2;pointer-events:auto;cursor:crosshair}
 
 /* ── SCAN / CORNERS ── */
 .scan{position:fixed;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,200,255,0.12),transparent);animation:scanMove 8s linear infinite;pointer-events:none;z-index:50}
@@ -62,7 +62,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 #status-line{font-size:0.5rem;color:rgba(0,200,255,0.55);letter-spacing:0.06em;line-height:1.6;padding-top:4px;border-top:1px solid rgba(0,200,255,0.08);margin-top:auto}
 
 /* ── RIGHT SIDEBAR ── */
-#right-sidebar{position:fixed;top:50px;right:0;bottom:0;width:180px;background:rgba(0,3,10,0.92);border-left:1px solid rgba(0,200,255,0.12);z-index:55;display:flex;flex-direction:column;padding:14px 12px;gap:10px}
+#right-sidebar{position:fixed;top:50px;right:0;bottom:0;width:200px;background:rgba(0,3,10,0.92);border-left:1px solid rgba(0,200,255,0.12);z-index:55;display:flex;flex-direction:column;padding:14px 12px;gap:10px;overflow-y:auto}
 .pen-colors{display:flex;gap:6px}
 .pen-swatch{width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,0.15);cursor:pointer;transition:transform 0.15s}
 .pen-swatch.active{transform:scale(1.18);border-color:#fff}
@@ -71,17 +71,22 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 .bp-divider{height:1px;background:rgba(0,200,255,0.1);margin:4px 0}
 #gesture-help{font-size:0.46rem;line-height:1.85;color:var(--dim-text);letter-spacing:0.04em}
 #gesture-help b{color:var(--blue)}
+#depth-row{display:flex;flex-direction:column;gap:4px}
+#depth-row input[type="range"]{width:100%;accent-color:var(--blue)}
+#depth-val{font-size:0.5rem;color:var(--blue);letter-spacing:0.06em}
+#selection-hint{font-size:0.46rem;color:var(--amber);letter-spacing:0.05em;line-height:1.7;min-height:14px}
 
 /* ── HOLOGRAM VIEW ── */
 #holo-canvas{position:fixed;inset:0;z-index:5;display:none}
 #back-to-draft{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:65;display:none}
+#holo-summary{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:65;display:none;background:rgba(0,4,14,0.9);border:1px solid rgba(0,200,255,0.35);color:var(--blue);font-family:var(--hud);font-size:0.46rem;letter-spacing:0.16em;padding:7px 18px;border-radius:2px}
 
 /* ── EXIT ── */
 #exit-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.25);color:var(--dim-text);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.2em;padding:6px 14px;cursor:pointer;border-radius:2px;transition:all 0.2s}
 #exit-btn:hover{border-color:var(--blue);color:var(--blue)}
 
 /* ── BOTTOM TICKER ── */
-#ticker{position:fixed;bottom:0;left:200px;right:180px;height:20px;background:rgba(0,3,10,0.96);border-top:1px solid rgba(0,200,255,0.1);overflow:hidden;display:flex;align-items:center;z-index:55;pointer-events:none}
+#ticker{position:fixed;bottom:0;left:200px;right:200px;height:20px;background:rgba(0,3,10,0.96);border-top:1px solid rgba(0,200,255,0.1);overflow:hidden;display:flex;align-items:center;z-index:55;pointer-events:none}
 #ticker::before{content:'▶';font-size:0.4rem;color:var(--blue);padding:0 10px;flex-shrink:0;opacity:0.5}
 .ticker-track{display:flex;white-space:nowrap;animation:tickScroll 50s linear infinite;font-size:0.48rem;color:rgba(0,200,255,0.32);letter-spacing:0.12em}
 .ti{padding:0 30px}.ti.b{color:rgba(0,200,255,0.6)}
@@ -128,6 +133,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 </div>
 
 <canvas id="holo-canvas"></canvas>
+<div id="holo-summary"></div>
 <button id="back-to-draft" class="bp-btn" onclick="backToDraft()">⬡ BACK TO DRAFTING TABLE</button>
 
 <!-- LEFT SIDEBAR — REFERENCE SEARCH -->
@@ -140,7 +146,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
   <div class="chip-row" id="chip-row"></div>
   <div class="sb-label">RESULTS — PINCH &amp; PULL ONTO SHEET</div>
   <div id="results-grid"><div id="results-empty">Search for a reference, or just start sketching on the blank sheet.</div></div>
-  <div id="status-line">Pinch thumb + index to grab. Pinch thumb + middle to draw.</div>
+  <div id="status-line">
+    Pinch thumb + index to grab. Pinch thumb + middle to draw.<br><br>
+    <b>Click a placed reference</b> to select it, then <b>scroll</b> to resize it or press <b>Delete</b> to remove it. Drag a reference off the sheet onto either sidebar to delete it.<br><br>
+    <b>Closed shapes</b> (start and end your stroke near the same point) become solid 3D parts when projected — open lines stay as glowing wireframes.
+  </div>
 </div>
 
 <!-- RIGHT SIDEBAR — TOOLS -->
@@ -153,10 +163,17 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
     <div>STROKES: <b id="stat-strokes">0</b></div>
     <div>REFERENCES: <b id="stat-images">0</b></div>
   </div>
+  <div id="selection-hint"></div>
   <button class="bp-btn" onclick="undoStroke()">↶ UNDO STROKE</button>
   <button class="bp-btn" onclick="resetSheet()">🗑 RESET SHEET</button>
   <div class="bp-divider"></div>
+  <div class="sb-label">EXTRUDE DEPTH (closed shapes)</div>
+  <div id="depth-row">
+    <input type="range" id="extrude-depth" min="0.05" max="1.5" step="0.05" value="0.3" oninput="updateDepthLabel()"/>
+    <span id="depth-val">0.30 units</span>
+  </div>
   <button class="bp-btn" id="generate-btn" style="border-color:rgba(255,170,0,0.5);color:var(--amber)" onclick="generateHologram()">⚡ GENERATE HOLOGRAM</button>
+  <button class="bp-btn" id="export-stl-btn" style="border-color:rgba(0,255,136,0.5);color:var(--green)" onclick="exportSTL()">⬇ EXPORT STL (3D PRINT)</button>
   <div class="bp-divider"></div>
   <div class="sb-label">GESTURES</div>
   <div id="gesture-help">
@@ -164,7 +181,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
     <b>Thumb+Index pinch</b> — grab/place<br>
     <b>Thumb+Middle pinch</b> — draw<br>
     <b>Push hand toward camera</b> — click<br>
-    <b>Hold steady</b> — dwell-click
+    <b>Hold steady</b> — dwell-click<br>
+    <b>Closed loop</b> — becomes a solid part
   </div>
 </div>
 
@@ -178,6 +196,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/exporters/STLExporter.js"></script>
 <script>
 'use strict';
 
@@ -196,7 +215,7 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 
-const SIDEBAR_L = 200, SIDEBAR_R = 180, TOPBAR = 50;
+const SIDEBAR_L = 200, SIDEBAR_R = 200, TOPBAR = 50;
 let sheetRect = { x: 0, y: 0, w: 0, h: 0 };
 function computeSheetRect() {
   const avail = { x: SIDEBAR_L + 20, y: TOPBAR + 24, w: W - SIDEBAR_L - SIDEBAR_R - 40, h: H - TOPBAR - 64 };
@@ -229,9 +248,11 @@ function toast(msg, dur = 2600) {
 const strokes = [];          // finished strokes: [{points:[{u,v}], color}]
 let currentStroke = null;    // in-progress stroke
 const placedImages = [];     // {img, u, v, w, h}
-let draggingImage = null;    // reference to placedImages entry being moved, or 'new' ghost
+let draggingImage = null;    // reference to placedImages entry being moved, or null
 let ghostImg = null;         // floating <img> while grabbing a new thumbnail
 let ghostSrc = null;
+let selectedImageIndex = null; // index into placedImages currently selected (click+scroll / Delete)
+let lastDragClientPos = null;  // tracks raw client coords for delete-on-sidebar logic
 
 const PEN_COLORS = ['#00c8ff', '#ffaa00', '#00ff88', '#ff3333', '#ffffff'];
 let penColor = PEN_COLORS[0];
@@ -252,6 +273,17 @@ buildPenSwatches();
 function updateStats() {
   document.getElementById('stat-strokes').textContent = strokes.length;
   document.getElementById('stat-images').textContent  = placedImages.length;
+  const hint = document.getElementById('selection-hint');
+  if (selectedImageIndex !== null && placedImages[selectedImageIndex]) {
+    hint.textContent = 'Reference selected — scroll to resize, Delete to remove.';
+  } else {
+    hint.textContent = '';
+  }
+}
+
+function updateDepthLabel() {
+  const v = parseFloat(document.getElementById('extrude-depth').value);
+  document.getElementById('depth-val').textContent = v.toFixed(2) + ' units';
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -329,26 +361,35 @@ function toLocal(px, py) { return { u: (px - sheetRect.x) / sheetRect.w, v: (py 
 function insideSheet(px, py) { return px >= sheetRect.x && px <= sheetRect.x + sheetRect.w && py >= sheetRect.y && py <= sheetRect.y + sheetRect.h; }
 
 function drawPlacedImages() {
-  for (const pi of placedImages) {
-    if (!pi.img || !pi.img.complete) continue;
+  placedImages.forEach((pi, i) => {
+    if (!pi.img || !pi.img.complete) return;
     const a = toAbs(pi.u, pi.v);
     const w = pi.w * sheetRect.w, h = pi.h * sheetRect.h;
     ctx.save();
     ctx.globalAlpha = 0.55;
     ctx.drawImage(pi.img, a.x - w / 2, a.y - h / 2, w, h);
     ctx.restore();
-    ctx.strokeStyle = 'rgba(0,200,255,0.4)';
-    ctx.lineWidth = 1;
+    const isSel = i === selectedImageIndex;
+    ctx.strokeStyle = isSel ? 'rgba(255,170,0,0.9)' : 'rgba(0,200,255,0.4)';
+    ctx.lineWidth = isSel ? 2.5 : 1;
     ctx.strokeRect(a.x - w / 2, a.y - h / 2, w, h);
-  }
+    if (isSel) {
+      ctx.font = '700 8px Orbitron,monospace';
+      ctx.fillStyle = 'rgba(255,170,0,0.9)';
+      ctx.textAlign = 'left';
+      ctx.fillText('SELECTED — SCROLL TO RESIZE · DEL TO REMOVE', a.x - w / 2, a.y - h / 2 - 6);
+    }
+  });
 }
 
 function drawStrokeList(list, active) {
   for (const s of list) {
     if (!s.points.length) continue;
+    const closed = isClosedStroke(s.points);
     ctx.beginPath();
-    ctx.strokeStyle = s.color; ctx.lineWidth = active ? 3 : 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-    ctx.shadowColor = s.color; ctx.shadowBlur = 6;
+    ctx.strokeStyle = closed ? '#ffaa00' : s.color;
+    ctx.lineWidth = active ? 3 : 2.4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.shadowColor = closed ? '#ffaa00' : s.color; ctx.shadowBlur = 6;
     const p0 = toAbs(s.points[0].u, s.points[0].v);
     ctx.moveTo(p0.x, p0.y);
     for (let i = 1; i < s.points.length; i++) {
@@ -393,6 +434,56 @@ function drawCursor(x, y, mode, pushPct) {
     ctx.stroke();
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// CLOSED-SHAPE DETECTION (used for both render colour + extrusion)
+// ═══════════════════════════════════════════════════════════════
+function isClosedStroke(points, tol = 0.045) {
+  if (!points || points.length < 4) return false;
+  const a = points[0], b = points[points.length - 1];
+  return Math.hypot(a.u - b.u, a.v - b.v) < tol;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MOUSE INTERACTION — select / resize / delete placed references
+// (works alongside hand-tracking; doesn't interfere with gestures)
+// ═══════════════════════════════════════════════════════════════
+canvas.addEventListener('click', (e) => {
+  // Ignore clicks that are part of a drag-release (handled by gesture system)
+  if (heldThumbSrc || draggingImage) return;
+  if (!insideSheet(e.clientX, e.clientY)) { selectedImageIndex = null; updateStats(); return; }
+  const { u, v } = toLocal(e.clientX, e.clientY);
+  for (let i = placedImages.length - 1; i >= 0; i--) {
+    const pi = placedImages[i], hw = pi.w / 2, hh = pi.h / 2;
+    if (u > pi.u - hw && u < pi.u + hw && v > pi.v - hh && v < pi.v + hh) {
+      selectedImageIndex = i;
+      toast('Reference selected — scroll to resize, Delete to remove');
+      updateStats();
+      return;
+    }
+  }
+  selectedImageIndex = null;
+  updateStats();
+});
+
+canvas.addEventListener('wheel', (e) => {
+  if (selectedImageIndex === null || !placedImages[selectedImageIndex]) return;
+  e.preventDefault();
+  const pi = placedImages[selectedImageIndex];
+  const factor = e.deltaY < 0 ? 1.08 : 0.93;
+  pi.w = Math.min(1.6, Math.max(0.08, pi.w * factor));
+  pi.h = Math.min(1.6, Math.max(0.08, pi.h * factor));
+}, { passive: false });
+
+window.addEventListener('keydown', (e) => {
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedImageIndex !== null) {
+    if (document.activeElement && document.activeElement.tagName === 'INPUT') return; // don't eat text input
+    placedImages.splice(selectedImageIndex, 1);
+    selectedImageIndex = null;
+    toast('Reference removed');
+    updateStats();
+  }
+});
 
 // ═══════════════════════════════════════════════════════════════
 // HAND TRACKING — MediaPipe Hands
@@ -532,6 +623,7 @@ function finalizeStroke() {
 // ── grab / drag logic ──
 let heldThumbSrc = null;
 function handleGrab(px, py) {
+  lastDragClientPos = { x: px, y: py };
   if (heldThumbSrc || draggingImage) {
     // move ghost
     if (ghostImg) { ghostImg.style.left = px + 'px'; ghostImg.style.top = py + 'px'; }
@@ -556,6 +648,7 @@ function handleGrab(px, py) {
       const halfW = pi.w / 2, halfH = pi.h / 2;
       if (u > pi.u - halfW && u < pi.u + halfW && v > pi.v - halfH && v < pi.v + halfH) {
         draggingImage = placedImages.splice(i, 1)[0];
+        if (selectedImageIndex === i) selectedImageIndex = null;
         spawnGhost(draggingImage.img.src, px, py);
         return;
       }
@@ -581,18 +674,29 @@ function releaseDrag(px, py) {
     img.crossOrigin = 'anonymous';
     img.referrerPolicy = 'no-referrer';
     img.src = heldThumbSrc || draggingImage.img.src;
-    const entry = { img, u, v, w: draggingImage ? draggingImage.w : 0.32, h: draggingImage ? draggingImage.h : 0.32 };
+    const entry = { img, u, v, w: draggingImage ? draggingImage.w : 0.45, h: draggingImage ? draggingImage.h : 0.45 };
     placedImages.push(entry);
     if (!draggingImage) toast('Reference placed on sheet');
   } else if (draggingImage) {
-    placedImages.push(draggingImage); // dropped outside — put it back
+    // Dropped outside the sheet — delete it if dropped over a sidebar, otherwise put it back
+    const overSidebar = (px !== null) && (px < SIDEBAR_L || px > W - SIDEBAR_R);
+    if (overSidebar) {
+      toast('Reference removed');
+    } else {
+      placedImages.push(draggingImage);
+    }
   }
   heldThumbSrc = null;
   draggingImage = null;
+  updateStats();
 }
 
 function undoStroke() { strokes.pop(); updateStats(); toast('Last stroke undone'); }
-function resetSheet() { strokes.length = 0; placedImages.length = 0; currentStroke = null; updateStats(); toast('Sheet cleared'); }
+function resetSheet() {
+  strokes.length = 0; placedImages.length = 0; currentStroke = null;
+  selectedImageIndex = null;
+  updateStats(); toast('Sheet cleared');
+}
 
 // ═══════════════════════════════════════════════════════════════
 // MEDIAPIPE BOOT
@@ -609,7 +713,7 @@ async function startTracking() {
   });
   camera.start();
   document.getElementById('loading').classList.add('gone');
-  say('Drafting table online, sir. Pull a reference or start sketching.');
+  say('Drafting table online, sir. Pull a reference or start sketching. Closed shapes will become solid parts you can print.');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -661,10 +765,20 @@ function resizeHolo() {
   camera3.aspect = W / H; camera3.updateProjectionMatrix();
 }
 
+function addTubeForStroke(s, SHEET_W3D, SHEET_H3D) {
+  const pts = s.points.map(p => new THREE.Vector3((p.u - 0.5) * SHEET_W3D, (0.5 - p.v) * SHEET_H3D, 0));
+  const curve = new THREE.CatmullRomCurve3(pts);
+  const tubeGeo = new THREE.TubeGeometry(curve, Math.max(8, pts.length), 0.022, 6, false);
+  const colorHex = new THREE.Color(s.color);
+  const mat = new THREE.MeshStandardMaterial({ color: colorHex, emissive: colorHex, emissiveIntensity: 1.4, roughness: 0.3, metalness: 0.4 });
+  holoGroup.add(new THREE.Mesh(tubeGeo, mat));
+}
+
 function buildHologram() {
   while (holoGroup.children.length) holoGroup.remove(holoGroup.children[0]);
 
   const SHEET_W3D = 5, SHEET_H3D = 3.4;
+  const depth = parseFloat(document.getElementById('extrude-depth')?.value || '0.3');
 
   // back panel from placed reference images (ghost backdrop)
   if (placedImages.length) {
@@ -686,17 +800,41 @@ function buildHologram() {
     holoGroup.add(plane);
   }
 
-  // strokes -> glowing tubes
-  let any = false;
+  // strokes -> solid extrusions (closed loops) or glowing tubes (open lines)
+  let any = false, solidCount = 0, lineCount = 0;
   for (const s of strokes) {
     if (s.points.length < 2) continue;
     any = true;
-    const pts = s.points.map(p => new THREE.Vector3((p.u - 0.5) * SHEET_W3D, (0.5 - p.v) * SHEET_H3D, 0));
-    const curve = new THREE.CatmullRomCurve3(pts);
-    const tubeGeo = new THREE.TubeGeometry(curve, Math.max(8, pts.length), 0.022, 6, false);
-    const colorHex = new THREE.Color(s.color);
-    const mat = new THREE.MeshStandardMaterial({ color: colorHex, emissive: colorHex, emissiveIntensity: 1.4, roughness: 0.3, metalness: 0.4 });
-    holoGroup.add(new THREE.Mesh(tubeGeo, mat));
+
+    if (isClosedStroke(s.points)) {
+      try {
+        const shape = new THREE.Shape();
+        s.points.forEach((p, i) => {
+          const x = (p.u - 0.5) * SHEET_W3D;
+          const y = (0.5 - p.v) * SHEET_H3D;
+          i === 0 ? shape.moveTo(x, y) : shape.lineTo(x, y);
+        });
+        shape.closePath();
+        const extrudeGeo = new THREE.ExtrudeGeometry(shape, {
+          depth: depth, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 2,
+        });
+        const colorHex = new THREE.Color(s.color);
+        const mat = new THREE.MeshStandardMaterial({
+          color: colorHex, emissive: colorHex, emissiveIntensity: 0.5,
+          roughness: 0.35, metalness: 0.5, side: THREE.DoubleSide,
+        });
+        const mesh = new THREE.Mesh(extrudeGeo, mat);
+        mesh.position.z = -depth / 2;
+        holoGroup.add(mesh);
+        solidCount++;
+      } catch (e) {
+        addTubeForStroke(s, SHEET_W3D, SHEET_H3D);
+        lineCount++;
+      }
+    } else {
+      addTubeForStroke(s, SHEET_W3D, SHEET_H3D);
+      lineCount++;
+    }
   }
 
   if (!any && !placedImages.length) return false;
@@ -708,7 +846,13 @@ function buildHologram() {
     new THREE.Vector3(-SHEET_W3D/2, -SHEET_H3D/2, 0),
   ];
   const borderGeo = new THREE.BufferGeometry().setFromPoints(borderPts);
-  holoGroup.add(new THREE.Line(borderGeo, new THREE.LineBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.35 })));
+  holoGroup.add(new THREE.Line(borderGeo, new THREE.LineBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.2 })));
+
+  const summaryEl = document.getElementById('holo-summary');
+  if (summaryEl) {
+    summaryEl.textContent = `${solidCount} SOLID PART${solidCount !== 1 ? 'S' : ''} · ${lineCount} WIRE STROKE${lineCount !== 1 ? 'S' : ''}`;
+    summaryEl.style.display = 'block';
+  }
 
   return true;
 }
@@ -742,26 +886,57 @@ function generateHologram() {
   document.getElementById('ticker').style.display = 'none';
   holoActive = true;
   toast('Projecting hologram…');
-  say('Projecting your design now, sir.');
+  say('Projecting your design now, sir. Closed shapes came through as solid parts — say export if you want the STL.');
 }
 
 function backToDraft() {
   holoActive = false;
   document.getElementById('holo-canvas').style.display = 'none';
   document.getElementById('back-to-draft').style.display = 'none';
+  document.getElementById('holo-summary').style.display = 'none';
   document.getElementById('left-sidebar').style.display = 'flex';
   document.getElementById('right-sidebar').style.display = 'flex';
   document.getElementById('ticker').style.display = 'flex';
 }
 
-function exitToJarvis() {
-  try { window.parent.postMessage({ type: 'CLOSE_BLUEPRINT' }, '*'); } catch (e) {}
+// ═══════════════════════════════════════════════════════════════
+// STL EXPORT — turns solid extrusions into a real printable file
+// ═══════════════════════════════════════════════════════════════
+function exportSTL() {
+  if (!holoGroup || !holoGroup.children.length) {
+    // Build it first if it hasn't been generated yet
+    if (!strokes.length && !placedImages.length) { toast('Sketch a closed shape first, sir.'); return; }
+    initThree();
+    const ok = buildHologram();
+    if (!ok) { toast('Nothing to export yet.'); return; }
+  }
+  if (typeof THREE.STLExporter !== 'function') {
+    toast('STL exporter failed to load — check your connection.');
+    return;
+  }
+  try {
+    const exporter = new THREE.STLExporter();
+    const result = exporter.parse(holoGroup, { binary: true });
+    const blob = new Blob([result], { type: 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `jarvis-design-${Date.now()}.stl`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast('STL exported — ready for your slicer');
+    say('Design exported as an STL file, sir. Ready to slice and print.');
+  } catch (e) {
+    toast('STL export failed: ' + e.message);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
 // TICKER
 // ═══════════════════════════════════════════════════════════════
-const TICKER_ITEMS = ['DRAFTING TABLE ONLINE','HAND-TRACKED SKETCH ENGINE','PINCH TO GRAB · PINCH TO DRAW','PUSH TO CLICK','WEB REFERENCE PULL ACTIVE','SKETCH → HOLOGRAM PROJECTION'];
+const TICKER_ITEMS = ['DRAFTING TABLE ONLINE','HAND-TRACKED SKETCH ENGINE','PINCH TO GRAB · PINCH TO DRAW','PUSH TO CLICK','WEB REFERENCE PULL ACTIVE','SKETCH → HOLOGRAM PROJECTION','CLOSED LOOPS → SOLID 3D PARTS','EXPORT STL FOR REAL-WORLD 3D PRINTING'];
 document.getElementById('ticker-track').innerHTML = [...TICKER_ITEMS, ...TICKER_ITEMS].map((t,i)=>`<span class="ti${i%3===0?' b':''}">${t}</span><span class="ti" style="opacity:.25">·</span>`).join('');
 
 // ═══════════════════════════════════════════════════════════════
@@ -781,9 +956,14 @@ window.addEventListener('message', e => {
   }
 });
 
+function exitToJarvis() {
+  try { window.parent.postMessage({ type: 'CLOSE_BLUEPRINT' }, '*'); } catch (e) {}
+}
+
 // ═══════════════════════════════════════════════════════════════
 // BOOT
 // ═══════════════════════════════════════════════════════════════
+updateDepthLabel();
 window.addEventListener('load', () => { startTracking(); });
 </script>
 </body>
