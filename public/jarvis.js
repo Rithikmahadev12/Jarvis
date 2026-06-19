@@ -1123,10 +1123,8 @@ function openHologram(query) {
   if (!panel || !iframe) return;
   panel.style.display = "block";
   mic.suspend();
-
   const lower = (query || "").toLowerCase();
   const isBuildMode = /build mode|launcher|build me|make me|design|create/i.test(lower);
-
   const sendMsg = () => {
     try {
       if (isBuildMode) {
@@ -1136,6 +1134,33 @@ function openHologram(query) {
       }
     } catch (e) {}
   };
+  if (iframe.contentDocument?.readyState === "complete") {
+    setTimeout(sendMsg, 300);
+  } else {
+    iframe.onload = () => setTimeout(sendMsg, 300);
+  }
+}
+function closeHologram() {
+  const panel = $("hologram-panel");
+  if (panel) panel.style.display = "none";
+  if (state.phase === "chatting") mic.resume();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── BLUEPRINT FUNCTIONS ──
+// ═══════════════════════════════════════════════════════════════
+function openBlueprint(query) {
+  const panel  = $("blueprint-panel");
+  const iframe = $("blueprint-iframe");
+  if (!panel || !iframe) return;
+  panel.style.display = "block";
+  mic.suspend();
+
+  const sendMsg = () => {
+    try {
+      if (query) iframe.contentWindow.postMessage({ type: "BLUEPRINT_SEARCH", query }, "*");
+    } catch (e) {}
+  };
 
   if (iframe.contentDocument?.readyState === "complete") {
     setTimeout(sendMsg, 300);
@@ -1143,12 +1168,16 @@ function openHologram(query) {
     iframe.onload = () => setTimeout(sendMsg, 300);
   }
 }
-
-function closeHologram() {
-  const panel = $("hologram-panel");
+function closeBlueprint() {
+  const panel = $("blueprint-panel");
   if (panel) panel.style.display = "none";
   if (state.phase === "chatting") mic.resume();
 }
+
+// Listen for the iframe's exit button telling us to close
+window.addEventListener("message", (e) => {
+  if (e.data?.type === "CLOSE_BLUEPRINT") closeBlueprint();
+});
 
 // ═══════════════════════════════════════════════════════════════
 // ── ACTION HANDLER ──
