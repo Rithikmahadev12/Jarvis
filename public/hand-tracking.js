@@ -10,8 +10,9 @@ const HandTracking = (() => {
 
   const DWELL_MS          = 1000;   // hold time to "click"
   const RAISE_THRESHOLD   = 0.40;   // wrist y (0=top,1=bottom) above which hand counts as "raised"
-  const LOWER_THRESHOLD   = 0.55;   // hysteresis: must drop below this to count as lowered again
+  const REARM_THRESHOLD   = 0.65;   // wrist must drop below this before a new raise can trigger again
   const SMOOTHING         = 0.35;   // cursor smoothing factor (0=instant,1=frozen)
+  const TOGGLE_COOLDOWN_MS = 600;   // minimum time between toggles
 
   let hands            = null;
   let camera            = null;
@@ -20,7 +21,9 @@ const HandTracking = (() => {
   let cursorEl          = null;
   let keyboardEl        = null;
   let active            = false;
-  let raised            = false;
+  let armed             = true;   // true = wrist has dropped low enough that a new raise can trigger a toggle
+  let keyboardOpen      = false;
+  let lastToggleAt      = 0;
   let smoothX = null, smoothY = null;
   let dwellTarget       = null;
   let dwellStart        = 0;
@@ -237,14 +240,22 @@ const HandTracking = (() => {
     cursorEl.style.left = `${smoothX}px`;
     cursorEl.style.top  = `${smoothY}px`;
 
-    // ── Raised-hand gesture → virtual keyboard ──
+    // ── Raised-hand gesture → toggles virtual keyboard ──
+    // Raising the hand once OPENS the keyboard. It stays open no matter where
+    // your hand goes next (so reaching down to "type" on it doesn't close it).
+    // You have to lower your hand below REARM_THRESHOLD and raise it again to
+    // toggle it closed — or dwell-click the close button on the keyboard itself.
     const wristY = landmarks[0].y; // 0 = top of frame
-    if (!raised && wristY < RAISE_THRESHOLD) {
-      raised = true;
-      showKeyboard();
-    } else if (raised && wristY > LOWER_THRESHOLD) {
-      raised = false;
-      hideKeyboard();
+    const now = performance.now();
+
+    if (wristY > REARM_THRESHOLD) {
+      armed = true;
+    }
+    if (armed && wristY < RAISE_THRESHOLD && (now - lastToggleAt) > TOGGLE_COOLDOWN_MS) {
+      armed = false;
+      lastToggleAt = now;
+      keyboardOpen = !keyboardOpen;
+      if (keyboardOpen) showKeyboard(); else hideKeyboard();
     }
 
     // ── Dwell click ──
