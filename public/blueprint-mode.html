@@ -211,7 +211,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
   </div>
   <button class="bp-btn" id="generate-btn" style="border-color:rgba(255,170,0,0.5);color:var(--amber)" onclick="generateHologram()">⚡ GENERATE HOLOGRAM</button>
   <label style="display:flex;align-items:center;gap:6px;font-size:0.46rem;color:var(--dim-text);letter-spacing:0.05em;cursor:pointer;margin-top:-2px">
-    <input type="checkbox" id="volumetric-toggle" style="accent-color:var(--blue)"/> Volumetric body mode (suits/armor — not a flat sheet)
+    <input type="checkbox" id="volumetric-toggle" checked style="accent-color:var(--blue)"/> Volumetric body mode (figure hologram — leave ON for suits/armor)
   </label>
   <button class="bp-btn" id="export-stl-btn" style="border-color:rgba(0,255,136,0.5);color:var(--green)" onclick="exportSTL()">⬇ EXPORT STL (3D PRINT)</button>
 
@@ -830,15 +830,24 @@ function buildVolumetricSuit(accentColor) {
   const g = new THREE.Group();
   const skinTex = sheetLayer.width > 0 ? new THREE.CanvasTexture(sheetLayer) : null;
 
-  function holoMat(opacity = 0.85) {
+  // Body shell: thin, translucent, glowing — a projected volume of
+  // light, not a textured mannequin. The blueprint photo is kept
+  // OFF the body (wrapping a flat photo onto spheres/cylinders is
+  // exactly what made it read as "paper") and shown instead as a
+  // separate floating readout panel, like the schematic data that
+  // hangs beside Stark's hologram rather than skinning it.
+  function holoMat(opacity = 0.16) {
     return new THREE.MeshStandardMaterial({
-      color: accentColor, emissive: accentColor, emissiveIntensity: 1.1,
-      roughness: 0.35, metalness: 0.55, transparent: true, opacity,
-      map: skinTex || null,
+      color: accentColor, emissive: accentColor, emissiveIntensity: 1.6,
+      roughness: 0.4, metalness: 0.1, transparent: true, opacity,
+      depthWrite: false,
     });
   }
   function wireMat() {
-    return new THREE.MeshBasicMaterial({ color: accentColor, wireframe: true, transparent: true, opacity: 0.35 });
+    return new THREE.MeshBasicMaterial({ color: accentColor, wireframe: true, transparent: true, opacity: 0.55 });
+  }
+  function edgeMat() {
+    return new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.9 });
   }
   const add = (geo, px, py, pz, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
     const m = new THREE.Mesh(geo, holoMat());
@@ -847,6 +856,9 @@ function buildVolumetricSuit(accentColor) {
     const w = new THREE.Mesh(geo, wireMat());
     w.position.copy(m.position); w.rotation.copy(m.rotation); w.scale.copy(m.scale);
     g.add(w);
+    const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 22), edgeMat());
+    e.position.copy(m.position); e.rotation.copy(m.rotation); e.scale.copy(m.scale);
+    g.add(e);
     return m;
   };
 
@@ -857,7 +869,8 @@ function buildVolumetricSuit(accentColor) {
   // Neck + chest
   add(new THREE.CylinderGeometry(0.15, 0.2, 0.2, 16), 0, 2.22, 0);
   add(new THREE.SphereGeometry(0.62, 24, 18, 0, Math.PI * 2, 0, Math.PI * 0.62), 0, 1.55, 0);
-  add(new THREE.CylinderGeometry(0.14, 0.14, 0.04, 24), 0, 1.62, 0.5, Math.PI / 2); // core glow disc
+  const core = add(new THREE.CylinderGeometry(0.14, 0.14, 0.04, 24), 0, 1.62, 0.5, Math.PI / 2); // chest core
+  core.material = new THREE.MeshBasicMaterial({ color: 0xbdf6ff, transparent: true, opacity: 0.95 });
   // Abdomen + hips
   add(new THREE.CylinderGeometry(0.5, 0.42, 0.36, 20), 0, 1.0, 0);
   add(new THREE.CylinderGeometry(0.44, 0.4, 0.2, 20), 0, 0.72, 0);
@@ -876,6 +889,47 @@ function buildVolumetricSuit(accentColor) {
     add(new THREE.BoxGeometry(0.2, 0.13, 0.34), 0.32 * side, -0.66, 0.05);
   });
 
+  // Vertical scan band — the figure visibly "renders" top to
+  // bottom, the classic hologram-projector cue.
+  const scanMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.9, 0.045),
+    new THREE.MeshBasicMaterial({ color: 0xcdf9ff, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false })
+  );
+  scanMesh.position.set(0, 1.5, 0.05);
+  g.add(scanMesh);
+  g.userData.scanMesh = scanMesh;
+
+  // Drifting motes — fine glowing particles around the figure.
+  const moteCount = 70;
+  const motePos = new Float32Array(moteCount * 3);
+  for (let i = 0; i < moteCount; i++) {
+    motePos[i * 3]     = (Math.random() - 0.5) * 2.6;
+    motePos[i * 3 + 1] = Math.random() * 3.4 - 0.5;
+    motePos[i * 3 + 2] = (Math.random() - 0.5) * 2.2;
+  }
+  const moteGeo = new THREE.BufferGeometry();
+  moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos, 3));
+  g.add(new THREE.Points(moteGeo, new THREE.PointsMaterial({ color: accentColor, size: 0.022, transparent: true, opacity: 0.75, depthWrite: false })));
+
+  // The actual blueprint, shown as a floating schematic readout
+  // beside the figure — this is what keeps the source artwork
+  // visible without flattening the body into a paper cutout.
+  if (skinTex) {
+    const panel = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.15, 0.8),
+      new THREE.MeshBasicMaterial({ map: skinTex, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })
+    );
+    panel.position.set(1.65, 1.5, -0.35);
+    panel.rotation.y = -0.4;
+    g.add(panel);
+    const frame = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.PlaneGeometry(1.15, 0.8)),
+      new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.7 })
+    );
+    frame.position.copy(panel.position); frame.rotation.copy(panel.rotation);
+    g.add(frame);
+  }
+
   g.position.y = -1.1;
   g.scale.setScalar(1.15);
   return g;
@@ -883,6 +937,7 @@ function buildVolumetricSuit(accentColor) {
 
 function buildHologram() {
   while (holoGroup.children.length) holoGroup.remove(holoGroup.children[0]);
+  holoGroup.userData = {};
 
   const SHEET_W3D = 5, SHEET_H3D = 3.4;
   const depth = parseFloat(document.getElementById('extrude-depth')?.value || '0.3');
@@ -986,6 +1041,8 @@ function animateHolo() {
   holoGroup.rotation.y += 0.003;
   const t = performance.now() * 0.002;
   holoGroup.traverse(o => { if (o.material && o.material.emissiveIntensity !== undefined) o.material.emissiveIntensity = 1.1 + 0.4 * Math.sin(t * 2 + (o.id % 10)); });
+  const scanMesh = holoGroup.userData && holoGroup.userData.scanMesh;
+  if (scanMesh) scanMesh.position.y = 1.5 + Math.sin(t * 0.7) * 1.7;
   renderer.render(scene, camera3);
 }
 
