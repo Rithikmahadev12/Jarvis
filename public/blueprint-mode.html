@@ -210,6 +210,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
     <span id="depth-val">0.30 units</span>
   </div>
   <button class="bp-btn" id="generate-btn" style="border-color:rgba(255,170,0,0.5);color:var(--amber)" onclick="generateHologram()">⚡ GENERATE HOLOGRAM</button>
+  <label style="display:flex;align-items:center;gap:6px;font-size:0.46rem;color:var(--dim-text);letter-spacing:0.05em;cursor:pointer;margin-top:-2px">
+    <input type="checkbox" id="volumetric-toggle" style="accent-color:var(--blue)"/> Volumetric body mode (suits/armor — not a flat sheet)
+  </label>
   <button class="bp-btn" id="export-stl-btn" style="border-color:rgba(0,255,136,0.5);color:var(--green)" onclick="exportSTL()">⬇ EXPORT STL (3D PRINT)</button>
 
   <div class="bp-divider"></div>
@@ -814,11 +817,93 @@ function addTubeForStroke(s, SHEET_W3D, SHEET_H3D) {
   holoGroup.add(new THREE.Mesh(tubeGeo, mat));
 }
 
+// ── VOLUMETRIC SUIT BUILDER ──────────────────────────────────
+// Instead of extruding a flat blueprint into a "sheet of paper",
+// this builds an actual standing 3D body out of primitives, then
+// skins it with the baked blueprint as an emissive scan-texture.
+// Triggered by the "Volumetric body mode" checkbox.
+function buildVolumetricSuit(accentColor) {
+  const g = new THREE.Group();
+  const skinTex = sheetLayer.width > 0 ? new THREE.CanvasTexture(sheetLayer) : null;
+
+  function holoMat(opacity = 0.85) {
+    return new THREE.MeshStandardMaterial({
+      color: accentColor, emissive: accentColor, emissiveIntensity: 1.1,
+      roughness: 0.35, metalness: 0.55, transparent: true, opacity,
+      map: skinTex || null,
+    });
+  }
+  function wireMat() {
+    return new THREE.MeshBasicMaterial({ color: accentColor, wireframe: true, transparent: true, opacity: 0.35 });
+  }
+  const add = (geo, px, py, pz, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
+    const m = new THREE.Mesh(geo, holoMat());
+    m.position.set(px, py, pz); m.rotation.set(rx, ry, rz); m.scale.set(sx, sy, sz);
+    g.add(m);
+    const w = new THREE.Mesh(geo, wireMat());
+    w.position.copy(m.position); w.rotation.copy(m.rotation); w.scale.copy(m.scale);
+    g.add(w);
+    return m;
+  };
+
+  // Helmet
+  add(new THREE.SphereGeometry(0.42, 24, 24), 0, 2.55, 0);
+  add(new THREE.BoxGeometry(0.18, 0.06, 0.04), -0.13, 2.62, 0.36);
+  add(new THREE.BoxGeometry(0.18, 0.06, 0.04), 0.13, 2.62, 0.36);
+  // Neck + chest
+  add(new THREE.CylinderGeometry(0.15, 0.2, 0.2, 16), 0, 2.22, 0);
+  add(new THREE.SphereGeometry(0.62, 24, 18, 0, Math.PI * 2, 0, Math.PI * 0.62), 0, 1.55, 0);
+  add(new THREE.CylinderGeometry(0.14, 0.14, 0.04, 24), 0, 1.62, 0.5, Math.PI / 2); // core glow disc
+  // Abdomen + hips
+  add(new THREE.CylinderGeometry(0.5, 0.42, 0.36, 20), 0, 1.0, 0);
+  add(new THREE.CylinderGeometry(0.44, 0.4, 0.2, 20), 0, 0.72, 0);
+  // Arms
+  [-1, 1].forEach(side => {
+    add(new THREE.SphereGeometry(0.24, 16, 16), 0.78 * side, 1.9, 0);
+    add(new THREE.CylinderGeometry(0.17, 0.15, 0.62, 14), 0.86 * side, 1.42, 0);
+    add(new THREE.SphereGeometry(0.15, 12, 12), 0.92 * side, 1.05, 0);
+    add(new THREE.CylinderGeometry(0.14, 0.12, 0.58, 14), 0.96 * side, 0.65, 0);
+    add(new THREE.BoxGeometry(0.2, 0.12, 0.22), 1.0 * side, 0.3, 0);
+  });
+  // Legs
+  [-1, 1].forEach(side => {
+    add(new THREE.CylinderGeometry(0.2, 0.17, 0.66, 16), 0.32 * side, 0.32, 0);
+    add(new THREE.CylinderGeometry(0.16, 0.13, 0.62, 16), 0.32 * side, -0.32, 0);
+    add(new THREE.BoxGeometry(0.2, 0.13, 0.34), 0.32 * side, -0.66, 0.05);
+  });
+
+  g.position.y = -1.1;
+  g.scale.setScalar(1.15);
+  return g;
+}
+
 function buildHologram() {
   while (holoGroup.children.length) holoGroup.remove(holoGroup.children[0]);
 
   const SHEET_W3D = 5, SHEET_H3D = 3.4;
   const depth = parseFloat(document.getElementById('extrude-depth')?.value || '0.3');
+  const wantVolumetric = document.getElementById('volumetric-toggle')?.checked;
+
+  // ── VOLUMETRIC MODE: build an actual standing 3D body instead
+  // of a flat extruded sheet. Best for suits/armor blueprints.
+  if (wantVolumetric && sheetLayer.width > 0) {
+    const accent = new THREE.Color(penColor || '#00c8ff');
+    const body = buildVolumetricSuit(accent);
+    holoGroup.add(body);
+
+    // still draw any pen strokes as floating annotations in front
+    for (const s of strokes) {
+      if (s.points.length < 2) continue;
+      addTubeForStroke(s, SHEET_W3D, SHEET_H3D);
+    }
+
+    const summaryEl = document.getElementById('holo-summary');
+    if (summaryEl) {
+      summaryEl.textContent = 'VOLUMETRIC BODY — BLUEPRINT PROJECTED AS A FIGURE, NOT A SHEET';
+      summaryEl.style.display = 'block';
+    }
+    return true;
+  }
 
   // baked blueprint as backdrop
   if (sheetLayer.width > 0) {
@@ -985,16 +1070,31 @@ function generatePartsListLocal(projectRaw) {
         { name: 'Resistors + small capacitors',        est: '$1-2' },
       ],
       notes: [
-        'This is a wearable LED prop — actual plasma/ionized gas at home is extremely dangerous and not something to attempt.',
-        'A 10W LED behind a frosted diffuser disc gives a very convincing "energy charge" glow.',
-        'EL wire around the rim gives the pulsing ring effect seen in the films.',
+        'Straight talk on "actual plasma": plasma is ionized gas — generating real free-air plasma needs either a sealed low-pressure glass globe (a genuine plasma ball, see below) or open-air high voltage arcs/Tesla coils, which are hot, loud, RF-noisy, and not safe to wear on your hand. There is no version of that you should build into a wearable glove.',
+        'The "REAL PLASMA — ACTUAL OPTION" section below is the closest genuine (not LED-simulated) plasma effect that is realistically safe to build into a prop.',
+        'For the glowing-disc look most people actually want, a 10W LED behind a frosted diffuser is what film prop builders use too — it reads as "real" on camera and in person.',
+        'EL wire around the rim gives the pulsing energy-ring effect.',
         'Wire an Arduino Nano + PWM if you want a charge-up animation before full brightness.',
-        'Vibration motor pulses once on activation for tactile feedback.',
       ],
+      realPlasma: {
+        title: 'REAL PLASMA — ACTUAL OPTION (genuinely ionized gas, not LED)',
+        parts: [
+          { name: 'Small plasma globe module (sealed glass sphere, genuine ionized gas, low-voltage driver board)', est: '$10-25' },
+          { name: 'Replace stock base with 3D printed repulsor housing', est: '$5-8' },
+          { name: 'Rechargeable battery pack matched to the globe driver (usually 12V)', est: '$5-10' },
+        ],
+        notes: [
+          'A plasma globe (the kind sold as a desk novelty) is real plasma — sealed inert gas excited by a high-frequency, low-current driver board. It is genuinely safe to touch because the current is tiny and the gas is sealed in glass.',
+          'You gut the plastic base, keep the glass globe + driver PCB, and re-house it inside a 3D printed repulsor shell sized to fit your wrist/palm.',
+          'This is the one realistic way to get an actual plasma effect into a wearable prop. Open-air arcs (Tesla coils, arc lighters, jacob\'s ladders) are real plasma too, but they\'re high-voltage, hot, and a genuine burn/shock risk strapped to your hand — not recommended regardless of how it looks.',
+          'If the glass globe form factor doesn\'t fit your design, the LED + diffuser version above is the next-best visual match and is what most screen-accurate prop builders actually use.',
+        ],
+      },
       links: [
         'https://www.instructables.com/Iron-Man-Repulsor-Glove/',
         'https://hackaday.io/search?term=repulsor',
         'https://www.thingiverse.com/search?q=iron+man+repulsor',
+        'https://hackaday.io/search?term=plasma+globe+teardown',
       ],
     };
   }
@@ -1112,6 +1212,16 @@ function generateRealBuild() {
   }
   html += `<div><b>BUILD NOTES</b></div>`;
   for (const n of data.notes) html += `<div class="note-line">• ${n}</div>`;
+
+  if (data.realPlasma) {
+    html += `<div class="bp-divider" style="background:rgba(255,51,51,0.2)"></div>`;
+    html += `<div style="color:var(--red);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.1em">${data.realPlasma.title}</div>`;
+    for (const p of data.realPlasma.parts) {
+      html += `<div class="part-row"><span class="part-name">${p.name}</span><span class="part-est">${p.est}</span></div>`;
+    }
+    for (const n of data.realPlasma.notes) html += `<div class="note-line">• ${n}</div>`;
+  }
+
   html += `<div><b>REFERENCE LINKS</b></div>`;
   for (const l of data.links) html += `<a href="${l}" target="_blank" rel="noopener">${l}</a>`;
 
