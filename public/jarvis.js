@@ -1194,6 +1194,7 @@ async function handleAction(action, meta, replyText) {
       });
       break;
     }
+      
     case "SHOW_LINKS": {
       speak(replyText, () => mic.resume());
       if (meta.linkGroups && meta.linkGroups.length > 0) {
@@ -1325,6 +1326,14 @@ async function handleAction(action, meta, replyText) {
     }
     default: { speak(replyText, () => mic.resume()); break; }
   }
+}
+case "SHOW_BLUEPRINT": {
+  const query = meta?.query || "";
+  speak(replyText, () => {
+    openBlueprint(query);
+    mic.resume();
+  });
+  break;
 }
 
 // ── TIMER BADGE ──
