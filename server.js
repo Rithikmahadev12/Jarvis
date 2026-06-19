@@ -44,6 +44,26 @@ app.get("/comms", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "comms.html"));
 });
 
+// ═══════════════════════════════════════════════════════════════
+// ── DRAFTING TABLE / BLUEPRINT MODE
+// Hand-tracked sketch workspace: pull reference images from the
+// web, draw over them, project the result as a 3D hologram.
+// ═══════════════════════════════════════════════════════════════
+app.get("/blueprint", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "blueprint-mode.html"));
+});
+
+app.get("/api/blueprint/search", async (req, res) => {
+  const q = (req.query.q || "").trim();
+  if (!q) return res.json({ images: [] });
+  try {
+    const images = await DIY.searchImages(`${q} blueprint schematic engineering diagram`, 8);
+    res.json({ images });
+  } catch (e) {
+    res.status(500).json({ images: [], error: e.message });
+  }
+});
+
 // ── LINKS BANK ────────────────────────────────────────────────
 const LINKS = {
   petzah: [
@@ -821,6 +841,16 @@ app.post("/api/chat", async (req, res) => {
       .catch(() => res.json({ reply: `Home command failed, ${T}.`, action: "HOME_COMMAND", intent: "home" }));
   }
 
+  // ── 1.5. Drafting table / blueprint mode ──
+  if (/\b(blueprint|blue print|drafting table|design table|engineering bay|cad mode|let'?s design|sketch (out|something)|draft something|design something)\b/i.test(message)) {
+    return res.json({
+      reply: `Opening the drafting table, ${T}. Pull a reference off the web, sketch over it with your hand, and I'll project it straight into a hologram.`,
+      action: "SHOW_BLUEPRINT",
+      intent: "blueprint",
+      meta: { query: message },
+    });
+  }
+
   // ── 2. Personality shortcuts (no AI needed) ──
   const personalNewsReply = Personality.routePersonalNews(message, T);
   if (personalNewsReply) {
@@ -980,6 +1010,7 @@ app.get("/api/tts/status", (req, res) => {
 httpServer.listen(PORT, () => {
   console.log(`\nJ.A.R.V.I.S online → http://localhost:${PORT}`);
   console.log(`  Comms panel    → http://localhost:${PORT}/comms`);
+  console.log(`  Drafting table → http://localhost:${PORT}/blueprint`);
   console.log(`  Groq AI:       ${Groq.isConfigured() ? "✓ configured — primary brain active" : "✗ not configured (add GROQ_API_KEY to .env)"}`);
   console.log(`  Spotify:       ${Spotify.isConfigured() ? "✓ configured" : "✗ add SPOTIFY_CLIENT_ID to .env"}`);
   console.log(`  Google:        ${Google.isConfigured()  ? "✓ configured" : "✗ add GOOGLE_CLIENT_ID to .env"}`);
