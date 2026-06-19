@@ -1,0 +1,155 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — HAND TRACKING STYLES (additive, append to style.css
+   or keep as separate file and link it after style.css)
+   ═══════════════════════════════════════════════════════════════ */
+
+.ht-overlay-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 250;
+  pointer-events: none;
+}
+
+/* ── CURSOR ── */
+.ht-cursor {
+  position: fixed;
+  top: 0; left: 0;
+  width: 40px; height: 40px;
+  transform: translate(-50%, -50%);
+  z-index: 260;
+  pointer-events: none;
+  opacity: 0.15;
+  transition: opacity 0.25s ease;
+}
+.ht-cursor-dot {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--amber, #ffaa00);
+  box-shadow: 0 0 10px var(--amber-glow, rgba(255,170,0,0.6));
+  transform: translate(-50%, -50%);
+}
+.ht-cursor-ring {
+  width: 40px; height: 40px;
+  transform: rotate(-90deg);
+}
+.ht-cursor-ring-bg {
+  fill: none;
+  stroke: rgba(0,200,255,0.18);
+  stroke-width: 2;
+}
+.ht-cursor-ring-fill {
+  fill: none;
+  stroke: var(--blue, #00c8ff);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-dasharray: 107;
+  stroke-dashoffset: 107;
+  filter: drop-shadow(0 0 4px rgba(0,200,255,0.7));
+  transition: stroke-dashoffset 0.05s linear;
+}
+.ht-cursor-click {
+  animation: htClickPulse 0.22s ease-out;
+}
+@keyframes htClickPulse {
+  0%   { transform: translate(-50%, -50%) scale(1); }
+  50%  { transform: translate(-50%, -50%) scale(1.6); }
+  100% { transform: translate(-50%, -50%) scale(1); }
+}
+
+/* Hover state applied to whatever element is under the dwell cursor */
+.ht-hover {
+  outline: 2px solid var(--blue, #00c8ff) !important;
+  outline-offset: 2px;
+  box-shadow: 0 0 16px rgba(0,200,255,0.35) !important;
+}
+
+/* ── STATUS BADGE ── */
+.ht-status-badge {
+  position: fixed;
+  top: 14px; right: 14px;
+  z-index: 260;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,10,20,0.85);
+  border: 1px solid rgba(0,200,255,0.25);
+  color: var(--blue, #00c8ff);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.14em;
+  padding: 6px 12px;
+  border-radius: 2px;
+  pointer-events: none;
+}
+.ht-status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green, #00ff88);
+  box-shadow: 0 0 6px var(--green, #00ff88);
+  animation: htBlink 1.4s step-end infinite;
+}
+@keyframes htBlink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+/* ── VIRTUAL KEYBOARD ── */
+.ht-keyboard {
+  position: fixed;
+  bottom: 36px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  width: min(720px, 92vw);
+  background: rgba(2,10,20,0.96);
+  border: 1px solid rgba(0,200,255,0.3);
+  box-shadow: 0 0 50px rgba(0,200,255,0.15);
+  border-radius: 6px;
+  padding: 14px 16px 16px;
+  z-index: 255;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  opacity: 0;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.ht-keyboard.hidden { display: none; }
+.ht-keyboard.ht-kb-in { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+.ht-kb-header {
+  font-family: 'Orbitron', monospace;
+  font-size: 0.42rem;
+  letter-spacing: 0.2em;
+  color: var(--text-dim, #2e5a78);
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.ht-kb-row {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+.ht-key {
+  flex: 1;
+  max-width: 52px;
+  height: 42px;
+  background: rgba(0,200,255,0.05);
+  border: 1px solid rgba(0,200,255,0.18);
+  color: var(--text, #a8dff5);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.ht-key:hover, .ht-key.ht-hover {
+  background: rgba(0,200,255,0.15);
+  border-color: var(--blue, #00c8ff);
+}
+.ht-key-flash {
+  background: var(--blue, #00c8ff) !important;
+  color: #021526 !important;
+}
+.ht-key-space { max-width: 260px; flex: 4; }
+.ht-key-enter { max-width: 140px; flex: 2; border-color: rgba(0,255,136,0.3); color: var(--green, #00ff88); }
