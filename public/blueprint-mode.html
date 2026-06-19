@@ -419,18 +419,22 @@ async function runSearch(qOverride) {
   }
 }
 
-// Click a thumbnail → place it as a movable/resizable blueprint object
-// (still vector/floating until BAKE — so you can position it first)
+// Click a thumbnail → it becomes the real blueprint immediately.
+// No more "reference" stage — it's baked straight into the sheet
+// layer's pixels, so PEN and ERASE work on it right away.
 function placeImageOnSheet(src, label) {
   const img = new Image();
   img.crossOrigin = 'anonymous';
   img.referrerPolicy = 'no-referrer';
   img.onload = () => {
-    const entry = { img, u: 0.5, v: 0.5, w: 0.55, h: 0.55, label: label || 'blueprint' };
-    placedImages.push(entry);
-    selectedImageIndex = placedImages.length - 1;
-    setTool('stamp');
-    toast('Blueprint placed — drag/resize, then BAKE to fuse it into the sheet');
+    const w = sheetLayer.width  * 0.7;
+    const h = sheetLayer.height * 0.7;
+    const cx = sheetLayer.width  / 2;
+    const cy = sheetLayer.height / 2;
+    sheetCtx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
+    setTool('pen');
+    toast('Blueprint loaded — this is the real thing now. Draw or erase directly on it.');
+    say('Blueprint pulled in, sir. Draw or erase it like the real thing — no reference layer.');
     updateStats();
   };
   img.src = src;
