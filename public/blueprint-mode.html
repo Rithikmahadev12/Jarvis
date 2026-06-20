@@ -211,7 +211,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
   </div>
   <button class="bp-btn" id="generate-btn" style="border-color:rgba(255,170,0,0.5);color:var(--amber)" onclick="generateHologram()">⚡ GENERATE HOLOGRAM</button>
   <label style="display:flex;align-items:center;gap:6px;font-size:0.46rem;color:var(--dim-text);letter-spacing:0.05em;cursor:pointer;margin-top:-2px">
-    <input type="checkbox" id="volumetric-toggle" checked style="accent-color:var(--blue)"/> Volumetric body mode (figure hologram — leave ON for suits/armor)
+    <input type="checkbox" id="volumetric-toggle" checked style="accent-color:var(--blue)"/> Shape hologram from blueprint silhouette (recommended)
   </label>
   <button class="bp-btn" id="export-stl-btn" style="border-color:rgba(0,255,136,0.5);color:var(--green)" onclick="exportSTL()">⬇ EXPORT STL (3D PRINT)</button>
 
@@ -821,117 +821,227 @@ function addTubeForStroke(s, SHEET_W3D, SHEET_H3D) {
   holoGroup.add(new THREE.Mesh(tubeGeo, mat));
 }
 
-// ── VOLUMETRIC SUIT BUILDER ──────────────────────────────────
-// Instead of extruding a flat blueprint into a "sheet of paper",
-// this builds an actual standing 3D body out of primitives, then
-// skins it with the baked blueprint as an emissive scan-texture.
-// Triggered by the "Volumetric body mode" checkbox.
-function buildVolumetricSuit(accentColor) {
-  const g = new THREE.Group();
-  const skinTex = sheetLayer.width > 0 ? new THREE.CanvasTexture(sheetLayer) : null;
+// ── SILHOUETTE EXTRACTION ────────────────────────────────────
+// Reads the actual baked blueprint pixels and produces a binary
+// "this is part of the subject" mask — so the hologram that comes
+// out is shaped like whatever was really pasted in (drone, suit,
+// gauntlet, circuit board…), not a fixed body rig.
+function keepLargestComponent(mask, GW, GH) {
+  const visited = new Uint8Array(GW * GH);
+  let bestComp = null, bestSize = 0;
+  for (let start = 0; start < GW * GH; start++) {
+    if (!mask[start] || visited[start]) continue;
+    const comp = [start];
+    visited[start] = 1;
+    const stack = [start];
+    while (stack.length) {
+      const cur = stack.pop();
+      const cx = cur % GW, cy = (cur - cx) / GW;
+      const coords = [[cx - 1, cy], [cx + 1, cy], [cx, cy - 1], [cx, cy + 1]];
+      for (const [nx, ny] of coords) {
+        if (nx < 0 || nx >= GW || ny < 0 || ny >= GH) continue;
+        const ni = ny * GW + nx;
+        if (mask[ni] && !visited[ni]) { visited[ni] = 1; comp.push(ni); stack.push(ni); }
+      }
+    }
+    if (comp.length > bestSize) { bestSize = comp.length; bestComp = comp; }
+  }
+  const out = new Uint8Array(GW * GH);
+  if (bestComp) for (const i of bestComp) out[i] = 1;
+  return out;
+}
+function dilateMask(mask, GW, GH) {
+  const out = new Uint8Array(GW * GH);
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    if (mask[y * GW + x]) { out[y * GW + x] = 1; continue; }
+    let v = 0;
+    for (let dy = -1; dy <= 1 && !v; dy++) for (let dx = -1; dx <= 1 && !v; dx++) {
+      const nx = x + dx, ny = y + dy;
+      if (nx >= 0 && nx < GW && ny >= 0 && ny < GH && mask[ny * GW + nx]) v = 1;
+    }
+    out[y * GW + x] = v;
+  }
+  return out;
+}
+function erodeMask(mask, GW, GH) {
+  const out = new Uint8Array(GW * GH);
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    if (!mask[y * GW + x]) { out[y * GW + x] = 0; continue; }
+    let v = 1;
+    for (let dy = -1; dy <= 1 && v; dy++) for (let dx = -1; dx <= 1 && v; dx++) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 0 || nx >= GW || ny < 0 || ny >= GH || !mask[ny * GW + nx]) v = 0;
+    }
+    out[y * GW + x] = v;
+  }
+  return out;
+}
+function closeMask(mask, GW, GH, iters) {
+  let m = mask;
+  for (let i = 0; i < iters; i++) m = dilateMask(m, GW, GH);
+  for (let i = 0; i < iters; i++) m = erodeMask(m, GW, GH);
+  return m;
+}
 
-  // Body shell: thin, translucent, glowing — a projected volume of
-  // light, not a textured mannequin. The blueprint photo is kept
-  // OFF the body (wrapping a flat photo onto spheres/cylinders is
-  // exactly what made it read as "paper") and shown instead as a
-  // separate floating readout panel, like the schematic data that
-  // hangs beside Stark's hologram rather than skinning it.
-  function holoMat(opacity = 0.16) {
-    return new THREE.MeshStandardMaterial({
-      color: accentColor, emissive: accentColor, emissiveIntensity: 1.6,
-      roughness: 0.4, metalness: 0.1, transparent: true, opacity,
-      depthWrite: false,
-    });
+// ── SILHOUETTE HOLOGRAM BUILDER ──────────────────────────────
+// Samples the baked blueprint at low resolution, separates the
+// subject from its background/annotations, keeps only the main
+// connected shape, then builds it as a voxel relief: every active
+// cell becomes a small glowing block colored from the blueprint's
+// own pixels at that spot, with only the faces that touch empty
+// space actually drawn. A drone blueprint comes out drone-shaped;
+// a suit blueprint comes out suit-shaped — the geometry follows
+// whatever was really pasted in, instead of a hardcoded body.
+// Returns an empty THREE.Group if no clear subject could be found,
+// so the caller can fall back to the flat sheet projection.
+function buildVoxelHologram(accentColor) {
+  const g = new THREE.Group();
+  if (sheetLayer.width === 0 || sheetLayer.height === 0) return g;
+
+  const aspect = sheetLayer.height / sheetLayer.width;
+  const GW = 64;
+  const GH = Math.max(10, Math.min(64, Math.round(GW * aspect)));
+
+  const tmp = document.createElement('canvas');
+  tmp.width = GW; tmp.height = GH;
+  const tctx = tmp.getContext('2d');
+  tctx.drawImage(sheetLayer, 0, 0, GW, GH);
+  const img = tctx.getImageData(0, 0, GW, GH).data;
+
+  const lumOf = (r, gg, b) => 0.299 * r + 0.587 * gg + 0.114 * b;
+
+  // Estimate background brightness from the outer ring of the sheet
+  // (blueprint posters are almost always framed by margin/background).
+  let bgSum = 0, bgCount = 0;
+  for (let x = 0; x < GW; x++) {
+    [0, GH - 1].forEach(y => { const i = (y * GW + x) * 4; if (img[i + 3] > 10) { bgSum += lumOf(img[i], img[i+1], img[i+2]); bgCount++; } });
   }
-  function wireMat() {
-    return new THREE.MeshBasicMaterial({ color: accentColor, wireframe: true, transparent: true, opacity: 0.55 });
+  for (let y = 0; y < GH; y++) {
+    [0, GW - 1].forEach(x => { const i = (y * GW + x) * 4; if (img[i + 3] > 10) { bgSum += lumOf(img[i], img[i+1], img[i+2]); bgCount++; } });
   }
-  function edgeMat() {
-    return new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.9 });
+  const bgLum = bgCount ? bgSum / bgCount : 225;
+
+  let mask = new Uint8Array(GW * GH);
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    const i = (y * GW + x) * 4;
+    if (img[i + 3] < 12) continue;
+    const r = img[i], gg = img[i + 1], b = img[i + 2];
+    const l = lumOf(r, gg, b);
+    const maxc = Math.max(r, gg, b), minc = Math.min(r, gg, b);
+    const sat = maxc > 0 ? (maxc - minc) / maxc : 0;
+    if (Math.abs(l - bgLum) > 26 || sat > 0.20) mask[y * GW + x] = 1;
   }
-  const add = (geo, px, py, pz, rx = 0, ry = 0, rz = 0, sx = 1, sy = 1, sz = 1) => {
-    const m = new THREE.Mesh(geo, holoMat());
-    m.position.set(px, py, pz); m.rotation.set(rx, ry, rz); m.scale.set(sx, sy, sz);
-    g.add(m);
-    const w = new THREE.Mesh(geo, wireMat());
-    w.position.copy(m.position); w.rotation.copy(m.rotation); w.scale.copy(m.scale);
-    g.add(w);
-    const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo, 22), edgeMat());
-    e.position.copy(m.position); e.rotation.copy(m.rotation); e.scale.copy(m.scale);
-    g.add(e);
-    return m;
+
+  mask = keepLargestComponent(mask, GW, GH); // drop scattered text/callouts
+  mask = closeMask(mask, GW, GH, 1);         // fuse small gaps into one solid form
+
+  let activeCount = 0;
+  for (let i = 0; i < mask.length; i++) activeCount += mask[i];
+  if (activeCount < 14) return g; // not enough signal to call this a shape
+
+  const at = (x, y) => (x >= 0 && x < GW && y >= 0 && y < GH) ? mask[y * GW + x] : 0;
+  const colorAt = (x, y) => { const i = (y * GW + x) * 4; return [img[i] / 255, img[i+1] / 255, img[i+2] / 255]; };
+
+  const cellW = 4.6 / GW, cellH = 3.1 / GH;
+  const ox = -GW * cellW / 2, oy = GH * cellH / 2;
+  const rawDepth = parseFloat(document.getElementById('extrude-depth')?.value || '0.3');
+  const depth = Math.min(0.5, Math.max(0.07, rawDepth * 0.7));
+  const z0 = -depth / 2, z1 = depth / 2;
+
+  const positions = [], normals = [], colors = [];
+  const pushQuad = (p0, p1, p2, p3, n, col) => {
+    positions.push(...p0, ...p1, ...p2, ...p0, ...p2, ...p3);
+    for (let k = 0; k < 6; k++) normals.push(...n);
+    for (let k = 0; k < 6; k++) colors.push(...col);
   };
 
-  // Helmet
-  add(new THREE.SphereGeometry(0.42, 24, 24), 0, 2.55, 0);
-  add(new THREE.BoxGeometry(0.18, 0.06, 0.04), -0.13, 2.62, 0.36);
-  add(new THREE.BoxGeometry(0.18, 0.06, 0.04), 0.13, 2.62, 0.36);
-  // Neck + chest
-  add(new THREE.CylinderGeometry(0.15, 0.2, 0.2, 16), 0, 2.22, 0);
-  add(new THREE.SphereGeometry(0.62, 24, 18, 0, Math.PI * 2, 0, Math.PI * 0.62), 0, 1.55, 0);
-  const core = add(new THREE.CylinderGeometry(0.14, 0.14, 0.04, 24), 0, 1.62, 0.5, Math.PI / 2); // chest core
-  core.material = new THREE.MeshBasicMaterial({ color: 0xbdf6ff, transparent: true, opacity: 0.95 });
-  // Abdomen + hips
-  add(new THREE.CylinderGeometry(0.5, 0.42, 0.36, 20), 0, 1.0, 0);
-  add(new THREE.CylinderGeometry(0.44, 0.4, 0.2, 20), 0, 0.72, 0);
-  // Arms
-  [-1, 1].forEach(side => {
-    add(new THREE.SphereGeometry(0.24, 16, 16), 0.78 * side, 1.9, 0);
-    add(new THREE.CylinderGeometry(0.17, 0.15, 0.62, 14), 0.86 * side, 1.42, 0);
-    add(new THREE.SphereGeometry(0.15, 12, 12), 0.92 * side, 1.05, 0);
-    add(new THREE.CylinderGeometry(0.14, 0.12, 0.58, 14), 0.96 * side, 0.65, 0);
-    add(new THREE.BoxGeometry(0.2, 0.12, 0.22), 1.0 * side, 0.3, 0);
-  });
-  // Legs
-  [-1, 1].forEach(side => {
-    add(new THREE.CylinderGeometry(0.2, 0.17, 0.66, 16), 0.32 * side, 0.32, 0);
-    add(new THREE.CylinderGeometry(0.16, 0.13, 0.62, 16), 0.32 * side, -0.32, 0);
-    add(new THREE.BoxGeometry(0.2, 0.13, 0.34), 0.32 * side, -0.66, 0.05);
-  });
+  for (let y = 0; y < GH; y++) {
+    for (let x = 0; x < GW; x++) {
+      if (!at(x, y)) continue;
+      const x0 = ox + x * cellW, x1 = x0 + cellW;
+      const y0 = oy - y * cellH, y1 = y0 - cellH;
+      const isEdge = !at(x - 1, y) || !at(x + 1, y) || !at(x, y - 1) || !at(x, y + 1);
+      const [r, gg, b] = colorAt(x, y);
+      const boost = isEdge ? 1.3 : 1.0;
+      const col = [Math.min(1, r * boost), Math.min(1, gg * boost), Math.min(1, b * boost)];
 
-  // Vertical scan band — the figure visibly "renders" top to
-  // bottom, the classic hologram-projector cue.
+      pushQuad([x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1], [0,0,1], col);   // front
+      pushQuad([x1,y0,z0],[x0,y0,z0],[x0,y1,z0],[x1,y1,z0], [0,0,-1], col); // back
+      if (!at(x - 1, y)) pushQuad([x0,y0,z0],[x0,y0,z1],[x0,y1,z1],[x0,y1,z0], [-1,0,0], col);
+      if (!at(x + 1, y)) pushQuad([x1,y0,z1],[x1,y0,z0],[x1,y1,z0],[x1,y1,z1], [1,0,0], col);
+      if (!at(x, y - 1)) pushQuad([x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1], [0,1,0], col);
+      if (!at(x, y + 1)) pushQuad([x0,y1,z1],[x1,y1,z1],[x1,y1,z0],[x0,y1,z0], [0,-1,0], col);
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  const mat = new THREE.MeshStandardMaterial({
+    vertexColors: true, transparent: true, opacity: 0.88,
+    roughness: 0.5, metalness: 0.25, emissive: accentColor, emissiveIntensity: 0.22,
+  });
+  g.add(new THREE.Mesh(geo, mat));
+
+  // Glowing contour line traced along the actual silhouette edge.
+  const outlinePts = [];
+  const zf = z1 + 0.006;
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    if (!at(x, y)) continue;
+    const x0 = ox + x * cellW, x1 = x0 + cellW;
+    const y0 = oy - y * cellH, y1 = y0 - cellH;
+    if (!at(x, y - 1)) outlinePts.push(x0,y0,zf, x1,y0,zf);
+    if (!at(x, y + 1)) outlinePts.push(x0,y1,zf, x1,y1,zf);
+    if (!at(x - 1, y)) outlinePts.push(x0,y0,zf, x0,y1,zf);
+    if (!at(x + 1, y)) outlinePts.push(x1,y0,zf, x1,y1,zf);
+  }
+  if (outlinePts.length) {
+    const outlineGeo = new THREE.BufferGeometry();
+    outlineGeo.setAttribute('position', new THREE.Float32BufferAttribute(outlinePts, 3));
+    g.add(new THREE.LineSegments(outlineGeo, new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.9 })));
+  }
+
+  // Vertical scan band sweeping through the shape.
   const scanMesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.9, 0.045),
-    new THREE.MeshBasicMaterial({ color: 0xcdf9ff, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false })
+    new THREE.PlaneGeometry(GW * cellW * 1.1, 0.045),
+    new THREE.MeshBasicMaterial({ color: 0xcdf9ff, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })
   );
-  scanMesh.position.set(0, 1.5, 0.05);
+  scanMesh.position.set(0, 0, z1 + 0.05);
   g.add(scanMesh);
   g.userData.scanMesh = scanMesh;
 
-  // Drifting motes — fine glowing particles around the figure.
+  // Drifting motes around the shape.
   const moteCount = 70;
   const motePos = new Float32Array(moteCount * 3);
   for (let i = 0; i < moteCount; i++) {
-    motePos[i * 3]     = (Math.random() - 0.5) * 2.6;
-    motePos[i * 3 + 1] = Math.random() * 3.4 - 0.5;
-    motePos[i * 3 + 2] = (Math.random() - 0.5) * 2.2;
+    motePos[i * 3]     = (Math.random() - 0.5) * (GW * cellW + 1.2);
+    motePos[i * 3 + 1] = (Math.random() - 0.5) * (GH * cellH + 1.2);
+    motePos[i * 3 + 2] = (Math.random() - 0.5) * 1.4;
   }
   const moteGeo = new THREE.BufferGeometry();
   moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos, 3));
   g.add(new THREE.Points(moteGeo, new THREE.PointsMaterial({ color: accentColor, size: 0.022, transparent: true, opacity: 0.75, depthWrite: false })));
 
-  // The actual blueprint, shown as a floating schematic readout
-  // beside the figure — this is what keeps the source artwork
-  // visible without flattening the body into a paper cutout.
-  if (skinTex) {
-    const panel = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.15, 0.8),
-      new THREE.MeshBasicMaterial({ map: skinTex, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false })
-    );
-    panel.position.set(1.65, 1.5, -0.35);
-    panel.rotation.y = -0.4;
-    g.add(panel);
-    const frame = new THREE.LineSegments(
-      new THREE.EdgesGeometry(new THREE.PlaneGeometry(1.15, 0.8)),
-      new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.7 })
-    );
-    frame.position.copy(panel.position); frame.rotation.copy(panel.rotation);
-    g.add(frame);
-  }
+  // The full-resolution original, floating beside the voxel form as
+  // a reference readout (the voxel grid is low-res, so fine print on
+  // the original blueprint is otherwise lost).
+  const skinTex = new THREE.CanvasTexture(sheetLayer);
+  const panelW = 1.15, panelH = panelW * (sheetLayer.height / sheetLayer.width);
+  const panel = new THREE.Mesh(
+    new THREE.PlaneGeometry(panelW, panelH),
+    new THREE.MeshBasicMaterial({ map: skinTex, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })
+  );
+  panel.position.set(GW * cellW / 2 + 0.9, GH * cellH / 4, -0.3);
+  panel.rotation.y = -0.4;
+  g.add(panel);
+  const frame = new THREE.LineSegments(
+    new THREE.EdgesGeometry(new THREE.PlaneGeometry(panelW, panelH)),
+    new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.7 })
+  );
+  frame.position.copy(panel.position); frame.rotation.copy(panel.rotation);
+  g.add(frame);
 
-  g.position.y = -1.1;
-  g.scale.setScalar(1.15);
   return g;
 }
 
@@ -943,25 +1053,29 @@ function buildHologram() {
   const depth = parseFloat(document.getElementById('extrude-depth')?.value || '0.3');
   const wantVolumetric = document.getElementById('volumetric-toggle')?.checked;
 
-  // ── VOLUMETRIC MODE: build an actual standing 3D body instead
-  // of a flat extruded sheet. Best for suits/armor blueprints.
+  // ── SHAPE MODE: derive an actual 3D form from the blueprint's
+  // own silhouette instead of a flat extruded sheet.
   if (wantVolumetric && sheetLayer.width > 0) {
     const accent = new THREE.Color(penColor || '#00c8ff');
-    const body = buildVolumetricSuit(accent);
-    holoGroup.add(body);
+    const voxelBody = buildVoxelHologram(accent);
+    if (voxelBody.children.length) {
+      holoGroup.add(voxelBody);
 
-    // still draw any pen strokes as floating annotations in front
-    for (const s of strokes) {
-      if (s.points.length < 2) continue;
-      addTubeForStroke(s, SHEET_W3D, SHEET_H3D);
-    }
+      // still draw any pen strokes as floating annotations in front
+      for (const s of strokes) {
+        if (s.points.length < 2) continue;
+        addTubeForStroke(s, SHEET_W3D, SHEET_H3D);
+      }
 
-    const summaryEl = document.getElementById('holo-summary');
-    if (summaryEl) {
-      summaryEl.textContent = 'VOLUMETRIC BODY — BLUEPRINT PROJECTED AS A FIGURE, NOT A SHEET';
-      summaryEl.style.display = 'block';
+      const summaryEl = document.getElementById('holo-summary');
+      if (summaryEl) {
+        summaryEl.textContent = 'SILHOUETTE HOLOGRAM — SHAPE & COLOR PULLED FROM THE BLUEPRINT';
+        summaryEl.style.display = 'block';
+      }
+      return true;
     }
-    return true;
+    toast('Could not isolate a clear shape from this blueprint — showing flat projection instead.');
+    // falls through to the flat sheet rendering below
   }
 
   // baked blueprint as backdrop
