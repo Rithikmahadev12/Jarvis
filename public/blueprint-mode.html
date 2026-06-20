@@ -893,24 +893,65 @@ function closeMask(mask, GW, GH, iters) {
   return m;
 }
 
-// ── SILHOUETTE HOLOGRAM BUILDER ──────────────────────────────
-// Samples the baked blueprint at low resolution, separates the
-// subject from its background/annotations, keeps only the main
-// connected shape, then builds it as a voxel relief: every active
-// cell becomes a small glowing block colored from the blueprint's
-// own pixels at that spot, with only the faces that touch empty
-// space actually drawn. A drone blueprint comes out drone-shaped;
-// a suit blueprint comes out suit-shaped — the geometry follows
-// whatever was really pasted in, instead of a hardcoded body.
-// Returns an empty THREE.Group if no clear subject could be found,
-// so the caller can fall back to the flat sheet projection.
-function buildVoxelHologram(accentColor) {
+// ── BOUNDARY TRACING & SMOOTHING ─────────────────────────────
+// Moore-neighbor tracing turns a binary mask into one ordered
+// outline; Chaikin smoothing rounds the staircase aliasing off
+// that outline so the resulting mesh has clean edges instead of
+// a jagged pixel-stepped border.
+function traceBoundary(mask, GW, GH) {
+  const dirs = [[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]]; // clockwise, E first
+  const isFg = (x, y) => x >= 0 && x < GW && y >= 0 && y < GH && mask[y * GW + x] === 1;
+  let sx = -1, sy = -1;
+  for (let y = 0; y < GH && sx < 0; y++) for (let x = 0; x < GW; x++) { if (mask[y * GW + x]) { sx = x; sy = y; break; } }
+  if (sx < 0) return [];
+  const boundary = [[sx, sy]];
+  let cx = sx, cy = sy, backDir = 4; // assume we "arrived" from the West
+  const maxSteps = GW * GH * 8;
+  for (let steps = 0; steps < maxSteps; steps++) {
+    let found = false;
+    for (let k = 1; k <= 8; k++) {
+      const d = (backDir + k) % 8;
+      const nx = cx + dirs[d][0], ny = cy + dirs[d][1];
+      if (isFg(nx, ny)) { cx = nx; cy = ny; backDir = (d + 4) % 8; found = true; break; }
+    }
+    if (!found) break;
+    if (cx === sx && cy === sy) break;
+    boundary.push([cx, cy]);
+  }
+  return boundary;
+}
+function chaikinSmooth(points, iterations) {
+  let pts = points;
+  for (let it = 0; it < iterations; it++) {
+    if (pts.length < 3) break;
+    const next = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p0 = pts[i], p1 = pts[(i + 1) % pts.length];
+      next.push([p0[0] * 0.75 + p1[0] * 0.25, p0[1] * 0.75 + p1[1] * 0.25]);
+      next.push([p0[0] * 0.25 + p1[0] * 0.75, p0[1] * 0.25 + p1[1] * 0.75]);
+    }
+    pts = next;
+  }
+  return pts;
+}
+
+// ── CLEAN SILHOUETTE MESH BUILDER ────────────────────────────
+// Samples the baked blueprint, separates the subject from its
+// background, traces ONE smoothed outline around it, and extrudes
+// that into a single solid — a real watertight part, not a pile of
+// separate voxel cubes. Color is intentionally dropped: one plain
+// material keeps this exportable/printable instead of a busy
+// per-pixel texture. A drone blueprint still comes out drone-
+// shaped, a suit still comes out suit-shaped — only the finish
+// changed, not the shape detection.
+// Returns an empty THREE.Group if no clear subject could be found.
+function buildCleanSilhouetteMesh(accentColor) {
   const g = new THREE.Group();
   if (sheetLayer.width === 0 || sheetLayer.height === 0) return g;
 
   const aspect = sheetLayer.height / sheetLayer.width;
-  const GW = 88;
-  const GH = Math.max(12, Math.min(88, Math.round(GW * aspect)));
+  const GW = 96;
+  const GH = Math.max(12, Math.min(96, Math.round(GW * aspect)));
 
   const tmp = document.createElement('canvas');
   tmp.width = GW; tmp.height = GH;
@@ -918,16 +959,8 @@ function buildVoxelHologram(accentColor) {
   tctx.drawImage(sheetLayer, 0, 0, GW, GH);
   const img = tctx.getImageData(0, 0, GW, GH).data;
 
-  // Estimate the background COLOR as the single most common color
-  // among all non-transparent pixels, not a sample of the canvas edge.
-  // Placed blueprints are drawn at ~70% size, centered — so the actual
-  // canvas border is usually empty/transparent and an edge-ring sample
-  // never touches the real photo at all, silently falling back to a
-  // guessed gray that often doesn't match the real paper tone and lets
-  // the whole rectangle (paper included) get misread as "subject". A
-  // blueprint's background is almost always its single largest patch
-  // of near-uniform color, so the most frequent color bucket finds it
-  // reliably no matter where on the sheet the image was placed.
+  // Background = the single most common color among non-transparent
+  // pixels (robust no matter where on the sheet the photo sits).
   const buckets = new Map();
   const BUCKET = 18;
   for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
@@ -945,101 +978,99 @@ function buildVoxelHologram(accentColor) {
   }
 
   let mask = new Uint8Array(GW * GH);
+  let bx0 = GW, by0 = GH, bx1 = -1, by1 = -1;
   for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
     const i = (y * GW + x) * 4;
     if (img[i + 3] < 12) continue;
+    if (x < bx0) bx0 = x; if (x > bx1) bx1 = x;
+    if (y < by0) by0 = y; if (y > by1) by1 = y;
     const r = img[i], gg = img[i + 1], b = img[i + 2];
     const dist = Math.sqrt((r - bg[0]) ** 2 + (gg - bg[1]) ** 2 + (b - bg[2]) ** 2);
     if (dist > 42) mask[y * GW + x] = 1;
   }
 
-  mask = keepLargestComponent(mask, GW, GH); // drop scattered text/callouts
-  mask = closeMask(mask, GW, GH, 1);         // fuse small gaps into one solid form
-
-  let activeCount = 0;
-  for (let i = 0; i < mask.length; i++) activeCount += mask[i];
-  if (activeCount < 14) return g; // not enough signal to call this a shape
-
-  const at = (x, y) => (x >= 0 && x < GW && y >= 0 && y < GH) ? mask[y * GW + x] : 0;
-  const colorAt = (x, y) => { const i = (y * GW + x) * 4; return [img[i] / 255, img[i+1] / 255, img[i+2] / 255]; };
-
-  const cellW = 4.6 / GW, cellH = 3.1 / GH;
-  const ox = -GW * cellW / 2, oy = GH * cellH / 2;
-  const rawDepth = parseFloat(document.getElementById('extrude-depth')?.value || '0.3');
-  const depth = Math.min(0.5, Math.max(0.07, rawDepth * 0.7));
-  const z0 = -depth / 2, z1 = depth / 2;
-
-  const positions = [], normals = [], colors = [];
-  const pushQuad = (p0, p1, p2, p3, n, col) => {
-    positions.push(...p0, ...p1, ...p2, ...p0, ...p2, ...p3);
-    for (let k = 0; k < 6; k++) normals.push(...n);
-    for (let k = 0; k < 6; k++) colors.push(...col);
-  };
-
-  for (let y = 0; y < GH; y++) {
-    for (let x = 0; x < GW; x++) {
-      if (!at(x, y)) continue;
-      const x0 = ox + x * cellW, x1 = x0 + cellW;
-      const y0 = oy - y * cellH, y1 = y0 - cellH;
-      const isEdge = !at(x - 1, y) || !at(x + 1, y) || !at(x, y - 1) || !at(x, y + 1);
-      const [r, gg, b] = colorAt(x, y);
-      const boost = isEdge ? 1.3 : 1.0;
-      const col = [Math.min(1, r * boost), Math.min(1, gg * boost), Math.min(1, b * boost)];
-
-      pushQuad([x0,y0,z1],[x1,y0,z1],[x1,y1,z1],[x0,y1,z1], [0,0,1], col);   // front
-      pushQuad([x1,y0,z0],[x0,y0,z0],[x0,y1,z0],[x1,y1,z0], [0,0,-1], col); // back
-      if (!at(x - 1, y)) pushQuad([x0,y0,z0],[x0,y0,z1],[x0,y1,z1],[x0,y1,z0], [-1,0,0], col);
-      if (!at(x + 1, y)) pushQuad([x1,y0,z1],[x1,y0,z0],[x1,y1,z0],[x1,y1,z1], [1,0,0], col);
-      if (!at(x, y - 1)) pushQuad([x0,y0,z0],[x1,y0,z0],[x1,y0,z1],[x0,y0,z1], [0,1,0], col);
-      if (!at(x, y + 1)) pushQuad([x0,y1,z1],[x1,y1,z1],[x1,y1,z0],[x0,y1,z0], [0,-1,0], col);
+  // Strip a margin around the placed photo's own edge first — these
+  // blueprint posters often have decorative corner brackets or border
+  // frames right at the image's edge, which would otherwise fuse onto
+  // the real subject as one connected blob (that's the stray frame
+  // shape you saw attached to the last result).
+  if (bx1 >= bx0) {
+    const bw = bx1 - bx0 + 1, bh = by1 - by0 + 1;
+    const mx = Math.round(bw * 0.07), my = Math.round(bh * 0.07);
+    for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+      if (x < bx0 + mx || x > bx1 - mx || y < by0 + my || y > by1 - my) mask[y * GW + x] = 0;
     }
   }
 
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  // Unlit on purpose: the scene's key/rim lights are strongly cyan-tinted
-  // for the hologram glow elsewhere, but that tint multiplies straight
-  // into a lit material's color and drowns out the blueprint's actual
-  // reds/golds/grays, leaving everything reading as flat cyan. Unlit
-  // shows the sampled pixel colors exactly as they really are.
-  const mat = new THREE.MeshBasicMaterial({
-    vertexColors: true, transparent: true, opacity: 0.92,
-    clippingPlanes: [clipPlane],
-  });
-  const bodyMesh = new THREE.Mesh(geo, mat);
-  g.add(bodyMesh);
+  mask = keepLargestComponent(mask, GW, GH);
+  mask = closeMask(mask, GW, GH, 1);
+
+  let activeCount = 0;
+  for (let i = 0; i < mask.length; i++) activeCount += mask[i];
+  if (activeCount < 14) return g;
+
+  const cellW = 4.6 / GW, cellH = 3.1 / GH;
+  const ox = -GW * cellW / 2, oy = GH * cellH / 2;
+
+  // One traced + smoothed outline — this is what makes it a real
+  // mesh instead of a pile of cubes.
+  let boundary = traceBoundary(mask, GW, GH);
+  if (boundary.length < 8) return g;
+  if (boundary.length > 240) {
+    const step = Math.ceil(boundary.length / 200);
+    boundary = boundary.filter((_, i) => i % step === 0);
+  }
+  let pts2d = boundary.map(([px, py]) => [ox + (px + 0.5) * cellW, oy - (py + 0.5) * cellH]);
+  pts2d = chaikinSmooth(pts2d, 2);
+
+  const rawDepth = parseFloat(document.getElementById('extrude-depth')?.value || '0.3');
+  const depth = Math.min(0.6, Math.max(0.08, rawDepth * 0.8));
+
+  let bodyMesh;
+  try {
+    const shape = new THREE.Shape();
+    pts2d.forEach((p, i) => (i === 0 ? shape.moveTo(p[0], p[1]) : shape.lineTo(p[0], p[1])));
+    shape.closePath();
+    const extrudeGeo = new THREE.ExtrudeGeometry(shape, {
+      depth, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.025, bevelSegments: 3,
+    });
+    extrudeGeo.translate(0, 0, -depth / 2);
+    extrudeGeo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({
+      color: accentColor, transparent: true, opacity: 0.85,
+      roughness: 0.35, metalness: 0.4, side: THREE.DoubleSide,
+      clippingPlanes: [clipPlane],
+    });
+    bodyMesh = new THREE.Mesh(extrudeGeo, mat);
+    g.add(bodyMesh);
+
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(extrudeGeo, 20),
+      new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.85, clippingPlanes: [clipPlane] })
+    );
+    edges.userData.noExport = true; // outline only, not part of the printable solid
+    g.add(edges);
+  } catch (e) {
+    return g; // degenerate outline — caller falls back to the flat sheet
+  }
 
   // The figure's actual vertical extent — the cutaway slider sweeps
   // across exactly this range so 0%/100% always line up with the
   // real top/bottom regardless of how tall this particular shape is.
-  g.userData.cutawayRange = { min: oy - GH * cellH, max: oy };
+  const bbox = new THREE.Box3().setFromObject(bodyMesh);
+  g.userData.cutawayRange = { min: bbox.min.y, max: bbox.max.y };
 
-  // Glowing contour line traced along the actual silhouette edge.
-  const outlinePts = [];
-  const zf = z1 + 0.006;
-  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
-    if (!at(x, y)) continue;
-    const x0 = ox + x * cellW, x1 = x0 + cellW;
-    const y0 = oy - y * cellH, y1 = y0 - cellH;
-    if (!at(x, y - 1)) outlinePts.push(x0,y0,zf, x1,y0,zf);
-    if (!at(x, y + 1)) outlinePts.push(x0,y1,zf, x1,y1,zf);
-    if (!at(x - 1, y)) outlinePts.push(x0,y0,zf, x0,y1,zf);
-    if (!at(x + 1, y)) outlinePts.push(x1,y0,zf, x1,y1,zf);
-  }
-  if (outlinePts.length) {
-    const outlineGeo = new THREE.BufferGeometry();
-    outlineGeo.setAttribute('position', new THREE.Float32BufferAttribute(outlinePts, 3));
-    g.add(new THREE.LineSegments(outlineGeo, new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.9, clippingPlanes: [clipPlane] })));
-  }
+  // Everything below is a visual aid only — flagged noExport so
+  // EXPORT STL ships just the printable solid above, not a flat
+  // reference plane, a scan band, or a cloud of particle points.
 
   // Vertical scan band sweeping through the shape.
   const scanMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(GW * cellW * 1.1, 0.045),
     new THREE.MeshBasicMaterial({ color: 0xcdf9ff, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false })
   );
-  scanMesh.position.set(0, 0, z1 + 0.05);
+  scanMesh.position.set(0, 0, depth / 2 + 0.05);
+  scanMesh.userData.noExport = true;
   g.add(scanMesh);
   g.userData.scanMesh = scanMesh;
 
@@ -1053,11 +1084,12 @@ function buildVoxelHologram(accentColor) {
   }
   const moteGeo = new THREE.BufferGeometry();
   moteGeo.setAttribute('position', new THREE.BufferAttribute(motePos, 3));
-  g.add(new THREE.Points(moteGeo, new THREE.PointsMaterial({ color: accentColor, size: 0.022, transparent: true, opacity: 0.75, depthWrite: false })));
+  const motes = new THREE.Points(moteGeo, new THREE.PointsMaterial({ color: accentColor, size: 0.022, transparent: true, opacity: 0.75, depthWrite: false }));
+  motes.userData.noExport = true;
+  g.add(motes);
 
-  // The full-resolution original, floating beside the voxel form as
-  // a reference readout (the voxel grid is low-res, so fine print on
-  // the original blueprint is otherwise lost).
+  // The full-resolution original, floating beside the shape as a
+  // reference readout only.
   const skinTex = new THREE.CanvasTexture(sheetLayer);
   const panelW = 1.15, panelH = panelW * (sheetLayer.height / sheetLayer.width);
   const panel = new THREE.Mesh(
@@ -1066,12 +1098,14 @@ function buildVoxelHologram(accentColor) {
   );
   panel.position.set(GW * cellW / 2 + 0.9, GH * cellH / 4, -0.3);
   panel.rotation.y = -0.4;
+  panel.userData.noExport = true;
   g.add(panel);
   const frame = new THREE.LineSegments(
     new THREE.EdgesGeometry(new THREE.PlaneGeometry(panelW, panelH)),
     new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.7 })
   );
   frame.position.copy(panel.position); frame.rotation.copy(panel.rotation);
+  frame.userData.noExport = true;
   g.add(frame);
 
   return g;
@@ -1100,13 +1134,13 @@ function buildHologram() {
   // own silhouette instead of a flat extruded sheet.
   if (wantVolumetric && sheetLayer.width > 0) {
     const accent = new THREE.Color(penColor || '#00c8ff');
-    const voxelBody = buildVoxelHologram(accent);
-    if (voxelBody.children.length) {
-      holoGroup.add(voxelBody);
-      // these were set on the local group returned by buildVoxelHologram —
+    const shapeBody = buildCleanSilhouetteMesh(accent);
+    if (shapeBody.children.length) {
+      holoGroup.add(shapeBody);
+      // these were set on the local group returned by buildCleanSilhouetteMesh —
       // copy them up so animateHolo() and the cutaway slider can see them.
-      holoGroup.userData.scanMesh = voxelBody.userData.scanMesh;
-      holoGroup.userData.cutawayRange = voxelBody.userData.cutawayRange;
+      holoGroup.userData.scanMesh = shapeBody.userData.scanMesh;
+      holoGroup.userData.cutawayRange = shapeBody.userData.cutawayRange;
 
       const cutSlider = document.getElementById('cutaway-slider');
       if (cutSlider) cutSlider.value = 100;
@@ -1121,7 +1155,7 @@ function buildHologram() {
 
       const summaryEl = document.getElementById('holo-summary');
       if (summaryEl) {
-        summaryEl.textContent = 'SILHOUETTE HOLOGRAM — SHAPE & COLOR PULLED FROM THE BLUEPRINT';
+        summaryEl.textContent = 'CLEAN SILHOUETTE MESH — ONE SOLID, READY TO EXPORT';
         summaryEl.style.display = 'block';
       }
       return true;
@@ -1130,12 +1164,13 @@ function buildHologram() {
     // falls through to the flat sheet rendering below
   }
 
-  // baked blueprint as backdrop
+  // baked blueprint as backdrop (visual reference only — not a real part)
   if (sheetLayer.width > 0) {
     const tex = new THREE.CanvasTexture(sheetLayer);
     const planeMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
     const plane = new THREE.Mesh(new THREE.PlaneGeometry(SHEET_W3D, SHEET_H3D), planeMat);
     plane.position.z = -0.08;
+    plane.userData.noExport = true;
     holoGroup.add(plane);
   }
 
@@ -1183,7 +1218,9 @@ function buildHologram() {
     new THREE.Vector3(-SHEET_W3D/2, -SHEET_H3D/2, 0),
   ];
   const borderGeo = new THREE.BufferGeometry().setFromPoints(borderPts);
-  holoGroup.add(new THREE.Line(borderGeo, new THREE.LineBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.2 })));
+  const borderLine = new THREE.Line(borderGeo, new THREE.LineBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.2 }));
+  borderLine.userData.noExport = true;
+  holoGroup.add(borderLine);
 
   const summaryEl = document.getElementById('holo-summary');
   if (summaryEl) {
@@ -1255,7 +1292,15 @@ function exportSTL() {
     toast('STL exporter failed to load — check your connection.');
     return;
   }
+  // Temporarily pull out anything flagged as a visual aid only
+  // (reference panels, scan bands, backdrop planes, outline lines) so
+  // the STL contains just the actual printable part, not clutter.
+  const removed = [];
+  holoGroup.children.slice().forEach(child => {
+    if (child.userData && child.userData.noExport) { holoGroup.remove(child); removed.push(child); }
+  });
   try {
+    if (!holoGroup.children.length) { toast('Nothing solid to export — only reference visuals found.'); return; }
     const exporter = new THREE.STLExporter();
     const result = exporter.parse(holoGroup, { binary: true });
     const blob = new Blob([result], { type: 'application/octet-stream' });
