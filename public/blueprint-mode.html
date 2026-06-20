@@ -909,8 +909,8 @@ function buildVoxelHologram(accentColor) {
   if (sheetLayer.width === 0 || sheetLayer.height === 0) return g;
 
   const aspect = sheetLayer.height / sheetLayer.width;
-  const GW = 64;
-  const GH = Math.max(10, Math.min(64, Math.round(GW * aspect)));
+  const GW = 88;
+  const GH = Math.max(12, Math.min(88, Math.round(GW * aspect)));
 
   const tmp = document.createElement('canvas');
   tmp.width = GW; tmp.height = GH;
@@ -918,19 +918,31 @@ function buildVoxelHologram(accentColor) {
   tctx.drawImage(sheetLayer, 0, 0, GW, GH);
   const img = tctx.getImageData(0, 0, GW, GH).data;
 
-  // Sample the actual background COLOR (not just brightness) from the
-  // outer ring of the sheet. Comparing every pixel's real distance from
-  // this color works regardless of whether the backdrop is cream paper,
-  // black space, or a saturated HUD cyan — a flat saturation threshold
-  // does not, since a vivid-colored background then reads as "subject".
-  let bgR = 0, bgG = 0, bgB = 0, bgCount = 0;
-  for (let x = 0; x < GW; x++) {
-    [0, GH - 1].forEach(y => { const i = (y * GW + x) * 4; if (img[i + 3] > 10) { bgR += img[i]; bgG += img[i+1]; bgB += img[i+2]; bgCount++; } });
+  // Estimate the background COLOR as the single most common color
+  // among all non-transparent pixels, not a sample of the canvas edge.
+  // Placed blueprints are drawn at ~70% size, centered — so the actual
+  // canvas border is usually empty/transparent and an edge-ring sample
+  // never touches the real photo at all, silently falling back to a
+  // guessed gray that often doesn't match the real paper tone and lets
+  // the whole rectangle (paper included) get misread as "subject". A
+  // blueprint's background is almost always its single largest patch
+  // of near-uniform color, so the most frequent color bucket finds it
+  // reliably no matter where on the sheet the image was placed.
+  const buckets = new Map();
+  const BUCKET = 18;
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
+    const i = (y * GW + x) * 4;
+    if (img[i + 3] < 12) continue;
+    const r = img[i], gg = img[i + 1], b = img[i + 2];
+    const key = (r / BUCKET | 0) + ',' + (gg / BUCKET | 0) + ',' + (b / BUCKET | 0);
+    let e = buckets.get(key);
+    if (!e) { e = { count: 0, r: 0, g: 0, b: 0 }; buckets.set(key, e); }
+    e.count++; e.r += r; e.g += gg; e.b += b;
   }
-  for (let y = 0; y < GH; y++) {
-    [0, GW - 1].forEach(x => { const i = (y * GW + x) * 4; if (img[i + 3] > 10) { bgR += img[i]; bgG += img[i+1]; bgB += img[i+2]; bgCount++; } });
+  let bg = [225, 225, 225], bestCount = 0;
+  for (const e of buckets.values()) {
+    if (e.count > bestCount) { bestCount = e.count; bg = [e.r / e.count, e.g / e.count, e.b / e.count]; }
   }
-  const bg = bgCount ? [bgR / bgCount, bgG / bgCount, bgB / bgCount] : [225, 225, 225];
 
   let mask = new Uint8Array(GW * GH);
   for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
@@ -987,9 +999,13 @@ function buildVoxelHologram(accentColor) {
   geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  const mat = new THREE.MeshStandardMaterial({
-    vertexColors: true, transparent: true, opacity: 0.88,
-    roughness: 0.5, metalness: 0.25, emissive: accentColor, emissiveIntensity: 0.22,
+  // Unlit on purpose: the scene's key/rim lights are strongly cyan-tinted
+  // for the hologram glow elsewhere, but that tint multiplies straight
+  // into a lit material's color and drowns out the blueprint's actual
+  // reds/golds/grays, leaving everything reading as flat cyan. Unlit
+  // shows the sampled pixel colors exactly as they really are.
+  const mat = new THREE.MeshBasicMaterial({
+    vertexColors: true, transparent: true, opacity: 0.92,
     clippingPlanes: [clipPlane],
   });
   const bodyMesh = new THREE.Mesh(geo, mat);
