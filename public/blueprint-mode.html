@@ -104,6 +104,9 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 #holo-canvas{position:fixed;inset:0;z-index:5;display:none}
 #back-to-draft{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:65;display:none}
 #holo-summary{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:65;display:none;background:rgba(0,4,14,0.9);border:1px solid rgba(0,200,255,0.35);color:var(--blue);font-family:var(--hud);font-size:0.46rem;letter-spacing:0.16em;padding:7px 18px;border-radius:2px}
+#cutaway-row{position:fixed;top:102px;left:50%;transform:translateX(-50%);z-index:65;display:none;align-items:center;gap:10px;background:rgba(0,4,14,0.9);border:1px solid rgba(255,170,0,0.35);color:var(--amber);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.14em;padding:7px 16px;border-radius:2px}
+#cutaway-row input[type="range"]{width:160px;accent-color:var(--amber)}
+#cutaway-hint{color:rgba(168,223,245,0.55);font-size:0.4rem;letter-spacing:0.1em;white-space:nowrap}
 
 /* ── BOTTOM TICKER ── */
 #ticker{position:fixed;bottom:0;left:210px;right:230px;height:20px;background:rgba(0,3,10,0.96);border-top:1px solid rgba(0,200,255,0.1);overflow:hidden;display:flex;align-items:center;z-index:55;pointer-events:none}
@@ -163,6 +166,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 
 <canvas id="holo-canvas"></canvas>
 <div id="holo-summary"></div>
+<div id="cutaway-row">
+  <span>CUTAWAY</span>
+  <input type="range" id="cutaway-slider" min="0" max="100" value="100" oninput="updateCutaway()"/>
+  <span id="cutaway-hint">DRAG TO PEEL FROM THE TOP</span>
+</div>
 <button id="back-to-draft" class="bp-btn" onclick="backToDraft()">⬡ BACK TO DRAFTING TABLE</button>
 
 <!-- LEFT SIDEBAR — REFERENCE SEARCH -->
@@ -767,6 +775,7 @@ function onResults(results) {
 // blueprint renders as a textured ghost panel behind them)
 // ═══════════════════════════════════════════════════════════════
 let scene, camera3, renderer, holoGroup, holoActive = false;
+let clipPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 1000); // cutaway slicing plane (shape mode only)
 let camTheta = 0.4, camPhi = 0.55, camRadius = 6;
 let targetTheta = camTheta, targetPhi = camPhi, targetRadius = camRadius;
 
@@ -776,6 +785,7 @@ function initThree() {
   renderer = new THREE.WebGLRenderer({ canvas: c, antialias: true, alpha: false });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.setClearColor(0x000508);
+  renderer.localClippingEnabled = true;
   scene = new THREE.Scene();
   scene.fog = new THREE.FogExp2(0x000508, 0.05);
   camera3 = new THREE.PerspectiveCamera(45, W / H, 0.1, 100);
@@ -908,28 +918,27 @@ function buildVoxelHologram(accentColor) {
   tctx.drawImage(sheetLayer, 0, 0, GW, GH);
   const img = tctx.getImageData(0, 0, GW, GH).data;
 
-  const lumOf = (r, gg, b) => 0.299 * r + 0.587 * gg + 0.114 * b;
-
-  // Estimate background brightness from the outer ring of the sheet
-  // (blueprint posters are almost always framed by margin/background).
-  let bgSum = 0, bgCount = 0;
+  // Sample the actual background COLOR (not just brightness) from the
+  // outer ring of the sheet. Comparing every pixel's real distance from
+  // this color works regardless of whether the backdrop is cream paper,
+  // black space, or a saturated HUD cyan — a flat saturation threshold
+  // does not, since a vivid-colored background then reads as "subject".
+  let bgR = 0, bgG = 0, bgB = 0, bgCount = 0;
   for (let x = 0; x < GW; x++) {
-    [0, GH - 1].forEach(y => { const i = (y * GW + x) * 4; if (img[i + 3] > 10) { bgSum += lumOf(img[i], img[i+1], img[i+2]); bgCount++; } });
+    [0, GH - 1].forEach(y => { const i = (y * GW + x) * 4; if (img[i + 3] > 10) { bgR += img[i]; bgG += img[i+1]; bgB += img[i+2]; bgCount++; } });
   }
   for (let y = 0; y < GH; y++) {
-    [0, GW - 1].forEach(x => { const i = (y * GW + x) * 4; if (img[i + 3] > 10) { bgSum += lumOf(img[i], img[i+1], img[i+2]); bgCount++; } });
+    [0, GW - 1].forEach(x => { const i = (y * GW + x) * 4; if (img[i + 3] > 10) { bgR += img[i]; bgG += img[i+1]; bgB += img[i+2]; bgCount++; } });
   }
-  const bgLum = bgCount ? bgSum / bgCount : 225;
+  const bg = bgCount ? [bgR / bgCount, bgG / bgCount, bgB / bgCount] : [225, 225, 225];
 
   let mask = new Uint8Array(GW * GH);
   for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) {
     const i = (y * GW + x) * 4;
     if (img[i + 3] < 12) continue;
     const r = img[i], gg = img[i + 1], b = img[i + 2];
-    const l = lumOf(r, gg, b);
-    const maxc = Math.max(r, gg, b), minc = Math.min(r, gg, b);
-    const sat = maxc > 0 ? (maxc - minc) / maxc : 0;
-    if (Math.abs(l - bgLum) > 26 || sat > 0.20) mask[y * GW + x] = 1;
+    const dist = Math.sqrt((r - bg[0]) ** 2 + (gg - bg[1]) ** 2 + (b - bg[2]) ** 2);
+    if (dist > 42) mask[y * GW + x] = 1;
   }
 
   mask = keepLargestComponent(mask, GW, GH); // drop scattered text/callouts
@@ -981,8 +990,15 @@ function buildVoxelHologram(accentColor) {
   const mat = new THREE.MeshStandardMaterial({
     vertexColors: true, transparent: true, opacity: 0.88,
     roughness: 0.5, metalness: 0.25, emissive: accentColor, emissiveIntensity: 0.22,
+    clippingPlanes: [clipPlane],
   });
-  g.add(new THREE.Mesh(geo, mat));
+  const bodyMesh = new THREE.Mesh(geo, mat);
+  g.add(bodyMesh);
+
+  // The figure's actual vertical extent — the cutaway slider sweeps
+  // across exactly this range so 0%/100% always line up with the
+  // real top/bottom regardless of how tall this particular shape is.
+  g.userData.cutawayRange = { min: oy - GH * cellH, max: oy };
 
   // Glowing contour line traced along the actual silhouette edge.
   const outlinePts = [];
@@ -999,7 +1015,7 @@ function buildVoxelHologram(accentColor) {
   if (outlinePts.length) {
     const outlineGeo = new THREE.BufferGeometry();
     outlineGeo.setAttribute('position', new THREE.Float32BufferAttribute(outlinePts, 3));
-    g.add(new THREE.LineSegments(outlineGeo, new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.9 })));
+    g.add(new THREE.LineSegments(outlineGeo, new THREE.LineBasicMaterial({ color: accentColor, transparent: true, opacity: 0.9, clippingPlanes: [clipPlane] })));
   }
 
   // Vertical scan band sweeping through the shape.
@@ -1045,9 +1061,20 @@ function buildVoxelHologram(accentColor) {
   return g;
 }
 
+function updateCutaway() {
+  const slider = document.getElementById('cutaway-slider');
+  const range = holoGroup && holoGroup.userData && holoGroup.userData.cutawayRange;
+  if (!slider || !range) return;
+  const v = Math.min(1, Math.max(0, parseFloat(slider.value) / 100));
+  const margin = 0.15;
+  const lo = range.min - margin, hi = range.max + margin;
+  clipPlane.constant = lo + (hi - lo) * v;
+}
+
 function buildHologram() {
   while (holoGroup.children.length) holoGroup.remove(holoGroup.children[0]);
   holoGroup.userData = {};
+  document.getElementById('cutaway-row').style.display = 'none';
 
   const SHEET_W3D = 5, SHEET_H3D = 3.4;
   const depth = parseFloat(document.getElementById('extrude-depth')?.value || '0.3');
@@ -1060,6 +1087,15 @@ function buildHologram() {
     const voxelBody = buildVoxelHologram(accent);
     if (voxelBody.children.length) {
       holoGroup.add(voxelBody);
+      // these were set on the local group returned by buildVoxelHologram —
+      // copy them up so animateHolo() and the cutaway slider can see them.
+      holoGroup.userData.scanMesh = voxelBody.userData.scanMesh;
+      holoGroup.userData.cutawayRange = voxelBody.userData.cutawayRange;
+
+      const cutSlider = document.getElementById('cutaway-slider');
+      if (cutSlider) cutSlider.value = 100;
+      document.getElementById('cutaway-row').style.display = 'flex';
+      updateCutaway();
 
       // still draw any pen strokes as floating annotations in front
       for (const s of strokes) {
@@ -1182,6 +1218,7 @@ function backToDraft() {
   document.getElementById('holo-canvas').style.display = 'none';
   document.getElementById('back-to-draft').style.display = 'none';
   document.getElementById('holo-summary').style.display = 'none';
+  document.getElementById('cutaway-row').style.display = 'none';
   document.getElementById('left-sidebar').style.display = 'flex';
   document.getElementById('right-sidebar').style.display = 'flex';
   document.getElementById('toolbar').style.display = 'flex';
