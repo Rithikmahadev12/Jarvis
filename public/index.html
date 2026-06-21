@@ -8,6 +8,7 @@
  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&family=Orbitron:wght@400;500;700;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css"/>
   <link rel="stylesheet" href="hand-tracking.css"/>
+  <link rel="stylesheet" href="glass-ui.css"/>
 </head>
 </head>
 <body>
@@ -26,6 +27,29 @@
 
   <!-- SCANLINE -->
   <div class="scanline"></div>
+
+  <!-- INTRO / BOOT SCREEN — plays once after login, before main HUD reveals -->
+  <div id="intro-screen">
+    <div class="intro-glass-card">
+      <div class="arc-reactor large">
+        <div class="arc-ring ring1"></div>
+        <div class="arc-ring ring2"></div>
+        <div class="arc-ring ring3"></div>
+        <div class="arc-ring ring4"></div>
+        <div class="arc-core">
+          <div class="arc-core-inner"></div>
+        </div>
+      </div>
+      <h1 class="jarvis-title" style="font-size:1.8rem">J.A.R.V.I.S</h1>
+      <p class="jarvis-sub">COGNITIVE ENGINE v7.0 — BOOT SEQUENCE</p>
+      <div id="intro-boot-log"></div>
+      <div id="intro-progress-wrap">
+        <div id="intro-progress-bar"></div>
+      </div>
+      <div id="intro-greeting"></div>
+    </div>
+    <button id="intro-skip-btn" class="intro-skip-btn">SKIP →</button>
+  </div>
 
   <!-- SETUP SCREEN -->
   <div id="setup-screen" class="screen">
@@ -446,6 +470,7 @@
   <script src="camera-observer.js"></script>
   <script src="visuals.js"></script>
   <script src="jarvis.js"></script>
+  <script src="intro.js"></script>
   <script src="pip-widgets.js"></script>
   <script src="hand-tracking.js"></script>
   <script>
