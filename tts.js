@@ -1,7 +1,4 @@
 "use strict";
-// ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Custom Voice Clone TTS (XTTS-v2 server)
-// ═══════════════════════════════════════════════════════════════
 
 const VOICE_SERVER_URL = process.env.VOICE_SERVER_URL || "http://localhost:5050";
 
@@ -10,15 +7,17 @@ let _ready = false;
 async function checkReady() {
   try {
     const res = await fetch(`${VOICE_SERVER_URL}/health`, { signal: AbortSignal.timeout(3000) });
-    if (!res.ok) return false;
     const data = await res.json();
     _ready = !!data.ready;
-    return _ready;
   } catch {
     _ready = false;
-    return false;
   }
+  return _ready;
 }
+
+// Poll on startup so isReady() is accurate without blocking
+checkReady();
+setInterval(checkReady, 10000);
 
 function isReady() {
   return _ready;
@@ -53,15 +52,9 @@ async function synthesize(text) {
     const buf = await res.arrayBuffer();
     return Buffer.from(buf);
   } catch (e) {
-    console.error("[TTS] Voice server request failed:", e.message);
+    console.error("[TTS] Voice server error:", e.message);
     return null;
   }
 }
-
-// Poll readiness on boot, then periodically until it's up
-checkReady();
-const _pollInterval = setInterval(async () => {
-  if (await checkReady()) clearInterval(_pollInterval);
-}, 5000);
 
 module.exports = { synthesize, isReady, cleanText };
