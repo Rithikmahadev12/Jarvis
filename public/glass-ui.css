@@ -1,0 +1,295 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — GLASSMORPHISM HUD LAYER v1.0
+   Load this AFTER style.css. It only restyles surfaces (blur,
+   translucency, rounded corners, glow) — it does not touch any
+   #id or .class that jarvis.js, hud-panels.js, pip-widgets.js,
+   or visuals.js depend on for logic. Pure visual layer.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  --glass-bg:        rgba(8, 20, 36, 0.38);
+  --glass-bg-strong: rgba(8, 20, 36, 0.55);
+  --glass-bg-soft:   rgba(8, 20, 36, 0.22);
+  --glass-border:    rgba(0, 200, 255, 0.22);
+  --glass-border-strong: rgba(0, 200, 255, 0.4);
+  --glass-blur:      18px;
+  --glass-radius:    16px;
+  --glass-radius-sm: 10px;
+  --glass-glow:      0 8px 32px rgba(0, 200, 255, 0.10), inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+/* ── BASE BACKDROP — softer, layered gradient instead of flat black ── */
+body {
+  background:
+    radial-gradient(ellipse 1200px 800px at 15% 10%, rgba(0,90,160,0.10), transparent 60%),
+    radial-gradient(ellipse 1000px 700px at 85% 90%, rgba(0,60,120,0.10), transparent 60%),
+    linear-gradient(160deg, #010c14 0%, #020e1c 50%, #010a16 100%);
+}
+
+/* ── GLASS PANELS — top bar, side panels, transcript, auth ── */
+.top-bar,
+.side-panel,
+#status-ticker,
+.hologram-panel,
+#device-detail,
+#msg-overlay .msg-box,
+#group-modal .modal-box,
+.notif-settings-box,
+.face-auth-box,
+.clip-review-box,
+#camera-panel,
+#accounts-bar,
+#sidebar,
+#right-panel,
+.retina-box,
+#chat-header,
+#chat-input-bar {
+  background: var(--glass-bg) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border-color: var(--glass-border) !important;
+  box-shadow: var(--glass-glow);
+}
+
+.side-panel,
+.hologram-panel { border-radius: 0; }
+
+/* ── CARDS / TILES — rounded glass chips ── */
+.account-tile,
+.device-card,
+.stat-item,
+.info-block,
+.info-card,
+.user-item,
+.room-item,
+.account-chip,
+.msg.jarvis .msg-text,
+.msg.user .msg-text,
+.link-group,
+.notif-row,
+.dd-row {
+  background: var(--glass-bg-soft) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: var(--glass-radius-sm) !important;
+  border: 1px solid rgba(0,200,255,0.12) !important;
+}
+
+.msg.user .msg-text { border-radius: var(--glass-radius-sm) var(--glass-radius-sm) 4px var(--glass-radius-sm) !important; }
+.msg.jarvis .msg-text { border-radius: var(--glass-radius-sm) var(--glass-radius-sm) var(--glass-radius-sm) 4px !important; }
+
+/* ── BUTTONS — frosted pill / rounded glass buttons ── */
+.hud-btn,
+.q-btn,
+.bp-btn,
+.tool-btn,
+.scan-btn,
+.dd-btn,
+.modal-btn,
+.inc-btn,
+.call-btn,
+.icon-btn,
+#msg-send,
+#voice-send-btn,
+.broadcast-btn,
+.chip-connect-btn,
+#export-stl-btn,
+#generate-btn {
+  border-radius: var(--glass-radius-sm) !important;
+  background: rgba(0,200,255,0.05) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all 0.25s cubic-bezier(.2,.8,.2,1) !important;
+}
+.hud-btn:hover, .q-btn:hover, .bp-btn:hover, .scan-btn:hover {
+  background: rgba(0,200,255,0.14) !important;
+  transform: translateY(-1px);
+}
+
+/* Call action circles stay round */
+.call-btn { border-radius: 50% !important; }
+
+/* ── INPUTS — frosted fields ── */
+input[type="text"], input[type="password"], select, textarea,
+.msg-textarea, .broadcast-input, #search-input, #search-users,
+#voice-input-field, #build-input, #cmd-input, .room-assign-input,
+#manual-ip, #manual-name, .modal-input, .member-select {
+  background: rgba(0,200,255,0.05) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-radius: var(--glass-radius-sm) !important;
+  border-color: rgba(0,200,255,0.18) !important;
+}
+
+.input-bar {
+  background: var(--glass-bg-soft) !important;
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+  border-radius: var(--glass-radius) !important;
+  border-color: var(--glass-border) !important;
+  margin: 6px 16px 10px;
+}
+
+/* ── ORB — glassy core with soft halo ── */
+.orb-core {
+  background: radial-gradient(circle at 35% 35%, rgba(170,230,255,0.95), rgba(0,140,220,0.55)) !important;
+  box-shadow: 0 0 18px rgba(0,200,255,0.55), 0 0 40px rgba(0,200,255,0.15) !important;
+}
+.orb-ring {
+  backdrop-filter: blur(2px);
+}
+
+/* ── CAMERA FEED — glass frame ── */
+.camera-feed-wrap {
+  border-radius: var(--glass-radius-sm);
+  overflow: hidden;
+}
+.camera-feed {
+  border-radius: var(--glass-radius-sm) !important;
+}
+
+/* ── SCROLLBAR HINT (subtle) ── */
+.side-panel::-webkit-scrollbar-thumb,
+.transcript-area::-webkit-scrollbar-thumb { background: rgba(0,200,255,0.25); border-radius: 8px; }
+
+/* ── AUTH SCREEN — glass card container ── */
+.auth-container, .setup-container {
+  background: var(--glass-bg-soft);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  padding: 36px 32px;
+  box-shadow: var(--glass-glow);
+}
+
+.auth-mode-toggle { border-radius: var(--glass-radius-sm); overflow: hidden; }
+
+/* ── PANEL HEADERS — soften the hard divider look ── */
+.panel-header, .left-panel .panel-header {
+  background: rgba(0,200,255,0.06) !important;
+  backdrop-filter: blur(6px);
+}
+
+/* ── TICKER — glass strip ── */
+#status-ticker, #ticker {
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* ── DROP SUBTLE AMBIENT GLOW BEHIND CORE PANELS ── */
+.top-bar-center .orb-pulse {
+  box-shadow: 0 0 30px rgba(0,200,255,0.08);
+}
+
+/* ── OVERLAYS — darker frosted scrim ── */
+.face-auth-overlay, .clip-review-overlay, .notif-settings-overlay,
+#group-modal, #msg-overlay, #call-overlay, .retina-overlay {
+  background: rgba(2, 8, 16, 0.55) !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INTRO / BOOT SCREEN
+   ═══════════════════════════════════════════════════════════════ */
+#intro-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 22px;
+  background:
+    radial-gradient(ellipse 900px 600px at 50% 40%, rgba(0,140,220,0.12), transparent 65%),
+    linear-gradient(160deg, #010c14 0%, #020e1c 60%, #010a16 100%);
+}
+#intro-screen.active { display: flex; }
+
+.intro-glass-card {
+  width: 100%;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 44px 38px;
+  background: var(--glass-bg-soft);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border: 1px solid var(--glass-border);
+  border-radius: 28px;
+  box-shadow: var(--glass-glow);
+}
+
+#intro-boot-log {
+  width: 100%;
+  min-height: 110px;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  color: rgba(0,200,255,0.65);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  background: rgba(0,200,255,0.04);
+  border: 1px solid rgba(0,200,255,0.12);
+  border-radius: var(--glass-radius-sm);
+}
+#intro-boot-log .boot-line {
+  opacity: 0;
+  animation: bootLineIn 0.35s ease forwards;
+  display: flex;
+  gap: 8px;
+}
+#intro-boot-log .boot-line::before { content: '✓'; color: var(--green); flex-shrink: 0; }
+@keyframes bootLineIn { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+
+#intro-progress-wrap {
+  width: 100%;
+  height: 3px;
+  background: rgba(0,200,255,0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+#intro-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(0,200,255,0.4), var(--blue));
+  box-shadow: 0 0 8px var(--blue-glow);
+  transition: width 0.3s ease;
+}
+
+#intro-greeting {
+  font-family: var(--raj);
+  font-size: 0.95rem;
+  color: var(--text-bright);
+  text-align: center;
+  line-height: 1.6;
+  min-height: 24px;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+#intro-greeting.show { opacity: 1; }
+
+.intro-skip-btn {
+  position: fixed;
+  bottom: 24px;
+  right: 28px;
+  z-index: 501;
+  background: rgba(0,200,255,0.05);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(0,200,255,0.2);
+  color: var(--text-dim);
+  font-family: var(--hud);
+  font-size: 0.4rem;
+  letter-spacing: 0.2em;
+  padding: 8px 16px;
+  border-radius: var(--glass-radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.intro-skip-btn:hover { color: var(--blue); border-color: var(--blue); }
