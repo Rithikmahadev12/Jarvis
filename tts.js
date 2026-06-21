@@ -1,21 +1,27 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Piper TTS Engine
-// Uses spawn() with stdin pipe so text is correctly passed to Piper
-// LD_LIBRARY_PATH ensures bundled libespeak-ng.so.1 is found
+// J.A.R.V.I.S — Custom Voice Clone TTS (XTTS-v2 server)
 // ═══════════════════════════════════════════════════════════════
 
-const { spawn }  = require("child_process");
-const path        = require("path");
-const fs          = require("fs");
-const os          = require("os");
+const VOICE_SERVER_URL = process.env.VOICE_SERVER_URL || "http://localhost:5050";
 
-const PIPER_DIR   = path.join(__dirname, "bin/piper_dir");
-const PIPER_BIN   = path.join(PIPER_DIR, "piper");
-const VOICE_MODEL = path.join(__dirname, "voices/jarvis/en_GB-jarvis-medium.onnx");
+let _ready = false;
+
+async function checkReady() {
+  try {
+    const res = await fetch(`${VOICE_SERVER_URL}/health`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) return false;
+    const data = await res.json();
+    _ready = !!data.ready;
+    return _ready;
+  } catch {
+    _ready = false;
+    return false;
+  }
+}
 
 function isReady() {
-  return fs.existsSync(VOICE_MODEL) && fs.existsSync(PIPER_BIN);
+  return _ready;
 }
 
 function cleanText(text) {
@@ -29,71 +35,33 @@ function cleanText(text) {
     .slice(0, 500);
 }
 
-function synthesize(text) {
-  return new Promise((resolve) => {
-    if (!isReady()) {
-      console.warn("[TTS] Voice model or Piper binary not ready yet");
-      return resolve(null);
+async function synthesize(text) {
+  const clean = cleanText(text);
+  if (!clean || clean.length < 2) return null;
+
+  try {
+    const res = await fetch(`${VOICE_SERVER_URL}/synthesize`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ text: clean }),
+      signal:  AbortSignal.timeout(30000),
+    });
+    if (!res.ok) {
+      console.error(`[TTS] Voice server returned ${res.status}`);
+      return null;
     }
-
-    const clean = cleanText(text);
-    if (!clean || clean.length < 2) return resolve(null);
-
-    const tmpOutput = path.join(os.tmpdir(), `jarvis_out_${Date.now()}.wav`);
-
-    const piper = spawn(PIPER_BIN, [
-      "--model",        VOICE_MODEL,
-      "--output_file",  tmpOutput,
-      "--length_scale", "1.0",
-      "--noise_scale",  "0.667",
-      "--noise_w",      "0.8",
-    ], {
-      env: {
-        ...process.env,
-        LD_LIBRARY_PATH: PIPER_DIR +
-          (process.env.LD_LIBRARY_PATH ? ":" + process.env.LD_LIBRARY_PATH : ""),
-      },
-    });
-
-    let stderr = "";
-    piper.stderr.on("data", (d) => { stderr += d.toString(); });
-
-    // Write the text to Piper's stdin, then close it
-    piper.stdin.write(clean, "utf8");
-    piper.stdin.end();
-
-    const timeout = setTimeout(() => {
-      piper.kill();
-      console.error("[TTS] Piper timed out");
-      try { fs.unlinkSync(tmpOutput); } catch {}
-      resolve(null);
-    }, 15000);
-
-    piper.on("close", (code) => {
-      clearTimeout(timeout);
-      if (code !== 0) {
-        console.error(`[TTS] Piper exited ${code}: ${stderr.trim()}`);
-        try { fs.unlinkSync(tmpOutput); } catch {}
-        return resolve(null);
-      }
-      try {
-        const audio = fs.readFileSync(tmpOutput);
-        resolve(audio);
-      } catch (e) {
-        console.error("[TTS] Could not read output wav:", e.message);
-        resolve(null);
-      } finally {
-        try { fs.unlinkSync(tmpOutput); } catch {}
-      }
-    });
-
-    piper.on("error", (e) => {
-      clearTimeout(timeout);
-      console.error("[TTS] Piper spawn error:", e.message);
-      try { fs.unlinkSync(tmpOutput); } catch {}
-      resolve(null);
-    });
-  });
+    const buf = await res.arrayBuffer();
+    return Buffer.from(buf);
+  } catch (e) {
+    console.error("[TTS] Voice server request failed:", e.message);
+    return null;
+  }
 }
+
+// Poll readiness on boot, then periodically until it's up
+checkReady();
+const _pollInterval = setInterval(async () => {
+  if (await checkReady()) clearInterval(_pollInterval);
+}, 5000);
 
 module.exports = { synthesize, isReady, cleanText };
