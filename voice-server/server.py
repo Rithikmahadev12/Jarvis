@@ -1,4 +1,3 @@
-# voice-server/server.py
 from fastapi import FastAPI, Response
 from pydantic import BaseModel
 from TTS.api import TTS
@@ -7,7 +6,7 @@ import io, soundfile as sf
 app = FastAPI()
 tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cuda")  # use "cpu" if no GPU
 
-SPEAKER_WAV = "voices/clone/reference.wav"  # <-- update to your actual filename
+SPEAKER_WAV = "Voice/Voice.wav"
 
 class SynthRequest(BaseModel):
     text: str
