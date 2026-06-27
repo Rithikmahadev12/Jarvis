@@ -9,7 +9,14 @@
   <link rel="stylesheet" href="style.css"/>
   <link rel="stylesheet" href="hand-tracking.css"/>
   <link rel="stylesheet" href="glass-ui.css"/>
-</head>
+
+  <!-- PWA: lets this be "Added to Home Screen" as an app on a phone -->
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#0a0e14"/>
+  <link rel="apple-touch-icon" href="icons/icon-192.png"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="J.A.R.V.I.S"/>
 </head>
 <body>
 
@@ -453,6 +460,7 @@
 
     <!-- CLIP TOAST -->
     <div id="clip-toast" class="clip-toast hidden">✂ Clip saved — last 60 seconds</div>
+    <div id="home-talk-badge" class="home-talk-badge hidden"></div>
 
     <!-- HOLOGRAM PANEL -->
     <div id="hologram-panel" class="hologram-panel" style="display:none">
@@ -481,6 +489,13 @@
       if (!mainActive && HandTracking.active) HandTracking.stop();
     });
     _htObserver.observe(document.getElementById("main-screen"), { attributes: true, attributeFilter: ["class"] });
+  </script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js").catch(() => {});
+      });
+    }
   </script>
 </body>
 </html>
