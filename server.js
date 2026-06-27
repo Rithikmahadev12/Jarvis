@@ -1063,7 +1063,7 @@ app.get("/api/home-talk/status", (req, res) => {
   res.json({ outputMode, device: Cast.deviceName(), configured: Cast.isConfigured() });
 });
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`\nJ.A.R.V.I.S online → http://localhost:${PORT}`);
   console.log(`  Comms panel    → http://localhost:${PORT}/comms`);
   console.log(`  Drafting table → http://localhost:${PORT}/blueprint`);
