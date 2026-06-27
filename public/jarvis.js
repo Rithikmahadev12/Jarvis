@@ -241,27 +241,27 @@ async function ocrScreenFrame() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── VOICE ENGINE — Piper JARVIS voice + browser fallback
+// ── VOICE ENGINE — fixed browser voice (English - Australia - William)
 // ═══════════════════════════════════════════════════════════════
 
-// Browser fallback voice names (used if Piper not ready)
-const MALE_VOICE_NAMES   = ["Google UK English Male","Microsoft George - English (United Kingdom)","Microsoft David Desktop - English (United States)","Microsoft Mark - English (United States)","Daniel","Alex","Fred","Thomas","Arthur","James"];
-const FEMALE_VOICE_NAMES = ["Google UK English Female","Google US English","Samantha","Karen","Moira","Tessa","Fiona","Victoria","Serena","Susan","Nicky"];
+// Always use this one voice. No fallback list, no server "Jarvis voice"
+// lookup — this stops the assistant from switching voices mid-use.
+const FIXED_VOICE_LANG = "en-AU";
+const FIXED_VOICE_NAME = "William";
 
 function pickVoice() {
   const voices = state.synth.getVoices(); if (!voices.length) return null;
-  const wantMale = (state.userTitle === "Sir");
-  if (wantMale) {
-    for (const name of MALE_VOICE_NAMES) { const v = voices.find(v => v.name === name || v.name.includes(name)); if (v) return v; }
-    const enGB = voices.find(v => v.lang === "en-GB" && !FEMALE_VOICE_NAMES.some(n => v.name.includes(n)));
-    if (enGB) return enGB;
-    return voices.find(v => v.lang.startsWith("en")) || null;
-  }
-  return voices.find(v => v.name === "Google UK English Male") || voices.find(v => v.name.includes("Daniel")) || voices.find(v => v.lang === "en-GB") || voices.find(v => v.lang.startsWith("en")) || null;
+  return voices.find(v => v.lang === FIXED_VOICE_LANG && v.name.includes(FIXED_VOICE_NAME))
+      || voices.find(v => v.name.includes(FIXED_VOICE_NAME))
+      || null;
 }
 window.speechSynthesis.onvoiceschanged = () => {};
 
 // ── PIPER STATE ───────────────────────────────────────────────
+// Disabled: the assistant no longer polls the server for a "Jarvis voice"
+// or tries to fetch /api/tts. It always speaks with the fixed browser
+// voice above. (Re-enable by restoring checkTTSReady() below and the
+// Piper branch in speak() if the server voice becomes reliable again.)
 let _currentAudio = null;
 let _ttsReady     = false;
 
@@ -276,7 +276,7 @@ async function checkTTSReady() {
     setTimeout(checkTTSReady, 5000);
   }
 }
-checkTTSReady();
+// checkTTSReady(); // disabled — always use the fixed browser voice
 
 // ── HOME TALK BADGE ───────────────────────────────────────────
 function showHomeTalkBadge(device) {
@@ -300,6 +300,10 @@ async function syncHomeTalkBadge() {
 syncHomeTalkBadge();
 
 // ── MAIN SPEAK FUNCTION ───────────────────────────────────────
+// Always speaks locally with the fixed browser voice (English - Australia
+// - William). The Piper server round-trip (and the voice-switching that
+// came with it) is disabled — see the commented-out branch below if you
+// want to bring back server TTS / Home Talk casting later.
 async function speak(text, onEnd) {
   if (!text) { if (onEnd) onEnd(); return; }
 
@@ -308,12 +312,9 @@ async function speak(text, onEnd) {
   if (_currentAudio) { _currentAudio.pause(); _currentAudio = null; }
 
   setOrb("speaking");
+  return _speakBrowser(text, onEnd);
 
-  // Piper not ready yet — use browser voice immediately
-  if (!_ttsReady) {
-    return _speakBrowser(text, onEnd);
-  }
-
+  /* ── Disabled Piper / Home Talk round-trip ──────────────────
   try {
     const res = await fetch("/api/tts", {
       method:  "POST",
@@ -367,6 +368,7 @@ async function speak(text, onEnd) {
     console.warn("[JARVIS] Piper TTS failed, using browser voice:", e.message);
     _speakBrowser(text, onEnd);
   }
+  ── end disabled block ── */
 }
 
 // ── BROWSER FALLBACK ──────────────────────────────────────────
