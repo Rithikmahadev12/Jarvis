@@ -143,12 +143,23 @@ const HandTracking = (() => {
   }
 
   // ── MEDIAPIPE SETUP ──
+  // NOTE: these are pinned to a known-compatible release set. Using
+  // unversioned ("latest") CDN URLs lets the hands.js loader and the
+  // WASM/.tflite model binaries it fetches drift out of sync with each
+  // other — that mismatch is what was causing the repeated
+  // "Failed to read file ... palm_detection_full.tflite" abort, which in
+  // turn made onFrame() (below) retry the multi-MB model load on every
+  // single animation frame, forever, chewing through bandwidth.
+  const MEDIAPIPE_HANDS_VERSION = "0.4.1675469240";
+  const MEDIAPIPE_CAMERA_UTILS_VERSION = "0.3.1675466862";
+  const MEDIAPIPE_DRAWING_UTILS_VERSION = "0.3.1675466124";
+
   async function loadScripts() {
     if (scriptsLoaded) return;
     const urls = [
-      "https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js",
-      "https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js",
-      "https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js",
+      `https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@${MEDIAPIPE_CAMERA_UTILS_VERSION}/camera_utils.js`,
+      `https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@${MEDIAPIPE_DRAWING_UTILS_VERSION}/drawing_utils.js`,
+      `https://cdn.jsdelivr.net/npm/@mediapipe/hands@${MEDIAPIPE_HANDS_VERSION}/hands.js`,
     ];
     for (const src of urls) await loadScriptTag(src);
     scriptsLoaded = true;
@@ -180,7 +191,7 @@ const HandTracking = (() => {
     }
 
     hands = new Hands({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@${MEDIAPIPE_HANDS_VERSION}/${file}`,
     });
     hands.setOptions({
       maxNumHands: 1,
@@ -190,9 +201,26 @@ const HandTracking = (() => {
     });
     hands.onResults(onResults);
 
+    // Circuit breaker: if hands.send() fails repeatedly in a row (e.g. the
+    // CDN model assets are unreachable), stop retrying instead of hammering
+    // the network on every animation frame indefinitely.
+    let consecutiveFailures = 0;
+    const MAX_CONSECUTIVE_FAILURES = 5;
+
     camera = new Camera(video, {
       onFrame: async () => {
-        try { await hands.send({ image: video }); } catch (e) {}
+        if (!active) return;
+        try {
+          await hands.send({ image: video });
+          consecutiveFailures = 0;
+        } catch (e) {
+          consecutiveFailures++;
+          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            console.warn("[HandTracking] hands.send() failed repeatedly, stopping to avoid a retry loop.", e);
+            setStatus("HAND TRACKING — UNAVAILABLE");
+            stop();
+          }
+        }
       },
       width: 640,
       height: 480,
