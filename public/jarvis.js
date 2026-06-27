@@ -278,6 +278,27 @@ async function checkTTSReady() {
 }
 checkTTSReady();
 
+// ── HOME TALK BADGE ───────────────────────────────────────────
+function showHomeTalkBadge(device) {
+  const badge = $("home-talk-badge");
+  if (!badge) return;
+  badge.textContent = `🏠 HOME TALK — ${(device || "speaker").toUpperCase()}`;
+  badge.classList.remove("hidden");
+}
+function hideHomeTalkBadge() {
+  const badge = $("home-talk-badge");
+  if (badge) badge.classList.add("hidden");
+}
+async function syncHomeTalkBadge() {
+  try {
+    const res  = await fetch("/api/home-talk/status");
+    const data = await res.json();
+    if (data.outputMode === "home") showHomeTalkBadge(data.device);
+    else hideHomeTalkBadge();
+  } catch { /* badge just won't show until the next successful chat turn */ }
+}
+syncHomeTalkBadge();
+
 // ── MAIN SPEAK FUNCTION ───────────────────────────────────────
 async function speak(text, onEnd) {
   if (!text) { if (onEnd) onEnd(); return; }
@@ -307,6 +328,24 @@ async function speak(text, onEnd) {
     }
 
     if (!res.ok) throw new Error(`TTS ${res.status}`);
+
+    const contentType = res.headers.get("Content-Type") || "";
+
+    // ── Home Talk is on: audio is already playing on the Google Home,
+    //    not here, so there's nothing to play locally. ──
+    if (contentType.includes("application/json")) {
+      const data = await res.json();
+      if (data.ok) {
+        setOrb("speaking");
+        showHomeTalkBadge(data.castTo);
+        const estimatedMs = Math.max(1500, text.length * 65);
+        setTimeout(() => { setOrb("idle"); if (onEnd) onEnd(); }, estimatedMs);
+      } else {
+        setOrb("idle");
+        if (onEnd) onEnd();
+      }
+      return;
+    }
 
     const blob  = await res.blob();
     const url   = URL.createObjectURL(blob);
@@ -1100,6 +1139,9 @@ async function sendToAI(message) {
     addMsg("jarvis", reply);
     updateMood(5);
     syncExtensionStatus();
+
+    if (data.action === "HOME_TALK_ON")  showHomeTalkBadge(data.meta?.device);
+    if (data.action === "HOME_TALK_OFF") hideHomeTalkBadge();
 
     if (data.action && data.meta) {
       await handleAction(data.action, data.meta, reply);
