@@ -1178,6 +1178,18 @@ select option { background: var(--bg2); }
 }
 .clip-toast.hidden { display: none !important; }
 
+/* ── HOME TALK BADGE ── */
+.home-talk-badge {
+  position: fixed; top: 44px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,200,255,0.08);
+  border: 1px solid rgba(0,200,255,0.4);
+  color: var(--blue); font-family: var(--mono); font-size: 0.7rem;
+  letter-spacing: 0.16em; padding: 9px 24px; border-radius: 2px;
+  box-shadow: 0 0 24px var(--blue-glow); z-index: 100;
+  animation: msgIn 0.3s ease;
+}
+.home-talk-badge.hidden { display: none !important; }
+
 /* ── TIMER BADGE ── */
 .timer-badge {
   position: fixed; top: calc(var(--top-h) + 12px); left: 50%; transform: translateX(-50%);
@@ -1558,4 +1570,3 @@ select option { background: var(--bg2); }
   flex-shrink: 0;
   animation: blink 0.8s step-end infinite;
 }
-
