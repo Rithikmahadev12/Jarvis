@@ -20,5 +20,6 @@
     "askFollowUps": true,
     "rememberContext": true,
     "alwaysPersonalise": true
-  }
+  },
+  "castDevice": "Bedroom speaker"
 }
