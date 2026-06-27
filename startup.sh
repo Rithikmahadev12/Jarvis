@@ -5,6 +5,9 @@ echo "[STARTUP] Beginning J.A.R.V.I.S boot sequence..."
 echo "[STARTUP] Installing Piper TTS (ONNX, no PyTorch)..."
 pip install piper-tts fastapi uvicorn --break-system-packages --quiet
 
+echo "[STARTUP] Installing pychromecast (for Home Talk)..."
+pip install pychromecast --break-system-packages --quiet
+
 VOICE_DIR="./voice-server/voices"
 mkdir -p "$VOICE_DIR"
 MODEL="$VOICE_DIR/en_US-ryan-high.onnx"
