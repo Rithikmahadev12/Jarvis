@@ -22,6 +22,13 @@ const TTS = require("./tts");
 const app        = express();
 const httpServer = http.createServer(app);
 
+// "phone"  → TTS audio is sent back to whichever client asked for it (default)
+// "home"   → TTS audio is cast to the Google Home / Nest speaker instead
+let outputMode = "phone";
+
+const HOME_TALK_ON  = /\b(enable|turn on|activate)\s+home\s*talk\b/i;
+const HOME_TALK_OFF = /\b(disable|turn off|deactivate)\s+home\s*talk\b/i;
+
 app.use(cors());
 app.use(express.json({ limit: "30mb" }));
 
@@ -831,6 +838,36 @@ app.post("/api/chat", async (req, res) => {
 
   const T = userTitle || "Sir";
 
+  // ── 0. Home Talk toggle — checked first so it never collides with
+  //      smart-home / smalltalk / AI routing below ──
+  if (HOME_TALK_ON.test(message)) {
+    const Cast = require("./cast");
+    if (!Cast.isConfigured()) {
+      return res.json({
+        reply:  `Home Talk needs a speaker configured first, ${T}. Set "castDevice" in config.json to your Google Home's name, then try again.`,
+        action: "HOME_TALK_ON",
+        intent: "home_talk",
+        meta:   { outputMode, configured: false },
+      });
+    }
+    outputMode = "home";
+    return res.json({
+      reply:  `Home Talk enabled, ${T}. I'll speak through ${Cast.deviceName()} from now on — say "Jarvis, disable home talk" to bring it back to your phone.`,
+      action: "HOME_TALK_ON",
+      intent: "home_talk",
+      meta:   { outputMode, device: Cast.deviceName() },
+    });
+  }
+  if (HOME_TALK_OFF.test(message)) {
+    outputMode = "phone";
+    return res.json({
+      reply:  `Home Talk disabled, ${T}. Back to talking through your phone.`,
+      action: "HOME_TALK_OFF",
+      intent: "home_talk",
+      meta:   { outputMode },
+    });
+  }
+
   // ── 1. Home commands ──
   if (Home.isHomeCommand(message) || Home.isHomePanelRequest(message)) {
     if (Home.isHomePanelRequest(message)) {
@@ -996,6 +1033,19 @@ app.post("/api/tts", async (req, res) => {
     return res.status(500).json({ error: "Synthesis failed", fallback: true });
   }
 
+  // ── Home Talk: cast the clip to the Google Home instead of the phone ──
+  if (outputMode === "home") {
+    const Cast = require("./cast");
+    try {
+      const mediaUrl = Cast.publishAudio(audio, PORT);
+      await Cast.playOnDevice(mediaUrl);
+      return res.json({ ok: true, castTo: Cast.deviceName() });
+    } catch (e) {
+      console.error("[CAST] Home Talk failed, falling back to phone audio:", e.message);
+      // fall through to the normal phone-audio response below
+    }
+  }
+
   res.setHeader("Content-Type",  "audio/wav");
   res.setHeader("Content-Length", audio.length);
   res.setHeader("Cache-Control",  "no-cache");
@@ -1005,6 +1055,12 @@ app.post("/api/tts", async (req, res) => {
 // Status check — client can poll this on startup to know when voice is ready
 app.get("/api/tts/status", (req, res) => {
   res.json({ ready: TTS.isReady() });
+});
+
+// Home Talk state — lets the frontend show an accurate badge on load/refresh
+app.get("/api/home-talk/status", (req, res) => {
+  const Cast = require("./cast");
+  res.json({ outputMode, device: Cast.deviceName(), configured: Cast.isConfigured() });
 });
 
 httpServer.listen(PORT, () => {
