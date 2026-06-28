@@ -11,6 +11,7 @@ const state = window.state = {
   user: null,
   userTitle: null,
   sessionId: crypto.randomUUID(),
+  lastJarvisQuestion: null,   // tracks what JARVIS last asked so "yes/no" replies have context
   synth: window.speechSynthesis,
   isListening: false,
   micActive: false,
@@ -1033,6 +1034,7 @@ function setupTypingBox() {
 // ═══════════════════════════════════════════════════════════════
 function handleChatCommand(text) {
   const lower = text.toLowerCase();
+  const prevInteraction = state.lastInteraction;
   state.lastInteraction = Date.now();
   state.interactionCount++;
   updateMood(3);
@@ -1041,7 +1043,8 @@ function handleChatCommand(text) {
   const hasWake = hasWakeWord(lower);
   const cleaned = hasWake ? stripWakeWord(text) : text;
 
-  const recentlyActive = (Date.now() - state.lastInteraction) < 30000;
+  // Use the PREVIOUS lastInteraction timestamp, not the one we just set
+  const recentlyActive = (Date.now() - prevInteraction) < 30000;
   if (!hasWake && !recentlyActive && state.interactionCount > 3) {
     updateLiveHearing(""); return;
   }
@@ -1052,7 +1055,24 @@ function handleChatCommand(text) {
     addMsg("jarvis", ack); speak(ack); return;
   }
 
+  // ── Context injection: if user says "yes/no/sure/ok" after JARVIS asked a question,
+  //    automatically inject the question context so the AI understands the reply ──
+  const isShortAffirmOrNeg = /^(yes|yeah|yep|sure|ok|okay|no|nope|nah|please|go ahead|do it|confirm|cancel|skip)\.?$/i.test(cleaned.trim());
+  if (isShortAffirmOrNeg && state.lastJarvisQuestion) {
+    const contextualText = `${cleaned} (in response to: "${state.lastJarvisQuestion}")`;
+    state.lastJarvisQuestion = null;
+    sendToAI(contextualText);
+    return;
+  }
+
   const cleanedLower = cleaned.toLowerCase();
+
+  // ── Notification / intruder settings ──
+  if (/\b(notification|alert|intruder|settings|setting|configure|config|toggle|manage)\b/.test(cleanedLower) &&
+      /\b(settings|setting|panel|menu|page|where|open|show|go to|find|access)\b/.test(cleanedLower)) {
+    const r = `Opening notification and security settings, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r); showNotifSettings(); updateMood(2); return;
+  }
 
   // ── Intruder detection toggle ──
   if (/\b(disable|turn off|deactivate|stop)\b/.test(cleanedLower) &&
@@ -1133,6 +1153,8 @@ async function sendToAI(message) {
         userTitle:   state.userTitle,
         memories,
         moodContext: moodCtx,
+        cameraActive: !!state.cameraStream,   // tell the AI camera is already online
+        screenActive: !!state.screenStream,   // and whether screen share is active
       }),
     });
     const data  = await res.json();
@@ -1424,8 +1446,12 @@ function showNotifSettings() {
     overlay.innerHTML = `
       <div class="notif-settings-box">
         <div class="notif-settings-header">
-          <span class="notif-settings-title">NOTIFICATION SETTINGS</span>
+          <span class="notif-settings-title">NOTIFICATION &amp; SECURITY SETTINGS</span>
           <button class="notif-close-btn" id="notif-close-btn">✕</button>
+        </div>
+        <div class="notif-section">
+          <div class="notif-section-label">⚠ INTRUDER DETECTION</div>
+          <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot red"></span><div><div class="notif-row-title">Master switch — unknown face detection</div><div class="notif-row-sub">Disables all face monitoring &amp; alerts</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-intruder-master" ${state.intruderDetectionEnabled ? "checked" : ""}><span class="notif-slider"></span></label></div>
         </div>
         <div class="notif-section">
           <div class="notif-section-label">PUSH PERMISSION</div>
@@ -1436,7 +1462,7 @@ function showNotifSettings() {
         </div>
         <div class="notif-section">
           <div class="notif-section-label">ALERT CHANNELS</div>
-          <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot red"></span><div><div class="notif-row-title">Intruder detection</div><div class="notif-row-sub">Push + alarm tone</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-intruder" ${notif.cfg.intruder ? "checked" : ""}><span class="notif-slider"></span></label></div>
+          <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot red"></span><div><div class="notif-row-title">Intruder alert push notification</div><div class="notif-row-sub">Push + alarm tone</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-intruder" ${notif.cfg.intruder ? "checked" : ""}><span class="notif-slider"></span></label></div>
           <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot amber"></span><div><div class="notif-row-title">Away mode</div><div class="notif-row-sub">Push + descending chime</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-away" ${notif.cfg.away ? "checked" : ""}><span class="notif-slider"></span></label></div>
           <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot blue"></span><div><div class="notif-row-title">User return</div><div class="notif-row-sub">Push + ascending welcome tone</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-return" ${notif.cfg.return ? "checked" : ""}><span class="notif-slider"></span></label></div>
           <div class="notif-row"><div class="notif-row-info"><span class="notif-row-dot green"></span><div><div class="notif-row-title">System events</div><div class="notif-row-sub">Subtle ping</div></div></div><label class="notif-toggle"><input type="checkbox" id="nt-system" ${notif.cfg.system ? "checked" : ""}><span class="notif-slider"></span></label></div>
@@ -1455,6 +1481,17 @@ function showNotifSettings() {
     $("notif-close-btn").addEventListener("click", hideNotifSettings);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) hideNotifSettings(); });
     $("notif-perm-btn")?.addEventListener("click", () => notif.requestPerm());
+    $("nt-intruder-master")?.addEventListener("change", (e) => {
+      state.intruderDetectionEnabled = e.target.checked;
+      const r = e.target.checked
+        ? `Intruder detection re-enabled, ${state.userTitle}. Monitoring for unknown faces.`
+        : `Intruder detection disabled, ${state.userTitle}. I will stop monitoring.`;
+      addMsg("jarvis", r); speak(r);
+      if (!e.target.checked && state.intruderActive) {
+        stopIntruderRecord(); state.intruderActive = false; hideFaceAuthOverlay();
+        const panel = $("camera-panel"); if (panel) panel.classList.remove("alert");
+      }
+    });
     const toggleMap = { "nt-intruder":"intruder","nt-away":"away","nt-return":"return","nt-system":"system" };
     for (const [id, key] of Object.entries(toggleMap)) $(id)?.addEventListener("change", (e) => { notif.cfg[key] = e.target.checked; });
     const testT = state.userTitle || "Sir";
@@ -1937,6 +1974,13 @@ function addMsg(type, text) {
   const wrap   = document.createElement("div"); wrap.className = `msg ${type}`;
   wrap.innerHTML = `<div class="msg-label">${labels[type] || type}</div><div class="msg-text">${text}</div>`;
   $("transcript").appendChild(wrap); $("transcript").scrollTop = $("transcript").scrollHeight;
+  // Track JARVIS questions so short replies like "yes" can be understood in context
+  if (type === "jarvis" && text.includes("?")) {
+    // Store the last sentence that contains a question mark
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    const question = sentences.filter(s => s.includes("?")).pop();
+    if (question) state.lastJarvisQuestion = question.replace(/<[^>]+>/g, "").trim();
+  }
 }
 
 function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
