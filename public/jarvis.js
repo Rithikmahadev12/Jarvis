@@ -335,8 +335,12 @@ async function speak(text, onEnd) {
       body:    JSON.stringify({ text }),
     });
 
-    // 503 = model still loading — fall back to browser voice
+    // 503 = Piper model not loaded. If we're in Home Talk mode the server
+    // will handle TTS via gTTS — only fall back to browser on phone mode.
     if (res.status === 503) {
+      const data = await res.json().catch(() => ({}));
+      // If castTo is set the server already handled it via Home Talk
+      if (data.castTo) return;
       _ttsReady = false;
       return _speakBrowser(text, onEnd);
     }
