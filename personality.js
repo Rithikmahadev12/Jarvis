@@ -5,8 +5,31 @@
 // Genuine JARVIS voice — dry, precise, witty, never robotic.
 // ═══════════════════════════════════════════════════════════════
 
-function getTimeContext() {
-  const h = new Date().getHours();
+// ── TIMEZONE-AWARE CLOCK ──────────────────────────────────────
+// IMPORTANT: never use new Date().getHours() directly for anything
+// user-facing — that reads the SERVER's local clock, which is often
+// a different timezone than the person actually talking to JARVIS
+// (e.g. a server running in UTC while the user is in US Pacific).
+// Always route through here with the tz the client sent us.
+function getHourInTZ(tz) {
+  if (tz) {
+    try {
+      const formatted = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        hour: "2-digit",
+        hour12: false,
+      }).format(new Date());
+      const h = parseInt(formatted, 10) % 24;
+      if (!Number.isNaN(h)) return h;
+    } catch {
+      // invalid/unknown tz string — fall back below
+    }
+  }
+  return new Date().getHours();
+}
+
+function getTimeContext(tz) {
+  const h = getHourInTZ(tz);
   if (h >= 5  && h < 9)  return "early morning";
   if (h >= 9  && h < 12) return "morning";
   if (h >= 12 && h < 14) return "lunch";
@@ -28,13 +51,14 @@ function buildJarvisResponse(context) {
     T = "Sir",      // how to address user
     detail = null,  // specific detail to reference
     sentiment = null, // positive/negative/neutral
-    time = getTimeContext(),
+    tz = null,      // user's IANA timezone, e.g. "America/Los_Angeles"
+    time = getTimeContext(tz),
   } = context;
 
   switch (type) {
 
     case "greeting": {
-      const h = new Date().getHours();
+      const h = getHourInTZ(tz);
       if (h < 6)  return `You're up at ${h === 0 ? "midnight" : `${h} in the morning`}, ${T}. Either something's wrong or something's very right. Systems are online either way.`;
       if (h < 9)  return `Good morning, ${T}. Early start — I respect it. Everything's running, ready when you are.`;
       if (h < 12) return `Morning, ${T}. Cognitive engine is active, all systems nominal. What are we doing today?`;
@@ -155,7 +179,7 @@ function buildJarvisResponse(context) {
 // Reads what was actually said and responds to it specifically.
 // No arrays. Each response references the actual input.
 
-function routeSmallTalk(text, T) {
+function routeSmallTalk(text, T, tz) {
   const lower = text.toLowerCase().trim();
 
   // "You up?" — a standing, unconditional check-in. Always the same
@@ -166,7 +190,7 @@ function routeSmallTalk(text, T) {
 
   // How are you / feeling
   if (/how are you|how('re| are) you doing|you okay|you alright|you good|how do you feel/i.test(lower)) {
-    return buildJarvisResponse({ type: "mood_query", T });
+    return buildJarvisResponse({ type: "mood_query", T, tz });
   }
 
   // What are you doing
@@ -232,7 +256,7 @@ function routeSmallTalk(text, T) {
 
   // Good morning
   if (/good morning|morning jarvis/i.test(lower)) {
-    return buildJarvisResponse({ type: "greeting", T });
+    return buildJarvisResponse({ type: "greeting", T, tz });
   }
 
   // Good night
@@ -267,12 +291,12 @@ function routeSmallTalk(text, T) {
 
   // Hello / hey
   if (/^(hello|hi|hey|yo|sup|what'?s up|wassup|howdy)[\s,!.]*$/i.test(lower)) {
-    return buildJarvisResponse({ type: "greeting", T });
+    return buildJarvisResponse({ type: "greeting", T, tz });
   }
 
   // Thank you
   if (/^(thank|thanks|cheers|appreciated|thank you)[\s,!.]*$/i.test(lower)) {
-    return buildJarvisResponse({ type: "thanks", T });
+    return buildJarvisResponse({ type: "thanks", T, tz });
   }
 
   // Personal news routing
@@ -360,9 +384,9 @@ function routePersonalNews(text, T) {
 // Proactive comments based on what the camera sees.
 // References the actual situation, not preset phrases.
 
-function getCameraComment(scene, T, sessionMinutes) {
-  const time = getTimeContext();
-  const h = new Date().getHours();
+function getCameraComment(scene, T, sessionMinutes, tz) {
+  const time = getTimeContext(tz);
+  const h = getHourInTZ(tz);
 
   switch (scene) {
 
@@ -424,4 +448,5 @@ module.exports = {
   shouldSpeakProactively,
   buildJarvisResponse,
   getTimeContext,
+  getHourInTZ,
 };
