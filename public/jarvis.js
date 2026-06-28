@@ -290,7 +290,7 @@ async function checkTTSReady() {
     setTimeout(checkTTSReady, 5000);
   }
 }
-// checkTTSReady(); // disabled — always use the fixed browser voice
+checkTTSReady();
 
 // ── HOME TALK BADGE ───────────────────────────────────────────
 function showHomeTalkBadge(device) {
@@ -326,9 +326,8 @@ async function speak(text, onEnd) {
   if (_currentAudio) { _currentAudio.pause(); _currentAudio = null; }
 
   setOrb("speaking");
-  return _speakBrowser(text, onEnd);
 
-  /* ── Disabled Piper / Home Talk round-trip ──────────────────
+  // ── Piper TTS / Home Talk round-trip ────────────────────────
   try {
     const res = await fetch("/api/tts", {
       method:  "POST",
@@ -336,7 +335,7 @@ async function speak(text, onEnd) {
       body:    JSON.stringify({ text }),
     });
 
-    // 503 = model still loading
+    // 503 = model still loading — fall back to browser voice
     if (res.status === 503) {
       _ttsReady = false;
       return _speakBrowser(text, onEnd);
@@ -379,10 +378,10 @@ async function speak(text, onEnd) {
     await audio.play();
 
   } catch (e) {
+    // Server unreachable or TTS not configured — fall back to browser voice
     console.warn("[JARVIS] Piper TTS failed, using browser voice:", e.message);
     _speakBrowser(text, onEnd);
   }
-  ── end disabled block ── */
 }
 
 // ── BROWSER FALLBACK ──────────────────────────────────────────
