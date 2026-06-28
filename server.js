@@ -839,8 +839,13 @@ async function handleFeatureShip(T) {
 // ── MAIN CHAT ROUTE
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/chat", async (req, res) => {
-  const { message, sessionId, userName, userTitle, memories, moodContext } = req.body;
+  const { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, screenActive } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
+  // Inject camera/screen context into the message if relevant so AI knows they're already active
+  let enrichedMessage = message;
+  if (cameraActive && /\b(camera|see|look|watch|analyze|analyse|fighting|style|face|visual)\b/i.test(message) && !/permission|access|grant/i.test(message)) {
+    enrichedMessage = `[Camera is already active and online] ${message}`;
+  }
 
   const T = userTitle || "Sir";
 
@@ -988,11 +993,11 @@ app.post("/api/chat", async (req, res) => {
 
 // ── 4. Everything else → local brain first, Groq as tutor only when needed ──
   const linkSummary2 = getLinksSummary();
-  const serverData2  = { ...linkSummary2, allLinks: getAllLinksFormatted(), ...lookupLink(message) };
+  const serverData2  = { ...linkSummary2, allLinks: getAllLinksFormatted(), ...lookupLink(enrichedMessage) };
 
   let result;
   try {
-    result = await Brain.respond({ message, sessionId, userName, userTitle, memories, moodContext, serverData: serverData2 });
+    result = await Brain.respond({ message: enrichedMessage, sessionId, userName, userTitle, memories, moodContext, serverData: serverData2 });
   } catch (err) {
     console.error("[BRAIN] Error:", err);
     Improve.failures.log(message, "", "BRAIN_CRASH", sessionId);
