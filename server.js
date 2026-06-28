@@ -21,6 +21,33 @@ const Reminders   = require("./reminders");
 const TTS = require("./tts");
 
 const app        = express();
+
+// ── CONVERSATION HISTORY STORE ──────────────────────────────────────────────
+// Keeps last N exchanges per sessionId so JARVIS remembers what it asked you.
+// Entries are { role: "user"|"assistant", content: string }
+const SESSION_HISTORY = new Map();
+const SESSION_MAX_TURNS = 12; // last 6 exchanges (user + assistant each)
+const SESSION_TTL_MS    = 60 * 60 * 1000; // 1 hour of inactivity → forget
+const sessionTimers     = new Map();
+
+function getSessionHistory(sessionId) {
+  return SESSION_HISTORY.get(sessionId) || [];
+}
+
+function appendToSession(sessionId, role, content) {
+  if (!SESSION_HISTORY.has(sessionId)) SESSION_HISTORY.set(sessionId, []);
+  const hist = SESSION_HISTORY.get(sessionId);
+  hist.push({ role, content });
+  // Keep only the last N turns
+  while (hist.length > SESSION_MAX_TURNS) hist.shift();
+  // Reset TTL
+  if (sessionTimers.has(sessionId)) clearTimeout(sessionTimers.get(sessionId));
+  sessionTimers.set(sessionId, setTimeout(() => {
+    SESSION_HISTORY.delete(sessionId);
+    sessionTimers.delete(sessionId);
+  }, SESSION_TTL_MS));
+}
+// ────────────────────────────────────────────────────────────────────────────
 const httpServer = http.createServer(app);
 
 // "phone"  → TTS audio is sent back to whichever client asked for it (default)
@@ -1095,9 +1122,13 @@ app.post("/api/chat", async (req, res) => {
   const linkSummary2 = getLinksSummary();
   const serverData2  = { ...linkSummary2, allLinks: getAllLinksFormatted(), ...lookupLink(enrichedMessage) };
 
+  // Persist user turn + load full history so JARVIS remembers its own questions
+  appendToSession(sessionId, "user", enrichedMessage);
+  const conversationHistory = getSessionHistory(sessionId);
+
   let result;
   try {
-    result = await Brain.respond({ message: enrichedMessage, sessionId, userName, userTitle, memories, moodContext, serverData: serverData2 });
+    result = await Brain.respond({ message: enrichedMessage, sessionId, userName, userTitle, memories, moodContext, serverData: serverData2, conversationHistory });
   } catch (err) {
     console.error("[BRAIN] Error:", err);
     Improve.failures.log(message, "", "BRAIN_CRASH", sessionId);
@@ -1123,6 +1154,9 @@ app.post("/api/chat", async (req, res) => {
     const quality = Trainer.scoreQuality(message, result.reply, result.action);
     Trainer.addExample(message, result.reply, result.intent || result.action, result.topic, quality, result.source || "local");
   }
+
+  // Persist assistant reply so next turn has full context
+  if (result.reply) appendToSession(sessionId, "assistant", result.reply);
 
   return res.json(result);
 });
