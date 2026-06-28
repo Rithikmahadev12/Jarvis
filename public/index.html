@@ -455,6 +455,36 @@
     </div>
 
     <!-- TICKER -->
+    <!-- ══ MOBILE NAV BAR (hidden on desktop) ══ -->
+    <nav class="mobile-nav" id="mobile-nav">
+      <button class="mob-nav-btn active" id="mob-btn-chat" onclick="mobileNav('chat')">
+        <span class="mob-icon">💬</span>CHAT
+      </button>
+      <button class="mob-nav-btn" id="mob-btn-left" onclick="mobileNav('left')">
+        <span class="mob-icon">📡</span>STATUS
+      </button>
+      <button class="mob-nav-btn" id="mob-btn-mic" id="mob-mic-btn" onclick="toggleListening()">
+        <span class="mob-icon">🎤</span>SPEAK
+      </button>
+      <button class="mob-nav-btn" id="mob-btn-right" onclick="mobileNav('right')">
+        <span class="mob-icon">⚙️</span>PANEL
+      </button>
+    </nav>
+
+    <!-- ══ LEFT DRAWER (mobile) ══ -->
+    <div class="mob-drawer-overlay" id="mob-overlay-left" onclick="closeMobileDrawers()"></div>
+    <div class="mob-drawer" id="mob-drawer-left">
+      <button class="mob-drawer-close" onclick="closeMobileDrawers()">✕</button>
+      <!-- content injected by JS from left-panel -->
+    </div>
+
+    <!-- ══ RIGHT DRAWER (mobile) ══ -->
+    <div class="mob-drawer-overlay" id="mob-overlay-right" onclick="closeMobileDrawers()"></div>
+    <div class="mob-drawer right" id="mob-drawer-right">
+      <button class="mob-drawer-close" onclick="closeMobileDrawers()">✕</button>
+      <!-- content injected by JS from right-panel -->
+    </div>
+
     <div id="status-ticker">
       <div class="ticker-track" id="ticker-track"></div>
     </div>
@@ -498,5 +528,73 @@
       });
     }
   </script>
+
+<script>
+/* ── MOBILE DRAWER & NAV LOGIC ── */
+function mobileNav(tab) {
+  // Update active state
+  document.querySelectorAll('.mob-nav-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('mob-btn-' + tab);
+  if (btn) btn.classList.add('active');
+
+  closeMobileDrawers();
+
+  if (tab === 'left') {
+    // Clone left-panel content into drawer
+    const src = document.querySelector('.left-panel');
+    const drawer = document.getElementById('mob-drawer-left');
+    if (src && drawer) {
+      // Sync content (clone nodes)
+      const clone = src.cloneNode(true);
+      clone.classList.remove('left-panel', 'side-panel');
+      clone.style.cssText = 'display:block;width:100%;';
+      // Replace drawer content (keep close btn)
+      const closeBtn = drawer.querySelector('.mob-drawer-close');
+      drawer.innerHTML = '';
+      drawer.appendChild(closeBtn);
+      drawer.appendChild(clone);
+    }
+    drawer.classList.add('open');
+    document.getElementById('mob-overlay-left').classList.add('open');
+  } else if (tab === 'right') {
+    const src = document.querySelector('.right-panel');
+    const drawer = document.getElementById('mob-drawer-right');
+    if (src && drawer) {
+      const clone = src.cloneNode(true);
+      clone.classList.remove('right-panel', 'side-panel');
+      clone.style.cssText = 'display:block;width:100%;';
+      const closeBtn = drawer.querySelector('.mob-drawer-close');
+      drawer.innerHTML = '';
+      drawer.appendChild(closeBtn);
+      drawer.appendChild(clone);
+    }
+    drawer.classList.add('open');
+    document.getElementById('mob-overlay-right').classList.add('open');
+  }
+}
+
+function closeMobileDrawers() {
+  document.getElementById('mob-drawer-left').classList.remove('open');
+  document.getElementById('mob-drawer-right').classList.remove('open');
+  document.getElementById('mob-overlay-left').classList.remove('open');
+  document.getElementById('mob-overlay-right').classList.remove('open');
+}
+
+// Close drawers on back-swipe / escape
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMobileDrawers(); });
+
+// Swipe-to-close support for drawers
+(function() {
+  let startX = 0;
+  document.addEventListener('touchstart', e => { startX = e.touches[0].clientX; }, { passive: true });
+  document.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - startX;
+    const leftOpen  = document.getElementById('mob-drawer-left').classList.contains('open');
+    const rightOpen = document.getElementById('mob-drawer-right').classList.contains('open');
+    if (leftOpen  && dx < -60) closeMobileDrawers();
+    if (rightOpen && dx >  60) closeMobileDrawers();
+  }, { passive: true });
+})();
+</script>
 </body>
 </html>
