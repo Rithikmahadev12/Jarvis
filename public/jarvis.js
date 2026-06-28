@@ -1074,6 +1074,13 @@ function handleChatCommand(text) {
     addMsg("jarvis", r); speak(r); showNotifSettings(); updateMood(2); return;
   }
 
+  // ── Google / Gmail / Calendar settings ──
+  if (/\b(google|gmail|calendar|email)\b/.test(cleanedLower) &&
+      /\b(settings|setting|connect|configure|setup|set up|api|credentials|key|integrate|link|add|change)\b/.test(cleanedLower)) {
+    const r = `Opening Google integration settings, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r); showGoogleSettings(); updateMood(2); return;
+  }
+
   // ── Intruder detection toggle ──
   if (/\b(disable|turn off|deactivate|stop)\b/.test(cleanedLower) &&
       /\b(intruder|face detection|face recognition|facial recognition|facial|unknown face)\b/.test(cleanedLower)) {
@@ -1511,8 +1518,114 @@ function hideNotifSettings() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── FACE AUTH OVERLAY ──
+// ── GOOGLE CREDENTIALS SETTINGS ──
 // ═══════════════════════════════════════════════════════════════
+function showGoogleSettings() {
+  mic.suspend();
+  let overlay = $("google-settings-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "google-settings-overlay";
+    overlay.className = "notif-settings-overlay";
+    overlay.innerHTML = `
+      <div class="notif-settings-box" style="max-width:480px">
+        <div class="notif-settings-header">
+          <span class="notif-settings-title">🔗 GOOGLE INTEGRATION</span>
+          <button class="notif-close-btn" id="google-settings-close">✕</button>
+        </div>
+        <div class="notif-section">
+          <div class="notif-section-label">YOUR GOOGLE OAUTH CREDENTIALS</div>
+          <p style="font-family:var(--mono);font-size:0.6rem;color:var(--text-dim);margin:0 0 12px;line-height:1.5">
+            Get these from <a href="https://console.cloud.google.com" target="_blank" style="color:var(--blue)">console.cloud.google.com</a> →
+            APIs &amp; Services → Credentials → Create OAuth 2.0 Client ID (Web Application).<br>
+            Add <code style="color:var(--blue)">${window.location.origin}/api/google/callback</code> as an Authorised Redirect URI.
+          </p>
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <div>
+              <label style="font-family:var(--mono);font-size:0.58rem;letter-spacing:0.12em;color:var(--text-dim);display:block;margin-bottom:4px">CLIENT ID</label>
+              <input id="google-client-id" type="text" placeholder="xxxxxxxxxx.apps.googleusercontent.com"
+                style="width:100%;box-sizing:border-box;background:rgba(0,200,255,0.05);border:1px solid var(--blue-dim);color:var(--blue);font-family:var(--mono);font-size:0.65rem;padding:8px 10px;border-radius:3px;outline:none">
+            </div>
+            <div>
+              <label style="font-family:var(--mono);font-size:0.58rem;letter-spacing:0.12em;color:var(--text-dim);display:block;margin-bottom:4px">CLIENT SECRET</label>
+              <input id="google-client-secret" type="password" placeholder="GOCSPX-…"
+                style="width:100%;box-sizing:border-box;background:rgba(0,200,255,0.05);border:1px solid var(--blue-dim);color:var(--blue);font-family:var(--mono);font-size:0.65rem;padding:8px 10px;border-radius:3px;outline:none">
+            </div>
+          </div>
+        </div>
+        <div class="notif-section">
+          <div id="google-settings-status" style="font-family:var(--mono);font-size:0.62rem;color:var(--text-dim);min-height:18px;margin-bottom:10px"></div>
+          <div style="display:flex;gap:10px">
+            <button class="hud-btn" id="google-save-btn" style="flex:1;padding:10px">SAVE &amp; CONNECT</button>
+            <button class="hud-btn" id="google-disconnect-btn" style="flex:1;padding:10px;border-color:var(--red);color:var(--red)">DISCONNECT</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    $("google-settings-close").addEventListener("click", hideGoogleSettings);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) hideGoogleSettings(); });
+
+    $("google-save-btn").addEventListener("click", async () => {
+      const clientId     = $("google-client-id").value.trim();
+      const clientSecret = $("google-client-secret").value.trim();
+      const statusEl     = $("google-settings-status");
+      if (!clientId || !clientSecret) { statusEl.style.color = "var(--red)"; statusEl.textContent = "Both Client ID and Secret are required."; return; }
+      statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Saving…";
+      try {
+        const res  = await fetch("/api/google/credentials", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userName: state.user, clientId, clientSecret }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          statusEl.style.color = "#00ff88"; statusEl.textContent = "✓ Saved. Opening Google login…";
+          setTimeout(() => { window.open(data.authUrl, "_blank"); hideGoogleSettings(); }, 800);
+          const msg = `Google credentials saved, ${state.userTitle}. A Google login window has opened — sign in to activate Gmail and Calendar.`;
+          addMsg("jarvis", msg); speak(msg);
+        } else {
+          statusEl.style.color = "var(--red)"; statusEl.textContent = data.error || "Save failed.";
+        }
+      } catch (e) {
+        statusEl.style.color = "var(--red)"; statusEl.textContent = "Server error — is JARVIS running?";
+      }
+    });
+
+    $("google-disconnect-btn").addEventListener("click", async () => {
+      const statusEl = $("google-settings-status");
+      statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Disconnecting…";
+      try {
+        await fetch("/api/google/credentials", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ userName: state.user, clientId: "", clientSecret: "" }),
+        });
+        statusEl.style.color = "#ff4444"; statusEl.textContent = "Disconnected. Gmail and Calendar deactivated.";
+        $("google-client-id").value = ""; $("google-client-secret").value = "";
+        const msg = `Google disconnected, ${state.userTitle}. Gmail and Calendar are no longer active.`;
+        addMsg("jarvis", msg); speak(msg);
+      } catch { statusEl.style.color = "var(--red)"; statusEl.textContent = "Error — try again."; }
+    });
+  }
+
+  // Pre-fill if credentials already saved (load from profile)
+  fetch(`/api/profile/${encodeURIComponent(state.user)}`).then(r => r.json()).then(d => {
+    if (d.profile?.googleClientId) {
+      $("google-client-id").value = d.profile.googleClientId;
+      $("google-client-secret").value = "••••••••";
+      $("google-settings-status").style.color = "#00ff88";
+      $("google-settings-status").textContent = "✓ Credentials on file. Click Save & Connect to re-authenticate.";
+    }
+  }).catch(() => {});
+
+  overlay.classList.remove("hidden");
+  addMsg("system", "Google settings open.");
+}
+
+function hideGoogleSettings() {
+  const overlay = $("google-settings-overlay"); if (overlay) overlay.classList.add("hidden");
+  if (state.phase === "chatting") mic.resume();
+}
+
+
 function showFaceAuthOverlay() {
   const overlay = $("face-auth-overlay"), pwInput = $("face-auth-password"),
         errMsg  = $("face-auth-error"),   submit   = $("face-auth-submit"),
