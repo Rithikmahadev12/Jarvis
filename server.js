@@ -60,6 +60,11 @@ app.get("/blueprint", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "blueprint-mode.html"));
 });
 
+// ── Holographic Workspace — AI-powered multi-object scene builder ──
+app.get("/workspace", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "hologram-workspace.html"));
+});
+
 app.get("/api/blueprint/search", async (req, res) => {
   const q = (req.query.q || "").trim();
   if (!q) return res.json({ images: [] });
@@ -611,6 +616,7 @@ const HARD_COMMANDS = {
   links:        /\b(show (my |all )?links|open links|link bank|all my links)\b/i,
   openLink:     /\b(open|launch|pull up|go to)\b.{1,40}\b(infamous|petzah|fern|vapor)\b/i,
   hologram:     /\b(show me a (3d|hologram)|holographic|3d model|3d scan|build mode)\b/i,
+  workspace:    /\b(hologram(ic)? workspace|holo workspace|open workspace|scene builder|build a scene|3d workspace)\b/i,
   lookup:       /\b(look up|lookup|background check|pull everything on|find info on|osint|intel on)\b/i,
   memory:       /\b(remember that|memorize|save that fact|note that|i want you to remember)\b/i,
   memForget:    /\b(forget|delete memory|erase|clear memory|stop remembering)\b/i,
@@ -885,6 +891,16 @@ app.post("/api/chat", async (req, res) => {
       action: "SHOW_BLUEPRINT",
       intent: "blueprint",
       meta: { query: message },
+    });
+  }
+
+  // ── 1.6. Holographic Workspace — AI-powered scene builder ──
+  if (/\b(hologram(ic)? workspace|holo workspace|open workspace|scene builder|build a scene|3d workspace|workspace mode)\b/i.test(message)) {
+    return res.json({
+      reply: `Opening the holographic workspace, ${T}. Describe what you're imagining and I'll generate it — or drag objects in manually and build it yourself. The workspace is a living scene you can grab, move, and trash objects in.`,
+      action: "OPEN_WORKSPACE",
+      intent: "workspace",
+      meta: { url: "/workspace" },
     });
   }
 
