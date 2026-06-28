@@ -17,6 +17,7 @@ const Groq        = require("./groq-engine");
 const Improve     = require("./self-improve");
 const Trainer     = require("./trainer");
 const Brain       = require("./brain");
+const Reminders   = require("./reminders");
 const TTS = require("./tts");
 
 const app        = express();
@@ -529,21 +530,32 @@ app.post("/api/calendar", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// ── NATIVE REMINDERS / TIMERS / CALENDAR
+// ═══════════════════════════════════════════════════════════════
+// Client polls this every few seconds; anything due gets spoken once.
+app.get("/api/reminders/due", (req, res) => {
+  res.json({ due: Reminders.getDue() });
+});
+app.get("/api/reminders", (req, res) => {
+  res.json({ items: Reminders.listUpcoming(20) });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // ── PERSONALITY
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/personality/comment", (req, res) => {
-  const { scene, userTitle, sessionMinutes, previousScene } = req.body;
+  const { scene, userTitle, sessionMinutes, previousScene, userTimezone } = req.body;
   const T = userTitle || "Sir";
   if (scene === previousScene && scene === "idle") return res.json({ reply: null });
-  res.json({ reply: Personality.getCameraComment(scene, T, sessionMinutes) || null });
+  res.json({ reply: Personality.getCameraComment(scene, T, sessionMinutes, userTimezone) || null });
 });
 app.post("/api/personality/smalltalk", (req, res) => {
-  const { message, userTitle } = req.body;
+  const { message, userTitle, userTimezone } = req.body;
   const T = userTitle || "Sir";
   if (!message) return res.status(400).json({ reply: null });
   const news = Personality.routePersonalNews(message, T);
   if (news) return res.json({ reply: news });
-  res.json({ reply: Personality.routeSmallTalk(message, T) || null });
+  res.json({ reply: Personality.routeSmallTalk(message, T, userTimezone) || null });
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -917,7 +929,7 @@ async function handleFeatureShip(T) {
 // ── MAIN CHAT ROUTE
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/chat", async (req, res) => {
-  const { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, screenActive } = req.body;
+  const { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, screenActive, userTimezone } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
   // Inject camera/screen context into the message if relevant so AI knows they're already active
   let enrichedMessage = message;
@@ -957,6 +969,16 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
+  // ── 0.5 Native Timers / Reminders / Jarvis Calendar ──
+  //      Handled directly — no AI engine involved, so it can never
+  //      come back as "Command failed". Falls through (returns null)
+  //      for anything it doesn't recognise, e.g. explicit Google
+  //      Calendar requests, which still go through the old path below.
+  const reminderResult = Reminders.route(message, T, userTimezone);
+  if (reminderResult) {
+    return res.json(reminderResult);
+  }
+
   // ── 1. Home commands ──
   if (Home.isHomeCommand(message) || Home.isHomePanelRequest(message)) {
     if (Home.isHomePanelRequest(message)) {
@@ -967,7 +989,7 @@ app.post("/api/chat", async (req, res) => {
       .catch(() => res.json({ reply: `Home command failed, ${T}.`, action: "HOME_COMMAND", intent: "home" }));
   }
 
-  // ── 1.5. Drafting table / blueprint mode ──
+  // ── 1.1 Drafting table / blueprint mode ──
   if (/\b(blueprint|blue print|drafting table|design table|engineering bay|cad mode|let'?s design|sketch (out|something)|draft something|design something)\b/i.test(message)) {
     return res.json({
       reply: `Opening the drafting table, ${T}. Pull a reference off the web, sketch over it with your hand, and I'll project it straight into a hologram.`,
@@ -977,7 +999,7 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
-  // ── 1.6. Holographic Workspace — AI-powered scene builder ──
+  // ── 1.2 Holographic Workspace — AI-powered scene builder ──
   if (/\b(hologram(ic)? workspace|holo workspace|open workspace|scene builder|build a scene|3d workspace|workspace mode)\b/i.test(message)) {
     return res.json({
       reply: `Opening the holographic workspace, ${T}. Describe what you're imagining and I'll generate it — or drag objects in manually and build it yourself. The workspace is a living scene you can grab, move, and trash objects in.`,
@@ -993,7 +1015,7 @@ app.post("/api/chat", async (req, res) => {
     Trainer.addExample(message, personalNewsReply, "personal_news", "personal", 0.8, "personality");
     return res.json({ reply: personalNewsReply, action: "PERSONAL_NEWS", intent: "personal_news" });
   }
-  const smalltalkReply = Personality.routeSmallTalk(message, T);
+  const smalltalkReply = Personality.routeSmallTalk(message, T, userTimezone);
   if (smalltalkReply) {
     Trainer.addExample(message, smalltalkReply, "smalltalk", null, 0.8, "personality");
     return res.json({ reply: smalltalkReply, action: "SMALLTALK", intent: "smalltalk" });
