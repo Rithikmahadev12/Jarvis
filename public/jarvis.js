@@ -1238,6 +1238,13 @@ async function handleAction(action, meta, replyText) {
       });
       break;
     }
+    case "OPEN_WORKSPACE": {
+      speak(replyText, () => {
+        window.open('/workspace', '_blank');
+        mic.resume();
+      });
+      break;
+    }
     case "SHOW_LINKS": {
       speak(replyText, () => mic.resume());
       if (meta.linkGroups && meta.linkGroups.length > 0) {
