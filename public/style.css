@@ -1570,3 +1570,289 @@ select option { background: var(--bg2); }
   flex-shrink: 0;
   animation: blink 0.8s step-end infinite;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — RESPONSIVE / MOBILE STYLES
+   Added for full mobile + desktop compatibility
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── MOBILE BOTTOM NAV BAR ── */
+.mobile-nav {
+  display: none;
+  position: fixed;
+  bottom: var(--ticker-h);
+  left: 0; right: 0;
+  height: 52px;
+  background: rgba(1, 8, 18, 0.98);
+  border-top: 1px solid rgba(0, 200, 255, 0.18);
+  z-index: 55;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-around;
+  backdrop-filter: blur(12px);
+}
+.mob-nav-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  font-family: var(--hud);
+  font-size: 0.34rem;
+  letter-spacing: 0.18em;
+  cursor: pointer;
+  padding: 6px 12px;
+  transition: color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.mob-nav-btn .mob-icon { font-size: 1.1rem; line-height: 1; }
+.mob-nav-btn.active { color: var(--blue); }
+.mob-nav-btn.active .mob-icon { filter: drop-shadow(0 0 6px rgba(0,200,255,0.7)); }
+
+/* ── MOBILE PANEL DRAWER ── */
+.mob-drawer {
+  display: none;
+  position: fixed;
+  top: 0; bottom: 0;
+  width: 82vw;
+  max-width: 300px;
+  background: rgba(1, 10, 22, 0.99);
+  border-right: 1px solid rgba(0,200,255,0.2);
+  z-index: 200;
+  overflow-y: auto;
+  transform: translateX(-100%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(16px);
+  padding-top: 60px;
+}
+.mob-drawer.right {
+  left: auto; right: 0;
+  border-right: none;
+  border-left: 1px solid rgba(0,200,255,0.2);
+  transform: translateX(100%);
+}
+.mob-drawer.open { transform: translateX(0); }
+.mob-drawer-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 195;
+  backdrop-filter: blur(2px);
+}
+.mob-drawer-overlay.open { display: block; }
+
+.mob-drawer-close {
+  position: absolute;
+  top: 14px; right: 14px;
+  background: transparent;
+  border: 1px solid rgba(0,200,255,0.2);
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 1rem;
+  width: 32px; height: 32px;
+  border-radius: 2px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+}
+.mob-drawer-close:active { background: var(--blue-dim); }
+
+/* ── TOUCH-FRIENDLY INPUT BAR ── */
+@media (max-width: 768px) {
+  /* Kill the side panels — they become drawers */
+  .side-panel {
+    display: none !important;
+  }
+
+  /* Show mobile nav */
+  .mobile-nav {
+    display: flex;
+  }
+
+  /* Show drawers */
+  .mob-drawer {
+    display: block;
+  }
+
+  /* Layout: full-width transcript column */
+  .main-content {
+    flex-direction: column;
+  }
+  .transcript-column {
+    width: 100%;
+    flex: 1;
+  }
+
+  /* Shrink top bar for mobile */
+  :root {
+    --top-h: 52px;
+    --panel-w: 0px;
+  }
+
+  .top-bar {
+    padding: 0 10px;
+  }
+  .top-title {
+    font-size: 0.78rem;
+    letter-spacing: 0.32em;
+  }
+  .top-subtitle { display: none; }
+
+  /* Hide some desktop-only top-bar blocks */
+  .top-bar-left .tb-block:nth-child(n+3),
+  .top-bar-right .tb-block:nth-child(n+3) {
+    display: none;
+  }
+  .tb-separator { display: none; }
+  .tb-block { padding: 0 8px; }
+  .tb-val { font-size: 0.72rem; }
+
+  /* Orb stays, just smaller */
+  .orb { width: 34px; height: 34px; }
+  .r1 { width: 34px; height: 34px; }
+  .r2 { width: 24px; height: 24px; }
+  .r3 { width: 16px; height: 16px; }
+
+  /* Transcript area — more comfortable padding */
+  .transcript-area {
+    padding: 12px 14px 6px;
+    gap: 8px;
+    /* bottom padding accounts for: ticker + mobile nav + input bar */
+    padding-bottom: 8px;
+  }
+
+  /* Larger, touch-friendly message text */
+  .msg-text {
+    font-size: 0.95rem;
+    padding: 10px 13px;
+    max-width: 94%;
+  }
+
+  /* Input bar — full width, taller touch target */
+  .input-bar {
+    margin: 6px 10px;
+  }
+  .input-bar input[type="text"] {
+    font-size: 0.95rem;
+    height: 50px;
+  }
+  .input-bar-prefix { height: 50px; padding: 0 10px; }
+  .send-btn {
+    height: 50px;
+    padding: 0 18px;
+    font-size: 1.3rem;
+  }
+
+  /* Hint strip — simplified */
+  .hint-strip {
+    padding: 4px 14px calc(var(--ticker-h) + 52px + 4px);
+    font-size: 0.48rem;
+    flex-wrap: nowrap;
+    overflow: hidden;
+  }
+  /* Add bottom clearance for mobile nav */
+  .transcript-area {
+    padding-bottom: calc(52px + 8px);
+  }
+
+  /* Corner brackets — smaller on mobile */
+  .corner { width: 34px; height: 34px; }
+  .corner.tl { top: 10px; left: 10px; }
+  .corner.tr { top: 10px; right: 10px; }
+  .corner.bl { bottom: calc(var(--ticker-h) + 52px + 10px); left: 10px; }
+  .corner.br { bottom: calc(var(--ticker-h) + 52px + 10px); right: 10px; }
+
+  /* JARVIS title on auth screen */
+  .jarvis-title { font-size: 2.2rem; letter-spacing: 0.4em; }
+
+  /* Auth container — tighter on small screens */
+  .auth-container, .setup-container {
+    padding: 0 16px;
+    max-width: 100%;
+  }
+
+  /* Face auth / clip review overlays */
+  .face-auth-box, .clip-review-box {
+    margin: 16px;
+    padding: 22px 20px 18px;
+  }
+
+  /* Notification settings */
+  .notif-settings-box { margin: 16px; }
+
+  /* Timer badge — reposition above mobile nav */
+  .timer-badge {
+    top: auto;
+    bottom: calc(var(--ticker-h) + 52px + 10px);
+    transform: translateX(-50%);
+  }
+
+  /* Clip toast — above mobile nav */
+  .clip-toast {
+    bottom: calc(var(--ticker-h) + 52px + 8px);
+  }
+
+  /* Retina box — comfortable on small screens */
+  .retina-box { padding: 0 16px; }
+  .eye-scanner-wrap { width: 200px; height: 200px; }
+  .eye-scanner-wrap::before { width: 220px; height: 220px; }
+  .eye-scanner-wrap::after  { width: 250px; height: 250px; }
+  .retina-data { width: 200px; }
+  .retina-btns { width: 200px; }
+  .retina-progress-wrap { width: 200px; }
+
+  /* Live mic text */
+  #live-mic { padding: 4px 14px; }
+
+  /* Waveform canvas */
+  #waveform-canvas { max-width: calc(100vw - 28px); }
+}
+
+/* ── SMALL PHONE (< 400px) ── */
+@media (max-width: 400px) {
+  .jarvis-title { font-size: 1.7rem; letter-spacing: 0.28em; }
+  .top-title { font-size: 0.68rem; letter-spacing: 0.22em; }
+  .top-bar-left, .top-bar-right { display: none; }
+  .top-bar { justify-content: center; }
+  .msg-text { font-size: 0.9rem; }
+  .mob-nav-btn { padding: 6px 8px; }
+  .mob-nav-btn .mob-icon { font-size: 1rem; }
+}
+
+/* ── TABLET (769px – 1024px) — hybrid layout ── */
+@media (min-width: 769px) and (max-width: 1024px) {
+  :root {
+    --panel-w: 160px;
+    --bracket-w: 50px;
+  }
+  .top-title { font-size: 0.95rem; }
+  .tb-block:nth-child(n+4) { display: none; }
+  .tb-separator:nth-child(n+4) { display: none; }
+}
+
+/* ── DESKTOP — ensure bracket/panel vars are correct ── */
+@media (min-width: 1025px) {
+  .mobile-nav { display: none !important; }
+  .mob-drawer  { display: none !important; }
+  .side-panel  { display: flex !important; }
+}
+
+/* ── TOUCH DEVICE HELPERS ── */
+@media (hover: none) and (pointer: coarse) {
+  /* Bigger tap targets for all buttons */
+  .hud-btn { padding: 14px 20px; }
+  .q-btn { padding: 10px 4px; }
+  .mode-btn { padding: 13px 8px; }
+  .account-tile { padding: 12px 16px; }
+  /* Remove cursor crosshair on touch */
+  body { cursor: default; }
+  /* Smoother scroll momentum on iOS */
+  .transcript-area,
+  .side-panel,
+  .mob-drawer {
+    -webkit-overflow-scrolling: touch;
+  }
+}
