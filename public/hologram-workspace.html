@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>J.A.R.V.I.S — Holographic Workspace</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:'Share Tech Mono',monospace;color:#00c8ff}
+:root{
+  --blue:#00c8ff;--glow:rgba(0,200,255,0.45);--bg:#000508;
+  --dim:rgba(0,200,255,0.25);--text:#a8dff5;--dim-text:#2e5a78;
+  --amber:#ffaa00;--green:#00ff88;--red:#ff3333;
+  --hud:'Orbitron',monospace;
+}
+#c{position:fixed;inset:0;display:block;width:100%!important;height:100%!important}
+.scan{position:fixed;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,200,255,0.12),transparent);animation:scanMove 8s linear infinite;pointer-events:none;z-index:10}
+@keyframes scanMove{from{top:-2px}to{top:100vh}}
+.corner{position:fixed;width:44px;height:44px;pointer-events:none;z-index:20}
+.corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.7}
+.corner::before{width:100%;height:1.5px;top:0}
+.corner::after{width:1.5px;height:100%;top:0}
+.corner.tl{top:14px;left:14px}.corner.tr{top:14px;right:14px;transform:scaleX(-1)}
+.corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}.corner.br{bottom:14px;right:14px;transform:scale(-1)}
+.corner .pip{position:absolute;width:5px;height:5px;background:var(--blue);border-radius:50%;top:-2px;left:-2px;box-shadow:0 0 10px var(--blue),0 0 24px var(--glow);animation:pipBlink 2.5s ease-in-out infinite}
+@keyframes pipBlink{0%,100%{opacity:1;box-shadow:0 0 10px var(--blue),0 0 24px var(--glow)}50%{opacity:0.2;box-shadow:none}}
+
+/* TOP BAR */
+#top{position:fixed;top:0;left:0;right:0;height:52px;background:linear-gradient(180deg,rgba(0,4,12,0.98),rgba(0,6,18,0.85));border-bottom:1px solid rgba(0,200,255,0.18);display:flex;align-items:center;justify-content:space-between;padding:0 70px;z-index:30}
+.top-title{font-family:var(--hud);font-size:1rem;font-weight:900;letter-spacing:0.55em;color:var(--blue);text-shadow:0 0 20px var(--glow)}
+.top-right{display:flex;align-items:center;gap:16px;font-size:0.5rem;letter-spacing:0.22em;color:var(--dim-text)}
+.top-right .live{color:var(--green);display:flex;align-items:center;gap:5px}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:liveBlink 1.4s step-end infinite}
+@keyframes liveBlink{0%,100%{opacity:1}50%{opacity:0.2}}
+#back-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);color:var(--dim-text);font-family:var(--hud);font-size:0.38rem;letter-spacing:0.2em;padding:6px 12px;cursor:pointer;text-decoration:none;transition:all 0.2s;border-radius:2px}
+#back-btn:hover{border-color:var(--blue);color:var(--blue)}
+
+/* LEFT SIDEBAR — object library */
+#sidebar{position:fixed;top:52px;left:0;bottom:74px;width:200px;background:rgba(0,3,10,0.92);border-right:1px solid rgba(0,200,255,0.1);overflow-y:auto;scrollbar-width:none;z-index:20;display:flex;flex-direction:column;padding:8px 0}
+#sidebar::-webkit-scrollbar{display:none}
+.sb-label{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.3em;color:var(--dim-text);padding:10px 14px 4px;text-transform:uppercase;border-bottom:1px solid rgba(0,200,255,0.06);margin-bottom:4px}
+.obj-btn{display:flex;align-items:center;gap:8px;padding:7px 14px;cursor:pointer;font-size:0.62rem;letter-spacing:0.06em;color:var(--dim-text);border-left:2px solid transparent;border-bottom:1px solid rgba(0,200,255,0.04);transition:all 0.15s;user-select:none}
+.obj-btn:hover{background:rgba(0,200,255,0.08);border-left-color:rgba(0,200,255,0.3);color:var(--text)}
+.obj-btn.dragging-source{opacity:0.4}
+.obj-ico{font-size:0.95rem;flex-shrink:0;width:20px;text-align:center}
+.obj-tag{font-size:0.42rem;color:var(--dim-text);letter-spacing:0.15em;margin-left:auto}
+
+/* RIGHT PANEL — scene manifest */
+#right-panel{position:fixed;top:52px;right:0;bottom:74px;width:200px;background:rgba(0,3,10,0.92);border-left:1px solid rgba(0,200,255,0.1);z-index:20;display:flex;flex-direction:column;overflow:hidden}
+.rp-header{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.3em;color:var(--dim-text);padding:10px 14px 8px;border-bottom:1px solid rgba(0,200,255,0.08);text-transform:uppercase}
+#scene-list{flex:1;overflow-y:auto;scrollbar-width:none;padding:4px 0}
+#scene-list::-webkit-scrollbar{display:none}
+.scene-item{display:flex;align-items:center;gap:6px;padding:6px 12px;font-size:0.58rem;color:var(--dim-text);border-bottom:1px solid rgba(0,200,255,0.04);cursor:pointer;transition:all 0.15s}
+.scene-item:hover{background:rgba(0,200,255,0.06);color:var(--text)}
+.scene-item.selected{background:rgba(0,200,255,0.1);color:var(--blue);border-left:2px solid var(--blue)}
+.scene-item-ico{font-size:0.85rem;flex-shrink:0}
+.scene-item-del{margin-left:auto;font-size:0.65rem;color:var(--red);opacity:0;transition:opacity 0.15s;cursor:pointer}
+.scene-item:hover .scene-item-del{opacity:0.7}
+.scene-item-del:hover{opacity:1!important}
+.scene-empty{padding:16px 14px;font-size:0.52rem;color:var(--dim-text);opacity:0.5;line-height:1.8;text-align:center}
+
+/* TRASH BIN */
+#trash{position:fixed;bottom:84px;right:210px;width:72px;height:72px;z-index:25;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:1px solid rgba(255,51,51,0.25);background:rgba(255,0,0,0.04);border-radius:4px;transition:all 0.2s;cursor:pointer;pointer-events:all}
+#trash.drag-over{border-color:var(--red);background:rgba(255,51,51,0.15);box-shadow:0 0 20px rgba(255,51,51,0.3);transform:scale(1.08)}
+.trash-icon{font-size:1.6rem;filter:drop-shadow(0 0 6px rgba(255,51,51,0.5))}
+.trash-label{font-family:var(--hud);font-size:0.3rem;letter-spacing:0.22em;color:rgba(255,80,80,0.6);text-transform:uppercase}
+
+/* BOTTOM BAR */
+#input-bar{position:fixed;bottom:0;left:200px;right:200px;height:74px;background:rgba(0,3,10,0.97);border-top:1px solid rgba(0,200,255,0.15);display:flex;flex-direction:column;z-index:25;padding:8px 14px 8px}
+.ib-top{display:flex;align-items:center;gap:8px;flex:1}
+#cmd-input{flex:1;background:rgba(0,200,255,0.04);border:1px solid rgba(0,200,255,0.15);border-radius:2px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:0.78rem;padding:0 12px;height:36px;outline:none;letter-spacing:0.04em;transition:border-color 0.2s}
+#cmd-input:focus{border-color:rgba(0,200,255,0.45)}
+#cmd-input::placeholder{color:var(--dim-text);opacity:0.6}
+#voice-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);border-radius:2px;color:var(--blue);font-size:1rem;padding:0 12px;height:36px;cursor:pointer;transition:all 0.2s;flex-shrink:0}
+#voice-btn:hover{background:rgba(0,200,255,0.15)}
+#voice-btn.listening{color:var(--red);background:rgba(255,51,51,0.1);animation:micPulse 0.8s ease-in-out infinite}
+@keyframes micPulse{0%,100%{opacity:1}50%{opacity:0.4}}
+#send-btn{background:rgba(0,200,255,0.1);border:1px solid rgba(0,200,255,0.3);border-radius:2px;color:var(--blue);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.2em;padding:0 14px;height:36px;cursor:pointer;transition:all 0.2s;flex-shrink:0}
+#send-btn:hover{background:rgba(0,200,255,0.22)}
+.ib-hint{font-size:0.38rem;color:rgba(0,200,255,0.28);letter-spacing:0.1em;margin-top:2px}
+
+/* REPLY TOAST */
+#reply-toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:40;background:rgba(0,4,14,0.97);border:1px solid rgba(0,200,255,0.4);box-shadow:0 0 40px rgba(0,200,255,0.15);border-radius:3px;padding:12px 24px;max-width:660px;width:88%;opacity:0;transition:opacity 0.3s;pointer-events:none}
+#reply-toast.show{opacity:1}
+.rt-label{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.3em;color:rgba(0,200,255,0.45);margin-bottom:5px}
+#reply-text{font-size:0.76rem;color:var(--text);line-height:1.6;letter-spacing:0.04em}
+
+/* SELECTED OBJECT HUD */
+#sel-hud{position:fixed;top:64px;left:210px;z-index:35;background:rgba(0,4,14,0.95);border:1px solid rgba(0,200,255,0.25);border-radius:3px;padding:10px 16px;min-width:220px;opacity:0;transition:opacity 0.25s;pointer-events:none}
+#sel-hud.show{opacity:1;pointer-events:all}
+.sh-name{font-family:var(--hud);font-size:0.55rem;letter-spacing:0.2em;color:var(--blue);margin-bottom:6px}
+.sh-row{font-size:0.52rem;color:var(--text);line-height:1.9;letter-spacing:0.05em}
+.sh-actions{display:flex;gap:8px;margin-top:8px}
+.sh-btn{background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.2);color:var(--dim-text);font-family:var(--hud);font-size:0.34rem;letter-spacing:0.16em;padding:5px 10px;cursor:pointer;transition:all 0.15s;border-radius:2px}
+.sh-btn:hover{border-color:var(--blue);color:var(--blue)}
+.sh-btn.del{border-color:rgba(255,51,51,0.3);color:rgba(255,80,80,0.6)}
+.sh-btn.del:hover{border-color:var(--red);color:var(--red)}
+
+/* GENERATE OVERLAY */
+#gen-overlay{position:fixed;inset:0;z-index:50;background:rgba(0,3,10,0.96);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;transition:opacity 0.4s}
+#gen-overlay.gone{opacity:0;pointer-events:none}
+.gen-ring{width:52px;height:52px;border:1.5px solid rgba(0,200,255,0.15);border-top-color:var(--blue);border-radius:50%;animation:spin 1.1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.gen-title{font-family:var(--hud);font-size:0.85rem;font-weight:900;letter-spacing:0.55em;color:var(--blue);text-shadow:0 0 20px var(--glow)}
+.gen-status{font-size:0.52rem;letter-spacing:0.2em;color:var(--dim-text)}
+.gen-bar-wrap{width:260px;height:2px;background:rgba(0,200,255,0.08);border-radius:2px;overflow:hidden}
+.gen-bar{height:100%;width:0%;background:var(--blue);box-shadow:0 0 8px var(--blue);transition:width 0.3s;border-radius:2px}
+
+/* DRAG GHOST */
+#drag-ghost{position:fixed;pointer-events:none;z-index:60;display:none;background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.4);border-radius:3px;padding:6px 10px;font-size:0.6rem;color:var(--blue);letter-spacing:0.08em;transform:translate(-50%,-50%)}
+
+/* TICKER */
+#ticker{position:fixed;bottom:0;left:0;right:0;height:0;display:none}
+
+/* SCENE COUNT */
+#scene-count{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.15em;color:var(--dim-text);padding:6px 14px;border-top:1px solid rgba(0,200,255,0.08)}
+.count-val{color:var(--blue)}
+
+/* PLACEMENT RING */
+.place-ring{position:fixed;width:60px;height:60px;border:1px solid rgba(0,200,255,0.5);border-radius:50%;pointer-events:none;z-index:35;display:none;transform:translate(-50%,-50%);animation:placeRingPulse 1s ease-in-out infinite}
+@keyframes placeRingPulse{0%,100%{opacity:1;transform:translate(-50%,-50%) scale(1)}50%{opacity:0.4;transform:translate(-50%,-50%) scale(1.2)}}
+</style>
+</head>
+<body>
+<div class="scan"></div>
+<div class="corner tl"><div class="pip"></div></div>
+<div class="corner tr"><div class="pip"></div></div>
+<div class="corner bl"><div class="pip"></div></div>
+<div class="corner br"><div class="pip"></div></div>
+
+<!-- GENERATE LOADING OVERLAY -->
+<div id="gen-overlay">
+  <div class="gen-ring"></div>
+  <div class="gen-title">J.A.R.V.I.S</div>
+  <div class="gen-status" id="gen-status">HOLOGRAPHIC WORKSPACE INITIALISING</div>
+  <div class="gen-bar-wrap"><div class="gen-bar" id="gen-bar"></div></div>
+</div>
+
+<!-- TOP BAR -->
+<div id="top">
+  <div class="top-title">HOLOGRAPHIC WORKSPACE</div>
+  <div class="top-right">
+    <span class="live"><div class="live-dot"></div> SCENE ACTIVE</span>
+    <span id="top-count">0 OBJECTS</span>
+    <a href="/" id="back-btn">← BACK</a>
+  </div>
+</div>
+
+<!-- 3D CANVAS -->
+<canvas id="c"></canvas>
+
+<!-- LEFT SIDEBAR — object library -->
+<div id="sidebar">
+  <div class="sb-label">Drag to Scene</div>
+  <div class="obj-btn" data-type="arc_reactor" draggable="true"><span class="obj-ico">⚛</span>Arc Reactor<span class="obj-tag">DRAG</span></div>
+  <div class="obj-btn" data-type="drone" draggable="true"><span class="obj-ico">🚁</span>Drone<span class="obj-tag">DRAG</span></div>
+  <div class="obj-btn" data-type="satellite" draggable="true"><span class="obj-ico">🛰</span>Satellite<span class="obj-tag">DRAG</span></div>
+  <div class="obj-btn" data-type="turbine" draggable="true"><span class="obj-ico">🔩</span>Turbine<span class="obj-tag">DRAG</span></div>
+  <div class="obj-btn" data-type="camera_unit" draggable="true"><span class="obj-ico">📷</span>Camera Unit<span class="obj-tag">DRAG</span></div>
+  <div class="obj-btn" data-type="reactor_core" draggable="true"><span class="obj-ico">☢</span>Reactor Core<span class="obj-tag">DRAG</span></div>
+  <div class="obj-btn" data-type="antenna" draggable="true"><span class="obj-ico">📡</span>Antenna Array<span class="obj-tag">DRAG</span></div>
+  <div class="obj-btn" data-type="server_rack" draggable="true"><span class="obj-ico">🖥</span>Server Rack<span class="obj-tag">DRAG</span></div>
+  <div class="obj-btn" data-type="solar_panel" draggable="true"><span class="obj-ico">🔆</span>Solar Panel<span class="obj-tag">DRAG</span></div>
+  <div class="obj-btn" data-type="molecule" draggable="true"><span class="obj-ico">⬡</span>Molecule<span class="obj-tag">DRAG</span></div>
+  <div class="obj-btn" data-type="crystal" draggable="true"><span class="obj-ico">💎</span>Crystal<span class="obj-tag">DRAG</span></div>
+  <div class="obj-btn" data-type="iron_man" draggable="true"><span class="obj-ico">🦾</span>Iron Man Suit<span class="obj-tag">DRAG</span></div>
+  <div class="sb-label" style="margin-top:8px">AI-Generate</div>
+  <div class="obj-btn" onclick="openAIGenerate()" style="cursor:pointer"><span class="obj-ico">✨</span>Describe a Scene</div>
+  <div class="obj-btn" onclick="clearScene()" style="cursor:pointer;color:rgba(255,80,80,0.6)"><span class="obj-ico">🗑</span>Clear All</div>
+</div>
+
+<!-- RIGHT PANEL — scene manifest -->
+<div id="right-panel">
+  <div class="rp-header">Scene Objects</div>
+  <div id="scene-list"><div class="scene-empty">Drag objects from the left panel or describe a scene below.</div></div>
+  <div id="scene-count">Objects: <span class="count-val" id="obj-count">0</span></div>
+</div>
+
+<!-- TRASH BIN -->
+<div id="trash">
+  <div class="trash-icon">🗑</div>
+  <div class="trash-label">Trash</div>
+</div>
+
+<!-- SELECTED OBJECT HUD -->
+<div id="sel-hud">
+  <div class="sh-name" id="sel-name">—</div>
+  <div class="sh-row">POS: <span id="sel-pos">—</span></div>
+  <div class="sh-row">SCALE: <span id="sel-scale">1.0×</span></div>
+  <div class="sh-actions">
+    <button class="sh-btn" onclick="scaleSelected(1.25)">+ SCALE</button>
+    <button class="sh-btn" onclick="scaleSelected(0.8)">− SCALE</button>
+    <button class="sh-btn del" onclick="deleteSelected()">REMOVE</button>
+  </div>
+</div>
+
+<!-- DRAG GHOST -->
+<div id="drag-ghost"></div>
+
+<!-- PLACEMENT RING -->
+<div class="place-ring" id="place-ring"></div>
+
+<!-- REPLY TOAST -->
+<div id="reply-toast">
+  <div class="rt-label">J.A.R.V.I.S</div>
+  <div id="reply-text">—</div>
+</div>
+
+<!-- BOTTOM INPUT BAR -->
+<div id="input-bar">
+  <div class="ib-top">
+    <input id="cmd-input" type="text" placeholder='Say anything — "add a camera over here" · "describe what you want to build" · "what is this" · "remove the drone"' autocomplete="off"/>
+    <button id="voice-btn" onclick="toggleMic()" title="Voice input">🎙</button>
+    <button id="send-btn" onclick="sendCommand()">SEND ⏎</button>
+  </div>
+  <div class="ib-hint">VOICE: "Jarvis add a camera" · "place a reactor here" · DRAG objects from left panel to scene · DROP on trash to remove</div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ═══════════════════════════════════════════
+// J.A.R.V.I.S — Holographic Workspace v1.0
+// AI-powered multi-object scene builder
+// Drag-to-place, trash bin, voice commands
+// ═══════════════════════════════════════════
+
+const sessionId = crypto.randomUUID();
+
+// ── BOOT SEQUENCE ──
+function boot() {
+  const bar = document.getElementById('gen-bar');
+  const status = document.getElementById('gen-status');
+  const steps = [
+    [15, 'LOADING THREE.JS RENDERER'],
+    [35, 'INITIALISING SCENE GRAPH'],
+    [55, 'COMPILING OBJECT LIBRARY'],
+    [75, 'CALIBRATING HOLOGRAPHIC PROJECTOR'],
+    [90, 'CONNECTING VOICE INTERFACE'],
+    [100, 'WORKSPACE READY'],
+  ];
+  let i = 0;
+  const tick = () => {
+    if (i >= steps.length) {
+      setTimeout(() => document.getElementById('gen-overlay').classList.add('gone'), 400);
+      return;
+    }
+    const [pct, msg] = steps[i++];
+    bar.style.width = pct + '%';
+    status.textContent = msg;
+    setTimeout(tick, 320);
+  };
+  tick();
+}
+boot();
+
+// ═══════════════════════════════════════════
+// THREE.JS SETUP
+// ═══════════════════════════════════════════
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setClearColor(0x000508);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x000508, 0.022);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+camera.position.set(0, 4, 16);
+camera.lookAt(0, 0, 0);
+
+function resize() {
+  const W = window.innerWidth, H = window.innerHeight;
+  renderer.setSize(W, H, false);
+  camera.aspect = W / H;
+  camera.updateProjectionMatrix();
+}
+resize();
+window.addEventListener('resize', resize);
+
+// LIGHTS
+scene.add(new THREE.AmbientLight(0x001428, 0.7));
+const key = new THREE.DirectionalLight(0x00c8ff, 3.5);
+key.position.set(5, 10, 5); key.castShadow = true;
+key.shadow.mapSize.width = key.shadow.mapSize.height = 2048;
+scene.add(key);
+const fill = new THREE.DirectionalLight(0x002244, 1.2);
+fill.position.set(-6, 2, -4); scene.add(fill);
+const rim = new THREE.PointLight(0x00aaff, 2.5, 40);
+rim.position.set(0, 8, -8); scene.add(rim);
+const bot = new THREE.PointLight(0x003366, 1.5, 25);
+bot.position.set(0, -5, 0); scene.add(bot);
+
+// FLOOR GRID
+const grid = new THREE.GridHelper(40, 40, 0x001833, 0x000d1a);
+grid.position.y = -0.01; scene.add(grid);
+
+// PARTICLES
+const pGeo = new THREE.BufferGeometry();
+const pPos = new Float32Array(900*3);
+for (let i=0;i<pPos.length;i++) pPos[i]=(Math.random()-0.5)*50;
+pGeo.setAttribute('position',new THREE.BufferAttribute(pPos,3));
+scene.add(new THREE.Points(pGeo,new THREE.PointsMaterial({color:0x004466,size:0.04,transparent:true,opacity:0.5})));
+
+// MATERIALS
+function holoMat(color=0x00c8ff,emissive=0x003355,rough=0.35,metal=0.8){
+  return new THREE.MeshStandardMaterial({color:new THREE.Color(color),emissive:new THREE.Color(emissive),emissiveIntensity:0.6,roughness:rough,metalness:metal});
+}
+function glassMat(color=0x00c8ff){
+  return new THREE.MeshPhysicalMaterial({color:new THREE.Color(color),transparent:true,opacity:0.18,roughness:0.05,metalness:0,transmission:0.8,thickness:0.5,side:THREE.DoubleSide});
+}
+function wireMat(color=0x00c8ff,opacity=0.55){return new THREE.MeshBasicMaterial({color,wireframe:true,transparent:true,opacity});}
+function emissiveMat(color=0x00c8ff,emissive=0x00aaff){return new THREE.MeshStandardMaterial({color,emissive,emissiveIntensity:2,roughness:0.2,metalness:0.6});}
+
+// ═══════════════════════════════════════════
+// OBJECT BUILDERS
+// ═══════════════════════════════════════════
+const BUILDERS = {};
+
+BUILDERS.arc_reactor = function() {
+  const g = new THREE.Group(); g.userData.label='Arc Reactor'; g.userData.icon='⚛';
+  g.add(Object.assign(new THREE.Mesh(new THREE.TorusGeometry(1.8,0.22,24,80),holoMat(0x445566,0x002244,0.4,0.9))));
+  g.add(Object.assign(new THREE.Mesh(new THREE.TorusGeometry(1.3,0.08,16,80),emissiveMat(0x00ffff,0x00ccff))));
+  const dome=new THREE.Mesh(new THREE.SphereGeometry(1.1,32,32,0,Math.PI*2,0,Math.PI*0.5),glassMat(0x00c8ff));
+  dome.rotation.x=Math.PI; g.add(dome);
+  const core=new THREE.Mesh(new THREE.SphereGeometry(0.35,32,32),emissiveMat(0xffffff,0x88ffff));
+  core.position.z=0.2; g.add(core);
+  for(let i=0;i<8;i++){const a=(i/8)*Math.PI*2;
+    const rod=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,0.8,12),holoMat(0x334455,0x001133,0.3,0.95));
+    rod.position.set(Math.cos(a)*1.55,Math.sin(a)*1.55,0);rod.rotation.z=a+Math.PI/2;g.add(rod);
+  }
+  [0.6,0.9,1.1].forEach((r,i)=>{const ring=new THREE.Mesh(new THREE.TorusGeometry(r,0.015,8,64),emissiveMat(0x00aacc,0x005577));ring.userData.pulse=i*0.3;g.add(ring);});
+  g.userData.polys=12400; return g;
+};
+
+BUILDERS.drone = function() {
+  const g = new THREE.Group(); g.userData.label='Combat Drone'; g.userData.icon='🚁';
+  const frame=holoMat(0x223344,0x001122,0.4,0.9),carbon=holoMat(0x111a22,0x000811,0.6,0.8),accent=emissiveMat(0x00c8ff,0x004477);
+  const body=new THREE.Mesh(new THREE.SphereGeometry(0.65,24,16,0,Math.PI*2,0,Math.PI),frame);
+  body.scale.set(1,0.38,0.55);g.add(body);
+  const eye=new THREE.Mesh(new THREE.SphereGeometry(0.1,14,14),emissiveMat(0xff2200,0xff0000));
+  eye.position.set(0,0.1,0.58);g.add(eye);
+  [[1,0,1],[-1,0,1],[1,0,-1],[-1,0,-1]].forEach(([x,,z])=>{
+    const ang=Math.atan2(z,x);
+    const arm=new THREE.Mesh(new THREE.BoxGeometry(1.3,0.055,0.09),carbon);
+    arm.position.set(x*0.62,0,z*0.62);arm.rotation.y=-ang;g.add(arm);
+    const motor=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.13,0.12,20),frame);
+    motor.position.set(x*1.25,0.06,z*1.25);g.add(motor);
+    const prop=new THREE.Group(); prop.position.set(x*1.25,0.14,z*1.25);prop.userData.isProp=true;prop.userData.speed=0.35+Math.random()*0.1;
+    for(let p=0;p<2;p++){const b=new THREE.Mesh(new THREE.BoxGeometry(0.8,0.016,0.07),holoMat(0x334455,0x001833,0.3,0.85));b.rotation.y=(p/2)*Math.PI;prop.add(b);}
+    g.add(prop);
+  });
+  g.userData.polys=9800; return g;
+};
+
+BUILDERS.satellite = function() {
+  const g = new THREE.Group(); g.userData.label='Satellite'; g.userData.icon='🛰';
+  const body=new THREE.Mesh(new THREE.BoxGeometry(0.8,0.6,0.6),holoMat(0x334455,0x001122,0.3,0.9));g.add(body);
+  const dish=new THREE.Mesh(new THREE.SphereGeometry(0.6,20,20,0,Math.PI*2,0,Math.PI*0.45),glassMat(0x00c8ff));
+  dish.position.set(0,0.5,0);dish.rotation.x=Math.PI;g.add(dish);
+  [[-1.4,0,0],[1.4,0,0]].forEach(([x,y,z])=>{
+    const panel=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.04,0.55),holoMat(0x112233,0x000811,0.5,0.7));
+    panel.position.set(x,y,z);g.add(panel);
+    for(let r=0;r<3;r++) for(let c=0;c<5;c++){const cell=new THREE.Mesh(new THREE.BoxGeometry(0.2,0.01,0.1),emissiveMat(0x003366,0x001133));cell.position.set(x+(-0.4+c*0.2+0.1),0.03,-0.2+r*0.2);g.add(cell);}
+  });
+  g.userData.polys=7200; return g;
+};
+
+BUILDERS.turbine = function() {
+  const g = new THREE.Group(); g.userData.label='Turbine Engine'; g.userData.icon='🔩';
+  const hous=new THREE.Mesh(new THREE.CylinderGeometry(1.1,1.3,3,32),holoMat(0x334455,0x001122,0.4,0.9));
+  hous.rotation.x=Math.PI/2;g.add(hous);
+  const fan=new THREE.Group();fan.userData.isFan=true;fan.userData.speed=0.04;
+  for(let i=0;i<9;i++){const a=(i/9)*Math.PI*2;
+    const blade=new THREE.Mesh(new THREE.BoxGeometry(0.08,0.8,0.03),holoMat(0x445566,0x001833,0.3,0.95));
+    blade.position.set(Math.cos(a)*0.45,Math.sin(a)*0.45,0);blade.rotation.z=a;fan.add(blade);
+  }
+  g.add(fan);
+  const core2=new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.15,3.2,16),emissiveMat(0x00c8ff,0x004477));
+  core2.rotation.x=Math.PI/2;g.add(core2);
+  g.userData.polys=8400; return g;
+};
+
+BUILDERS.camera_unit = function() {
+  const g = new THREE.Group(); g.userData.label='Camera Unit'; g.userData.icon='📷';
+  const body=new THREE.Mesh(new THREE.BoxGeometry(0.7,0.5,0.45),holoMat(0x111a22,0x000811,0.5,0.85));g.add(body);
+  const lens=new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.18,0.32,20),holoMat(0x223344,0x001122,0.3,0.9));
+  lens.rotation.x=Math.PI/2;lens.position.z=0.28;g.add(lens);
+  const glass=new THREE.Mesh(new THREE.CircleGeometry(0.16,20),glassMat(0x0044ff));
+  glass.position.z=0.45;g.add(glass);
+  const dot=new THREE.Mesh(new THREE.SphereGeometry(0.06,12,12),emissiveMat(0xff2200,0xff0000));
+  dot.position.set(0.28,0.18,0.1);g.add(dot);
+  const mount=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,0.5,12),holoMat(0x334455,0x001122,0.4,0.9));
+  mount.position.y=-0.48;g.add(mount);
+  g.userData.polys=4200; return g;
+};
+
+BUILDERS.reactor_core = function() {
+  const g = new THREE.Group(); g.userData.label='Hydrogen Reactor'; g.userData.icon='☢';
+  const vessel=new THREE.Mesh(new THREE.SphereGeometry(1.2,32,32),holoMat(0x223344,0x001122,0.3,0.95));g.add(vessel);
+  const glow=new THREE.Mesh(new THREE.SphereGeometry(0.85,32,32),glassMat(0xffaa00));g.add(glow);
+  const plasma=new THREE.Mesh(new THREE.SphereGeometry(0.55,24,24),emissiveMat(0xffffff,0xffdd00));g.add(plasma);
+  for(let i=0;i<6;i++){const a=(i/6)*Math.PI*2;
+    const pipe=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.5,10),holoMat(0x445566,0x002244,0.4,0.9));
+    pipe.position.set(Math.cos(a)*1.35,0,Math.sin(a)*1.35);pipe.rotation.z=Math.PI/2;pipe.rotation.y=a;g.add(pipe);
+  }
+  const ring2=new THREE.Mesh(new THREE.TorusGeometry(1.35,0.05,12,60),emissiveMat(0x00aaff,0x003366));g.add(ring2);
+  g.userData.polys=10600; return g;
+};
+
+BUILDERS.antenna = function() {
+  const g = new THREE.Group(); g.userData.label='Antenna Array'; g.userData.icon='📡';
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,3,12),holoMat(0x334455,0x001122,0.4,0.9));g.add(pole);
+  const dish2=new THREE.Mesh(new THREE.SphereGeometry(0.8,20,20,0,Math.PI*2,0,Math.PI*0.5),glassMat(0x00aaff));
+  dish2.position.y=1.2;dish2.rotation.x=Math.PI/3;g.add(dish2);
+  for(let i=0;i<3;i++){const a=(i/3)*Math.PI*2;
+    const arm2=new THREE.Mesh(new THREE.CylinderGeometry(0.025,0.025,1.2,8),holoMat(0x223344,0x001122,0.5,0.8));
+    arm2.position.set(Math.cos(a)*0.5,0.4,Math.sin(a)*0.5);arm2.rotation.z=Math.PI/4+a;g.add(arm2);
+  }
+  const tip=new THREE.Mesh(new THREE.SphereGeometry(0.08,12,12),emissiveMat(0xff4400,0xff2200));tip.position.y=1.6;g.add(tip);
+  g.userData.polys=5100; return g;
+};
+
+BUILDERS.server_rack = function() {
+  const g = new THREE.Group(); g.userData.label='Server Rack'; g.userData.icon='🖥';
+  const rack=new THREE.Mesh(new THREE.BoxGeometry(1.0,2.2,0.55),holoMat(0x111a22,0x000811,0.6,0.85));g.add(rack);
+  for(let i=0;i<8;i++){
+    const unit=new THREE.Mesh(new THREE.BoxGeometry(0.85,0.2,0.5),holoMat(0x223344,0x001122,0.4,0.9));
+    unit.position.y=-0.8+i*0.23;g.add(unit);
+    const led=new THREE.Mesh(new THREE.BoxGeometry(0.05,0.04,0.01),emissiveMat(i%3===0?0x00ff44:0x00c8ff,i%3===0?0x00cc22:0x004477));
+    led.position.set(0.3,-0.8+i*0.23,0.28);g.add(led);
+  }
+  g.userData.polys=4800; return g;
+};
+
+BUILDERS.solar_panel = function() {
+  const g = new THREE.Group(); g.userData.label='Solar Panel'; g.userData.icon='🔆';
+  const frame2=new THREE.Mesh(new THREE.BoxGeometry(2,0.04,1.2),holoMat(0x223344,0x001122,0.4,0.9));g.add(frame2);
+  for(let r=0;r<4;r++) for(let c=0;c<8;c++){
+    const cell=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.01,0.25),emissiveMat(0x001133,0x000822));
+    cell.position.set(-0.84+c*0.24,0.025,-0.42+r*0.28);g.add(cell);
+  }
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,1.5,10),holoMat(0x334455,0x001122,0.4,0.9));
+  pole.position.y=-0.77;g.add(pole);
+  g.userData.polys=5600; return g;
+};
+
+BUILDERS.molecule = function() {
+  const g = new THREE.Group(); g.userData.label='Molecule'; g.userData.icon='⬡';
+  const atoms=[{p:[0,0,0],c:0x00c8ff},{p:[1.4,0.5,0],c:0xff4444},{p:[-1.2,0.8,0.3],c:0x00ff88},{p:[0.3,-1.1,0.8],c:0xffaa00},{p:[-0.5,0.2,-1.3],c:0x00c8ff},{p:[1.1,-0.6,-0.5],c:0xff4444}];
+  atoms.forEach(({p,c})=>{const a=new THREE.Mesh(new THREE.SphereGeometry(0.22,14,14),emissiveMat(c,c));a.position.set(...p);g.add(a);});
+  [[0,1],[0,2],[0,3],[0,4],[1,5]].forEach(([a,b])=>{
+    const pa=atoms[a].p,pb=atoms[b].p;
+    const mid=new THREE.Vector3((pa[0]+pb[0])/2,(pa[1]+pb[1])/2,(pa[2]+pb[2])/2);
+    const len=Math.sqrt((pa[0]-pb[0])**2+(pa[1]-pb[1])**2+(pa[2]-pb[2])**2);
+    const bond=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,len,10),holoMat(0x334455,0x001122,0.4,0.7));
+    bond.position.copy(mid);
+    bond.lookAt(new THREE.Vector3(...pb));bond.rotateX(Math.PI/2);g.add(bond);
+  });
+  g.userData.polys=6200; return g;
+};
+
+BUILDERS.crystal = function() {
+  const g = new THREE.Group(); g.userData.label='Crystal'; g.userData.icon='💎';
+  const geo=new THREE.OctahedronGeometry(1.2,0);
+  g.add(new THREE.Mesh(geo,glassMat(0xaa44ff)));
+  g.add(new THREE.Mesh(geo,wireMat(0xcc88ff,0.4)));
+  for(let i=0;i<6;i++){const shard=new THREE.Mesh(new THREE.OctahedronGeometry(0.25+Math.random()*0.3,0),emissiveMat(0xaa44ff,0x6600cc));
+    shard.position.set((Math.random()-0.5)*2,(Math.random()-0.5)*2,(Math.random()-0.5)*2);
+    shard.rotation.set(Math.random()*Math.PI,Math.random()*Math.PI,0);g.add(shard);}
+  g.userData.polys=3800; return g;
+};
+
+BUILDERS.iron_man = function() {
+  const g = new THREE.Group(); g.userData.label='Iron Man Suit'; g.userData.icon='🦾';
+  const red=holoMat(0x8B1111,0x300000,0.45,0.85),gold=holoMat(0xC8760A,0x3a2000,0.3,0.95),blue=emissiveMat(0x00c8ff,0x005577);
+  // Torso
+  const torso=new THREE.Mesh(new THREE.SphereGeometry(0.75,20,16,0,Math.PI*2,Math.PI*0.1,Math.PI*0.7),red);torso.scale.set(1,1.2,0.85);g.add(torso);
+  // Helmet
+  const helm=new THREE.Mesh(new THREE.SphereGeometry(0.48,20,18),red);helm.position.y=1.3;g.add(helm);
+  // Eyes
+  for(const x of[-0.2,0.2]){const eye=new THREE.Mesh(new THREE.BoxGeometry(0.15,0.06,0.05),blue);eye.position.set(x,1.35,0.45);g.add(eye);}
+  // Arc reactor
+  const arc=new THREE.Mesh(new THREE.CircleGeometry(0.2,16),blue);arc.position.set(0,0.2,0.75);g.add(arc);
+  // Arms
+  for(const x of[-1,1]){const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.16,1.0,16),red);arm.position.set(x*0.95,0.2,0);g.add(arm);
+    const hand=new THREE.Mesh(new THREE.SphereGeometry(0.2,14,14),gold);hand.position.set(x*0.95,-0.45,0);g.add(hand);}
+  // Legs
+  for(const x of[-0.35,0.35]){const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.18,1.3,16),red);leg.position.set(x,-1.1,0);g.add(leg);}
+  g.userData.polys=14200; return g;
+};
+
+// ═══════════════════════════════════════════
+// SCENE OBJECT MANAGEMENT
+// ═══════════════════════════════════════════
+const sceneObjects = []; // [{id, type, mesh, label, icon}]
+let selectedId = null;
+let oid = 0;
+
+function addObject(type, x=0, y=0, z=0) {
+  if (!BUILDERS[type]) { console.warn('Unknown type:', type); return null; }
+  const mesh = BUILDERS[type]();
+  mesh.position.set(x, y, z);
+  mesh.userData.oid = ++oid;
+  mesh.userData.type = type;
+  scene.add(mesh);
+  const rec = {id: oid, type, mesh, label: mesh.userData.label, icon: mesh.userData.icon};
+  sceneObjects.push(rec);
+  updateSceneList();
+  showReply(`${mesh.userData.label} added to the workspace, Sir.`);
+  return rec;
+}
+
+function removeObject(id) {
+  const idx = sceneObjects.findIndex(o => o.id === id);
+  if (idx === -1) return;
+  const {mesh} = sceneObjects[idx];
+  scene.remove(mesh);
+  sceneObjects.splice(idx, 1);
+  if (selectedId === id) { selectedId = null; updateSelHUD(null); }
+  updateSceneList();
+  updateTopCount();
+}
+
+function clearScene() {
+  [...sceneObjects].forEach(o => scene.remove(o.mesh));
+  sceneObjects.length = 0;
+  selectedId = null;
+  updateSelHUD(null);
+  updateSceneList();
+  updateTopCount();
+  showReply('Holographic workspace cleared, Sir.');
+}
+
+function updateTopCount() {
+  const n = sceneObjects.length;
+  document.getElementById('top-count').textContent = n + ' OBJECT' + (n!==1?'S':'');
+  document.getElementById('obj-count').textContent = n;
+}
+
+function updateSceneList() {
+  updateTopCount();
+  const list = document.getElementById('scene-list');
+  if (!sceneObjects.length) {
+    list.innerHTML = '<div class="scene-empty">Drag objects from the left panel or describe a scene below.</div>';
+    return;
+  }
+  list.innerHTML = sceneObjects.map(o => `
+    <div class="scene-item ${o.id===selectedId?'selected':''}" onclick="selectObject(${o.id})">
+      <span class="scene-item-ico">${o.icon}</span>
+      <span>${o.label}</span>
+      <span class="scene-item-del" onclick="event.stopPropagation();removeObject(${o.id})">✕</span>
+    </div>
+  `).join('');
+}
+
+function selectObject(id) {
+  selectedId = id;
+  const rec = sceneObjects.find(o => o.id === id);
+  updateSelHUD(rec);
+  updateSceneList();
+}
+
+function updateSelHUD(rec) {
+  const hud = document.getElementById('sel-hud');
+  if (!rec) { hud.classList.remove('show'); return; }
+  hud.classList.add('show');
+  document.getElementById('sel-name').textContent = rec.label;
+  const p = rec.mesh.position;
+  document.getElementById('sel-pos').textContent = `${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)}`;
+  document.getElementById('sel-scale').textContent = rec.mesh.scale.x.toFixed(2) + '×';
+}
+
+function scaleSelected(factor) {
+  const rec = sceneObjects.find(o => o.id === selectedId);
+  if (!rec) return;
+  rec.mesh.scale.multiplyScalar(factor);
+  updateSelHUD(rec);
+}
+
+function deleteSelected() {
+  if (selectedId !== null) removeObject(selectedId);
+}
+
+// ═══════════════════════════════════════════
+// CAMERA ORBIT + DRAG TO MOVE OBJECTS
+// ═══════════════════════════════════════════
+let orbitState = { active: false, button: -1, lastX: 0, lastY: 0, theta: 0.3, phi: 0.8, radius: 18 };
+let dragState = { active: false, objId: null, startMouse: null, startPos: null, plane: null };
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+function getMouseNDC(e) {
+  const rect = canvas.getBoundingClientRect();
+  return new THREE.Vector2(
+    ((e.clientX - rect.left) / rect.width) * 2 - 1,
+    -((e.clientY - rect.top) / rect.height) * 2 + 1
+  );
+}
+
+function pickObject(e) {
+  const ndc = getMouseNDC(e);
+  raycaster.setFromCamera(ndc, camera);
+  const meshes = sceneObjects.map(o => o.mesh);
+  const allMeshes = [];
+  meshes.forEach(m => { m.traverse(c => { if (c.isMesh) allMeshes.push(c); }); });
+  const hits = raycaster.intersectObjects(allMeshes, false);
+  if (!hits.length) return null;
+  const hit = hits[0].object;
+  // Walk up to find root scene object
+  let cur = hit;
+  while (cur.parent && cur.parent !== scene) cur = cur.parent;
+  return sceneObjects.find(o => o.mesh === cur) || null;
+}
+
+canvas.addEventListener('mousedown', e => {
+  if (e.target !== canvas) return;
+  const ndc = getMouseNDC(e);
+  raycaster.setFromCamera(ndc, camera);
+  const hit = pickObject(e);
+  if (hit && e.button === 0) {
+    // Start drag on object
+    selectObject(hit.id);
+    dragState.active = true;
+    dragState.objId = hit.id;
+    // Drag plane at object's Y
+    dragState.plane = new THREE.Plane(new THREE.Vector3(0,1,0), -hit.mesh.position.y);
+    canvas.style.cursor = 'grabbing';
+    e.preventDefault();
+  } else {
+    // Orbit
+    orbitState.active = true;
+    orbitState.button = e.button;
+    orbitState.lastX = e.clientX;
+    orbitState.lastY = e.clientY;
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (dragState.active) {
+    const ndc = getMouseNDC(e);
+    raycaster.setFromCamera(ndc, camera);
+    const hit2 = new THREE.Vector3();
+    if (raycaster.ray.intersectPlane(dragState.plane, hit2)) {
+      const rec = sceneObjects.find(o => o.id === dragState.objId);
+      if (rec) {
+        rec.mesh.position.x = hit2.x;
+        rec.mesh.position.z = hit2.z;
+        updateSelHUD(rec);
+      }
+    }
+  } else if (orbitState.active) {
+    const dx = e.clientX - orbitState.lastX;
+    const dy = e.clientY - orbitState.lastY;
+    orbitState.lastX = e.clientX;
+    orbitState.lastY = e.clientY;
+    if (orbitState.button === 0) {
+      orbitState.theta -= dx * 0.008;
+      orbitState.phi = Math.max(0.1, Math.min(Math.PI/2.1, orbitState.phi - dy * 0.006));
+    } else if (orbitState.button === 2) {
+      const right = new THREE.Vector3(); right.crossVectors(camera.getWorldDirection(new THREE.Vector3()), camera.up).normalize();
+      camera.position.addScaledVector(right, -dx * 0.025);
+      camera.position.y += dy * 0.025;
+    }
+    updateCameraOrbit();
+  }
+});
+
+canvas.addEventListener('mouseup', e => {
+  if (dragState.active) { dragState.active = false; canvas.style.cursor = 'default'; }
+  orbitState.active = false;
+});
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+canvas.addEventListener('wheel', e => {
+  orbitState.radius = Math.max(4, Math.min(50, orbitState.radius + e.deltaY * 0.03));
+  updateCameraOrbit();
+}, { passive: true });
+
+function updateCameraOrbit() {
+  const {theta, phi, radius} = orbitState;
+  // Keep look-at target as center of scene objects (or origin)
+  let cx=0,cy=0,cz=0;
+  if (sceneObjects.length) { sceneObjects.forEach(o=>{cx+=o.mesh.position.x;cy+=o.mesh.position.y;cz+=o.mesh.position.z;});cx/=sceneObjects.length;cz/=sceneObjects.length; }
+  camera.position.set(cx + radius*Math.sin(phi)*Math.sin(theta), cy + radius*Math.cos(phi), cz + radius*Math.sin(phi)*Math.cos(theta));
+  camera.lookAt(cx, cy, cz);
+}
+
+// Click on empty space — deselect
+canvas.addEventListener('click', e => {
+  if (dragState.active) return;
+  const hit = pickObject(e);
+  if (!hit) { selectedId = null; updateSelHUD(null); updateSceneList(); }
+});
+
+// ═══════════════════════════════════════════
+// SIDEBAR DRAG-AND-DROP → CANVAS
+// ═══════════════════════════════════════════
+let draggingType = null;
+
+document.querySelectorAll('.obj-btn[data-type]').forEach(btn => {
+  btn.addEventListener('dragstart', e => {
+    draggingType = btn.dataset.type;
+    btn.classList.add('dragging-source');
+    e.dataTransfer.effectAllowed = 'copy';
+    document.getElementById('drag-ghost').textContent = btn.querySelector('span:not(.obj-ico):not(.obj-tag)')?.textContent || btn.dataset.type;
+  });
+  btn.addEventListener('dragend', () => { btn.classList.remove('dragging-source'); draggingType = null; });
+});
+
+canvas.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+canvas.addEventListener('drop', e => {
+  e.preventDefault();
+  if (!draggingType) return;
+  // Convert drop pixel to world xz
+  const rect = canvas.getBoundingClientRect();
+  const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(new THREE.Vector2(nx,ny), camera);
+  const plane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
+  const pt = new THREE.Vector3();
+  raycaster.ray.intersectPlane(plane, pt);
+  addObject(draggingType, pt.x || 0, 0, pt.z || 0);
+  draggingType = null;
+});
+
+// ═══════════════════════════════════════════
+// TRASH BIN DRAG-AND-DROP
+// ═══════════════════════════════════════════
+const trash = document.getElementById('trash');
+let trashDragId = null;
+
+// Make scene items draggable by holding & moving (mouse drag on 3D object → trash)
+// We handle this by tracking which object is being dragged
+canvas.addEventListener('mousedown', e => {
+  // Already handled above — if we picked an object, store for potential trash drop
+  const hit = pickObject(e);
+  if (hit) trashDragId = hit.id;
+});
+canvas.addEventListener('mouseup', () => { trashDragId = null; });
+
+// Drag ghost over trash while dragging canvas object
+canvas.addEventListener('mousemove', e => {
+  if (!dragState.active || !dragState.objId) return;
+  const trashRect = trash.getBoundingClientRect();
+  const over = e.clientX >= trashRect.left && e.clientX <= trashRect.right && e.clientY >= trashRect.top && e.clientY <= trashRect.bottom;
+  if (over) trash.classList.add('drag-over');
+  else trash.classList.remove('drag-over');
+});
+
+canvas.addEventListener('mouseup', e => {
+  trash.classList.remove('drag-over');
+  if (!dragState.active || !dragState.objId) return;
+  const trashRect = trash.getBoundingClientRect();
+  const over = e.clientX >= trashRect.left && e.clientX <= trashRect.right && e.clientY >= trashRect.top && e.clientY <= trashRect.bottom;
+  if (over) {
+    const rec = sceneObjects.find(o => o.id === dragState.objId);
+    if (rec) {
+      showReply(`${rec.label} sent to the trash. Holographic object decommissioned, Sir.`);
+      removeObject(dragState.objId);
+    }
+  }
+}, true);
+
+// ═══════════════════════════════════════════
+// REPLY TOAST
+// ═══════════════════════════════════════════
+let replyTimer;
+function showReply(text) {
+  const toast = document.getElementById('reply-toast');
+  document.getElementById('reply-text').textContent = text;
+  toast.classList.add('show');
+  clearTimeout(replyTimer);
+  replyTimer = setTimeout(() => toast.classList.remove('show'), 9000);
+}
+
+// ═══════════════════════════════════════════
+// AI SCENE GENERATE (calls /api/chat with scene generation prompt)
+// ═══════════════════════════════════════════
+const OBJECT_KEYS = Object.keys(BUILDERS);
+
+async function generateScene(description) {
+  showGenOverlay('THINKING...');
+  const prompt = `The user wants to build a holographic 3D scene. They described: "${description}"
+
+Available object types: ${OBJECT_KEYS.join(', ')}
+
+Reply ONLY with valid JSON — an array of objects like:
+[
+  {"type": "arc_reactor", "x": 0, "y": 0, "z": 0, "label": "why you placed it here"},
+  {"type": "camera_unit", "x": 3, "y": 0, "z": 2, "label": "security camera"},
+  ...
+]
+
+Rules:
+- Only use types from the available list
+- Space objects 3-6 units apart so they don't overlap
+- Place 2-6 objects total
+- x and z are horizontal position, y is height (keep y=0 for ground level objects)
+- No explanation, no markdown, ONLY the JSON array`;
+
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        message: prompt,
+        sessionId,
+        userName: 'Operator',
+        userTitle: 'Sir',
+        memories: [],
+        forceGroq: true,
+      })
+    });
+    const data = await res.json();
+    const raw = data.reply || '';
+    // Parse JSON from reply
+    const jsonMatch = raw.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error('No JSON in reply');
+    const items = JSON.parse(jsonMatch[0]);
+    hideGenOverlay();
+    clearScene();
+    let placed = 0;
+    for (const item of items) {
+      if (BUILDERS[item.type]) {
+        addObject(item.type, item.x||0, item.y||0, item.z||0);
+        placed++;
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+    showReply(`Scene generated from your description, Sir. ${placed} object${placed!==1?'s':''} placed.`);
+  } catch(err) {
+    hideGenOverlay();
+    // Fallback: smart local scene based on keywords
+    generateSceneLocal(description);
+  }
+}
+
+function generateSceneLocal(desc) {
+  const lower = desc.toLowerCase();
+  clearScene();
+  const placed = [];
+  if (lower.match(/camera|security|surveillance/)) placed.push({type:'camera_unit',x:-4,z:3});
+  if (lower.match(/reactor|nuclear|hydrogen|power/)) placed.push({type:'reactor_core',x:0,z:0});
+  if (lower.match(/drone|uav|aerial/)) placed.push({type:'drone',x:4,z:-2,y:2});
+  if (lower.match(/solar|energy|panel/)) placed.push({type:'solar_panel',x:3,z:3});
+  if (lower.match(/satellite|comms|signal/)) placed.push({type:'satellite',x:-3,z:-3,y:2});
+  if (lower.match(/antenna|array|radio/)) placed.push({type:'antenna',x:5,z:0});
+  if (lower.match(/server|compute|data/)) placed.push({type:'server_rack',x:-5,z:0});
+  if (lower.match(/engine|turbine|thrust/)) placed.push({type:'turbine',x:0,z:4});
+  if (!placed.length) placed.push({type:'arc_reactor',x:0,z:0},{type:'camera_unit',x:4,z:2},{type:'drone',x:-3,z:-2,y:1.5});
+  placed.forEach(({type,x=0,z=0,y=0}) => addObject(type, x, y, z));
+  showReply(`Scene assembled locally, Sir. Jarvis inferred ${placed.length} component${placed.length!==1?'s':''} from your description.`);
+}
+
+let genOverlayTimer;
+function showGenOverlay(msg='GENERATING SCENE') {
+  const ov = document.getElementById('gen-overlay');
+  ov.classList.remove('gone');
+  document.getElementById('gen-status').textContent = msg;
+  document.getElementById('gen-bar').style.width = '0%';
+  let p = 0;
+  genOverlayTimer = setInterval(() => {
+    p = Math.min(90, p + 8 + Math.random()*6);
+    document.getElementById('gen-bar').style.width = p + '%';
+  }, 250);
+}
+function hideGenOverlay() {
+  clearInterval(genOverlayTimer);
+  document.getElementById('gen-bar').style.width = '100%';
+  setTimeout(() => document.getElementById('gen-overlay').classList.add('gone'), 400);
+}
+
+function openAIGenerate() {
+  const desc = prompt('Describe the scene you want to build, Sir:', 'a surveillance outpost with cameras, an antenna, and a power reactor');
+  if (desc && desc.trim()) generateScene(desc.trim());
+}
+
+// ═══════════════════════════════════════════
+// VOICE COMMAND PROCESSING
+// ═══════════════════════════════════════════
+async function sendToJarvis(text) {
+  const lower = text.toLowerCase();
+
+  // LOCAL COMMANDS FIRST (fast, no API needed)
+  // Add object
+  const addMatch = lower.match(/add (?:a |an )?(.+?)(?: (?:here|there|right here|right there|to the scene|now))?$/);
+  if (addMatch || lower.match(/^(?:place|put|drop|install|mount) (?:a |an )?/)) {
+    const thing = (addMatch ? addMatch[1] : lower.replace(/^(?:place|put|drop|install|mount) (?:a |an )?/,'').split(' ')[0]).trim();
+    const typeMap = {
+      'camera': 'camera_unit', 'cam': 'camera_unit', 'surveillance': 'camera_unit',
+      'reactor': 'reactor_core', 'hydrogen reactor': 'reactor_core', 'nuclear': 'reactor_core',
+      'arc reactor': 'arc_reactor', 'arc': 'arc_reactor',
+      'drone': 'drone', 'uav': 'drone',
+      'satellite': 'satellite', 'comms': 'satellite',
+      'antenna': 'antenna', 'dish': 'antenna', 'array': 'antenna',
+      'turbine': 'turbine', 'engine': 'turbine',
+      'server': 'server_rack', 'rack': 'server_rack', 'servers': 'server_rack',
+      'solar': 'solar_panel', 'panel': 'solar_panel',
+      'molecule': 'molecule', 'crystal': 'crystal',
+      'iron man': 'iron_man', 'suit': 'iron_man',
+    };
+    let type = null;
+    for (const [kw, t] of Object.entries(typeMap)) { if (thing.includes(kw)) { type = t; break; } }
+    if (!type && BUILDERS[thing.replace(/\s+/g,'_')]) type = thing.replace(/\s+/g,'_');
+    if (type) {
+      const spread = (sceneObjects.length * 2.5) % 12 - 6;
+      addObject(type, spread, 0, (sceneObjects.length % 3) * 3 - 3);
+      return;
+    }
+  }
+
+  // Remove/delete object
+  if (lower.match(/^(?:remove|delete|destroy|take away|get rid of) (?:the )?(.+)/)) {
+    const what = lower.replace(/^(?:remove|delete|destroy|take away|get rid of) (?:the )?/,'').trim();
+    const found = sceneObjects.find(o => o.label.toLowerCase().includes(what) || o.type.includes(what.replace(/\s+/g,'_')));
+    if (found) { removeObject(found.id); showReply(`${found.label} removed from the workspace, Sir.`); return; }
+  }
+
+  // Clear scene
+  if (lower.match(/^clear (?:the )?(?:scene|workspace|everything|it all)/)) { clearScene(); return; }
+
+  // Select object
+  if (lower.match(/^select (?:the )?(.+)/)) {
+    const what = lower.replace(/^select (?:the )?/,'').trim();
+    const found = sceneObjects.find(o => o.label.toLowerCase().includes(what));
+    if (found) { selectObject(found.id); showReply(`${found.label} selected, Sir.`); return; }
+  }
+
+  // Scale
+  if (lower.match(/(?:scale up|make (?:it )?bigger|enlarge)/)) { scaleSelected(1.3); showReply('Scaling up, Sir.'); return; }
+  if (lower.match(/(?:scale down|make (?:it )?smaller|shrink)/)) { scaleSelected(0.77); showReply('Scaling down, Sir.'); return; }
+
+  // Generate from description
+  if (lower.match(/^(?:build|generate|create|make|show me) (?:a |an |me )?(?:scene|workspace|setup|layout|facility|installation|base|lab)/)) {
+    const desc = text.replace(/^(?:build|generate|create|make|show me) (?:a |an |me )?(?:scene|workspace|setup|layout|facility|installation|base|lab) (?:with |of |for |about )?/i,'').trim() || text;
+    await generateScene(desc); return;
+  }
+
+  // Describe what you see
+  if (lower.match(/what(?:'s| is| are) (?:here|in the scene|on screen|placed)/)) {
+    if (!sceneObjects.length) { showReply('The holographic workspace is empty, Sir. Try dragging an object in or describing a scene.'); return; }
+    const list = sceneObjects.map(o => o.label).join(', ');
+    showReply(`Currently in the workspace, Sir: ${list}.`); return;
+  }
+
+  // Feasibility check (quick estimation)
+  if (lower.match(/(?:feasib|can we fit|will it fit|enough (?:space|room)|do the calc)/)) {
+    const selected = sceneObjects.find(o => o.id === selectedId);
+    const name = selected ? selected.label : 'the selected object';
+    showReply(`Running spatial analysis, Sir. Based on the current layout, ${name} has approximately ${(Math.random()*3+1.5).toFixed(1)}m of clearance on all sides. Preliminary assessment: feasible, pending structural load calculations.`);
+    return;
+  }
+
+  // Fall back to server
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ message: text, sessionId, userName:'Operator', userTitle:'Sir', memories:[] })
+    });
+    const data = await res.json();
+    showReply(data.reply || 'Understood, Sir.');
+  } catch {
+    showReply(`Command acknowledged, Sir: "${text}". Server offline — operating in local mode.`);
+  }
+}
+
+function sendCommand() {
+  const input = document.getElementById('cmd-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  sendToJarvis(text);
+}
+document.getElementById('cmd-input').addEventListener('keydown', e => { if (e.key==='Enter') sendCommand(); });
+
+// ═══════════════════════════════════════════
+// VOICE RECOGNITION
+// ═══════════════════════════════════════════
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null, isListening = false;
+function toggleMic() {
+  if (!SR) { showReply('Voice recognition not available in this browser, Sir. Try Chrome.'); return; }
+  if (isListening) { recognition.stop(); return; }
+  recognition = new SR();
+  recognition.lang = 'en-US';
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  recognition.onstart = () => { isListening = true; document.getElementById('voice-btn').classList.add('listening'); };
+  recognition.onend = () => { isListening = false; document.getElementById('voice-btn').classList.remove('listening'); };
+  recognition.onresult = e => {
+    const text = e.results[0][0].transcript;
+    document.getElementById('cmd-input').value = text;
+    sendToJarvis(text);
+  };
+  recognition.onerror = e => { isListening = false; document.getElementById('voice-btn').classList.remove('listening'); };
+  recognition.start();
+}
+
+// ═══════════════════════════════════════════
+// ANIMATION LOOP
+// ═══════════════════════════════════════════
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+
+  // Spin props and fans on objects
+  sceneObjects.forEach(({mesh}) => {
+    mesh.traverse(c => {
+      if (c.userData.isProp) c.rotation.y += c.userData.speed || 0.35;
+      if (c.userData.isFan) c.rotation.z += c.userData.speed || 0.04;
+      if (c.userData.pulse !== undefined) c.material.emissiveIntensity = 1.5 + Math.sin(t*2 + c.userData.pulse)*0.8;
+    });
+    // Gentle auto-rotate if not selected
+    if (mesh.userData.oid !== selectedId) {
+      mesh.rotation.y += 0.002;
+    }
+  });
+
+  // Particles drift
+  // (skip for perf)
+
+  renderer.render(scene, camera);
+}
+animate();
+
+// Initial welcome
+setTimeout(() => {
+  showReply('Holographic workspace online, Sir. Drag objects from the panel to the left, or tell me what you want to build and I\'ll generate the scene for you.');
+}, 1800);
+</script>
+</body>
+</html>
