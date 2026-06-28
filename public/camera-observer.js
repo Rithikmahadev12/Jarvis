@@ -136,6 +136,7 @@ window.CameraObserver = (function () {
           sessionMinutes:   Math.floor(sessionMinutes),
           lastSpokenMinutes: Math.floor(lastSpokenMinutes),
           previousScene:    obs.previousScene,
+          userTimezone:     (Intl.DateTimeFormat().resolvedOptions().timeZone) || null,
         }),
       });
 
