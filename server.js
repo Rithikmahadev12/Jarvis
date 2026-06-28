@@ -1178,34 +1178,28 @@ app.post("/api/tts", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "Missing text" });
 
-  // ── Home Talk path: cast via pychromecast regardless of whether
-  //    the local Piper voice model is loaded. We use Google's free
-  //    TTS endpoint to generate the WAV so there's no local model needed.
+  // ── Home Talk path ────────────────────────────────────────────
+  // Cast to Google Home regardless of whether Piper is running.
+  // Uses Google Translate TTS (no API key, no Python deps needed).
   if (outputMode === "home") {
     const Cast = require("./cast");
     try {
-      // Try Piper first if it's ready, otherwise fall back to gTTS via Python
-      let audio = null;
-      if (TTS.isReady()) {
-        audio = await TTS.synthesize(text);
-      }
+      let audio = TTS.isReady() ? await TTS.synthesize(text) : null;
+      if (!audio) audio = await fetchGoogleTTS(text);
 
       if (!audio) {
-        // Generate audio via the cast helper's built-in gTTS fallback
-        audio = await synthesizeWithGTTS(text);
-      }
-
-      if (audio) {
-        const mediaUrl = Cast.publishAudio(audio, PORT);
-        await Cast.playOnDevice(mediaUrl);
-        return res.json({ ok: true, castTo: Cast.deviceName() });
-      } else {
-        // Couldn't generate audio at all — tell client to fall back to browser
+        console.error("[HOME TALK] All TTS methods failed — falling back to browser");
         return res.status(503).json({ error: "TTS unavailable", fallback: true });
       }
+
+      const mediaUrl = Cast.publishAudio(audio, PORT);
+      await Cast.playOnDevice(mediaUrl);
+      console.log(`[HOME TALK] Cast to ${Cast.deviceName()} ✓`);
+      return res.json({ ok: true, castTo: Cast.deviceName() });
+
     } catch (e) {
-      console.error("[CAST] Home Talk failed:", e.message);
-      // Fall through to normal phone audio below
+      console.error("[HOME TALK] Cast failed:", e.message);
+      return res.status(500).json({ error: e.message, fallback: true });
     }
   }
 
@@ -1213,11 +1207,8 @@ app.post("/api/tts", async (req, res) => {
   if (!TTS.isReady()) {
     return res.status(503).json({ error: "Voice model loading", fallback: true });
   }
-
   const audio = await TTS.synthesize(text);
-  if (!audio) {
-    return res.status(500).json({ error: "Synthesis failed", fallback: true });
-  }
+  if (!audio) return res.status(500).json({ error: "Synthesis failed", fallback: true });
 
   res.setHeader("Content-Type",  "audio/wav");
   res.setHeader("Content-Length", audio.length);
@@ -1225,46 +1216,47 @@ app.post("/api/tts", async (req, res) => {
   res.send(audio);
 });
 
-// ── gTTS fallback: generates a WAV using Python's gtts + ffmpeg ──────────────
-function synthesizeWithGTTS(text) {
-  return new Promise((resolve) => {
-    const { spawn } = require("child_process");
-    const os   = require("os");
-    const path = require("path");
-    const fs   = require("fs");
-    const mp3  = path.join(os.tmpdir(), `jarvis-gtts-${Date.now()}.mp3`);
-    const wav  = mp3.replace(".mp3", ".wav");
+// ── Google Translate TTS — pure Node.js, no Python, no API key ───────────────
+// Splits long text into ≤200-char chunks, fetches each as MP3 from
+// translate.google.com/translate_tts, then concatenates the raw MP3 frames.
+// pychromecast is happy playing MP3 — no ffmpeg conversion needed.
+async function fetchGoogleTTS(text) {
+  const clean = TTS.cleanText(text);
+  if (!clean) return null;
 
-    // Use Python one-liner: gtts-cli text | save mp3
-    const py = spawn("python3", ["-c", `
-from gtts import gTTS, lang
-import sys
-tts = gTTS(text=${JSON.stringify(text)}, lang='en', slow=False)
-tts.save(${JSON.stringify(mp3)})
-print('ok')
-`]);
-    let err = "";
-    py.stderr.on("data", d => { err += d; });
-    py.on("close", (code) => {
-      if (code !== 0) {
-        console.error("[gTTS] Python gtts failed:", err);
-        return resolve(null);
-      }
-      // Convert mp3 → wav with ffmpeg so pychromecast can serve it
-      const ff = spawn("ffmpeg", ["-y", "-i", mp3, wav]);
-      ff.on("close", (fc) => {
-        try { fs.unlinkSync(mp3); } catch {}
-        if (fc !== 0) return resolve(null);
-        try {
-          const buf = fs.readFileSync(wav);
-          fs.unlinkSync(wav);
-          resolve(buf);
-        } catch { resolve(null); }
+  // Split on sentence boundaries to stay under 200 chars per request
+  const chunks = [];
+  let current  = "";
+  for (const sentence of clean.replace(/([.!?])\s+/g, "$1\n").split("\n")) {
+    const part = sentence.trim();
+    if (!part) continue;
+    if ((current + " " + part).length > 195) {
+      if (current) chunks.push(current.trim());
+      current = part;
+    } else {
+      current += (current ? " " : "") + part;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+  if (!chunks.length) return null;
+
+  const parts = [];
+  for (const chunk of chunks) {
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(chunk)}`;
+    try {
+      const r = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal:  AbortSignal.timeout(8000),
       });
-      ff.on("error", () => resolve(null));
-    });
-    py.on("error", () => resolve(null));
-  });
+      if (!r.ok) { console.error(`[gTTS] HTTP ${r.status} for chunk`); continue; }
+      parts.push(Buffer.from(await r.arrayBuffer()));
+    } catch (e) {
+      console.error("[gTTS] fetch failed:", e.message);
+    }
+  }
+
+  if (!parts.length) return null;
+  return Buffer.concat(parts); // concatenated MP3 — valid for casting
 }
 
 // Status check — client can poll this on startup to know when voice is ready
