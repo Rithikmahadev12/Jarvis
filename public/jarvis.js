@@ -5,6 +5,19 @@
 // Added: intruder detection enable/disable voice command
 // ═══════════════════════════════════════════════════════════════
 
+// ── TIMEZONE HELPER ──
+// The server's clock is whatever timezone IT runs in (often UTC on a
+// host like Render), which is NOT necessarily your timezone. Every
+// request that needs to know "what time is it for the user" should
+// send this along so JARVIS reasons about YOUR local time.
+function getUserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
+
 // ── STATE ──
 const state = window.state = {
   phase: "idle",
@@ -990,6 +1003,34 @@ function launchMain() {
   setTimeout(() => checkIntruderClips(), 2000);
 
   setInterval(syncExtensionStatus, 3000);
+  setInterval(pollReminders, 5000);
+}
+
+// ── NATIVE REMINDERS / TIMERS POLL ──
+// JARVIS's own scheduling engine fires server-side; we just check in
+// every few seconds for anything that's come due and speak it once.
+let _remindersBusy = false;
+async function pollReminders() {
+  if (_remindersBusy) return;
+  _remindersBusy = true;
+  try {
+    const res  = await fetch("/api/reminders/due");
+    const data = await res.json();
+    const due  = data?.due || [];
+    if (due.length) {
+      // speak() cancels any in-flight utterance, so multiple due items
+      // in the same tick get combined into one spoken line rather than
+      // stomping on each other.
+      due.forEach(item => addMsg("jarvis", item.text));
+      const combined = due.map(item => item.text).join(" ");
+      mic.suspend();
+      speak(combined, () => mic.resume());
+    }
+  } catch {
+    // server unreachable or not yet ready — try again next tick
+  } finally {
+    _remindersBusy = false;
+  }
 }
 
 // ── EXTENSION STATUS SYNC ──
@@ -1135,7 +1176,7 @@ async function sendToAI(message) {
     const stRes = await fetch("/api/personality/smalltalk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, userTitle: state.userTitle }),
+      body: JSON.stringify({ message, userTitle: state.userTitle, userTimezone: getUserTimezone() }),
     });
     const stData = await stRes.json();
     if (stData.reply) {
@@ -1162,6 +1203,7 @@ async function sendToAI(message) {
         moodContext: moodCtx,
         cameraActive: !!state.cameraStream,   // tell the AI camera is already online
         screenActive: !!state.screenStream,   // and whether screen share is active
+        userTimezone: getUserTimezone(),      // so JARVIS knows YOUR local time, not the server's
       }),
     });
     const data  = await res.json();
