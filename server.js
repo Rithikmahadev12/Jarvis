@@ -357,7 +357,8 @@ app.get("/api/profile/:name", (req, res) => {
   const profiles = loadProfiles();
   const profile  = profiles[req.params.name.toLowerCase().trim()];
   if (!profile) return res.json({ found: false });
-  const { passwordHash, ...safe } = profile;
+  // Never expose passwordHash, clientSecret, or raw tokens
+  const { passwordHash, googleClientSecret, googleTokens, ...safe } = profile;
   res.json({ found: true, profile: safe });
 });
 app.post("/api/verify", (req, res) => {
@@ -437,30 +438,91 @@ app.post("/api/spotify", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// ── GOOGLE
+// ── GOOGLE (per-user credentials)
 // ═══════════════════════════════════════════════════════════════
+
+// Save a user's Google credentials into their profile
+app.post("/api/google/credentials", (req, res) => {
+  const { userName, clientId, clientSecret } = req.body;
+  if (!userName || !clientId || !clientSecret)
+    return res.status(400).json({ error: "Missing userName, clientId or clientSecret" });
+  const profiles = loadProfiles();
+  const key = userName.toLowerCase().trim();
+  if (!profiles[key]) return res.status(404).json({ error: "User not found" });
+  profiles[key].googleClientId     = clientId.trim();
+  profiles[key].googleClientSecret = clientSecret.trim();
+  // Wipe old tokens — new credentials need fresh auth
+  delete profiles[key].googleTokens;
+  saveProfiles(profiles);
+  res.json({ success: true, authUrl: `/api/google/auth?user=${encodeURIComponent(key)}` });
+});
+
+// Start OAuth flow for a specific user
 app.get("/api/google/auth", (req, res) => {
-  if (!Google.isConfigured()) return res.status(400).json({ error: "Google credentials not configured in .env" });
-  res.redirect(Google.getAuthUrl());
+  const userKey = (req.query.user || "").toLowerCase().trim();
+  if (!userKey) return res.status(400).send("<h2>Missing ?user= parameter</h2>");
+  const profiles = loadProfiles();
+  const profile  = profiles[userKey];
+  if (!profile?.googleClientId)
+    return res.status(400).send("<h2>No Google credentials saved for this user. Add them in Settings first.</h2>");
+  const url = Google.getAuthUrl(userKey, profile.googleClientId);
+  if (!url) return res.status(400).send("<h2>Could not build auth URL</h2>");
+  res.redirect(url);
 });
+
+// OAuth callback — state param tells us which user
 app.get("/api/google/callback", async (req, res) => {
-  const { code, error } = req.query;
-  if (error) return res.send(`<h2>Google auth failed: ${error}</h2>`);
-  if (!code)  return res.send("<h2>No code returned.</h2>");
-  const result = await Google.exchangeCode(code);
+  const { code, error, state: userKey } = req.query;
+  if (error)    return res.send(`<h2>Google auth failed: ${error}</h2>`);
+  if (!code)    return res.send("<h2>No code returned.</h2>");
+  if (!userKey) return res.send("<h2>Missing state (user key). Try connecting again.</h2>");
+
+  const profiles = loadProfiles();
+  const profile  = profiles[userKey];
+  if (!profile?.googleClientId)
+    return res.send("<h2>No credentials on file for this user.</h2>");
+
+  const result = await Google.exchangeCode(code, userKey, profile.googleClientId, profile.googleClientSecret);
   if (result.error) return res.send(`<h2>Token exchange failed: ${result.error}</h2>`);
-  res.send(`<html><body style="background:#010c14;color:#00c8ff;font-family:monospace;text-align:center;padding:60px"><h2>✓ Google connected</h2><p>Gmail and Calendar active. Close this tab.</p></body></html>`);
+
+  // Persist tokens in the user's profile
+  profiles[userKey].googleTokens = result.tokens;
+  saveProfiles(profiles);
+
+  res.send(`<html><body style="background:#010c14;color:#00c8ff;font-family:monospace;text-align:center;padding:60px">
+    <h2>✓ Google connected for ${profile.name}</h2>
+    <p>Gmail and Calendar are now active for this account. Close this tab.</p>
+  </body></html>`);
 });
+
+// Gmail — requires userName in body
 app.post("/api/gmail", async (req, res) => {
-  if (!Google.isConfigured()) return res.json({ error: "Not configured", needsAuth: true, authUrl: "/api/google/auth" });
-  if (!Google.hasToken())     return res.json({ needsAuth: true, authUrl: "/api/google/auth" });
-  try { res.json(await Google.handleGmailCommand(req.body.message || "check inbox")); }
+  const userKey = (req.body.userName || "").toLowerCase().trim();
+  const profiles = loadProfiles();
+  const profile  = profiles[userKey];
+  if (!Google.isConfiguredForUser(profile))
+    return res.json({ error: "Not configured", needsAuth: true, authUrl: `/api/google/auth?user=${userKey}` });
+  // Warm the token cache from saved profile tokens if needed
+  if (profile.googleTokens && !Google.hasTokenForUser(userKey))
+    Google.hydrateTokens(userKey, profile.googleTokens);
+  if (!Google.hasTokenForUser(userKey))
+    return res.json({ needsAuth: true, authUrl: `/api/google/auth?user=${userKey}` });
+  try { res.json(await Google.handleGmailCommand(req.body.message || "check inbox", userKey, profile.googleClientId, profile.googleClientSecret)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// Calendar — requires userName in body
 app.post("/api/calendar", async (req, res) => {
-  if (!Google.isConfigured()) return res.json({ error: "Not configured", needsAuth: true, authUrl: "/api/google/auth" });
-  if (!Google.hasToken())     return res.json({ needsAuth: true, authUrl: "/api/google/auth" });
-  try { res.json(await Google.handleCalendarCommand(req.body.message || "today")); }
+  const userKey = (req.body.userName || "").toLowerCase().trim();
+  const profiles = loadProfiles();
+  const profile  = profiles[userKey];
+  if (!Google.isConfiguredForUser(profile))
+    return res.json({ error: "Not configured", needsAuth: true, authUrl: `/api/google/auth?user=${userKey}` });
+  if (profile.googleTokens && !Google.hasTokenForUser(userKey))
+    Google.hydrateTokens(userKey, profile.googleTokens);
+  if (!Google.hasTokenForUser(userKey))
+    return res.json({ needsAuth: true, authUrl: `/api/google/auth?user=${userKey}` });
+  try { res.json(await Google.handleCalendarCommand(req.body.message || "today", userKey, profile.googleClientId, profile.googleClientSecret)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -679,12 +741,19 @@ async function handleSpotifyFetch(message, T) {
   }
 }
 
-async function handleGmailFetch(message, T) {
-  if (!Google.isConfigured()) return { reply: `Gmail isn't configured, ${T}.`, action: "GMAIL", intent: "gmail" };
-  if (!Google.hasToken())     return { reply: `Gmail needs authorisation first, ${T}.`, action: "GMAIL", intent: "gmail" };
+async function handleGmailFetch(message, T, userName) {
+  const userKey = (userName || "").toLowerCase().trim();
+  const profiles = loadProfiles();
+  const profile  = profiles[userKey];
+  if (!Google.isConfiguredForUser(profile))
+    return { reply: `Gmail isn't configured for your account, ${T}. Say "open settings" to add your Google credentials.`, action: "GMAIL", intent: "gmail" };
+  if (profile.googleTokens && !Google.hasTokenForUser(userKey))
+    Google.hydrateTokens(userKey, profile.googleTokens);
+  if (!Google.hasTokenForUser(userKey))
+    return { reply: `Gmail needs authorisation, ${T}. Visit /api/google/auth?user=${userKey} to connect.`, action: "GMAIL", intent: "gmail" };
   try {
-    const gd = await Google.handleGmailCommand(message);
-    if (gd.needsAuth) return { reply: `Gmail needs re-authorisation, ${T}.`, action: "GMAIL", intent: "gmail" };
+    const gd = await Google.handleGmailCommand(message, userKey, profile.googleClientId, profile.googleClientSecret);
+    if (gd.needsAuth) return { reply: `Gmail needs re-authorisation, ${T}. Visit /api/google/auth?user=${userKey}.`, action: "GMAIL", intent: "gmail" };
     const gr = gd.unread === 0 ? `Inbox clear, ${T}. No unread messages.` : `You have ${gd.unread} unread email${gd.unread > 1 ? "s" : ""}, ${T}.`;
     return { reply: gr, action: "GMAIL", intent: "gmail", meta: { gmailData: gd } };
   } catch (e) {
@@ -692,12 +761,19 @@ async function handleGmailFetch(message, T) {
   }
 }
 
-async function handleCalendarFetch(message, T) {
-  if (!Google.isConfigured()) return { reply: `Google Calendar isn't configured, ${T}.`, action: "CALENDAR", intent: "calendar" };
-  if (!Google.hasToken())     return { reply: `Calendar needs authorisation first, ${T}.`, action: "CALENDAR", intent: "calendar" };
+async function handleCalendarFetch(message, T, userName) {
+  const userKey = (userName || "").toLowerCase().trim();
+  const profiles = loadProfiles();
+  const profile  = profiles[userKey];
+  if (!Google.isConfiguredForUser(profile))
+    return { reply: `Google Calendar isn't configured for your account, ${T}. Say "open settings" to add your Google credentials.`, action: "CALENDAR", intent: "calendar" };
+  if (profile.googleTokens && !Google.hasTokenForUser(userKey))
+    Google.hydrateTokens(userKey, profile.googleTokens);
+  if (!Google.hasTokenForUser(userKey))
+    return { reply: `Calendar needs authorisation, ${T}. Visit /api/google/auth?user=${userKey} to connect.`, action: "CALENDAR", intent: "calendar" };
   try {
-    const cd = await Google.handleCalendarCommand(message);
-    if (cd.needsAuth) return { reply: `Calendar needs re-authorisation, ${T}.`, action: "CALENDAR", intent: "calendar" };
+    const cd = await Google.handleCalendarCommand(message, userKey, profile.googleClientId, profile.googleClientSecret);
+    if (cd.needsAuth) return { reply: `Calendar needs re-authorisation, ${T}. Visit /api/google/auth?user=${userKey}.`, action: "CALENDAR", intent: "calendar" };
     const cr = !cd.events?.length
       ? `Nothing on the calendar ${cd.period || "today"}, ${T}.`
       : `${cd.events.length} event${cd.events.length > 1 ? "s" : ""} ${cd.period || "today"}, ${T}: ${cd.events.slice(0, 4).map(e => `${e.time ? e.time + " — " : ""}${e.title}`).join("; ")}.`;
@@ -951,8 +1027,8 @@ app.post("/api/chat", async (req, res) => {
       switch (fetchType) {
         case "weather":  return res.json(await handleWeatherFetch(message, T));
         case "spotify":  return res.json(await handleSpotifyFetch(message, T));
-        case "gmail":    return res.json(await handleGmailFetch(message, T));
-        case "calendar": return res.json(await handleCalendarFetch(message, T));
+        case "gmail":    return res.json(await handleGmailFetch(message, T, userName));
+        case "calendar": return res.json(await handleCalendarFetch(message, T, userName));
         case "person":   return res.json(await handlePersonFetch(message, meta, T));
         case "diy":      return res.json(await handleDIYFetch(message, userTitle));
       }
@@ -1008,8 +1084,8 @@ app.post("/api/chat", async (req, res) => {
     switch (result.fetchType) {
       case "weather":  return res.json(await handleWeatherFetch(message, T));
       case "spotify":  return res.json(await handleSpotifyFetch(message, T));
-      case "gmail":    return res.json(await handleGmailFetch(message, T));
-      case "calendar": return res.json(await handleCalendarFetch(message, T));
+      case "gmail":    return res.json(await handleGmailFetch(message, T, userName));
+      case "calendar": return res.json(await handleCalendarFetch(message, T, userName));
       case "person":   return res.json(await handlePersonFetch(message, result.meta, T));
       case "diy":      return res.json(await handleDIYFetch(message, userTitle));
     }
