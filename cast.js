@@ -47,7 +47,11 @@ function getLocalIP() {
 // Writes the audio buffer into /public/tts-cache (already statically
 // served by Express) and returns a LAN-reachable URL for it.
 function publishAudio(buffer, port) {
-  const filename = `home-talk-${Date.now()}.wav`;
+  // Detect format by magic bytes: MP3 starts with 0xFF 0xFB/0xF3/0xF2 or ID3
+  const isMP3 = buffer[0] === 0xFF && (buffer[1] & 0xE0) === 0xE0
+             || buffer[0] === 0x49 && buffer[1] === 0x44 && buffer[2] === 0x33; // ID3
+  const ext      = isMP3 ? "mp3" : "wav";
+  const filename = `home-talk-${Date.now()}.${ext}`;
   const filePath = path.join(CACHE_DIR, filename);
   fs.writeFileSync(filePath, buffer);
 
