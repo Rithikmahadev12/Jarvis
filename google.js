@@ -1,14 +1,12 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
 // J.A.R.V.I.S — Google Integration (Gmail + Calendar)
-// Uses Google OAuth2. Set up at console.cloud.google.com
-// Enable: Gmail API + Google Calendar API
-// Create OAuth2 credentials → Web Application
+// Per-user: each user stores their own OAuth credentials + tokens
+// in their profile. No shared global credentials.
 // ═══════════════════════════════════════════════════════════════
 
-const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID     || "";
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
-const GOOGLE_REDIRECT_URI  = process.env.GOOGLE_REDIRECT_URI  || "http://localhost:3000/api/google/callback";
+const REDIRECT_BASE = process.env.GOOGLE_REDIRECT_BASE || "http://localhost:3000";
+const REDIRECT_URI  = `${REDIRECT_BASE}/api/google/callback`;
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -16,107 +14,127 @@ const SCOPES = [
   "https://www.googleapis.com/auth/userinfo.email",
 ];
 
-let _tokens = { access: null, refresh: null, expiresAt: 0 };
+// ── PER-USER TOKEN CACHE (in-memory, avoids repeated disk reads) ──
+// Structure: { [nameKey]: { access, refresh, expiresAt } }
+const _tokenCache = {};
 
-// ── AUTH ──────────────────────────────────────────────────────
-function getAuthUrl() {
+// ── AUTH URL ──────────────────────────────────────────────────
+// Pass the user's own clientId + a state param so the callback
+// knows which user to store the tokens under.
+function getAuthUrl(userKey, clientId) {
+  if (!clientId) return null;
   const params = new URLSearchParams({
-    client_id:     GOOGLE_CLIENT_ID,
-    redirect_uri:  GOOGLE_REDIRECT_URI,
+    client_id:     clientId,
+    redirect_uri:  REDIRECT_URI,
     response_type: "code",
     scope:         SCOPES.join(" "),
     access_type:   "offline",
     prompt:        "consent",
+    state:         userKey,   // round-tripped so callback knows the user
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
 }
 
-async function exchangeCode(code) {
-  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) return { error: "missing_credentials" };
+// ── EXCHANGE CODE ─────────────────────────────────────────────
+async function exchangeCode(code, userKey, clientId, clientSecret) {
+  if (!clientId || !clientSecret) return { error: "missing_credentials" };
   try {
     const res = await fetch("https://oauth2.googleapis.com/token", {
       method:  "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body:    new URLSearchParams({
         code,
-        client_id:     GOOGLE_CLIENT_ID,
-        client_secret: GOOGLE_CLIENT_SECRET,
-        redirect_uri:  GOOGLE_REDIRECT_URI,
+        client_id:     clientId,
+        client_secret: clientSecret,
+        redirect_uri:  REDIRECT_URI,
         grant_type:    "authorization_code",
       }),
     });
     const data = await res.json();
     if (data.error) return { error: data.error };
-    _tokens = {
+    _tokenCache[userKey] = {
       access:    data.access_token,
       refresh:   data.refresh_token,
       expiresAt: Date.now() + (data.expires_in - 60) * 1000,
     };
-    return { success: true };
+    return { success: true, tokens: _tokenCache[userKey] };
   } catch (e) { return { error: e.message }; }
 }
 
-async function refreshToken() {
-  if (!_tokens.refresh) return false;
+// ── REFRESH TOKEN ─────────────────────────────────────────────
+async function refreshToken(userKey, clientId, clientSecret) {
+  const cache = _tokenCache[userKey];
+  if (!cache?.refresh) return false;
   try {
     const res = await fetch("https://oauth2.googleapis.com/token", {
       method:  "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body:    new URLSearchParams({
-        refresh_token: _tokens.refresh,
-        client_id:     GOOGLE_CLIENT_ID,
-        client_secret: GOOGLE_CLIENT_SECRET,
+        refresh_token: cache.refresh,
+        client_id:     clientId,
+        client_secret: clientSecret,
         grant_type:    "refresh_token",
       }),
     });
     const data = await res.json();
     if (data.access_token) {
-      _tokens.access    = data.access_token;
-      _tokens.expiresAt = Date.now() + (data.expires_in - 60) * 1000;
+      cache.access    = data.access_token;
+      cache.expiresAt = Date.now() + (data.expires_in - 60) * 1000;
       return true;
     }
     return false;
   } catch { return false; }
 }
 
-async function getToken() {
-  if (!_tokens.access) return null;
-  if (Date.now() > _tokens.expiresAt) {
-    const ok = await refreshToken();
-    if (!ok) { _tokens.access = null; return null; }
+// ── GET VALID TOKEN ───────────────────────────────────────────
+async function getToken(userKey, clientId, clientSecret) {
+  const cache = _tokenCache[userKey];
+  if (!cache?.access) return null;
+  if (Date.now() > cache.expiresAt) {
+    const ok = await refreshToken(userKey, clientId, clientSecret);
+    if (!ok) { delete _tokenCache[userKey]; return null; }
   }
-  return _tokens.access;
+  return cache.access;
 }
 
-async function googleFetch(url, options = {}) {
-  const token = await getToken();
-  if (!token) return { needsAuth: true, authUrl: getAuthUrl() };
+// ── HYDRATE TOKENS FROM PROFILE ──────────────────────────────
+// Call on login so the in-memory cache is warm
+function hydrateTokens(userKey, savedTokens) {
+  if (savedTokens?.access) _tokenCache[userKey] = { ...savedTokens };
+}
+
+// ── GOOGLE FETCH ──────────────────────────────────────────────
+async function googleFetch(url, userKey, clientId, clientSecret, options = {}) {
+  const token = await getToken(userKey, clientId, clientSecret);
+  if (!token) return { needsAuth: true, authUrl: getAuthUrl(userKey, clientId) };
   try {
     const res = await fetch(url, {
       ...options,
       headers: { "Authorization": `Bearer ${token}`, ...(options.headers || {}) },
     });
-    if (res.status === 401) { _tokens.access = null; return { needsAuth: true, authUrl: getAuthUrl() }; }
+    if (res.status === 401) {
+      delete _tokenCache[userKey];
+      return { needsAuth: true, authUrl: getAuthUrl(userKey, clientId) };
+    }
     return await res.json();
   } catch (e) { return { error: e.message }; }
 }
 
 // ── GMAIL ─────────────────────────────────────────────────────
-async function getInbox(maxResults = 10) {
+async function getInbox(userKey, clientId, clientSecret, maxResults = 10) {
   const listData = await googleFetch(
-    `https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=INBOX&q=is:unread&maxResults=${maxResults}`
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=INBOX&q=is:unread&maxResults=${maxResults}`,
+    userKey, clientId, clientSecret
   );
-  if (listData.needsAuth) return listData;
-  if (listData.error) return listData;
-
+  if (listData.needsAuth || listData.error) return listData;
   const unread = listData.resultSizeEstimate || 0;
-  if (!listData.messages || listData.messages.length === 0) return { unread: 0, messages: [] };
+  if (!listData.messages?.length) return { unread: 0, messages: [] };
 
-  // Fetch first 3 message details
   const detailed = await Promise.all(
     listData.messages.slice(0, 3).map(async (msg) => {
       const detail = await googleFetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+        userKey, clientId, clientSecret
       );
       if (detail.error || detail.needsAuth) return null;
       const headers = detail.payload?.headers || [];
@@ -129,91 +147,81 @@ async function getInbox(maxResults = 10) {
       };
     })
   );
-
-  return {
-    unread:   unread,
-    messages: detailed.filter(Boolean),
-  };
+  return { unread, messages: detailed.filter(Boolean) };
 }
 
-async function handleGmailCommand(message) {
-  const lower = message.toLowerCase();
-  if (/unread|inbox|check.*mail|new.*email|how many/i.test(lower)) return await getInbox();
-  return await getInbox(5);
+async function handleGmailCommand(message, userKey, clientId, clientSecret) {
+  return await getInbox(userKey, clientId, clientSecret, 10);
 }
 
 // ── GOOGLE CALENDAR ───────────────────────────────────────────
 function parseDateRange(message) {
   const lower = message.toLowerCase();
   const now   = new Date();
-
   if (/tomorrow/i.test(lower)) {
     const start = new Date(now); start.setDate(start.getDate() + 1); start.setHours(0,0,0,0);
     const end   = new Date(start); end.setHours(23,59,59,999);
     return { start, end, label: "tomorrow" };
-  }
-  if (/this week|week/i.test(lower)) {
-    const start = new Date(now);
-    const end   = new Date(now); end.setDate(end.getDate() + 7);
-    return { start, end, label: "this week" };
   }
   if (/next week/i.test(lower)) {
     const start = new Date(now); start.setDate(start.getDate() + 7);
     const end   = new Date(start); end.setDate(end.getDate() + 7);
     return { start, end, label: "next week" };
   }
-  // Default: today
+  if (/this week|week/i.test(lower)) {
+    const start = new Date(now);
+    const end   = new Date(now); end.setDate(end.getDate() + 7);
+    return { start, end, label: "this week" };
+  }
   const start = new Date(now); start.setHours(0,0,0,0);
   const end   = new Date(now); end.setHours(23,59,59,999);
   return { start, end, label: "today" };
 }
 
-async function getCalendarEvents(message) {
+async function getCalendarEvents(message, userKey, clientId, clientSecret) {
   const range = parseDateRange(message);
   const params = new URLSearchParams({
-    timeMin:      range.start.toISOString(),
-    timeMax:      range.end.toISOString(),
-    singleEvents: "true",
-    orderBy:      "startTime",
-    maxResults:   "10",
+    timeMin: range.start.toISOString(), timeMax: range.end.toISOString(),
+    singleEvents: "true", orderBy: "startTime", maxResults: "10",
   });
-
-  const data = await googleFetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`);
-  if (data.needsAuth) return data;
-  if (data.error) return data;
-
+  const data = await googleFetch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
+    userKey, clientId, clientSecret
+  );
+  if (data.needsAuth || data.error) return data;
   const events = (data.items || []).map(event => {
     const start = event.start?.dateTime || event.start?.date;
     const time  = start
       ? new Date(start).toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit", hour12:true })
       : "all day";
-    return {
-      title:    event.summary || "(untitled)",
-      time,
-      location: event.location || null,
-      link:     event.htmlLink,
-    };
+    return { title: event.summary || "(untitled)", time, location: event.location || null, link: event.htmlLink };
   });
-
   return { events, period: range.label };
 }
 
-async function handleCalendarCommand(message) {
-  return await getCalendarEvents(message);
+async function handleCalendarCommand(message, userKey, clientId, clientSecret) {
+  return await getCalendarEvents(message, userKey, clientId, clientSecret);
 }
 
-function isConfigured()   { return !!(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET); }
-function hasToken()       { return !!_tokens.access; }
-function setTokens(t)     { _tokens = t; }
-function getTokens()      { return _tokens; }
+// ── USER CREDENTIAL HELPERS ───────────────────────────────────
+function isConfiguredForUser(profile) {
+  return !!(profile?.googleClientId && profile?.googleClientSecret);
+}
+function hasTokenForUser(userKey) {
+  return !!_tokenCache[userKey]?.access;
+}
+function getTokensForUser(userKey) {
+  return _tokenCache[userKey] || null;
+}
 
 module.exports = {
+  getAuthUrl,
+  exchangeCode,
+  hydrateTokens,
   handleGmailCommand,
   handleCalendarCommand,
-  exchangeCode,
-  getAuthUrl,
-  isConfigured,
-  hasToken,
-  setTokens,
-  getTokens,
+  isConfiguredForUser,
+  hasTokenForUser,
+  getTokensForUser,
+  REDIRECT_URI,
 };
