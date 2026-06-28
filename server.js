@@ -1166,7 +1166,7 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`  Drafting table → http://localhost:${PORT}/blueprint`);
   console.log(`  Groq AI:       ${Groq.isConfigured() ? "✓ configured — primary brain active" : "✗ not configured (add GROQ_API_KEY to .env)"}`);
   console.log(`  Spotify:       ${Spotify.isConfigured() ? "✓ configured" : "✗ add SPOTIFY_CLIENT_ID to .env"}`);
-  console.log(`  Google:        ${Google.isConfigured()  ? "✓ configured" : "✗ add GOOGLE_CLIENT_ID to .env"}`);
+  console.log(`  Google:        ✓ per-user credentials (users add their own in settings)`);
   console.log(`  Weather:       ${process.env.OPENWEATHER_API_KEY ? "✓ configured" : "✗ add OPENWEATHER_API_KEY to .env"}`);
   console.log(`  GitHub deploy: ${process.env.GITHUB_TOKEN ? "✓ configured" : "✗ add GITHUB_TOKEN + GITHUB_REPO to .env"}`);
   console.log(`  Training data: /data/training_data.json`);
