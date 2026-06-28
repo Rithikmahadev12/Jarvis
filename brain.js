@@ -59,7 +59,7 @@ function distillLesson(message) {
 // ── MAIN ENTRY POINT ──────────────────────────────────────────
 // Drop-in replacement for the old "Groq is primary brain" branch
 // in server.js's /api/chat route.
-async function respond({ message, sessionId, userName, userTitle, memories, moodContext, serverData }) {
+async function respond({ message, sessionId, userName, userTitle, memories, moodContext, serverData, conversationHistory = [] }) {
   const T = userTitle || "Sir";
 
   // 1. Ask the local brain. ai-engine.js's process() already checks
@@ -115,6 +115,7 @@ async function respond({ message, sessionId, userName, userTitle, memories, mood
       userTitle,
       memories: memoryFacts,
       context: `mood: ${moodContext || "neutral"}`,
+      conversationHistory,   // ← pass full turn history so JARVIS remembers what it asked
       autoLearn: false, // we distill + store the lesson ourselves, below
     });
 
