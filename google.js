@@ -5,8 +5,16 @@
 // in their profile. No shared global credentials.
 // ═══════════════════════════════════════════════════════════════
 
-const REDIRECT_BASE = process.env.GOOGLE_REDIRECT_BASE || "http://localhost:3000";
-const REDIRECT_URI  = `${REDIRECT_BASE}/api/google/callback`;
+const REDIRECT_BASE = (process.env.GOOGLE_REDIRECT_BASE || "").replace(/\/$/, "");
+const CALLBACK_PATH = "/api/google/callback";
+
+// Derive the redirect URI at request time so it always matches the actual host.
+// Priority: GOOGLE_REDIRECT_BASE env var → Host header → localhost fallback
+function getRedirectUri(reqHost) {
+  if (REDIRECT_BASE) return REDIRECT_BASE + CALLBACK_PATH;
+  if (reqHost)       return "https://" + reqHost + CALLBACK_PATH;
+  return "http://localhost:3000" + CALLBACK_PATH;
+}
 
 const SCOPES = [
   "https://www.googleapis.com/auth/gmail.readonly",
@@ -21,11 +29,12 @@ const _tokenCache = {};
 // ── AUTH URL ──────────────────────────────────────────────────
 // Pass the user's own clientId + a state param so the callback
 // knows which user to store the tokens under.
-function getAuthUrl(userKey, clientId) {
+function getAuthUrl(userKey, clientId, reqHost) {
   if (!clientId) return null;
+  const redirectUri = getRedirectUri(reqHost);
   const params = new URLSearchParams({
     client_id:     clientId,
-    redirect_uri:  REDIRECT_URI,
+    redirect_uri:  redirectUri,
     response_type: "code",
     scope:         SCOPES.join(" "),
     access_type:   "offline",
@@ -36,8 +45,9 @@ function getAuthUrl(userKey, clientId) {
 }
 
 // ── EXCHANGE CODE ─────────────────────────────────────────────
-async function exchangeCode(code, userKey, clientId, clientSecret) {
+async function exchangeCode(code, userKey, clientId, clientSecret, reqHost) {
   if (!clientId || !clientSecret) return { error: "missing_credentials" };
+  const redirectUri = getRedirectUri(reqHost);
   try {
     const res = await fetch("https://oauth2.googleapis.com/token", {
       method:  "POST",
@@ -46,7 +56,7 @@ async function exchangeCode(code, userKey, clientId, clientSecret) {
         code,
         client_id:     clientId,
         client_secret: clientSecret,
-        redirect_uri:  REDIRECT_URI,
+        redirect_uri:  redirectUri,
         grant_type:    "authorization_code",
       }),
     });
@@ -223,5 +233,4 @@ module.exports = {
   isConfiguredForUser,
   hasTokenForUser,
   getTokensForUser,
-  REDIRECT_URI,
 };
