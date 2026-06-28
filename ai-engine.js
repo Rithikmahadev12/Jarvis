@@ -230,3 +230,97 @@ watcher
 module.exports = watcher;` 
 };
 
+
+// ═══════════════════════════════════════════════════════════════
+// ── GROQ LEARNED-INTENTS BRIDGE ───────────────────────────────
+// Checks whatever Groq has already taught this brain before
+// giving up. Instant, free, no API call.
+// ═══════════════════════════════════════════════════════════════
+function checkTaught(message) {
+  const groq = getGroq();
+  if (!groq || typeof groq.matchLearnedIntent !== "function") return null;
+  try {
+    const hit = groq.matchLearnedIntent(message);
+    if (hit && hit.reply) {
+      return { reply: hit.reply, action: "TAUGHT", intent: hit.action || "taught", topic: hit.topic };
+    }
+  } catch { /* never let a lesson lookup take down the engine */ }
+  return null;
+}
+
+// ── TERMINAL COMMAND LOOKUP ─────────────────────────────────────
+function findTerminalCommand(message) {
+  if (!TERMINAL_INTENT.test(message)) return null;
+  const qTokens = new Set(tokenize(message));
+  let best = null, bestScore = 0;
+  for (const [key, info] of Object.entries(TERMINAL_COMMANDS)) {
+    const score = overlap(new Set(tokenize(key)), qTokens);
+    if (score > bestScore) { bestScore = score; best = { key, info }; }
+  }
+  if (!best || bestScore === 0) return null;
+  const { key, info } = best;
+  return {
+    reply: `${info.desc}.\n\nLinux/macOS: \`${info.cmd}\`\nWindows: \`${info.win}\``,
+    action: "TERMINAL_COMMAND",
+    intent: key,
+  };
+}
+
+// ── CODE-REQUEST DETECTION ──────────────────────────────────────
+function detectCodeRequest(message) {
+  if (!CODE_INTENT.test(message)) return null;
+  let lang = "javascript";
+  for (const [name, re] of Object.entries(CODE_PATTERNS)) {
+    if (re.test(message)) { lang = name; break; }
+  }
+  return { lang };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── MAIN ENTRY POINT — process() ──────────────────────────────
+// Called by brain.js (every normal chat turn) and by server.js
+// (for "hard command" categories like weather/spotify/links).
+// This must NEVER throw — any internal error falls through to a
+// clean FALLBACK so the tutor (Groq) or an honest "don't know"
+// can take over instead of crashing the whole turn.
+// ═══════════════════════════════════════════════════════════════
+function process({ message = "", sessionId, userName, userTitle, memories, moodContext, serverData } = {}) {
+  try {
+    if (!message || !message.trim()) {
+      return { reply: "", action: "FALLBACK", intent: "fallback" };
+    }
+
+    // 1. Lessons Groq has already taught this brain (instant, free).
+    const taught = checkTaught(message);
+    if (taught) return taught;
+
+    // 2. Terminal / shell command lookups.
+    const term = findTerminalCommand(message);
+    if (term) return term;
+
+    // 3. Code-generation requests — flag for research/tutor; this
+    //    local engine doesn't write code itself (yet).
+    const code = detectCodeRequest(message);
+    if (code) {
+      return { reply: "", action: "RESEARCH", intent: "code_request", topic: message, meta: { lang: code.lang } };
+    }
+
+    // 4. Nothing local matched. Be honest — let the caller (brain.js)
+    //    decide whether to hand this off to the tutor.
+    return { reply: "", action: "FALLBACK", intent: "fallback" };
+
+  } catch (err) {
+    console.error("[AI-ENGINE] process() threw internally:", err.message);
+    return { reply: "", action: "FALLBACK", intent: "fallback" };
+  }
+}
+
+module.exports = {
+  process,
+  getPersonality,
+  tokenize,
+  overlap,
+  TERMINAL_COMMANDS,
+  CODE_PATTERNS,
+  AUTOMATION_TEMPLATES,
+};
