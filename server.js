@@ -465,7 +465,8 @@ app.get("/api/google/auth", (req, res) => {
   const profile  = profiles[userKey];
   if (!profile?.googleClientId)
     return res.status(400).send("<h2>No Google credentials saved for this user. Add them in Settings first.</h2>");
-  const url = Google.getAuthUrl(userKey, profile.googleClientId);
+  const reqHost = req.headers.host;
+  const url = Google.getAuthUrl(userKey, profile.googleClientId, reqHost);
   if (!url) return res.status(400).send("<h2>Could not build auth URL</h2>");
   res.redirect(url);
 });
@@ -482,7 +483,8 @@ app.get("/api/google/callback", async (req, res) => {
   if (!profile?.googleClientId)
     return res.send("<h2>No credentials on file for this user.</h2>");
 
-  const result = await Google.exchangeCode(code, userKey, profile.googleClientId, profile.googleClientSecret);
+  const reqHost = req.headers.host;
+  const result = await Google.exchangeCode(code, userKey, profile.googleClientId, profile.googleClientSecret, reqHost);
   if (result.error) return res.send(`<h2>Token exchange failed: ${result.error}</h2>`);
 
   // Persist tokens in the user's profile
