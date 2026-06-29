@@ -4,6 +4,16 @@
 // virtual keyboard. Fully additive — does not touch existing IDs
 // used by jarvis.js. Runs on the main screen only, reusing the
 // existing camera-feed <video> element as input.
+//
+// GESTURE EVENTS — any page can listen for these on `window`:
+//   "jarvis:swipe"  detail: { dir: "left" | "right" }   — one hand,
+//       fast horizontal motion. Use to switch monitors/modes.
+//   "jarvis:zoom"   detail: { dir: "in" | "out" }        — two hands,
+//       spreading apart = "out" (pull back to an overview), bringing
+//       together = "in" (focus back on one monitor). Mirrors the
+//       two-arm "open up the workspace" gesture from the reference
+//       footage.
+// Example: window.addEventListener("jarvis:swipe", e => { ... });
 // ═══════════════════════════════════════════════════════════════
 
 const HandTracking = (() => {
@@ -30,6 +40,19 @@ const HandTracking = (() => {
   let dwellRingEl       = null;
   let typingTargetInput = null; // input element virtual keyboard types into
   let scriptsLoaded     = false;
+
+  // ── GESTURE DETECTION STATE (swipe + two-hand zoom) ──
+  let posHistory   = [];   // {x,y,t} raw cursor samples, single hand, for swipe
+  let lastSwipeAt  = 0;
+  const SWIPE_WINDOW_MS    = 260;
+  const SWIPE_MIN_DIST_PX  = 160;
+  const SWIPE_COOLDOWN_MS  = 700;
+
+  let distHistory  = [];   // {d,t} normalized distance between two wrists, for zoom
+  let lastZoomAt   = 0;
+  const ZOOM_WINDOW_MS   = 380;
+  const ZOOM_MIN_DELTA   = 0.22;
+  const ZOOM_COOLDOWN_MS = 900;
 
   // ── BUILD DOM ──
   function buildDom() {
@@ -194,7 +217,7 @@ const HandTracking = (() => {
       locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@${MEDIAPIPE_HANDS_VERSION}/${file}`,
     });
     hands.setOptions({
-      maxNumHands: 1,
+      maxNumHands: 2,
       modelComplexity: 1,
       minDetectionConfidence: 0.6,
       minTrackingConfidence: 0.5,
@@ -247,19 +270,25 @@ const HandTracking = (() => {
     if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
       cursorEl.style.opacity = "0.15";
       clearDwell();
+      posHistory = []; distHistory = []; // no hands → gesture state can't carry over
       return;
     }
 
     const landmarks = results.multiHandLandmarks[0];
 
-    // Draw skeleton (mirrored to match the mirrored video feel)
-    drawSkeleton(landmarks);
+    // Draw skeleton for every visible hand (mirrored to match the mirrored video feel)
+    results.multiHandLandmarks.forEach(drawSkeleton);
 
     // Index fingertip = landmark 8. Mirror x because video is not flipped visually
     // (camera feed in this app is not CSS-mirrored, so map directly; flip if needed).
     const tip = landmarks[8];
     const rawX = (1 - tip.x) * window.innerWidth;  // mirror horizontally for natural pointing
     const rawY = tip.y * window.innerHeight;
+
+    // Gesture detection runs on the raw (unsmoothed) position so quick
+    // motions aren't damped out by the cursor's smoothing filter.
+    detectSwipe(rawX, rawY);
+    detectZoom(results.multiHandLandmarks);
 
     smoothX = smoothX === null ? rawX : smoothX + (rawX - smoothX) * (1 - SMOOTHING);
     smoothY = smoothY === null ? rawY : smoothY + (rawY - smoothY) * (1 - SMOOTHING);
@@ -288,6 +317,42 @@ const HandTracking = (() => {
 
     // ── Dwell click ──
     handleDwell(smoothX, smoothY);
+  }
+
+  // ── SWIPE — one hand, fast horizontal motion → "jarvis:swipe" ──
+  function detectSwipe(rawX, rawY) {
+    const now = performance.now();
+    posHistory.push({ x: rawX, y: rawY, t: now });
+    while (posHistory.length && now - posHistory[0].t > SWIPE_WINDOW_MS) posHistory.shift();
+    if (now - lastSwipeAt < SWIPE_COOLDOWN_MS || posHistory.length < 2) return;
+
+    const dx = rawX - posHistory[0].x;
+    const dy = Math.abs(rawY - posHistory[0].y);
+    if (Math.abs(dx) > SWIPE_MIN_DIST_PX && dy < Math.abs(dx) * 0.6) {
+      lastSwipeAt = now;
+      posHistory = [];
+      fireGesture("swipe", { dir: dx > 0 ? "right" : "left" });
+    }
+  }
+
+  // ── ZOOM — two hands, wrists spreading apart/together → "jarvis:zoom" ──
+  function detectZoom(allLandmarks) {
+    if (allLandmarks.length < 2) { distHistory = []; return; }
+    const w1 = allLandmarks[0][0], w2 = allLandmarks[1][0]; // wrist landmark of each hand
+    const dist = Math.hypot(w1.x - w2.x, w1.y - w2.y); // normalized 0–1 space
+
+    const now = performance.now();
+    distHistory.push({ d: dist, t: now });
+    while (distHistory.length && now - distHistory[0].t > ZOOM_WINDOW_MS) distHistory.shift();
+    if (now - lastZoomAt < ZOOM_COOLDOWN_MS || distHistory.length < 2) return;
+
+    const delta = dist - distHistory[0].d;
+    if (delta > ZOOM_MIN_DELTA)       { lastZoomAt = now; distHistory = []; fireGesture("zoom", { dir: "out" }); }
+    else if (delta < -ZOOM_MIN_DELTA) { lastZoomAt = now; distHistory = []; fireGesture("zoom", { dir: "in"  }); }
+  }
+
+  function fireGesture(type, detail) {
+    window.dispatchEvent(new CustomEvent("jarvis:" + type, { detail }));
   }
 
   function drawSkeleton(landmarks) {
