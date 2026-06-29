@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>J.A.R.V.I.S — Monitors</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="hand-tracking.css"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:'Share Tech Mono',monospace;color:#a8dff5}
+:root{
+  --blue:#00c8ff;--glow:rgba(0,200,255,0.45);--bg:#000508;
+  --dim:rgba(0,200,255,0.25);--text:#a8dff5;--dim-text:#2e5a78;
+  --amber:#ffaa00;--green:#00ff88;--red:#ff3333;
+  --hud:'Orbitron',sans-serif;
+}
+.scan{position:fixed;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,200,255,0.12),transparent);animation:scanMove 8s linear infinite;pointer-events:none;z-index:3}
+@keyframes scanMove{from{top:-2px}to{top:100vh}}
+.corner{position:fixed;width:40px;height:40px;pointer-events:none;z-index:3}
+.corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.6}
+.corner::before{width:100%;height:1.5px;top:0}.corner::after{width:1.5px;height:100%;top:0}
+.corner.tl{top:12px;left:12px}.corner.tr{top:12px;right:12px;transform:scaleX(-1)}
+.corner.bl{bottom:12px;left:12px;transform:scaleY(-1)}.corner.br{bottom:12px;right:12px;transform:scale(-1)}
+
+/* ── TOP BAR (no sidebar — everything lives on this one bar + the wall) ── */
+#top{position:fixed;top:0;left:0;right:0;height:48px;background:linear-gradient(180deg,rgba(0,4,12,0.98),rgba(0,6,18,0.85));border-bottom:1px solid rgba(0,200,255,0.18);display:flex;align-items:center;justify-content:space-between;padding:0 18px;z-index:60}
+.top-title{font-family:var(--hud);font-size:0.82rem;font-weight:900;letter-spacing:0.4em;color:var(--blue);text-shadow:0 0 16px var(--glow)}
+.top-right{display:flex;align-items:center;gap:10px;font-size:0.5rem;letter-spacing:0.18em;color:var(--dim-text)}
+#mode-label{color:var(--blue);font-family:var(--hud)}
+.top-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.22);color:var(--dim-text);font-family:var(--hud);font-size:0.36rem;letter-spacing:0.18em;padding:6px 11px;cursor:pointer;text-decoration:none;transition:all 0.2s;border-radius:2px}
+.top-btn:hover{border-color:var(--blue);color:var(--blue)}
+.top-btn.on{color:#000508;background:var(--blue);border-color:var(--blue)}
+
+/* ── THE WALL — 3D-ish carousel / overview stage ── */
+#wall{position:fixed;top:48px;left:0;right:0;bottom:150px;perspective:1400px;overflow:hidden}
+#carousel{position:absolute;inset:0}
+.monitor-card{position:absolute;top:50%;left:50%;width:560px;height:360px;margin:-180px 0 0 -280px;
+  background:rgba(0,8,18,0.82);border:1px solid rgba(0,200,255,0.25);border-radius:5px;
+  box-shadow:0 0 50px rgba(0,200,255,0.08);overflow:hidden;
+  transition:transform 0.55s cubic-bezier(.22,.9,.3,1), opacity 0.5s ease;will-change:transform,opacity}
+.monitor-card.focused{border-color:rgba(0,200,255,0.55);box-shadow:0 0 70px rgba(0,200,255,0.22)}
+.mc-head{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;border-bottom:1px solid rgba(0,200,255,0.12);background:rgba(0,200,255,0.04);flex-shrink:0}
+.mc-title{font-family:var(--hud);font-size:0.5rem;letter-spacing:0.2em;color:var(--blue);display:flex;align-items:center;gap:8px}
+.mc-title .ico{font-size:0.85rem}
+.mc-idx{font-size:0.4rem;color:var(--dim-text);letter-spacing:0.12em}
+.mc-body{position:absolute;inset:0;top:36px}
+.mc-frame-zone{position:absolute;inset:0;cursor:pointer;z-index:5}
+.mc-frame-zone.interactive{pointer-events:none;cursor:default}
+.mc-iframe{width:100%;height:100%;border:none;background:#000508}
+
+/* MONITOR (system) card content */
+.sys-grid{position:absolute;inset:0;top:0;display:flex;flex-direction:column;padding:8px 12px;gap:8px}
+.sys-row{display:flex;gap:8px;flex:1;min-height:0}
+.sys-panel{flex:1;background:rgba(0,8,18,0.5);border:1px solid rgba(0,200,255,0.1);border-radius:3px;display:flex;flex-direction:column;overflow:hidden}
+#feed-video{width:100%;height:100%;object-fit:cover;filter:saturate(0.8) brightness(0.9) hue-rotate(180deg) contrast(1.1);opacity:0.92}
+.feed-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;font-size:0.52rem;color:var(--dim-text);letter-spacing:0.08em;padding:14px;line-height:1.6}
+.tele-row{display:flex;align-items:center;gap:6px;padding:5px 10px;font-size:0.5rem}
+.tele-label{color:var(--dim-text);width:26px}
+.tele-bar-wrap{flex:1;height:3px;background:rgba(0,200,255,0.08);border-radius:2px;overflow:hidden}
+.tele-bar{height:100%;background:var(--blue);box-shadow:0 0 5px var(--blue)}
+.tele-val{color:var(--text);width:30px;text-align:right}
+#ticker-wrap{height:22px;background:rgba(0,8,18,0.6);border:1px solid rgba(0,200,255,0.1);border-radius:3px;overflow:hidden;position:relative;flex-shrink:0}
+#ticker-track{position:absolute;white-space:nowrap;font-size:0.5rem;top:50%;transform:translateY(-50%);animation:tickerScroll 30s linear infinite}
+#ticker-track span{margin-right:36px}.up{color:var(--green)}
+
+/* NEWS card content */
+.news-controls{display:flex;gap:4px;padding:7px 10px;flex-wrap:wrap;border-bottom:1px solid rgba(0,200,255,0.08)}
+.news-cat-btn{font-family:var(--hud);font-size:0.32rem;letter-spacing:0.1em;color:var(--dim-text);border:1px solid rgba(0,200,255,0.15);padding:4px 8px;border-radius:8px;cursor:pointer;background:none}
+.news-cat-btn.active{color:var(--blue);border-color:var(--blue)}
+.news-list{position:absolute;top:32px;left:0;right:0;bottom:0;overflow-y:auto;padding:6px 10px;scrollbar-width:thin}
+.news-item{display:block;padding:8px 6px;border-bottom:1px solid rgba(0,200,255,0.06);text-decoration:none;color:var(--text)}
+.news-item:hover{background:rgba(0,200,255,0.06)}
+.news-item-title{font-size:0.62rem;line-height:1.4;margin-bottom:3px}
+.news-item-meta{font-size:0.42rem;color:var(--dim-text);letter-spacing:0.05em}
+.news-loading,.news-error{padding:20px;font-size:0.55rem;color:var(--dim-text);text-align:center;line-height:1.7}
+
+/* ── INDICATOR RAIL (slim, under the wall — not a sidebar) ── */
+#rail{position:fixed;left:0;right:0;bottom:150px;height:0;display:flex;justify-content:center;z-index:40}
+#rail-pills{position:absolute;bottom:8px;display:flex;gap:8px;background:rgba(0,4,12,0.7);border:1px solid rgba(0,200,255,0.15);border-radius:14px;padding:6px 10px}
+.rail-pill{font-family:var(--hud);font-size:0.32rem;letter-spacing:0.1em;color:var(--dim-text);padding:4px 9px;border-radius:10px;cursor:pointer;white-space:nowrap}
+.rail-pill.active{color:#000508;background:var(--blue)}
+
+/* ── PERSISTENT JARVIS CHAT (bottom — identical on every monitor) ── */
+#reply-toast{position:fixed;left:0;right:0;bottom:158px;display:flex;justify-content:center;z-index:70;pointer-events:none}
+#reply-card{max-width:640px;width:88%;background:rgba(0,4,14,0.97);border:1px solid rgba(0,200,255,0.4);box-shadow:0 0 36px rgba(0,200,255,0.15);border-radius:3px;padding:10px 18px;opacity:0;transform:translateY(6px);transition:all 0.25s}
+#reply-card.show{opacity:1;transform:translateY(0)}
+.rt-label{font-family:var(--hud);font-size:0.3rem;letter-spacing:0.26em;color:rgba(0,200,255,0.5);margin-bottom:4px}
+#reply-text{font-size:0.7rem;color:var(--text);line-height:1.5}
+
+#chat-bar{position:fixed;bottom:0;left:0;right:0;height:102px;background:rgba(0,3,10,0.97);border-top:1px solid rgba(0,200,255,0.15);z-index:65;display:flex;flex-direction:column;padding:9px 18px}
+.nav-cluster{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.nav-btn{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.16em;color:var(--dim-text);border:1px solid rgba(0,200,255,0.18);background:rgba(0,200,255,0.04);padding:6px 12px;border-radius:2px;cursor:pointer}
+.nav-btn:hover{color:var(--blue);border-color:var(--blue)}
+.cb-row{display:flex;align-items:center;gap:8px;flex:1}
+#cmd-input{flex:1;background:rgba(0,200,255,0.05);border:1px solid rgba(0,200,255,0.18);border-radius:2px;color:var(--text);font-family:'Share Tech Mono',monospace;font-size:0.8rem;padding:0 14px;height:36px;outline:none}
+#cmd-input:focus{border-color:rgba(0,200,255,0.5)}
+#cmd-input::placeholder{color:var(--dim-text);opacity:0.7}
+#voice-btn,#send-btn{background:rgba(0,200,255,0.07);border:1px solid rgba(0,200,255,0.22);border-radius:2px;color:var(--blue);height:36px;cursor:pointer;flex-shrink:0}
+#voice-btn{font-size:1rem;padding:0 12px}
+#voice-btn.listening{color:var(--red);background:rgba(255,51,51,0.1);animation:micPulse 0.8s ease-in-out infinite}
+@keyframes micPulse{0%,100%{opacity:1}50%{opacity:0.4}}
+#send-btn{font-family:var(--hud);font-size:0.38rem;letter-spacing:0.18em;padding:0 15px}
+.ib-hint{font-size:0.34rem;color:rgba(0,200,255,0.3);letter-spacing:0.06em;margin-top:5px}
+@keyframes tickerScroll{from{left:0}to{left:-100%}}
+
+@media (max-width:760px){
+  .monitor-card{width:300px;height:220px;margin:-110px 0 0 -150px}
+  #wall{bottom:158px}#rail{bottom:158px}
+}
+</style>
+</head>
+<body>
+
+<div class="scan"></div>
+<div class="corner tl"></div><div class="corner tr"></div>
+<div class="corner bl"></div><div class="corner br"></div>
+
+<div id="top">
+  <div class="top-title">J.A.R.V.I.S</div>
+  <div class="top-right">
+    <span>MODE:</span><span id="mode-label">FOCUS</span>
+    <button class="top-btn" id="hand-toggle" onclick="toggleHandControl()">🖐 HAND CONTROL: OFF</button>
+    <a class="top-btn" href="index.html">← MAIN HUD</a>
+  </div>
+</div>
+
+<div id="wall"><div id="carousel"></div></div>
+<div id="rail"><div id="rail-pills"></div></div>
+
+<div id="reply-toast"><div id="reply-card"><div class="rt-label">J.A.R.V.I.S</div><div id="reply-text"></div></div></div>
+
+<div id="chat-bar">
+  <div class="nav-cluster">
+    <button class="nav-btn" onclick="manualSwipe('left')">‹ PREV</button>
+    <button class="nav-btn" onclick="toggleOverview()">⇕ OVERVIEW / FOCUS</button>
+    <button class="nav-btn" onclick="manualSwipe('right')">NEXT ›</button>
+    <span class="ib-hint" style="margin:0">— or swipe one hand to switch, spread both hands to see all monitors at once</span>
+  </div>
+  <div class="cb-row">
+    <input id="cmd-input" type="text" placeholder="Talk to JARVIS — works on every monitor… try “show me the news”" autocomplete="off"/>
+    <button id="voice-btn" title="Voice input">🎙</button>
+    <button id="send-btn" onclick="sendCommand()">SEND</button>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// MONITORS
+// ═══════════════════════════════════════════════════════════════
+const MONITORS = [
+  { id: 'monitor',   label: 'MONITOR',   ico: '▣' },
+  { id: 'news',      label: 'NEWS',      ico: '▤' },
+  { id: 'workspace', label: 'WORKSPACE', ico: '⬡', file: 'hologram-workspace.html' },
+  { id: 'blueprint', label: 'BLUEPRINT', ico: '◫', file: 'blueprint-mode.html' },
+  { id: 'viewer',    label: 'VIEWER',    ico: '◈', file: 'hologram-viewer.html' },
+  { id: 'comms',     label: 'COMMS',     ico: '☎', file: 'comms.html' },
+];
+let focusedIndex = 0;
+let mode = 'focus'; // 'focus' | 'overview'
+const loadedFrames = new Set();
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function buildCards() {
+  const carousel = document.getElementById('carousel');
+  carousel.innerHTML = MONITORS.map((m, i) => `
+    <div class="monitor-card" data-i="${i}">
+      <div class="mc-head">
+        <span class="mc-title"><span class="ico">${m.ico}</span>${m.label}</span>
+        <span class="mc-idx">${i + 1} / ${MONITORS.length}</span>
+      </div>
+      <div class="mc-body">
+        <div class="mc-frame-zone" data-i="${i}"></div>
+        ${m.id === 'monitor' ? monitorMarkup() : m.id === 'news' ? newsMarkup() : `<iframe class="mc-iframe" id="frame-${m.id}" title="${m.label}"></iframe>`}
+      </div>
+    </div>
+  `).join('');
+
+  document.querySelectorAll('.mc-frame-zone').forEach(zone => {
+    zone.addEventListener('click', () => focusMonitor(parseInt(zone.dataset.i, 10)));
+  });
+}
+
+function monitorMarkup() {
+  return `
+    <div class="sys-grid">
+      <div class="sys-row" style="flex:1.3">
+        <div class="sys-panel" style="position:relative">
+          <video id="feed-video" autoplay muted playsinline></video>
+          <div class="feed-placeholder" id="feed-placeholder">Camera offline, Sir.<br/>Turn on hand control (top right) to bring the feed up.</div>
+        </div>
+      </div>
+      <div class="sys-row" style="flex:0.7">
+        <div class="sys-panel">
+          <div class="tele-row"><span class="tele-label">CPU</span><div class="tele-bar-wrap"><div class="tele-bar" id="bar-cpu" style="width:38%"></div></div><span class="tele-val" id="val-cpu">38%</span></div>
+          <div class="tele-row"><span class="tele-label">MEM</span><div class="tele-bar-wrap"><div class="tele-bar" id="bar-mem" style="width:54%"></div></div><span class="tele-val" id="val-mem">54%</span></div>
+          <div class="tele-row"><span class="tele-label">NET</span><div class="tele-bar-wrap"><div class="tele-bar" id="bar-net" style="width:21%"></div></div><span class="tele-val" id="val-net">21%</span></div>
+        </div>
+      </div>
+      <div id="ticker-wrap"><div id="ticker-track"></div></div>
+    </div>`;
+}
+
+const NEWS_CATS = ['general', 'technology', 'business', 'science', 'health', 'sports', 'entertainment'];
+function newsMarkup() {
+  return `
+    <div class="news-controls" id="news-controls">
+      ${NEWS_CATS.map(c => `<button class="news-cat-btn${c === 'general' ? ' active' : ''}" data-cat="${c}">${c.toUpperCase()}</button>`).join('')}
+    </div>
+    <div class="news-list" id="news-list"><div class="news-loading">Say “jarvis show me the news,” or pick a category, Sir.</div></div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LAYOUT — carousel "focus" vs scattered "overview"
+// ═══════════════════════════════════════════════════════════════
+function layout() {
+  document.getElementById('mode-label').textContent = mode.toUpperCase();
+  document.querySelectorAll('.monitor-card').forEach(card => {
+    const i = parseInt(card.dataset.i, 10);
+    const zone = card.querySelector('.mc-frame-zone');
+    if (mode === 'focus') {
+      const off = i - focusedIndex, abs = Math.abs(off);
+      const tx = off * 360, tz = -abs * 140, scale = Math.max(0.32, 1 - abs * 0.24), rot = off * -16;
+      card.style.transform = `translate(-50%,-50%) translate3d(${tx}px,0,${tz}px) rotateY(${rot}deg) scale(${scale})`;
+      card.style.opacity = abs > 3 ? 0 : Math.max(0, 1 - abs * 0.32);
+      card.style.zIndex = 100 - abs;
+      card.classList.toggle('focused', off === 0);
+      zone.classList.toggle('interactive', off === 0);
+    } else {
+      const cols = 3, col = i % cols, row = Math.floor(i / cols);
+      const gx = (col - 1) * 320, gy = (row - 0.5) * 250;
+      card.style.transform = `translate(-50%,-50%) translate3d(${gx}px,${gy}px,0) scale(0.46)`;
+      card.style.opacity = 1;
+      card.style.zIndex = 10;
+      card.classList.toggle('focused', i === focusedIndex);
+      zone.classList.remove('interactive');
+    }
+  });
+  document.querySelectorAll('.rail-pill').forEach(p => p.classList.toggle('active', parseInt(p.dataset.i, 10) === focusedIndex));
+}
+
+function buildRail() {
+  document.getElementById('rail-pills').innerHTML = MONITORS.map((m, i) =>
+    `<span class="rail-pill" data-i="${i}" onclick="focusMonitor(${i})">${m.ico} ${m.label}</span>`
+  ).join('');
+}
+
+function lazyLoad(i) {
+  const m = MONITORS[i];
+  if (!m.file || loadedFrames.has(m.id)) return;
+  document.getElementById('frame-' + m.id).src = m.file;
+  loadedFrames.add(m.id);
+}
+
+function focusMonitor(i) {
+  focusedIndex = Math.max(0, Math.min(MONITORS.length - 1, i));
+  mode = 'focus';
+  lazyLoad(focusedIndex);
+  layout();
+  if (MONITORS[focusedIndex].id === 'news') loadNews(currentNewsCat);
+}
+
+function manualSwipe(dir) {
+  focusedIndex = dir === 'right'
+    ? Math.min(MONITORS.length - 1, focusedIndex + 1)
+    : Math.max(0, focusedIndex - 1);
+  if (mode === 'focus') lazyLoad(focusedIndex);
+  layout();
+}
+
+function toggleOverview() {
+  mode = mode === 'overview' ? 'focus' : 'overview';
+  if (mode === 'focus') lazyLoad(focusedIndex);
+  layout();
+}
+
+document.addEventListener('keydown', e => {
+  if (e.target.id === 'cmd-input') return;
+  if (e.key === 'ArrowRight') manualSwipe('right');
+  if (e.key === 'ArrowLeft') manualSwipe('left');
+  if (e.key.toLowerCase() === 'o') toggleOverview();
+});
+
+buildCards();
+buildRail();
+layout();
+
+// News category buttons (event-delegated since markup is rebuilt)
+let currentNewsCat = 'general';
+document.addEventListener('click', e => {
+  const btn = e.target.closest('.news-cat-btn');
+  if (!btn) return;
+  currentNewsCat = btn.dataset.cat;
+  document.querySelectorAll('.news-cat-btn').forEach(b => b.classList.toggle('active', b === btn));
+  loadNews(currentNewsCat);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// HAND GESTURES — swipe switches monitors, two-hand zoom switches mode
+// (fired by hand-tracking.js; see its header comment for the contract)
+// ═══════════════════════════════════════════════════════════════
+window.addEventListener('jarvis:swipe', e => manualSwipe(e.detail.dir === 'right' ? 'right' : 'left'));
+window.addEventListener('jarvis:zoom', e => {
+  const want = e.detail.dir === 'out' ? 'overview' : 'focus';
+  if (mode !== want) toggleOverview();
+});
+
+function toggleHandControl() {
+  const btn = document.getElementById('hand-toggle');
+  if (!window.HandTracking) { btn.textContent = '🖐 HAND CONTROL: UNAVAILABLE'; return; }
+  if (HandTracking.active) {
+    HandTracking.stop();
+    btn.textContent = '🖐 HAND CONTROL: OFF';
+    btn.classList.remove('on');
+  } else {
+    HandTracking.start();
+    btn.textContent = '🖐 HAND CONTROL: ON';
+    btn.classList.add('on');
+    document.getElementById('feed-placeholder')?.style.setProperty('display', 'none');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MONITOR SCREEN — cosmetic telemetry + ticker (camera is real,
+// powered by the same feed hand-tracking.js uses)
+// ═══════════════════════════════════════════════════════════════
+function rand(a, b) { return Math.floor(Math.random() * (b - a) + a); }
+function tickTelemetry() {
+  ['cpu', 'mem', 'net'].forEach(k => {
+    const v = rand(15, 70);
+    const bar = document.getElementById('bar-' + k), val = document.getElementById('val-' + k);
+    if (bar) bar.style.width = v + '%';
+    if (val) val.textContent = v + '%';
+  });
+}
+setInterval(tickTelemetry, 3000);
+
+const TICKER_ITEMS = ['LEARNED INTENTS: +3 TODAY', 'TUTOR CALLS: NOMINAL', 'SELF-SUFFICIENCY: TRENDING UP', 'NETWORK: STABLE', 'POWER DRAW: WITHIN LIMITS'];
+(function initTicker() {
+  const el = document.getElementById('ticker-track');
+  if (el) el.innerHTML = TICKER_ITEMS.concat(TICKER_ITEMS).map(t => `<span>${t}</span>`).join('');
+})();
+
+// ═══════════════════════════════════════════════════════════════
+// NEWS — real headlines via /api/news (server-side NEWS_API_KEY)
+// ═══════════════════════════════════════════════════════════════
+async function loadNews(category) {
+  const list = document.getElementById('news-list');
+  if (!list) return;
+  list.innerHTML = '<div class="news-loading">Pulling headlines, Sir…</div>';
+  try {
+    const res = await fetch(`/api/news?category=${encodeURIComponent(category || 'general')}`);
+    const d = await res.json();
+    if (d.error) { list.innerHTML = `<div class="news-error">${escapeHtml(d.error)}</div>`; return; }
+    if (!d.articles || !d.articles.length) { list.innerHTML = '<div class="news-error">No headlines came back, Sir.</div>'; return; }
+    list.innerHTML = d.articles.map(a => `
+      <a class="news-item" href="${a.url || '#'}" target="_blank" rel="noopener">
+        <div class="news-item-title">${escapeHtml(a.title || 'Untitled')}</div>
+        <div class="news-item-meta">${escapeHtml(a.source || '')}${a.publishedAt ? ' · ' + new Date(a.publishedAt).toLocaleString() : ''}</div>
+      </a>`).join('');
+  } catch {
+    list.innerHTML = '<div class="news-error">Could not reach the news service, Sir.</div>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PERSISTENT JARVIS CHAT — identical on every monitor, and JARVIS
+// proactively switches/populates a monitor when it recognises what
+// you're asking for (news, workspace, blueprint, etc.)
+// ═══════════════════════════════════════════════════════════════
+const sessionId = 'wall_' + Math.random().toString(36).slice(2);
+let replyTimer = null;
+function showReply(text) {
+  const card = document.getElementById('reply-card');
+  document.getElementById('reply-text').textContent = text;
+  card.classList.add('show');
+  clearTimeout(replyTimer);
+  replyTimer = setTimeout(() => card.classList.remove('show'), 9000);
+}
+
+function indexOf(id) { return MONITORS.findIndex(m => m.id === id); }
+
+// Returns true if it recognised an intent and switched/populated a screen.
+function routeProactively(text) {
+  const lower = text.toLowerCase();
+  const cat = NEWS_CATS.find(c => c !== 'general' && lower.includes(c));
+  if (/\bnews\b/.test(lower) || cat) {
+    focusMonitor(indexOf('news'));
+    currentNewsCat = cat || 'general';
+    document.querySelectorAll('.news-cat-btn').forEach(b => b.classList.toggle('active', b.dataset.cat === currentNewsCat));
+    loadNews(currentNewsCat);
+    return true;
+  }
+  if (/\bworkspace\b|\bhologram(ic)? workspace\b/.test(lower)) { focusMonitor(indexOf('workspace')); return true; }
+  if (/\bblueprint\b/.test(lower)) { focusMonitor(indexOf('blueprint')); return true; }
+  if (/\bcomms\b|\bphone\b|\bcall\b|\bvideo call\b/.test(lower)) { focusMonitor(indexOf('comms')); return true; }
+  if (/\bviewer\b|\b3d (scan|view|model)\b/.test(lower)) { focusMonitor(indexOf('viewer')); return true; }
+  if (/\b(system status|main monitor|camera feed|telemetry)\b/.test(lower)) { focusMonitor(indexOf('monitor')); return true; }
+  return false;
+}
+
+async function sendToJarvis(text) {
+  routeProactively(text); // switch/populate a screen if JARVIS recognises the ask
+  showReply('…');
+  try {
+    const res = await fetch('/api/chat', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text, sessionId, userName: 'Operator', userTitle: 'Sir', memories: [] }),
+    });
+    const data = await res.json();
+    showReply(data.reply || "I'm here, Sir — go ahead.");
+  } catch {
+    showReply(`Server unreachable right now, Sir. I heard: "${text}".`);
+  }
+}
+
+function sendCommand() {
+  const input = document.getElementById('cmd-input');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  sendToJarvis(text);
+}
+document.getElementById('cmd-input').addEventListener('keydown', e => { if (e.key === 'Enter') sendCommand(); });
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null, isListening = false;
+document.getElementById('voice-btn').addEventListener('click', () => {
+  if (!SR) { showReply('Voice recognition not available in this browser, Sir. Try Chrome.'); return; }
+  if (isListening) { recognition.stop(); return; }
+  recognition = new SR();
+  recognition.lang = 'en-US'; recognition.interimResults = false;
+  recognition.onstart = () => { isListening = true; document.getElementById('voice-btn').classList.add('listening'); };
+  recognition.onend = () => { isListening = false; document.getElementById('voice-btn').classList.remove('listening'); };
+  recognition.onresult = e => { const text = e.results[0][0].transcript; document.getElementById('cmd-input').value = text; sendToJarvis(text); };
+  recognition.onerror = () => { isListening = false; document.getElementById('voice-btn').classList.remove('listening'); };
+  recognition.start();
+});
+
+setTimeout(() => showReply('Six monitors up, Sir. Swipe a hand to switch, spread both hands to see them all — and I\'ll answer no matter which one is focused.'), 1200);
+</script>
+<script src="hand-tracking.js"></script>
+</body>
+</html>
