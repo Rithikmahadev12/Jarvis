@@ -290,6 +290,12 @@ const HandTracking = (() => {
     detectSwipe(rawX, rawY);
     detectZoom(results.multiHandLandmarks);
 
+    // Broadcast raw landmark data so other pages can do custom gesture detection
+    // (e.g. monitor-wall.html uses this for raise-both-wrists → overview toggle)
+    window.dispatchEvent(new CustomEvent('jarvis:handframe', {
+      detail: { allLandmarks: results.multiHandLandmarks }
+    }));
+
     smoothX = smoothX === null ? rawX : smoothX + (rawX - smoothX) * (1 - SMOOTHING);
     smoothY = smoothY === null ? rawY : smoothY + (rawY - smoothY) * (1 - SMOOTHING);
 
