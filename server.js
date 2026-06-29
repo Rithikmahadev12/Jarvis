@@ -9,6 +9,7 @@ const AI          = require("./ai-engine");
 const Research    = require("./research");
 const Personality = require("./personality");
 const Weather     = require("./weather");
+const News        = require("./news");
 const Spotify     = require("./spotify");
 const Google      = require("./google");
 const DIY         = require("./diy-builder");
@@ -166,6 +167,21 @@ function getAllLinksFormatted() {
 
 // ── LINKS API ─────────────────────────────────────────────────
 app.get("/api/links",         (req, res) => res.json({ groups: Object.keys(LINKS), summary: getLinksSummary(), all: getAllLinksFormatted() }));
+
+// ── NEWS — used by the Monitor screen and by "jarvis show me the news" ──
+// ?category=technology|business|entertainment|general|health|science|sports
+// ?q=some+search+term   (overrides category, searches everything instead)
+app.get("/api/news", async (req, res) => {
+  try {
+    const { q, category, country } = req.query;
+    const result = q
+      ? await News.searchNews(q)
+      : await News.fetchTopHeadlines({ category: category || "general", country: country || "us" });
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 app.get("/api/links/summary", (req, res) => res.json(getLinksSummary()));
 app.get("/api/links/all",     (req, res) => res.json({ links: getAllLinksFormatted() }));
 app.get("/api/brain/stats", (req, res) => res.json(Brain.getGrowthStats()));
