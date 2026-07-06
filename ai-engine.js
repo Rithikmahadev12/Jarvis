@@ -9,14 +9,14 @@
 const fs   = require("fs");
 const path = require("path");
 
-// ── LAZY GROQ LOADER ───────────────────────────────────────────
-// Used to check what Groq has TAUGHT this brain previously, before
+// ── LAZY HERMES LOADER ─────────────────────────────────────────
+// Used to check what Hermes has TAUGHT this brain previously, before
 // giving up with a fallback. Lazy + try/catch so a missing or
-// broken groq-engine.js never takes down the local rule engine.
+// broken hermes-engine.js never takes down the local rule engine.
 let _Groq = null;
 function getGroq() {
   if (_Groq === null) {
-    try { _Groq = require("./groq-engine"); } catch { _Groq = false; }
+    try { _Groq = require("./hermes-engine"); } catch { _Groq = false; }
   }
   return _Groq || null;
 }
