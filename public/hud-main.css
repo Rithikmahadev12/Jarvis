@@ -1,0 +1,80 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — MAIN SCREEN HUD REFRESH v1.0
+   Additive only — layers on top of style.css / glass-ui.css /
+   daily-briefing.css (whose .bf-donut / .bf-ring-dot / .bf-stat-block
+   / .bf-panel-label classes are reused here for a consistent look).
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Top-bar mini globe behind the orb ──────────────────────── */
+.orb-globe-wrap {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#orb-globe-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.orb-globe-wrap .orb {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Ambient particle globe behind the transcript ───────────── */
+.transcript-column { position: relative; }
+#ambient-globe-canvas {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(70%, 420px);
+  height: min(70%, 420px);
+  opacity: 0.16;
+  pointer-events: none;
+  z-index: 0;
+}
+.transcript-column > *:not(#ambient-globe-canvas) {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── Compact icon-only extension link (was a full-width button) ── */
+.ext-btn-icon {
+  align-self: flex-start;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0,200,255,0.2);
+  border-radius: 8px;
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 1rem;
+  transition: all 0.2s ease;
+}
+.ext-btn-icon:hover { color: var(--blue); background: var(--blue-deep); border-color: var(--blue); }
+
+/* ── Ring-dot rows reused from daily-briefing.css, made compact + clickable here ── */
+.bf-ring-row { display: flex; justify-content: flex-start; gap: 8px; flex-wrap: wrap; }
+.q-ring-btn { cursor: pointer; }
+.q-ring-btn:hover {
+  border-color: var(--blue);
+  color: var(--blue);
+  box-shadow: 0 0 10px var(--blue-glow);
+  transform: translateY(-1px);
+}
+
+.bf-donut-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; padding-bottom: 14px; }
+.bf-donut { width: 92px; height: 92px; }
+.bf-donut-label { font-size: 0.85rem; }
+
+@media (max-width: 900px) {
+  #ambient-globe-canvas { width: 60vw; height: 60vw; }
+}
