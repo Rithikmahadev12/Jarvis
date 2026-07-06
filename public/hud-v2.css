@@ -1,0 +1,181 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — HUD v2 "RADAR CONSOLE" RESKIN
+   Loads last. Overrides the glassmorphism look with a flat, dense,
+   dot-grid radar-console aesthetic (thin hairlines, monospace data,
+   a large central particle globe with ring, no blur / no radius).
+   Pure visual layer — no ids/classes used by JS are removed.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  --hv2-line:   rgba(70,190,255,0.28);
+  --hv2-line-soft: rgba(70,190,255,0.12);
+  --hv2-glow:   rgba(70,190,255,0.55);
+  --hv2-text:   #bfe9ff;
+  --hv2-dim:    #4d7f9c;
+  --hv2-mono:   'Share Tech Mono', 'Consolas', monospace;
+}
+
+/* ── KILL THE GLASS LOOK ───────────────────────────────────────── */
+.top-bar, .side-panel, .input-bar, .camera-feed-wrap, .camera-feed,
+.auth-container, .setup-container, .intro-glass-card,
+.hud-btn, .q-btn, .msg.jarvis .msg-text, .msg.user .msg-text,
+.link-group, .bf-stat-block, .stat-item {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* ── BACKGROUND — deep navy with a fine dot-grid, like a radar sweep table ── */
+body {
+  background:
+    radial-gradient(circle at 1px 1px, rgba(70,190,255,0.14) 1px, transparent 1.6px) 0 0/26px 26px,
+    radial-gradient(ellipse 1400px 900px at 50% 20%, rgba(20,90,150,0.10), transparent 60%),
+    linear-gradient(180deg, #020509 0%, #01070d 55%, #010508 100%) !important;
+}
+.global-grid { opacity: 0.5; }
+
+/* ── TOP BAR — thinner, flat, hairline only ─────────────────────── */
+.top-bar {
+  background: rgba(2,8,14,0.65) !important;
+  border-bottom: 1px solid var(--hv2-line) !important;
+  height: 54px;
+}
+.tb-val { color: var(--hv2-text); font-family: var(--hv2-mono); font-weight: 400; }
+.top-title { letter-spacing: 0.4em; font-size: 0.95rem; text-shadow: 0 0 14px var(--hv2-glow); }
+
+/* ── SIDE PANELS — transparent console columns, hairline dividers ── */
+.side-panel {
+  background: rgba(1,8,14,0.35) !important;
+  border-color: var(--hv2-line-soft) !important;
+}
+.left-panel { border-right: 1px solid var(--hv2-line-soft) !important; }
+.right-panel { border-left: 1px solid var(--hv2-line-soft) !important; }
+.panel-header {
+  background: transparent !important;
+  border-bottom: 1px solid var(--hv2-line-soft) !important;
+  color: var(--hv2-dim);
+  font-size: 0.42rem;
+}
+.panel-section { border-bottom: 1px solid rgba(70,190,255,0.05) !important; }
+
+/* Camera stays useful but flatter / smaller so it reads as one log entry, not a hero element */
+.camera-wrap { padding-top: 8px; }
+.camera-feed-wrap { aspect-ratio: 16/10; }
+.camera-feed { border: 1px solid var(--hv2-line) !important; opacity: 0.8; }
+
+/* Stat blocks -> thin bracket rows, no card / no radius, monospace values */
+.bf-stat-block {
+  background: transparent !important;
+  border: none !important;
+  border-top: 1px solid rgba(70,190,255,0.08) !important;
+  padding: 8px 0 !important;
+  gap: 2px !important;
+}
+.bf-stat-block-label { font-size: 0.42rem; letter-spacing: 0.2em; color: var(--hv2-dim); }
+.bf-stat-block-val { font-family: var(--hv2-mono) !important; font-size: 0.72rem !important; color: var(--hv2-text); }
+
+/* Ring-dot quick actions -> square data chips, tighter, less "app icon" */
+.bf-ring-dot {
+  border-radius: 2px !important;
+  width: 24px; height: 20px;
+  border-color: rgba(70,190,255,0.25) !important;
+  font-size: 0.48rem !important;
+}
+.bf-ring-dot.done, .bf-ring-dot.active { box-shadow: 0 0 6px var(--hv2-glow) !important; }
+
+/* Donut — keep the ring but flatten the inset + tighten text */
+.bf-donut::before { background: #010a12 !important; box-shadow: none !important; }
+.bf-donut-label { font-family: var(--hv2-mono); font-size: 0.8rem !important; }
+.bf-donut-caption { font-size: 0.5rem; }
+
+/* ── CENTER STAGE — the transcript column becomes a radar console ── */
+.transcript-header { background: transparent !important; border-bottom: 1px solid var(--hv2-line-soft) !important; }
+.th-title { color: var(--hv2-dim); font-size: 0.36rem; }
+
+/* Big, bright, central particle globe with a scan ring around it */
+#ambient-globe-canvas {
+  width: min(84%, 560px) !important;
+  height: min(84%, 560px) !important;
+  opacity: 0.85 !important;
+}
+.transcript-column::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: min(60%, 400px); height: min(60%, 400px);
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(70,190,255,0.18);
+  border-radius: 50%;
+  box-shadow: 0 0 40px rgba(0,150,255,0.06) inset;
+  pointer-events: none;
+  z-index: 0;
+  animation: hv2RingSpin 40s linear infinite;
+}
+.transcript-column::after {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: min(74%, 480px); height: min(74%, 480px);
+  transform: translate(-50%, -50%);
+  border: 1px dashed rgba(70,190,255,0.10);
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  animation: hv2RingSpin 70s linear infinite reverse;
+}
+@keyframes hv2RingSpin { from { transform: translate(-50%,-50%) rotate(0deg); } to { transform: translate(-50%,-50%) rotate(360deg); } }
+
+/* Log lines instead of chat bubbles — dense, left-aligned, monospace, no card bg */
+.msg { gap: 1px !important; }
+.msg.user, .msg.jarvis, .msg.system { align-items: stretch !important; }
+.msg-label {
+  font-family: var(--hv2-mono);
+  font-size: 0.42rem !important;
+  letter-spacing: 0.14em !important;
+  color: var(--hv2-dim) !important;
+}
+.msg-text {
+  font-family: var(--hv2-mono) !important;
+  font-size: 0.78rem !important;
+  line-height: 1.5 !important;
+  max-width: 100% !important;
+  padding: 6px 10px !important;
+  background: rgba(2,10,18,0.55) !important;
+  border-radius: 0 !important;
+  text-align: left !important;
+}
+.msg.user .msg-text { border: none !important; border-right: 2px solid rgba(70,190,255,0.35) !important; }
+.msg.jarvis .msg-text { border: none !important; border-left: 2px solid var(--hv2-glow) !important; }
+.msg.system .msg-text {
+  border: 1px solid rgba(70,190,255,0.14) !important;
+  color: var(--hv2-dim) !important;
+  background: rgba(2,10,18,0.4) !important;
+  text-align: left !important;
+  font-size: 0.68rem !important;
+}
+
+/* Waveform readout — framed like a scope, not floating free */
+#waveform-canvas {
+  border: 1px solid var(--hv2-line-soft);
+  background: rgba(2,10,18,0.4);
+  padding: 4px 8px;
+}
+
+/* Input bar — hairline console prompt, not a rounded glass pill */
+.input-bar {
+  background: rgba(2,10,18,0.5) !important;
+  border: 1px solid var(--hv2-line) !important;
+  margin: 6px 16px !important;
+}
+.input-bar-prefix { color: var(--hv2-glow); }
+
+/* Corner brackets read a touch more "targeting reticle" */
+.corner::before, .corner::after { background: var(--hv2-glow); }
+.corner .pip { background: var(--hv2-glow); box-shadow: 0 0 10px var(--hv2-glow), 0 0 22px var(--hv2-line); }
+
+@media (max-width: 900px) {
+  #ambient-globe-canvas { width: 70vw !important; height: 70vw !important; }
+  .transcript-column::before { width: 55vw; height: 55vw; }
+  .transcript-column::after  { width: 68vw; height: 68vw; }
+}
