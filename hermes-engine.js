@@ -1,29 +1,30 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Hermes Engine v3.0
-// Talks to Nous Research's Hermes models via OpenRouter's OpenAI-
-// compatible endpoint. Exports the same interface the rest of the
-// app expects (brain.js / server.js / ai-engine.js all
-// require("./hermes-engine")), so nothing else needs to change.
+// J.A.R.V.I.S — Groq Engine v2.0
+// Talks DIRECTLY to Groq's cloud API (api.groq.com) — no local
+// gateway process, no separate agent to install/launch/babysit.
+// Exports the same interface the rest of the app expects
+// (brain.js / server.js / ai-engine.js all require("./hermes-engine")
+// and call these functions), so nothing else needed to change.
 // ═══════════════════════════════════════════════════════════════
 
 const fs   = require("fs");
 const path = require("path");
 
 // ── CONFIG ─────────────────────────────────────────────────────
-// HERMES_API_KEY → your key from openrouter.ai/keys
-const GROQ_API_KEY = process.env.HERMES_API_KEY || process.env.OPENROUTER_API_KEY || "";
-const GROQ_API_URL = (process.env.HERMES_BASE_URL || "https://openrouter.ai/api/v1").replace(/\/$/, "") + "/chat/completions";
+// GROQ_API_KEY → your key from console.groq.com
+// GROQ_MODEL   → optional override; sensible Groq defaults below otherwise
+const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
+const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
-// Defaults to Nous Research's Hermes 3 405B on OpenRouter's free tier
-// ($0, no credit card, capped at 20 req/min / 200 req/day).
-// To upgrade later (paid), set in .env:
-//   HERMES_MODEL=nousresearch/hermes-4-70b       (~$0.13/$0.40 per 1M tokens)
-//   HERMES_MODEL=nousresearch/hermes-4-405b      (~$1/$3 per 1M tokens)
+// NOTE: Groq deprecated llama-3.1-8b-instant and llama-3.3-70b-versatile
+// (announced 2026-06-17). Defaults below point at their recommended
+// replacements. Override with GROQ_MODEL / GROQ_MODEL_FAST in .env if
+// you want something else (e.g. "qwen/qwen3.6-27b").
 const MODELS = {
-  fast:  process.env.HERMES_MODEL_FAST || "nousresearch/hermes-3-llama-3.1-405b:free",
-  smart: process.env.HERMES_MODEL      || "nousresearch/hermes-3-llama-3.1-405b:free",
-  mix:   process.env.HERMES_MODEL      || "nousresearch/hermes-3-llama-3.1-405b:free",
+  fast:  process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b",
+  smart: process.env.GROQ_MODEL      || "openai/gpt-oss-120b",
+  mix:   process.env.GROQ_MODEL      || "openai/gpt-oss-120b",
 };
 
 // ── LEARNED INTENTS STORE ──────────────────────────────────────
@@ -116,7 +117,7 @@ async function groqFetchRaw(messages, options = {}) {
     tool_choice = "auto",
   } = options;
 
-  if (!GROQ_API_KEY) throw new Error("HERMES_API_KEY not set in .env");
+  if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY not set in .env");
 
   const body = { model, messages, temperature, max_tokens: maxTokens, stream: false };
   if (tools && tools.length) { body.tools = tools; body.tool_choice = tool_choice; }
@@ -126,32 +127,31 @@ async function groqFetchRaw(messages, options = {}) {
     res = await fetch(GROQ_API_URL, {
       method:  "POST",
       headers: {
-        "Authorization":  `Bearer ${GROQ_API_KEY}`,
-        "Content-Type":   "application/json",
-        "HTTP-Referer":   process.env.HERMES_APP_URL || "https://jarvis.local",
-        "X-Title":        "J.A.R.V.I.S",
+        "Authorization": `Bearer ${GROQ_API_KEY}`,
+        "Content-Type":  "application/json",
       },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(30000),
     });
   } catch (e) {
-    throw new Error(`Could not reach Hermes API: ${e.message}`);
+    throw new Error(`Could not reach Groq API: ${e.message}`);
   }
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(`Hermes API error ${res.status}: ${err.error?.message || res.statusText}`);
+    throw new Error(`Groq API error ${res.status}: ${err.error?.message || res.statusText}`);
   }
 
   const data = await res.json();
-  if (!data || !data.choices || !data.choices.length) {
-    throw new Error("Empty response from Hermes");
-  }
-
   return data.choices?.[0]?.message || {};
 }
 
 // ── TOOL DEFINITIONS ───────────────────────────────────────────
+// Real actions Jarvis can take. Groq decides WHEN to call these based
+// on the user's natural-language message — no regex/keyword matching
+// needed. Add a new capability here + a matching case in server.js's
+// executeAssistantTool() and it's immediately usable in any phrasing,
+// not just the ones a human anticipated.
 const TOOLS = [
   {
     type: "function",
@@ -260,6 +260,10 @@ const TOOLS = [
 ];
 
 // ── TOOL-CALLING CHAT ──────────────────────────────────────────
+// The replacement for regex command routing: Groq reads the message,
+// decides for itself whether an action is needed and which one, and
+// the caller supplies `executeTool` to actually perform it. If no
+// tool fits, it just answers normally — same call either way.
 async function chatWithTools({ message, userTitle = "Sir", memories = [], context = "", conversationHistory = [], executeTool, tz }) {
   const T = userTitle || "Sir";
   const nowStr = (() => {
@@ -320,7 +324,7 @@ function getSystemPrompt(userTitle, memories, context, learnedExamples) {
     }`;
   }
 
-  return `You are J.A.R.V.I.S (Just A Rather Very Intelligent System), Tony Stark's AI. You are the PRIMARY BRAIN of this assistant system, running on Nous Research's Hermes.
+  return `You are J.A.R.V.I.S (Just A Rather Very Intelligent System), Tony Stark's AI. You are the PRIMARY BRAIN of this assistant system, running on Groq.
 
 Address the user as "${T}". Speak with dry wit, precision, and warmth. Never robotic. Never start with "I".
 
@@ -403,7 +407,7 @@ async function chat(message, options = {}) {
   const reply = await groqFetch(messages, MODELS.smart, 0.75, 768);
   const trimmedReply = reply.trim();
 
-  if (!trimmedReply) throw new Error("Empty response from Hermes");
+  if (!trimmedReply) throw new Error("Empty response from Groq");
 
   if (autoLearn && trimmedReply.length > 20) {
     const keywords       = extractKeywords(message);
@@ -423,7 +427,7 @@ async function chat(message, options = {}) {
     }
   }
 
-  const result = { reply: trimmedReply, model: MODELS.smart, source: "hermes", learned: false };
+  const result = { reply: trimmedReply, model: MODELS.smart, source: "groq", learned: false };
   if (cacheKey) setCache(cacheKey, result);
   return result;
 }
@@ -538,7 +542,7 @@ module.exports = {
   extractKnowledge,
   generateTrainingExamples,
   groqFetch,
-  hermesFetch: groqFetch, 
+  hermesFetch: groqFetch, // alias kept so any code calling .hermesFetch() by name still works
   MODELS,
   isConfigured,
   learnIntent,
