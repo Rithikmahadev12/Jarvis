@@ -45,60 +45,10 @@ if [ ! -f "$MODEL" ]; then
     echo "[STARTUP][WARN] Voice model config download failed."
 fi
 
-echo "[STARTUP] Installing Hermes Agent (this is the Jarvis 'brain' AI, self-hosted)..."
-pip install hermes-agent --break-system-packages --quiet || \
-  echo "[STARTUP][WARN] pip install for hermes-agent failed, Hermes will be skipped — Jarvis falls back to whatever else is configured."
-
-if command -v hermes >/dev/null 2>&1; then
-  echo "[STARTUP] Configuring Hermes Agent..."
-
-  # Point Hermes at whichever AI provider key you already have. Groq is checked
-  # first since Jarvis already uses it (api.groq.com is OpenAI-compatible, so
-  # Hermes can call it as a "custom endpoint" — no new signup needed).
-  if [ -n "$GROQ_API_KEY" ]; then
-    echo "[STARTUP] Hermes will use Groq (reusing existing GROQ_API_KEY)..."
-    hermes config set model.provider custom                                       >/dev/null 2>&1
-    hermes config set model.base_url "https://api.groq.com/openai/v1"             >/dev/null 2>&1
-    hermes config set model.model    "${HERMES_MODEL:-llama-3.3-70b-versatile}"   >/dev/null 2>&1
-    hermes config set OPENAI_API_KEY "$GROQ_API_KEY"                              >/dev/null 2>&1
-  elif [ -n "$ANTHROPIC_API_KEY" ]; then
-    echo "[STARTUP] Hermes will use Anthropic..."
-    hermes config set model "anthropic/${HERMES_MODEL:-claude-sonnet-4-6}" >/dev/null 2>&1
-    hermes config set ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY"               >/dev/null 2>&1
-  elif [ -n "$OPENROUTER_API_KEY" ]; then
-    echo "[STARTUP] Hermes will use OpenRouter..."
-    hermes config set model "openrouter/${HERMES_MODEL:-meta-llama/llama-3.3-70b-instruct}" >/dev/null 2>&1
-    hermes config set OPENROUTER_API_KEY "$OPENROUTER_API_KEY"                              >/dev/null 2>&1
-  else
-    echo "[STARTUP][WARN] No AI provider key found (GROQ_API_KEY / ANTHROPIC_API_KEY / OPENROUTER_API_KEY) — Hermes has no model to think with, skipping."
-  fi
-
-  HERMES_KEY="${HERMES_API_KEY:-change-me-please}"
-
-  # Expose the OpenAI-compatible API server on loopback only — Node talks to it
-  # over 127.0.0.1, it's never exposed to the public internet.
-  hermes config set API_SERVER_ENABLED true      >/dev/null 2>&1
-  hermes config set API_SERVER_HOST 127.0.0.1    >/dev/null 2>&1
-  hermes config set API_SERVER_KEY "$HERMES_KEY" >/dev/null 2>&1
-
-  echo "[STARTUP] Launching Hermes Agent gateway (API server on :8642)..."
-  hermes gateway run > ./hermes.log 2>&1 &
-
-  # NOTE: this used to be a blocking 30s poll loop that held up the entire
-  # script (and, before the package.json fix, held up Node itself along with
-  # it). It's now fire-and-forget: we log readiness if/when it shows up, but
-  # we never block on it. Anything in server.js that talks to Hermes should
-  # handle "not ready yet" / connection-refused gracefully rather than
-  # assuming this finished.
-  (
-    for i in $(seq 1 30); do
-      curl -sf -H "Authorization: Bearer $HERMES_KEY" http://127.0.0.1:8642/v1/models >/dev/null 2>&1 && \
-        { echo "[STARTUP] Hermes Agent is up."; break; }
-      sleep 1
-    done
-  ) &
+if [ -n "$GROQ_API_KEY" ]; then
+  echo "[STARTUP] GROQ_API_KEY found — Jarvis will talk to Groq's API directly (no local agent needed)."
 else
-  echo "[STARTUP][WARN] 'hermes' command not found on PATH after install, skipping Hermes Agent."
+  echo "[STARTUP][WARN] No GROQ_API_KEY found in .env — Jarvis's AI brain will be unavailable until you add one."
 fi
 
 echo "[STARTUP] Launching voice server on :5050..."
