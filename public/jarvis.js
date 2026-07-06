@@ -21,6 +21,7 @@ function getUserTimezone() {
 // ── STATE ──
 const state = window.state = {
   phase: "idle",
+  outputMode: "phone",   // "phone" = normal browser TTS, "home" = cast via Piper/Google Home
   user: null,
   userTitle: null,
   sessionId: crypto.randomUUID(),
@@ -307,6 +308,7 @@ async function syncHomeTalkBadge() {
   try {
     const res  = await fetch("/api/home-talk/status");
     const data = await res.json();
+    state.outputMode = data.outputMode || "phone";
     if (data.outputMode === "home") showHomeTalkBadge(data.device);
     else hideHomeTalkBadge();
   } catch { /* badge just won't show until the next successful chat turn */ }
@@ -326,6 +328,14 @@ async function speak(text, onEnd) {
   if (_currentAudio) { _currentAudio.pause(); _currentAudio = null; }
 
   setOrb("speaking");
+
+  // ── Not doing Home Talk? Skip the server/Piper round-trip entirely and
+  //    just speak locally with the browser voice. Piper is only worth the
+  //    trip when we actually need to cast audio to a Google Home speaker —
+  //    hitting it on every phone reply is what was causing the lag. ──
+  if (state.outputMode !== "home") {
+    return _speakBrowser(text, onEnd);
+  }
 
   // ── Piper TTS / Home Talk round-trip ────────────────────────
   try {
@@ -1210,14 +1220,19 @@ async function sendToAI(message) {
       }),
     });
     const data  = await res.json();
-    const reply = data.reply || `Yes, ${state.userTitle}?`;
+    // NOTE: an empty reply here almost always means the tutor/brain call
+    // failed server-side (see server logs for "[BRAIN] Tutor call failed").
+    // Silently answering "Yes, Sir?" made it look like JARVIS agreed with
+    // everything it was asked, when it actually just didn't understand.
+    // Say so honestly instead so the failure is visible, not disguised.
+    const reply = data.reply || `I didn't quite get that, ${state.userTitle}. Could you rephrase, or try again in a moment?`;
 
     addMsg("jarvis", reply);
     updateMood(5);
     syncExtensionStatus();
 
-    if (data.action === "HOME_TALK_ON")  showHomeTalkBadge(data.meta?.device);
-    if (data.action === "HOME_TALK_OFF") hideHomeTalkBadge();
+    if (data.action === "HOME_TALK_ON")  { state.outputMode = "home";  showHomeTalkBadge(data.meta?.device); }
+    if (data.action === "HOME_TALK_OFF") { state.outputMode = "phone"; hideHomeTalkBadge(); }
 
     if (data.action && data.meta) {
       await handleAction(data.action, data.meta, reply);
