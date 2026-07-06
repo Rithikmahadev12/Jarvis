@@ -971,6 +971,74 @@ async function handleFeatureShip(T) {
 // ═══════════════════════════════════════════════════════════════
 // ── MAIN CHAT ROUTE
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── TOOL EXECUTOR — real actions Groq can call directly ─────────
+// This is what replaces regex command-matching: Groq decides which
+// of these to call and with what arguments, straight from natural
+// language. Add a case here + a definition in hermes-engine.js's
+// TOOLS array to give Jarvis a new capability with no keyword list
+// to maintain.
+// ═══════════════════════════════════════════════════════════════
+async function executeAssistantTool(name, args, ctx) {
+  const { T, userTimezone, userName } = ctx;
+
+  switch (name) {
+    case "set_timer": {
+      const secs = Number(args.duration_seconds) || 0;
+      if (secs <= 0) return { reply: `How long should the timer be, ${T}?` };
+      return Reminders.createTimer(Date.now() + secs * 1000, args.label, T);
+    }
+
+    case "set_reminder": {
+      let dueAt = null;
+      if (args.datetime_iso) {
+        const parsed = Date.parse(args.datetime_iso);
+        if (!Number.isNaN(parsed)) dueAt = parsed;
+      }
+      if (dueAt == null && args.duration_seconds) dueAt = Date.now() + Number(args.duration_seconds) * 1000;
+      if (dueAt == null) return { reply: `When should I remind you, ${T}?` };
+      return Reminders.createReminder(dueAt, args.label, T);
+    }
+
+    case "set_conditional_reminder": {
+      Reminders.addConditional(args.label, args.trigger || "next_agenda_check");
+      return {
+        reply: `Got it, ${T}. I'll bring up "${args.label}" the next time you check your agenda.`,
+        action: "REMINDER_SET",
+        intent: "reminder",
+      };
+    }
+
+    case "cancel_reminder": {
+      const cancelled = Reminders.cancelMostRecent(args.type);
+      return cancelled
+        ? { reply: `Cancelled — "${cancelled.label}", ${T}.`, action: "REMINDER_CANCEL", intent: "reminder" }
+        : { reply: `Nothing active to cancel, ${T}.`, action: "REMINDER_CANCEL", intent: "reminder" };
+    }
+
+    case "get_agenda":
+      return Reminders.buildAgendaReply(T, userTimezone, args.scope === "today" ? "today" : "");
+
+    case "get_weather":
+      return await handleWeatherFetch(args.location ? `weather in ${args.location}` : "weather", T);
+
+    case "control_spotify":
+      return await handleSpotifyFetch(args.query || "", T);
+
+    case "control_home": {
+      try {
+        const reply = await Home.executeVoiceCommand(args.query || "", T);
+        return { reply, action: "HOME_COMMAND", intent: "home" };
+      } catch {
+        return { reply: `Home command failed, ${T}.`, action: "HOME_COMMAND", intent: "home" };
+      }
+    }
+
+    default:
+      return { reply: `I don't have a tool for that yet, ${T}.` };
+  }
+}
+
 app.post("/api/chat", async (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, screenActive, userTimezone } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
@@ -1062,6 +1130,41 @@ app.post("/api/chat", async (req, res) => {
   if (smalltalkReply) {
     Trainer.addExample(message, smalltalkReply, "smalltalk", null, 0.8, "personality");
     return res.json({ reply: smalltalkReply, action: "SMALLTALK", intent: "smalltalk" });
+  }
+
+  // ── 2.5 AI decides + acts — replaces regex command matching ──
+  // Groq reads the message and either calls a real tool (reminder,
+  // timer, weather, Spotify, home control) or just answers in text.
+  // No keyword list to maintain — new phrasings work automatically.
+  // The legacy pipeline below only runs if this throws (e.g. Groq
+  // unreachable), so nothing regresses if the API call fails.
+  if (Groq.isConfigured()) {
+    try {
+      const toolResult = await Groq.chatWithTools({
+        message:             enrichedMessage,
+        userTitle:           T,
+        memories,
+        context:             moodContext,
+        conversationHistory: getSessionHistory(sessionId),
+        tz:                  userTimezone,
+        executeTool: (name, args) => executeAssistantTool(name, args, { T, userTimezone, userName }),
+      });
+
+      if (toolResult.reply) {
+        Trainer.addExample(message, toolResult.reply, toolResult.intent || (toolResult.usedTool ? "tool_call" : "chat"), null, 0.85, "tool_calling");
+        appendToSession(sessionId, "user", enrichedMessage);
+        appendToSession(sessionId, "assistant", toolResult.reply);
+        return res.json({
+          reply:  toolResult.reply,
+          action: toolResult.action || (toolResult.usedTool ? "TOOL" : "CHAT"),
+          intent: toolResult.intent,
+          meta:   toolResult.meta,
+        });
+      }
+    } catch (err) {
+      console.error("[TOOLS] chatWithTools failed, falling back to legacy pipeline:", err.message);
+      // fall through to the pipeline below
+    }
   }
 
   // ── 3. Hard commands ──
