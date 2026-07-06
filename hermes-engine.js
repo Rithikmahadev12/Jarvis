@@ -17,10 +17,14 @@ const path = require("path");
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
+// NOTE: Groq deprecated llama-3.1-8b-instant and llama-3.3-70b-versatile
+// (announced 2026-06-17). Defaults below point at their recommended
+// replacements. Override with GROQ_MODEL / GROQ_MODEL_FAST in .env if
+// you want something else (e.g. "qwen/qwen3.6-27b").
 const MODELS = {
-  fast:  process.env.GROQ_MODEL_FAST || "llama-3.1-8b-instant",
-  smart: process.env.GROQ_MODEL      || "llama-3.3-70b-versatile",
-  mix:   process.env.GROQ_MODEL      || "llama-3.3-70b-versatile",
+  fast:  process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b",
+  smart: process.env.GROQ_MODEL      || "openai/gpt-oss-120b",
+  mix:   process.env.GROQ_MODEL      || "openai/gpt-oss-120b",
 };
 
 // ── LEARNED INTENTS STORE ──────────────────────────────────────
