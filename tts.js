@@ -5,7 +5,7 @@
 // fails, synthesize() returns null and the frontend falls back to the
 // normal built-in browser voice — no local Piper server involved.
 const ELEVEN_API_KEY  = process.env.ELEVENLABS_API_KEY  || "";
-const ELEVEN_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "wDsJlOXPqcvIUKdLXjDs"; // Jarvis voice
+const ELEVEN_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "Gubgw9l4dtIoQA9YZHgx"; // Jarvis voice
 const ELEVEN_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_turbo_v2_5";
 const ELEVEN_URL       = `https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE_ID}`;
 
