@@ -137,28 +137,18 @@
       <div id="saved-accounts-wrap"></div>
 
       <div id="auth-status" class="auth-status">
-        Say <span class="highlight">"Jarvis, log in"</span> or type below
+        Look at the camera — <span class="highlight">Face ID</span> will sign you in
       </div>
 
       <div id="auth-login-panel" class="auth-panel">
-        <button class="retina-auth-btn" onclick="startRetinaLogin()">
-          <div class="btn-eye-icon"></div>
-          RETINA SCAN LOGIN
-        </button>
-        <div class="auth-or-divider">OR</div>
-        <div class="auth-field-group">
-          <input type="password" id="auth-password-input" placeholder="Password → Enter" autocomplete="current-password"/>
+        <div class="auth-face-scan" id="auth-face-scan">
+          <video id="auth-face-video" autoplay muted playsinline></video>
+          <div class="auth-face-scan-ring"></div>
         </div>
-        <div id="auth-prompt" class="auth-prompt hidden">
-          <div class="prompt-text">IDENTIFY YOURSELF</div>
-          <div class="voice-bars">
-            <span></span><span></span><span></span><span></span><span></span>
-          </div>
-          <div class="heard-text" id="heard-text">Listening…</div>
-        </div>
-        <div id="auth-listening" class="listening-badge hidden">● LISTENING</div>
+        <div id="auth-face-scan-label" class="auth-face-scan-label">SCANNING FOR FACE…</div>
+        <button class="hud-btn secondary" id="btn-rescan-face" onclick="attemptFaceLogin()">🔄 SCAN AGAIN</button>
       </div>
-     
+
       <div id="auth-create-panel" class="auth-panel hidden">
         <div class="auth-field-group">
           <input type="text"     id="create-name"     placeholder="Your name"         maxlength="30" autocomplete="off"/>
@@ -168,8 +158,10 @@
             <option value="Boss">Boss</option>
             <option value="Chief">Chief</option>
           </select>
-          <input type="password" id="create-password"  placeholder="Choose a password" maxlength="50" autocomplete="new-password"/>
-          <input type="password" id="create-password2" placeholder="Confirm password"  maxlength="50" autocomplete="new-password"/>
+        </div>
+        <div class="auth-face-scan" id="create-face-scan">
+          <video id="create-face-video" autoplay muted playsinline></video>
+          <div class="auth-face-scan-ring"></div>
         </div>
         <div class="voice-sample-block" id="voice-sample-block">
           <div class="auth-section-label">VOICE TRAINING (optional)</div>
@@ -184,7 +176,7 @@
             <button class="hud-btn secondary" style="flex:1;font-size:0.58rem" onclick="skipVoice()">SKIP</button>
           </div>
         </div>
-        <button class="hud-btn" id="btn-create-account" onclick="submitCreateAccount()">CREATE ACCOUNT →</button>
+        <button class="hud-btn" id="btn-create-account" onclick="submitCreateAccount()">📷 SET UP FACE ID & CREATE ACCOUNT →</button>
       </div>
 
       <div id="auth-feedback" class="auth-feedback hidden"></div>
@@ -200,12 +192,11 @@
         <span class="face-auth-alert-label">UNKNOWN FACE DETECTED</span>
         <span class="face-auth-alert-dot"></span>
       </div>
-      <p class="face-auth-sub">Authorize access or the incident will be logged.</p>
+      <p class="face-auth-sub">Look at the camera to authorize, or the incident will be logged.</p>
       <p class="face-auth-note">Recording will complete and be saved regardless.</p>
-      <input type="password" id="face-auth-password" placeholder="Enter your password" autocomplete="off" maxlength="50"/>
-      <div id="face-auth-error" class="face-auth-error hidden">Incorrect password — access denied</div>
+      <div id="face-auth-error" class="face-auth-error hidden">Face not recognized — access denied</div>
       <div class="face-auth-btns">
-        <button id="face-auth-submit"  class="hud-btn">AUTHORIZE</button>
+        <button id="face-auth-submit"  class="hud-btn">🔄 RE-SCAN FACE TO AUTHORIZE</button>
         <button id="face-auth-dismiss" class="hud-btn secondary">DISMISS</button>
       </div>
     </div>
