@@ -1,26 +1,16 @@
 "use strict";
 
-const VOICE_SERVER_URL = process.env.VOICE_SERVER_URL || "http://localhost:5050";
-
-let _ready = false;
-
-async function checkReady() {
-  try {
-    const res = await fetch(`${VOICE_SERVER_URL}/health`, { signal: AbortSignal.timeout(3000) });
-    const data = await res.json();
-    _ready = !!data.ready;
-  } catch {
-    _ready = false;
-  }
-  return _ready;
-}
-
-// Poll on startup so isReady() is accurate without blocking
-checkReady();
-setInterval(checkReady, 10000);
+// ── ElevenLabs TTS ────────────────────────────────────────────
+// Jarvis's voice. If it's not configured (no API key) or a request
+// fails, synthesize() returns null and the frontend falls back to the
+// normal built-in browser voice — no local Piper server involved.
+const ELEVEN_API_KEY  = process.env.ELEVENLABS_API_KEY  || "";
+const ELEVEN_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "wDsJlOXPqcvIUKdLXjDs"; // Jarvis voice
+const ELEVEN_MODEL_ID = process.env.ELEVENLABS_MODEL_ID || "eleven_turbo_v2_5";
+const ELEVEN_URL       = `https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE_ID}`;
 
 function isReady() {
-  return _ready;
+  return !!ELEVEN_API_KEY;
 }
 
 function cleanText(text) {
@@ -38,22 +28,36 @@ async function synthesize(text) {
   const clean = cleanText(text);
   if (!clean || clean.length < 2) return null;
 
+  if (!ELEVEN_API_KEY) {
+    console.warn("[TTS] ELEVENLABS_API_KEY not set — using browser voice");
+    return null;
+  }
+
   try {
-    const res = await fetch(`${VOICE_SERVER_URL}/synthesize`, {
+    const res = await fetch(ELEVEN_URL, {
       method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ text: clean }),
-      signal:  AbortSignal.timeout(30000),
+      headers: {
+        "Content-Type": "application/json",
+        "xi-api-key":   ELEVEN_API_KEY,
+        "Accept":       "audio/mpeg",
+      },
+      body: JSON.stringify({
+        text:     clean,
+        model_id: ELEVEN_MODEL_ID,
+        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+      }),
+      signal: AbortSignal.timeout(30000),
     });
     if (!res.ok) {
-      console.error(`[TTS] Voice server returned ${res.status}`);
-      return null;
+      const body = await res.text().catch(() => "");
+      console.error(`[TTS] ElevenLabs returned ${res.status}: ${body.slice(0, 300)}`);
+      return null; // client falls back to browser voice
     }
     const buf = await res.arrayBuffer();
-    return Buffer.from(buf);
+    return Buffer.from(buf); // MP3
   } catch (e) {
-    console.error("[TTS] Voice server error:", e.message);
-    return null;
+    console.error("[TTS] ElevenLabs error:", e.message);
+    return null; // client falls back to browser voice
   }
 }
 
