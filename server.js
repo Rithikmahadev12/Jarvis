@@ -19,6 +19,7 @@ const Improve     = require("./self-improve");
 const Trainer     = require("./trainer");
 const Brain       = require("./brain");
 const Reminders   = require("./reminders");
+const Schedule    = require("./schedule");
 const TTS = require("./tts");
 
 const app        = express();
@@ -613,6 +614,26 @@ app.get("/api/reminders", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// ── HEALTHY SCHEDULE / DAILY ROUTINE / AUTO-SUGGEST
+// ═══════════════════════════════════════════════════════════════
+// Client polls this every ~20-30s. When the user's healthy routine
+// says a "break" block just started, this fires once (per block per
+// day) with a couple of links. We also drop the same suggestion into
+// the extension queue so the Chrome extension can open real tabs via
+// chrome.tabs.create even if nobody's looking at the JARVIS page.
+app.get("/api/schedule/due", (req, res) => {
+  const tz = req.query.tz || null;
+  const suggestion = Schedule.checkBreakSuggestion(tz);
+  if (suggestion) {
+    extensionQueue.push({ action: "OPEN_URLS", data: { urls: suggestion.links.map(l => l.url), reason: suggestion.label } });
+  }
+  res.json({ suggestion: suggestion || null });
+});
+app.get("/api/schedule", (req, res) => {
+  res.json({ blocks: Schedule.getBlocks() });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // ── PERSONALITY
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/personality/comment", (req, res) => {
@@ -1149,6 +1170,15 @@ app.post("/api/chat", async (req, res) => {
   if (smalltalkReply) {
     Trainer.addExample(message, smalltalkReply, "smalltalk", null, 0.8, "personality");
     return res.json({ reply: smalltalkReply, action: "SMALLTALK", intent: "smalltalk" });
+  }
+
+  // ── 2.1 Healthy schedule / daily routine / "inspo" requests ──
+  // Handled natively, same reasoning as reminders.js: deterministic,
+  // no API key needed, and OPEN_LINKS needs special client handling
+  // anyway so it's cleaner to short-circuit here.
+  const scheduleResult = Schedule.route(message, T, userTimezone);
+  if (scheduleResult) {
+    return res.json(scheduleResult);
   }
 
   // ── 2.5 AI decides + acts — replaces regex command matching ──
