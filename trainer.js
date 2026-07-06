@@ -8,7 +8,7 @@
 
 const fs   = require("fs");
 const path = require("path");
-const Groq = require("./groq-engine");
+const Groq = require("./hermes-engine");
 
 const DATA_DIR       = path.join(__dirname, "data");
 const TRAINING_FILE  = path.join(DATA_DIR, "training_data.json");
