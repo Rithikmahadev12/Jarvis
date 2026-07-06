@@ -21,14 +21,19 @@ pip install pychromecast --break-system-packages --quiet || \
 
 VOICE_DIR="./voice-server/voices"
 mkdir -p "$VOICE_DIR"
-MODEL="$VOICE_DIR/en_US-ryan-high.onnx"
-CONFIG="$VOICE_DIR/en_US-ryan-high.onnx.json"
+# Switched from en_US-ryan-high to en_US-ryan-low: the "high" model was
+# too slow on Render's free-tier CPU and caused /synthesize to time out
+# under tts.js's 30s limit. "low" trades some voice quality for much
+# faster synthesis, which matters more than quality for Home Talk audio
+# played through a phone/speaker.
+MODEL="$VOICE_DIR/en_US-ryan-low.onnx"
+CONFIG="$VOICE_DIR/en_US-ryan-low.onnx.json"
 
 if [ ! -f "$MODEL" ]; then
-  echo "[STARTUP] Downloading Piper voice model (~60MB)..."
-  curl -fL -o "$MODEL"  "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx" || \
+  echo "[STARTUP] Downloading Piper voice model (~20MB)..."
+  curl -fL -o "$MODEL"  "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/low/en_US-ryan-low.onnx" || \
     echo "[STARTUP][WARN] Voice model download failed."
-  curl -fL -o "$CONFIG" "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/high/en_US-ryan-high.onnx.json" || \
+  curl -fL -o "$CONFIG" "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/ryan/low/en_US-ryan-low.onnx.json" || \
     echo "[STARTUP][WARN] Voice model config download failed."
 fi
 
