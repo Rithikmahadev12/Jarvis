@@ -207,6 +207,10 @@ function loadMemories() { ensureDataDir(); try { return JSON.parse(fs.readFileSy
 function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON.stringify(m, null, 2), "utf8"); }
 
 // ── BOOTSTRAP OWNER ───────────────────────────────────────────
+// Face-ID only: an owner account is only auto-created if config.json
+// already has a captured faceDescriptor for them. Plain password-based
+// bootstrap has been removed — new accounts are created through the
+// "CREATE ACCOUNT" screen, which now enrolls a face instead of a password.
 function bootstrapOwnerAccount() {
   const configPath = path.join(__dirname, "config.json");
   if (!fs.existsSync(configPath)) return;
@@ -214,28 +218,32 @@ function bootstrapOwnerAccount() {
   try { config = JSON.parse(fs.readFileSync(configPath, "utf8")); }
   catch (e) { console.warn("[BOOT] Could not read config.json:", e.message); return; }
   const owner = config.owner;
-  if (!owner || !owner.username || !owner.passwordHash) return;
+  if (!owner || !owner.username || !Array.isArray(owner.faceDescriptor) || owner.faceDescriptor.length !== 128) return;
   const profiles = loadProfiles();
   const key      = owner.username.toLowerCase().trim();
-  if (profiles[key]) {
-    if (profiles[key].passwordHash !== owner.passwordHash) {
-      profiles[key].passwordHash = owner.passwordHash;
-      saveProfiles(profiles);
-      console.log(`[BOOT] Owner account "${owner.username}" password synced`);
-    }
-    return;
-  }
+  if (profiles[key]) return;
   profiles[key] = {
-    name:         owner.username,
-    passwordHash: owner.passwordHash,
-    title:        owner.title || "Sir",
-    voiceAliases: owner.voiceAliases || [],
-    role:         "owner",
-    createdAt:    new Date().toISOString(),
-    updatedAt:    new Date().toISOString(),
+    name:           owner.username,
+    faceDescriptor: owner.faceDescriptor,
+    title:          owner.title || "Sir",
+    voiceAliases:   owner.voiceAliases || [],
+    role:           "owner",
+    createdAt:      new Date().toISOString(),
+    updatedAt:      new Date().toISOString(),
   };
   saveProfiles(profiles);
-  console.log(`[BOOT] Owner account "${owner.username}" bootstrapped`);
+  console.log(`[BOOT] Owner account "${owner.username}" bootstrapped from config`);
+}
+
+// ── FACE DESCRIPTOR MATCHING ───────────────────────────────────
+// face-api.js descriptors are 128-length float arrays. Euclidean distance
+// below ~0.5-0.6 is considered the same person (0.6 is face-api's own default).
+const FACE_MATCH_THRESHOLD = 0.55;
+function euclideanDistance(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return Infinity;
+  let sum = 0;
+  for (let i = 0; i < a.length; i++) { const d = a[i] - b[i]; sum += d * d; }
+  return Math.sqrt(sum);
 }
 
 app.get("/favicon.ico", (req, res) => res.status(204).end());
@@ -382,17 +390,19 @@ app.post("/api/learned/teach", (req, res) => {
 // ── PROFILE ROUTES
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/register", (req, res) => {
-  const { name, passwordHash, title, voiceAliases } = req.body;
-  if (!name || !passwordHash) return res.status(400).json({ error: "Missing fields" });
+  const { name, faceDescriptor, title, voiceAliases } = req.body;
+  if (!name || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
+    return res.status(400).json({ error: "Missing name or valid face descriptor" });
+  }
   const profiles = loadProfiles();
   const key = name.toLowerCase().trim();
   profiles[key] = {
-    name:         name.trim(),
-    passwordHash,
-    title:        title || "Sir",
-    voiceAliases: voiceAliases || [],
-    createdAt:    profiles[key]?.createdAt || new Date().toISOString(),
-    updatedAt:    new Date().toISOString(),
+    name:           name.trim(),
+    faceDescriptor,
+    title:          title || "Sir",
+    voiceAliases:   voiceAliases || [],
+    createdAt:      profiles[key]?.createdAt || new Date().toISOString(),
+    updatedAt:      new Date().toISOString(),
   };
   saveProfiles(profiles);
   res.json({ success: true });
@@ -401,19 +411,38 @@ app.get("/api/profile/:name", (req, res) => {
   const profiles = loadProfiles();
   const profile  = profiles[req.params.name.toLowerCase().trim()];
   if (!profile) return res.json({ found: false });
-  // Never expose passwordHash, clientSecret, or raw tokens
-  const { passwordHash, googleClientSecret, googleTokens, ...safe } = profile;
+  // Never expose faceDescriptor, clientSecret, or raw tokens
+  const { faceDescriptor, googleClientSecret, googleTokens, ...safe } = profile;
   res.json({ found: true, profile: safe });
 });
-app.post("/api/verify", (req, res) => {
-  const { name, passwordHash } = req.body;
-  if (!name || !passwordHash) return res.status(400).json({ authorized: false });
+// Face sign-in: client captures a descriptor from the camera and posts it
+// here. We compare it against every enrolled profile's stored descriptor
+// and sign the person in automatically if there's a close-enough match —
+// no password, no typing.
+app.post("/api/verify-face", (req, res) => {
+  const { descriptor } = req.body;
+  if (!Array.isArray(descriptor) || descriptor.length !== 128) {
+    return res.status(400).json({ authorized: false, reason: "invalid_descriptor" });
+  }
   const profiles = loadProfiles();
-  const stored   = profiles[name.toLowerCase().trim()];
-  if (!stored)                              return res.json({ authorized: false, reason: "no_profile" });
-  if (stored.passwordHash !== passwordHash) return res.json({ authorized: false, reason: "wrong_password" });
-  const { passwordHash: _, ...safe } = stored;
-  res.json({ authorized: true, profile: safe });
+  let best = null, bestDist = Infinity;
+  for (const profile of Object.values(profiles)) {
+    if (!Array.isArray(profile.faceDescriptor)) continue;
+    const dist = euclideanDistance(profile.faceDescriptor, descriptor);
+    if (dist < bestDist) { bestDist = dist; best = profile; }
+  }
+  if (best && bestDist < FACE_MATCH_THRESHOLD) {
+    const { faceDescriptor, ...safe } = best;
+    return res.json({ authorized: true, profile: safe, distance: bestDist });
+  }
+  res.json({ authorized: false, reason: "no_match" });
+});
+// One-time wipe: clears every stored account so the app starts fresh
+// with the new Face-ID-only sign in. Call once, e.g.:
+//   curl -X POST http://localhost:3000/api/accounts/reset-all
+app.post("/api/accounts/reset-all", (req, res) => {
+  saveProfiles({});
+  res.json({ success: true, message: "All accounts cleared. Create a new one to set up Face ID." });
 });
 app.get("/api/profiles", (req, res) => {
   const profiles = loadProfiles();
@@ -1299,7 +1328,7 @@ app.post("/api/tts", async (req, res) => {
   if (!text) return res.status(400).json({ error: "Missing text" });
 
   // ── Home Talk path ────────────────────────────────────────────
-  // Cast to Google Home regardless of whether ElevenLabs is configured.
+  // Cast to Google Home regardless of whether Piper is running.
   // Uses Google Translate TTS (no API key, no Python deps needed).
   if (outputMode === "home") {
     const Cast = require("./cast");
@@ -1330,11 +1359,7 @@ app.post("/api/tts", async (req, res) => {
   const audio = await TTS.synthesize(text);
   if (!audio) return res.status(500).json({ error: "Synthesis failed", fallback: true });
 
-  // Detect format by magic bytes so this works for both ElevenLabs (MP3)
-  // (WAV only shows up if something upstream changes — ElevenLabs is MP3).
-  const isMP3 = (audio[0] === 0xFF && (audio[1] & 0xE0) === 0xE0)
-             || (audio[0] === 0x49 && audio[1] === 0x44 && audio[2] === 0x33); // ID3
-  res.setHeader("Content-Type",  isMP3 ? "audio/mpeg" : "audio/wav");
+  res.setHeader("Content-Type",  "audio/wav");
   res.setHeader("Content-Length", audio.length);
   res.setHeader("Cache-Control",  "no-cache");
   res.send(audio);
@@ -1402,7 +1427,6 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`  Spotify:       ${Spotify.isConfigured() ? "✓ configured" : "✗ add SPOTIFY_CLIENT_ID to .env"}`);
   console.log(`  Google:        ✓ per-user credentials (users add their own in settings)`);
   console.log(`  Weather:       ${process.env.OPENWEATHER_API_KEY ? "✓ configured" : "✗ add OPENWEATHER_API_KEY to .env"}`);
-  console.log(`  Voice (TTS):   ${process.env.ELEVENLABS_API_KEY ? "✓ ElevenLabs configured — Jarvis voice active" : "✗ add ELEVENLABS_API_KEY to .env (falling back to browser voice)"}`);
   console.log(`  GitHub deploy: ${process.env.GITHUB_TOKEN ? "✓ configured" : "✗ add GITHUB_TOKEN + GITHUB_REPO to .env"}`);
   console.log(`  Training data: /data/training_data.json`);
   console.log(`  Learned:       /data/learned/\n`);
