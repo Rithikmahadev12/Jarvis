@@ -24,11 +24,9 @@ const TTS = require("./tts");
 const app        = express();
 
 // ── CONVERSATION HISTORY STORE ──────────────────────────────────────────────
-// Keeps last N exchanges per sessionId so JARVIS remembers what it asked you.
-// Entries are { role: "user"|"assistant", content: string }
 const SESSION_HISTORY = new Map();
-const SESSION_MAX_TURNS = 12; // last 6 exchanges (user + assistant each)
-const SESSION_TTL_MS    = 60 * 60 * 1000; // 1 hour of inactivity → forget
+const SESSION_MAX_TURNS = 12; 
+const SESSION_TTL_MS    = 60 * 60 * 1000; 
 const sessionTimers     = new Map();
 
 function getSessionHistory(sessionId) {
@@ -39,9 +37,7 @@ function appendToSession(sessionId, role, content) {
   if (!SESSION_HISTORY.has(sessionId)) SESSION_HISTORY.set(sessionId, []);
   const hist = SESSION_HISTORY.get(sessionId);
   hist.push({ role, content });
-  // Keep only the last N turns
   while (hist.length > SESSION_MAX_TURNS) hist.shift();
-  // Reset TTL
   if (sessionTimers.has(sessionId)) clearTimeout(sessionTimers.get(sessionId));
   sessionTimers.set(sessionId, setTimeout(() => {
     SESSION_HISTORY.delete(sessionId);
@@ -51,8 +47,6 @@ function appendToSession(sessionId, role, content) {
 // ────────────────────────────────────────────────────────────────────────────
 const httpServer = http.createServer(app);
 
-// "phone"  → TTS audio is sent back to whichever client asked for it (default)
-// "home"   → TTS audio is cast to the Google Home / Nest speaker instead
 let outputMode = "phone";
 
 const HOME_TALK_ON  = /\b(enable|turn on|activate)\s+home\s*talk\b/i;
@@ -82,14 +76,11 @@ app.get("/comms", (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════
 // ── DRAFTING TABLE / BLUEPRINT MODE
-// Hand-tracked sketch workspace: pull reference images from the
-// web, draw over them, project the result as a 3D hologram.
 // ═══════════════════════════════════════════════════════════════
 app.get("/blueprint", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "blueprint-mode.html"));
 });
 
-// ── Holographic Workspace — AI-powered multi-object scene builder ──
 app.get("/workspace", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "hologram-workspace.html"));
 });
@@ -108,39 +99,39 @@ app.get("/api/blueprint/search", async (req, res) => {
 // ── LINKS BANK ────────────────────────────────────────────────
 const LINKS = {
   petzah: [
-    "https://science.asturkiters.es/",
+    "[https://science.asturkiters.es/](https://science.asturkiters.es/)",
   ],
   fern: [
-    "https://angelfern.s3.amazonaws.com/index.html",
+    "[https://angelfern.s3.amazonaws.com/index.html](https://angelfern.s3.amazonaws.com/index.html)",
   ],
   infamous: [
-    "https://fastedge3157.b-cdn.net/",
-    "https://megaweb4424.b-cdn.net/",
-    "https://swifthub5327.b-cdn.net/",
-    "https://cleanhub6357.b-cdn.net/",
-    "https://hypernode1197.b-cdn.net/",
-    "https://freshbeam4494.b-cdn.net/",
-    "https://hypernet6886.b-cdn.net/",
-    "https://sharpcore5833.b-cdn.net/",
-    "https://megacache6703.b-cdn.net/",
-    "https://megaweb7632.b-cdn.net/",
-    "https://quickzone2072.b-cdn.net/",
-    "https://boldgrid1787.b-cdn.net/",
-    "https://smarthub9292.b-cdn.net/",
-    "https://smartlink1299.b-cdn.net/",
-    "https://apexpath3097.b-cdn.net/",
-    "https://sharpcache5446.b-cdn.net/",
-    "https://primepipe9647.b-cdn.net/",
-    "https://swiftnet1429.b-cdn.net/",
-    "https://rapidnet5865.b-cdn.net/",
-    "https://smarthost5086.b-cdn.net/",
-    "https://primebeam4104.b-cdn.net/",
-    "https://smarthost1756.b-cdn.net/",
-    "https://sharpcdn2890.b-cdn.net/",
-    "https://sharpsite3374.b-cdn.net/",
-    "https://megacache1865.b-cdn.net/",
-    "https://cleargrid5772.b-cdn.net/",
-    "https://primenet8634.b-cdn.net/",
+    "[https://fastedge3157.b-cdn.net/](https://fastedge3157.b-cdn.net/)",
+    "[https://megaweb4424.b-cdn.net/](https://megaweb4424.b-cdn.net/)",
+    "[https://swifthub5327.b-cdn.net/](https://swifthub5327.b-cdn.net/)",
+    "[https://cleanhub6357.b-cdn.net/](https://cleanhub6357.b-cdn.net/)",
+    "[https://hypernode1197.b-cdn.net/](https://hypernode1197.b-cdn.net/)",
+    "[https://freshbeam4494.b-cdn.net/](https://freshbeam4494.b-cdn.net/)",
+    "[https://hypernet6886.b-cdn.net/](https://hypernet6886.b-cdn.net/)",
+    "[https://sharpcore5833.b-cdn.net/](https://sharpcore5833.b-cdn.net/)",
+    "[https://megacache6703.b-cdn.net/](https://megacache6703.b-cdn.net/)",
+    "[https://megaweb7632.b-cdn.net/](https://megaweb7632.b-cdn.net/)",
+    "[https://quickzone2072.b-cdn.net/](https://quickzone2072.b-cdn.net/)",
+    "[https://boldgrid1787.b-cdn.net/](https://boldgrid1787.b-cdn.net/)",
+    "[https://smarthub9292.b-cdn.net/](https://smarthub9292.b-cdn.net/)",
+    "[https://smartlink1299.b-cdn.net/](https://smartlink1299.b-cdn.net/)",
+    "[https://apexpath3097.b-cdn.net/](https://apexpath3097.b-cdn.net/)",
+    "[https://sharpcache5446.b-cdn.net/](https://sharpcache5446.b-cdn.net/)",
+    "[https://primepipe9647.b-cdn.net/](https://primepipe9647.b-cdn.net/)",
+    "[https://swiftnet1429.b-cdn.net/](https://swiftnet1429.b-cdn.net/)",
+    "[https://rapidnet5865.b-cdn.net/](https://rapidnet5865.b-cdn.net/)",
+    "[https://smarthost5086.b-cdn.net/](https://smarthost5086.b-cdn.net/)",
+    "[https://primebeam4104.b-cdn.net/](https://primebeam4104.b-cdn.net/)",
+    "[https://smarthost1756.b-cdn.net/](https://smarthost1756.b-cdn.net/)",
+    "[https://sharpcdn2890.b-cdn.net/](https://sharpcdn2890.b-cdn.net/)",
+    "[https://sharpsite3374.b-cdn.net/](https://sharpsite3374.b-cdn.net/)",
+    "[https://megacache1865.b-cdn.net/](https://megacache1865.b-cdn.net/)",
+    "[https://cleargrid5772.b-cdn.net/](https://cleargrid5772.b-cdn.net/)",
+    "[https://primenet8634.b-cdn.net/](https://primenet8634.b-cdn.net/)",
   ],
 };
 
@@ -168,9 +159,6 @@ function getAllLinksFormatted() {
 // ── LINKS API ─────────────────────────────────────────────────
 app.get("/api/links",         (req, res) => res.json({ groups: Object.keys(LINKS), summary: getLinksSummary(), all: getAllLinksFormatted() }));
 
-// ── NEWS — used by the Monitor screen and by "jarvis show me the news" ──
-// ?category=technology|business|entertainment|general|health|science|sports
-// ?q=some+search+term   (overrides category, searches everything instead)
 app.get("/api/news", async (req, res) => {
   try {
     const { q, category, country } = req.query;
@@ -331,7 +319,7 @@ app.get("/api/training/examples", (req, res) => {
   res.json({ examples: ex });
 });
 app.post("/api/training/generate", async (req, res) => {
-  if (!Groq.isConfigured()) return res.status(400).json({ error: "GROQ_API_KEY not set" });
+  if (!Groq.isConfigured()) return res.status(400).json({ error: "HERMES_API_KEY not set" });
   const { intent, count } = req.body;
   try {
     const examples = await Trainer.generateSyntheticExamples(intent || "general", count || 5);
@@ -345,7 +333,7 @@ app.post("/api/training/clean", (req, res) => {
 app.post("/api/improve/analyze", async (req, res) => {
   const { message, response } = req.body;
   if (!message || !response) return res.status(400).json({ error: "Missing fields" });
-  if (!Groq.isConfigured())   return res.status(400).json({ error: "GROQ_API_KEY not set" });
+  if (!Groq.isConfigured())   return res.status(400).json({ error: "HERMES_API_KEY not set" });
   try {
     const analysis = await Groq.analyzeIntent(message, response);
     if (analysis.confidence > 0.5) await Improve.patterns.learn(message, analysis);
@@ -378,9 +366,7 @@ app.post("/api/learned/teach", (req, res) => {
   res.json({ ok, keywords: kw });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── PROFILE ROUTES
-// ═══════════════════════════════════════════════════════════════
+// ── PROFILE ROUTES ───────────────────────────────────────────
 app.post("/api/register", (req, res) => {
   const { name, passwordHash, title, voiceAliases } = req.body;
   if (!name || !passwordHash) return res.status(400).json({ error: "Missing fields" });
@@ -401,7 +387,6 @@ app.get("/api/profile/:name", (req, res) => {
   const profiles = loadProfiles();
   const profile  = profiles[req.params.name.toLowerCase().trim()];
   if (!profile) return res.json({ found: false });
-  // Never expose passwordHash, clientSecret, or raw tokens
   const { passwordHash, googleClientSecret, googleTokens, ...safe } = profile;
   res.json({ found: true, profile: safe });
 });
@@ -421,9 +406,7 @@ app.get("/api/profiles", (req, res) => {
   res.json({ profiles: list });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── MEMORY ROUTES
-// ═══════════════════════════════════════════════════════════════
+// ── MEMORY ROUTES ───────────────────────────────────────────
 app.get("/api/memory/:user", (req, res) => {
   const mem = loadMemories();
   res.json({ memories: mem[req.params.user.toLowerCase().trim()] || [] });
@@ -451,17 +434,13 @@ app.post("/api/memory/forget", (req, res) => {
   res.json({ removed: before - mem[key].length });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── WEATHER
-// ═══════════════════════════════════════════════════════════════
+// ── WEATHER ─────────────────────────────────────────────────
 app.post("/api/weather", async (req, res) => {
   try { res.json(await Weather.handleWeatherCommand(req.body.message || "weather")); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── SPOTIFY
-// ═══════════════════════════════════════════════════════════════
+// ── SPOTIFY ─────────────────────────────────────────────────
 app.get("/api/spotify/auth", (req, res) => {
   if (!Spotify.isConfigured()) return res.status(400).json({ error: "Spotify credentials not configured in .env" });
   res.redirect(Spotify.getAuthUrl());
@@ -481,11 +460,7 @@ app.post("/api/spotify", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── GOOGLE (per-user credentials)
-// ═══════════════════════════════════════════════════════════════
-
-// Save a user's Google credentials into their profile
+// ── GOOGLE ──────────────────────────────────────────────────
 app.post("/api/google/credentials", (req, res) => {
   const { userName, clientId, clientSecret } = req.body;
   if (!userName || !clientId || !clientSecret)
@@ -495,13 +470,11 @@ app.post("/api/google/credentials", (req, res) => {
   if (!profiles[key]) return res.status(404).json({ error: "User not found" });
   profiles[key].googleClientId     = clientId.trim();
   profiles[key].googleClientSecret = clientSecret.trim();
-  // Wipe old tokens — new credentials need fresh auth
   delete profiles[key].googleTokens;
   saveProfiles(profiles);
   res.json({ success: true, authUrl: `/api/google/auth?user=${encodeURIComponent(key)}` });
 });
 
-// Start OAuth flow for a specific user
 app.get("/api/google/auth", (req, res) => {
   const userKey = (req.query.user || "").toLowerCase().trim();
   if (!userKey) return res.status(400).send("<h2>Missing ?user= parameter</h2>");
@@ -515,7 +488,6 @@ app.get("/api/google/auth", (req, res) => {
   res.redirect(url);
 });
 
-// OAuth callback — state param tells us which user
 app.get("/api/google/callback", async (req, res) => {
   const { code, error, state: userKey } = req.query;
   if (error)    return res.send(`<h2>Google auth failed: ${error}</h2>`);
@@ -531,7 +503,6 @@ app.get("/api/google/callback", async (req, res) => {
   const result = await Google.exchangeCode(code, userKey, profile.googleClientId, profile.googleClientSecret, reqHost);
   if (result.error) return res.send(`<h2>Token exchange failed: ${result.error}</h2>`);
 
-  // Persist tokens in the user's profile
   profiles[userKey].googleTokens = result.tokens;
   saveProfiles(profiles);
 
@@ -541,14 +512,12 @@ app.get("/api/google/callback", async (req, res) => {
   </body></html>`);
 });
 
-// Gmail — requires userName in body
 app.post("/api/gmail", async (req, res) => {
   const userKey = (req.body.userName || "").toLowerCase().trim();
   const profiles = loadProfiles();
   const profile  = profiles[userKey];
   if (!Google.isConfiguredForUser(profile))
     return res.json({ error: "Not configured", needsAuth: true, authUrl: `/api/google/auth?user=${userKey}` });
-  // Warm the token cache from saved profile tokens if needed
   if (profile.googleTokens && !Google.hasTokenForUser(userKey))
     Google.hydrateTokens(userKey, profile.googleTokens);
   if (!Google.hasTokenForUser(userKey))
@@ -557,7 +526,6 @@ app.post("/api/gmail", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// Calendar — requires userName in body
 app.post("/api/calendar", async (req, res) => {
   const userKey = (req.body.userName || "").toLowerCase().trim();
   const profiles = loadProfiles();
@@ -572,10 +540,7 @@ app.post("/api/calendar", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── NATIVE REMINDERS / TIMERS / CALENDAR
-// ═══════════════════════════════════════════════════════════════
-// Client polls this every few seconds; anything due gets spoken once.
+// ── NATIVE REMINDERS / TIMERS / CALENDAR ─────────────────────
 app.get("/api/reminders/due", (req, res) => {
   res.json({ due: Reminders.getDue() });
 });
@@ -583,9 +548,7 @@ app.get("/api/reminders", (req, res) => {
   res.json({ items: Reminders.listUpcoming(20) });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── PERSONALITY
-// ═══════════════════════════════════════════════════════════════
+// ── PERSONALITY ─────────────────────────────────────────────
 app.post("/api/personality/comment", (req, res) => {
   const { scene, userTitle, sessionMinutes, previousScene, userTimezone } = req.body;
   const T = userTitle || "Sir";
@@ -601,9 +564,7 @@ app.post("/api/personality/smalltalk", (req, res) => {
   res.json({ reply: Personality.routeSmallTalk(message, T, userTimezone) || null });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── EXTENSION API
-// ═══════════════════════════════════════════════════════════════
+// ── EXTENSION API ───────────────────────────────────────────
 const extensionQueue  = [];
 let   extensionStatus = { phase: "idle", user: null, userTitle: null, mood: "neutral" };
 
@@ -628,9 +589,7 @@ app.get("/api/extension/download", (req, res) => {
   archive.finalize();
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── RESEARCH
-// ═══════════════════════════════════════════════════════════════
+// ── RESEARCH ────────────────────────────────────────────────
 app.post("/api/research", async (req, res) => {
   const { query, userTitle } = req.body;
   if (!query) return res.status(400).json({ error: "Missing query" });
@@ -647,9 +606,7 @@ app.post("/api/research/person", async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── SCREEN ANALYSIS
-// ═══════════════════════════════════════════════════════════════
+// ── SCREEN ANALYSIS ─────────────────────────────────────────
 app.post("/api/screen", (req, res) => {
   const { ocrText, question, userName, userTitle, memories } = req.body;
   const T = userTitle || "Sir";
@@ -667,9 +624,7 @@ app.post("/api/screen", (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── NOTIFY ENDPOINT
-// ═══════════════════════════════════════════════════════════════
+// ── NOTIFY ENDPOINT ─────────────────────────────────────────
 app.post("/api/notify", (req, res) => {
   const { message, from, type } = req.body;
   if (!message) return res.status(400).json({ error: "Missing message" });
@@ -677,12 +632,9 @@ app.post("/api/notify", (req, res) => {
   res.json({ ok: true, received: true });
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── GITHUB DEPLOY (feature draft/ship)
-// ═══════════════════════════════════════════════════════════════
+// ── GITHUB DEPLOY ───────────────────────────────────────────
 let _pendingPR = null;
 
-// Direct API endpoints (still available for manual use)
 app.post("/api/feature/draft", async (req, res) => {
   const { description, filePath } = req.body;
   const T = "Sir";
@@ -690,7 +642,7 @@ app.post("/api/feature/draft", async (req, res) => {
     return res.json({ reply: `GitHub isn't configured, ${T}. Add GITHUB_TOKEN and GITHUB_REPO to your .env file.` });
   }
   if (!Groq.isConfigured()) {
-    return res.json({ reply: `Groq isn't configured, ${T}. Add GROQ_API_KEY to your .env.` });
+    return res.json({ reply: `Hermes isn't configured, ${T}. Add HERMES_API_KEY to your .env.` });
   }
   try {
     const GitDeploy  = require("./github-deploy");
@@ -722,9 +674,7 @@ app.post("/api/feature/ship", async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── HARD COMMAND PATTERNS
-// ═══════════════════════════════════════════════════════════════
+// ── HARD COMMAND PATTERNS ───────────────────────────────────
 const HARD_COMMANDS = {
   timer:        /\b(set a timer|timer for|remind me in|remind me to .+ in|alarm in|alert me in)\b/i,
   clip:         /\b(clip that|save clip|clip the last|save the last|record that|capture that)\b/i,
@@ -748,14 +698,11 @@ const HARD_COMMANDS = {
   showHUD:      /\b(show hud|pull up hud|open hud|solve|calculate|annotate screen)\b/i,
   hideHUD:      /\b(hide hud|close hud|dismiss hud|hud off)\b/i,
   call:         /\b(call|ring|facetime|video call|voice call)\b.{1,30}\b\w+\b/i,
-  // ── NEW: GitHub feature draft & ship ──
   featureDraft: /\b(draft|build|add|create|implement|write)\s+.{3,80}(feature|function|route|endpoint|module|handler|integration|support|capability)\b/i,
   featureShip:  /\b(ship it|ship that|merge it|deploy it|push it|go live|merge the pr|ship the pr|merge and deploy)\b/i,
 };
 
 function isHardCommand(message) {
-  // featureDraft must be checked before generic "create/build" patterns
-  // to avoid collision with the diy pattern
   if (HARD_COMMANDS.featureShip.test(message))  return "featureShip";
   if (HARD_COMMANDS.featureDraft.test(message)) return "featureDraft";
   for (const [type, pattern] of Object.entries(HARD_COMMANDS)) {
@@ -765,9 +712,7 @@ function isHardCommand(message) {
   return null;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── SHARED FETCH HANDLERS
-// ═══════════════════════════════════════════════════════════════
+// ── SHARED FETCH HANDLERS ───────────────────────────────────
 async function handleWeatherFetch(message, T) {
   try {
     const wd = await Weather.handleWeatherCommand(message);
@@ -862,7 +807,6 @@ async function handleDIYFetch(message, userTitle) {
   }
 }
 
-// ── NEW: Feature draft/ship handlers ─────────────────────────
 async function handleFeatureDraft(message, T) {
   if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPO) {
     return {
@@ -873,13 +817,12 @@ async function handleFeatureDraft(message, T) {
   }
   if (!Groq.isConfigured()) {
     return {
-      reply:  `Groq isn't configured, ${T}. Add GROQ_API_KEY to your .env — it's needed to generate the code.`,
+      reply:  `Hermes isn't configured, ${T}. Add HERMES_API_KEY to your .env — it's needed to generate the code.`,
       action: "FEATURE_DRAFT",
       intent: "feature_draft",
     };
   }
 
-  // Strip filler words to get the core description
   const desc = message
     .replace(/\b(jarvis[,.]?\s*)?(draft|build|add|create|implement|write|a|an|the)\b/gi, "")
     .replace(/\b(feature|function|route|endpoint|module|handler|integration|support|capability)\b/gi, "")
@@ -887,7 +830,6 @@ async function handleFeatureDraft(message, T) {
     .replace(/\s+/g, " ")
     || message.trim();
 
-  // Pick the most likely file to edit
   const fileMap = {
     route:       "server.js",
     endpoint:    "server.js",
@@ -968,17 +910,7 @@ async function handleFeatureShip(T) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── MAIN CHAT ROUTE
-// ═══════════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════════
-// ── TOOL EXECUTOR — real actions Groq can call directly ─────────
-// This is what replaces regex command-matching: Groq decides which
-// of these to call and with what arguments, straight from natural
-// language. Add a case here + a definition in hermes-engine.js's
-// TOOLS array to give Jarvis a new capability with no keyword list
-// to maintain.
-// ═══════════════════════════════════════════════════════════════
+// ── TOOL EXECUTOR ───────────────────────────────────────────
 async function executeAssistantTool(name, args, ctx) {
   const { T, userTimezone, userName } = ctx;
 
@@ -1039,10 +971,10 @@ async function executeAssistantTool(name, args, ctx) {
   }
 }
 
+// ── MAIN CHAT ROUTE ─────────────────────────────────────────
 app.post("/api/chat", async (req, res) => {
   const { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, screenActive, userTimezone } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
-  // Inject camera/screen context into the message if relevant so AI knows they're already active
   let enrichedMessage = message;
   if (cameraActive && /\b(camera|see|look|watch|analyze|analyse|fighting|style|face|visual)\b/i.test(message) && !/permission|access|grant/i.test(message)) {
     enrichedMessage = `[Camera is already active and online] ${message}`;
@@ -1050,8 +982,6 @@ app.post("/api/chat", async (req, res) => {
 
   const T = userTitle || "Sir";
 
-  // ── 0. Home Talk toggle — checked first so it never collides with
-  //      smart-home / smalltalk / AI routing below ──
   if (HOME_TALK_ON.test(message)) {
     const Cast = require("./cast");
     if (!Cast.isConfigured()) {
@@ -1080,7 +1010,6 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
-  // ── 1. Home commands ──
   if (Home.isHomeCommand(message) || Home.isHomePanelRequest(message)) {
     if (Home.isHomePanelRequest(message)) {
       return res.json({ reply: `Opening home control panel, ${T}.`, action: "OPEN_HOME", intent: "home", meta: { openHome: true } });
@@ -1090,7 +1019,6 @@ app.post("/api/chat", async (req, res) => {
       .catch(() => res.json({ reply: `Home command failed, ${T}.`, action: "HOME_COMMAND", intent: "home" }));
   }
 
-  // ── 1.1 Drafting table / blueprint mode ──
   if (/\b(blueprint|blue print|drafting table|design table|engineering bay|cad mode|let'?s design|sketch (out|something)|draft something|design something)\b/i.test(message)) {
     return res.json({
       reply: `Opening the drafting table, ${T}. Pull a reference off the web, sketch over it with your hand, and I'll project it straight into a hologram.`,
@@ -1100,7 +1028,6 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
-  // ── 1.2 Holographic Workspace — AI-powered scene builder ──
   if (/\b(hologram(ic)? workspace|holo workspace|open workspace|scene builder|build a scene|3d workspace|workspace mode)\b/i.test(message)) {
     return res.json({
       reply: `Opening the holographic workspace, ${T}. Describe what you're imagining and I'll generate it — or drag objects in manually and build it yourself. The workspace is a living scene you can grab, move, and trash objects in.`,
@@ -1110,7 +1037,6 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
-  // ── 2. Personality shortcuts (no AI needed) ──
   const personalNewsReply = Personality.routePersonalNews(message, T);
   if (personalNewsReply) {
     Trainer.addExample(message, personalNewsReply, "personal_news", "personal", 0.8, "personality");
@@ -1122,12 +1048,6 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ reply: smalltalkReply, action: "SMALLTALK", intent: "smalltalk" });
   }
 
-  // ── 2.5 AI decides + acts — replaces regex command matching ──
-  // Groq reads the message and either calls a real tool (reminder,
-  // timer, weather, Spotify, home control) or just answers in text.
-  // No keyword list to maintain — new phrasings work automatically.
-  // The legacy pipeline below only runs if this throws (e.g. Groq
-  // unreachable), so nothing regresses if the API call fails.
   if (Groq.isConfigured()) {
     try {
       const toolResult = await Groq.chatWithTools({
@@ -1153,26 +1073,17 @@ app.post("/api/chat", async (req, res) => {
       }
     } catch (err) {
       console.error("[TOOLS] chatWithTools failed, falling back to legacy pipeline:", err.message);
-      // fall through to the pipeline below
     }
   }
 
-  // ── Legacy regex reminders — fallback only ──
-  // Only reached if Groq is unconfigured or the tool-calling call
-  // above threw. Kept as a safety net so timers/reminders still work
-  // in some form if the API is down, but it no longer runs first —
-  // that's what was hijacking messages before the AI stage could see
-  // them and mangling labels with its regex-based extraction.
   const reminderResult = Reminders.route(message, T, userTimezone, sessionId);
   if (reminderResult) {
     return res.json(reminderResult);
   }
 
-  // ── 3. Hard commands ──
   const hardCommandType = isHardCommand(message);
 
   if (hardCommandType) {
-    // ── Feature draft/ship — handled directly, no AI engine needed ──
     if (hardCommandType === "featureDraft") {
       return res.json(await handleFeatureDraft(message, T));
     }
@@ -1193,7 +1104,6 @@ app.post("/api/chat", async (req, res) => {
 
     const { reply, action, meta, intent, needsFetch, fetchType, topic } = aiResult;
 
-    // Handle fetches for hard commands
     if (needsFetch) {
       switch (fetchType) {
         case "weather":  return res.json(await handleWeatherFetch(message, T));
@@ -1205,7 +1115,6 @@ app.post("/api/chat", async (req, res) => {
       }
     }
 
-    // Special action handling
     if (action === "SHOW_LINKS") {
       return res.json({ reply, action, intent, meta: { requestLinks: true, linkGroups: getAllLinksFormatted(), total: getLinksSummary().total } });
     }
@@ -1238,11 +1147,9 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ reply, action: action || "COMMAND", intent: intent || hardCommandType, topic, meta });
   }
 
-// ── 4. Everything else → local brain first, Groq as tutor only when needed ──
   const linkSummary2 = getLinksSummary();
   const serverData2  = { ...linkSummary2, allLinks: getAllLinksFormatted(), ...lookupLink(enrichedMessage) };
 
-  // Persist user turn + load full history so JARVIS remembers its own questions
   appendToSession(sessionId, "user", enrichedMessage);
   const conversationHistory = getSessionHistory(sessionId);
 
@@ -1275,15 +1182,12 @@ app.post("/api/chat", async (req, res) => {
     Trainer.addExample(message, result.reply, result.intent || result.action, result.topic, quality, result.source || "local");
   }
 
-  // Persist assistant reply so next turn has full context
   if (result.reply) appendToSession(sessionId, "assistant", result.reply);
 
   return res.json(result);
 });
 
-// ═══════════════════════════════════════════════════════════════
-// ── BOOT
-// ═══════════════════════════════════════════════════════════════
+// ── BOOT ─────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 
 bootstrapOwnerAccount();
@@ -1291,16 +1195,12 @@ Improve.ensureDirs();
 
 Improve.startImprovementLoop(5 * 60 * 1000);
 Trainer.startTrainingLoop(15 * 60 * 1000);
-// ═══════════════════════════════════════════════════════════════
-// ── PIPER TTS ROUTE
-// ═══════════════════════════════════════════════════════════════
+
+// ── PIPER TTS ROUTE ──────────────────────────────────────────
 app.post("/api/tts", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "Missing text" });
 
-  // ── Home Talk path ────────────────────────────────────────────
-  // Cast to Google Home regardless of whether Piper is running.
-  // Uses Google Translate TTS (no API key, no Python deps needed).
   if (outputMode === "home") {
     const Cast = require("./cast");
     try {
@@ -1323,7 +1223,6 @@ app.post("/api/tts", async (req, res) => {
     }
   }
 
-  // ── Phone / browser path ──────────────────────────────────────
   if (!TTS.isReady()) {
     return res.status(503).json({ error: "Voice model loading", fallback: true });
   }
@@ -1336,15 +1235,10 @@ app.post("/api/tts", async (req, res) => {
   res.send(audio);
 });
 
-// ── Google Translate TTS — pure Node.js, no Python, no API key ───────────────
-// Splits long text into ≤200-char chunks, fetches each as MP3 from
-// translate.google.com/translate_tts, then concatenates the raw MP3 frames.
-// pychromecast is happy playing MP3 — no ffmpeg conversion needed.
 async function fetchGoogleTTS(text) {
   const clean = TTS.cleanText(text);
   if (!clean) return null;
 
-  // Split on sentence boundaries to stay under 200 chars per request
   const chunks = [];
   let current  = "";
   for (const sentence of clean.replace(/([.!?])\s+/g, "$1\n").split("\n")) {
@@ -1362,7 +1256,7 @@ async function fetchGoogleTTS(text) {
 
   const parts = [];
   for (const chunk of chunks) {
-    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=${encodeURIComponent(chunk)}`;
+    const url = `[https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=$](https://translate.google.com/translate_tts?ie=UTF-8&tl=en&client=tw-ob&q=$){encodeURIComponent(chunk)}`;
     try {
       const r = await fetch(url, {
         headers: { "User-Agent": "Mozilla/5.0" },
@@ -1376,15 +1270,13 @@ async function fetchGoogleTTS(text) {
   }
 
   if (!parts.length) return null;
-  return Buffer.concat(parts); // concatenated MP3 — valid for casting
+  return Buffer.concat(parts); 
 }
 
-// Status check — client can poll this on startup to know when voice is ready
 app.get("/api/tts/status", (req, res) => {
   res.json({ ready: TTS.isReady() });
 });
 
-// Home Talk state — lets the frontend show an accurate badge on load/refresh
 app.get("/api/home-talk/status", (req, res) => {
   const Cast = require("./cast");
   res.json({ outputMode, device: Cast.deviceName(), configured: Cast.isConfigured() });
@@ -1394,7 +1286,7 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`\nJ.A.R.V.I.S online → http://localhost:${PORT}`);
   console.log(`  Comms panel    → http://localhost:${PORT}/comms`);
   console.log(`  Drafting table → http://localhost:${PORT}/blueprint`);
-  console.log(`  Groq AI:       ${Groq.isConfigured() ? "✓ configured — primary brain active" : "✗ not configured (add GROQ_API_KEY to .env)"}`);
+  console.log(`  Hermes AI:     ${Groq.isConfigured() ? "✓ configured — primary brain active" : "✗ not configured (add HERMES_API_KEY to .env)"}`);
   console.log(`  Spotify:       ${Spotify.isConfigured() ? "✓ configured" : "✗ add SPOTIFY_CLIENT_ID to .env"}`);
   console.log(`  Google:        ✓ per-user credentials (users add their own in settings)`);
   console.log(`  Weather:       ${process.env.OPENWEATHER_API_KEY ? "✓ configured" : "✗ add OPENWEATHER_API_KEY to .env"}`);
