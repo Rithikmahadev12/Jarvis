@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="style.css"/>
   <link rel="stylesheet" href="hand-tracking.css"/>
   <link rel="stylesheet" href="glass-ui.css"/>
+  <link rel="stylesheet" href="daily-briefing.css"/>
 
   <!-- PWA: lets this be "Added to Home Screen" as an app on a phone -->
   <link rel="manifest" href="manifest.json"/>
@@ -57,6 +58,10 @@
     </div>
     <button id="intro-skip-btn" class="intro-skip-btn">SKIP →</button>
   </div>
+
+  <!-- DAILY BRIEFING SCREEN — plays after boot, before main HUD.
+       Content is built dynamically by daily-briefing.js -->
+  <div id="briefing-screen"></div>
 
   <!-- SETUP SCREEN -->
   <div id="setup-screen" class="screen">
@@ -438,6 +443,7 @@
             <button class="q-btn" onclick="handleChatCommand('Jarvis show me all my links')">LINK BANK</button>
             <button class="q-btn" onclick="handleChatCommand('Jarvis what is the weather')">WEATHER</button>
             <button class="q-btn" onclick="handleChatCommand('what is playing on Spotify')">SPOTIFY</button>
+            <button class="q-btn" onclick="window.JarvisBriefing && window.JarvisBriefing.reset()">NEW DAILY TASK</button>
           </div>
         </div>
 
@@ -500,6 +506,7 @@
   <script src="camera-observer.js"></script>
   <script src="visuals.js"></script>
   <script src="jarvis.js"></script>
+  <script src="daily-briefing.js"></script>
   <script src="intro.js"></script>
   <script src="pip-widgets.js"></script>
   <script src="hand-tracking.js"></script>
