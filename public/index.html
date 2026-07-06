@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="hand-tracking.css"/>
   <link rel="stylesheet" href="glass-ui.css"/>
   <link rel="stylesheet" href="daily-briefing.css"/>
+  <link rel="stylesheet" href="hud-main.css"/>
 
   <!-- PWA: lets this be "Added to Home Screen" as an app on a phone -->
   <link rel="manifest" href="manifest.json"/>
@@ -237,11 +238,6 @@
         </div>
         <div class="tb-separator"></div>
         <div class="tb-block">
-          <div class="tb-label">UPTIME</div>
-          <div class="tb-val mono" id="hud-uptime">00:00:00</div>
-        </div>
-        <div class="tb-separator"></div>
-        <div class="tb-block">
           <div class="tb-label">MOOD</div>
           <div class="tb-val" id="mood-display">● NEUTRAL</div>
         </div>
@@ -252,12 +248,15 @@
           <span class="top-title">J.A.R.V.I.S</span>
           <span class="top-subtitle">COGNITIVE ENGINE v7.0</span>
         </div>
-        <div class="orb" id="orb">
-          <div class="orb-ring r1"></div>
-          <div class="orb-ring r2"></div>
-          <div class="orb-ring r3"></div>
-          <div class="orb-core"></div>
-          <div class="orb-pulse"></div>
+        <div class="orb-globe-wrap">
+          <canvas id="orb-globe-canvas"></canvas>
+          <div class="orb" id="orb">
+            <div class="orb-ring r1"></div>
+            <div class="orb-ring r2"></div>
+            <div class="orb-ring r3"></div>
+            <div class="orb-core"></div>
+            <div class="orb-pulse"></div>
+          </div>
         </div>
         <div class="orb-label" id="status-text">STANDBY</div>
       </div>
@@ -269,13 +268,8 @@
         </div>
         <div class="tb-separator"></div>
         <div class="tb-block right">
-          <div class="tb-label">MEMORY</div>
-          <div class="tb-val" id="hud-mem-count">0 STORED</div>
-        </div>
-        <div class="tb-separator"></div>
-        <div class="tb-block right">
-          <div class="tb-label">PHASE</div>
-          <div class="tb-val" id="hud-phase">IDLE</div>
+          <div class="tb-label">DATE</div>
+          <div class="tb-val" id="hud-date">---</div>
         </div>
       </div>
     </div>
@@ -300,51 +294,22 @@
         </div>
 
         <div class="panel-section">
-          <div class="panel-section-label">SYSTEM STATUS</div>
-          <div class="stat-grid">
-            <div class="stat-item">
-              <div class="stat-label">AI ENGINE</div>
-              <div class="stat-val green">ONLINE</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">OCR</div>
-              <div class="stat-val" id="ocr-status">LOADING</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">FACE ID</div>
-              <div class="stat-val" id="faceid-status">SCANNING</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">MIC</div>
-              <div class="stat-val" id="mic-status">ACTIVE</div>
-            </div>
+          <div class="panel-section-label">STATUS</div>
+          <div class="bf-ring-row" id="left-ring-row">
+            <div class="bf-ring-dot done" title="AI Engine">EN</div>
+            <div class="bf-ring-dot" id="ring-cam" title="Camera">CM</div>
+            <div class="bf-ring-dot done" title="Mic">MC</div>
           </div>
         </div>
 
-        <div class="panel-section">
-          <div class="panel-section-label">INTERACTIONS</div>
-          <div class="big-counter" id="interaction-count">0</div>
-          <div class="mini-bars" id="activity-bars">
-            <div class="mini-bar" style="height:20%"></div>
-            <div class="mini-bar" style="height:45%"></div>
-            <div class="mini-bar" style="height:30%"></div>
-            <div class="mini-bar" style="height:70%"></div>
-            <div class="mini-bar" style="height:55%"></div>
-            <div class="mini-bar" style="height:35%"></div>
-            <div class="mini-bar" style="height:80%"></div>
-            <div class="mini-bar" style="height:60%"></div>
-            <div class="mini-bar" style="height:25%"></div>
-            <div class="mini-bar" style="height:50%"></div>
-          </div>
+        <div class="bf-stat-block">
+          <div class="bf-stat-block-label">MEMORY BANK</div>
+          <div class="bf-stat-block-val" id="hud-mem-count-left">0 stored</div>
         </div>
 
-        <div class="panel-section">
-          <div class="panel-section-label">MEMORY BANK</div>
-          <div class="memory-badge">
-            <span class="mem-dot"></span>
-            <span id="hud-mem-count-left">0 STORED</span>
-          </div>
-          <div class="mem-sub">LONG-TERM FACTS</div>
+        <div class="bf-stat-block">
+          <div class="bf-stat-block-label">SESSION</div>
+          <div class="bf-stat-block-val" id="interaction-count">0 interactions</div>
         </div>
 
         <!-- Clip indicator -->
@@ -354,13 +319,12 @@
         </div>
 
         <!-- Extension download -->
-        <a href="/api/extension/download" download="jarvis-extension.zip" class="ext-btn">
-          <span>⬡</span> EXTENSION
-        </a>
+        <a href="/api/extension/download" download="jarvis-extension.zip" class="ext-btn-icon" title="Download browser extension">⬡</a>
       </div>
 
       <!-- TRANSCRIPT AREA -->
       <div class="transcript-column">
+        <canvas id="ambient-globe-canvas"></canvas>
         <div class="transcript-header">
           <div class="th-edge left"></div>
           <div class="th-title">NEURAL INTERFACE — ACTIVE SESSION</div>
@@ -388,10 +352,6 @@
           <span>"clip that"</span>
           <span class="dot">·</span>
           <span>"set a timer"</span>
-          <span class="dot">·</span>
-          <span>"show me a 3D model"</span>
-          <span class="dot">·</span>
-          <span>"build mode"</span>
         </div>
       </div>
 
@@ -399,91 +359,36 @@
       <div class="side-panel right-panel">
         <div class="panel-header">INTELLIGENCE</div>
 
-        <div class="panel-section">
-          <div class="panel-section-label">EMOTIONAL STATE</div>
-          <div class="mood-orb-wrap">
-            <div class="mood-arc" id="mood-arc"></div>
-            <div class="mood-label-big" id="mood-label-big">NEUTRAL</div>
+        <div class="panel-section bf-donut-wrap">
+          <div class="bf-donut" id="mood-donut" style="--bf-progress:50">
+            <div class="bf-donut-label" id="mood-label-big">50%</div>
           </div>
-          <div class="mood-score-bar">
-            <div class="mood-score-fill" id="mood-score-fill" style="width:50%"></div>
-          </div>
-          <div class="mood-score-val" id="mood-score-val">SCORE: 0</div>
+          <div class="bf-donut-caption" id="mood-score-val">MOOD · NEUTRAL</div>
         </div>
 
         <div class="panel-section">
-          <div class="panel-section-label">AUDIO INPUT</div>
-          <div class="audio-status-line">
-            <div class="audio-dot" id="audio-dot"></div>
-            <span id="audio-status-text">STANDBY</span>
-          </div>
-          <div class="waveform-bars" id="wf-bars">
-            <div class="wfb"></div><div class="wfb"></div><div class="wfb"></div>
-            <div class="wfb"></div><div class="wfb"></div><div class="wfb"></div>
-            <div class="wfb"></div><div class="wfb"></div>
+          <div class="panel-section-label">QUICK ACTIONS</div>
+          <div class="bf-ring-row" id="quick-ring-row">
+            <div class="bf-ring-dot q-ring-btn" title="3D Hologram" onclick="handleChatCommand('Jarvis show me a 3D model of Iron Man')">3D</div>
+            <div class="bf-ring-dot q-ring-btn" title="Build Mode" onclick="handleChatCommand('Jarvis build mode')">BM</div>
+            <div class="bf-ring-dot q-ring-btn" title="Diagnostics" onclick="handleChatCommand('Jarvis system status')">DX</div>
+            <div class="bf-ring-dot q-ring-btn" title="Weather" onclick="handleChatCommand('Jarvis what is the weather')">WX</div>
+            <div class="bf-ring-dot q-ring-btn" title="New Daily Task" onclick="window.JarvisBriefing && window.JarvisBriefing.reset()">NT</div>
           </div>
         </div>
 
-        <div class="panel-section">
-          <div class="panel-section-label">MEMORY BANK</div>
-          <div class="memory-badge">
-            <span class="mem-dot"></span>
-            <span id="mem-count-right">0 STORED</span>
-          </div>
-          <div class="mem-sub" id="mem-sub-right">NO FACTS YET</div>
+        <div class="bf-stat-block">
+          <div class="bf-stat-block-label">MEMORY BANK</div>
+          <div class="bf-stat-block-val" id="mem-count-right">0 stored</div>
         </div>
 
-        <div class="panel-section">
-          <div class="panel-section-label">QUICK LAUNCH</div>
-          <div class="quick-btns">
-            <button class="q-btn" onclick="handleChatCommand('Jarvis show me a 3D model of Iron Man')">3D HOLOGRAM</button>
-            <button class="q-btn" onclick="window.open('/workspace','_blank')">HOLO WORKSPACE</button>
-            <button class="q-btn" onclick="handleChatCommand('Jarvis build mode')">BUILD MODE</button>
-            <button class="q-btn" onclick="handleChatCommand('Jarvis system status')">DIAGNOSTICS</button>
-            <button class="q-btn" onclick="handleChatCommand('Jarvis show me all my links')">LINK BANK</button>
-            <button class="q-btn" onclick="handleChatCommand('Jarvis what is the weather')">WEATHER</button>
-            <button class="q-btn" onclick="handleChatCommand('what is playing on Spotify')">SPOTIFY</button>
-            <button class="q-btn" onclick="window.JarvisBriefing && window.JarvisBriefing.reset()">NEW DAILY TASK</button>
-          </div>
+        <div class="bf-stat-block">
+          <div class="bf-stat-block-label">LAST NOTE</div>
+          <div class="bf-stat-block-val" id="mem-sub-right">No facts yet</div>
         </div>
 
         <div id="mic-debug" class="mic-debug">Mic: waiting…</div>
       </div>
-    </div>
-
-    <!-- TICKER -->
-    <!-- ══ MOBILE NAV BAR (hidden on desktop) ══ -->
-    <nav class="mobile-nav" id="mobile-nav">
-      <button class="mob-nav-btn active" id="mob-btn-chat" onclick="mobileNav('chat')">
-        <span class="mob-icon">💬</span>CHAT
-      </button>
-      <button class="mob-nav-btn" id="mob-btn-left" onclick="mobileNav('left')">
-        <span class="mob-icon">📡</span>STATUS
-      </button>
-      <button class="mob-nav-btn" id="mob-btn-mic" id="mob-mic-btn" onclick="toggleListening()">
-        <span class="mob-icon">🎤</span>SPEAK
-      </button>
-      <button class="mob-nav-btn" id="mob-btn-right" onclick="mobileNav('right')">
-        <span class="mob-icon">⚙️</span>PANEL
-      </button>
-    </nav>
-
-    <!-- ══ LEFT DRAWER (mobile) ══ -->
-    <div class="mob-drawer-overlay" id="mob-overlay-left" onclick="closeMobileDrawers()"></div>
-    <div class="mob-drawer" id="mob-drawer-left">
-      <button class="mob-drawer-close" onclick="closeMobileDrawers()">✕</button>
-      <!-- content injected by JS from left-panel -->
-    </div>
-
-    <!-- ══ RIGHT DRAWER (mobile) ══ -->
-    <div class="mob-drawer-overlay" id="mob-overlay-right" onclick="closeMobileDrawers()"></div>
-    <div class="mob-drawer right" id="mob-drawer-right">
-      <button class="mob-drawer-close" onclick="closeMobileDrawers()">✕</button>
-      <!-- content injected by JS from right-panel -->
-    </div>
-
-    <div id="status-ticker">
-      <div class="ticker-track" id="ticker-track"></div>
     </div>
 
     <!-- CLIP TOAST -->
@@ -506,6 +411,8 @@
   <script src="camera-observer.js"></script>
   <script src="visuals.js"></script>
   <script src="jarvis.js"></script>
+  <script src="hud-globe.js"></script>
+  <script src="hud-live.js"></script>
   <script src="daily-briefing.js"></script>
   <script src="intro.js"></script>
   <script src="pip-widgets.js"></script>
