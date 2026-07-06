@@ -29,4 +29,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(() => sendResponse({ connected: false }));
     return true;
   }
+
+  // JARVIS's own schedule/inspo engine asks us to pop tabs open —
+  // this runs in the background service worker, so it isn't subject
+  // to the page-level popup blocker a content script would hit.
+  if (msg.type === "OPEN_URLS") {
+    const urls = Array.isArray(msg.urls) ? msg.urls : [];
+    urls.forEach((url, i) => {
+      chrome.tabs.create({ url, active: i === 0 });
+    });
+    sendResponse({ ok: true, opened: urls.length });
+    return true;
+  }
 });
