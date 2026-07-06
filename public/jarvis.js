@@ -1020,6 +1020,33 @@ function launchMain() {
 
   setInterval(syncExtensionStatus, 3000);
   setInterval(pollReminders, 5000);
+  setInterval(pollSchedule, 20000);
+}
+
+// ── WORK-SESSION BREAK NUDGE ──
+// Checks in every 20s. If you've been at it over an hour, JARVIS asks
+// whether you want a break — it never opens anything on its own here.
+// Say "yes" and that reply goes through the normal chat pipeline,
+// which is what actually opens the links (see OPEN_LINKS below).
+let _scheduleBusy = false;
+async function pollSchedule() {
+  if (_scheduleBusy) return;
+  _scheduleBusy = true;
+  try {
+    const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const res = await fetch(`/api/schedule/due?tz=${encodeURIComponent(tz)}&sessionId=${encodeURIComponent(state.sessionId)}`);
+    const data = await res.json();
+    const nudge = data?.nudge;
+    if (nudge) {
+      addMsg("jarvis", nudge.text);
+      mic.suspend();
+      speak(nudge.text, () => mic.resume());
+    }
+  } catch {
+    // server unreachable — try again next tick
+  } finally {
+    _scheduleBusy = false;
+  }
 }
 
 // ── NATIVE REMINDERS / TIMERS POLL ──
@@ -1369,6 +1396,36 @@ async function handleAction(action, meta, replyText) {
       }
       break;
     }
+    case "SHOW_CALENDAR": {
+      speak(replyText, () => mic.resume());
+      showCalendarUI(meta || {});
+      break;
+    }
+    case "OPEN_LINKS": {
+      const links = Array.isArray(meta?.links) ? meta.links : [];
+      if (links.length) {
+        const wrap = document.createElement("div"); wrap.className = "msg jarvis";
+        let html = `<div class="msg-label">J.A.R.V.I.S — LINKS</div><div class="msg-text">`;
+        for (const l of links) {
+          html += `<a href="${l.url}" target="_blank" rel="noopener" class="jarvis-link link-item">${l.label || l.url}</a>`;
+        }
+        html += `</div>`;
+        wrap.innerHTML = html;
+        $("transcript").appendChild(wrap); $("transcript").scrollTop = $("transcript").scrollHeight;
+        speak(replyText, () => {
+          // Best-effort auto-open. Browsers may block a batch of popups
+          // that aren't tied to a direct click — that's why the links
+          // above are also rendered as clickable fallbacks. Install the
+          // JARVIS Chrome extension for reliable auto-opening even when
+          // this tab isn't focused (it uses chrome.tabs.create instead).
+          links.forEach((l, i) => setTimeout(() => window.open(l.url, "_blank", "noopener"), i * 400));
+          mic.resume();
+        });
+      } else {
+        speak(replyText, () => mic.resume());
+      }
+      break;
+    }
     case "CLIP_SAVE": {
       speak(replyText, () => {
         const clipType = meta.clipType || "both";
@@ -1468,6 +1525,92 @@ async function handleAction(action, meta, replyText) {
     }
     default: { speak(replyText, () => mic.resume()); break; }
   }
+}
+
+// ── CALENDAR / AGENDA UI ──
+// Self-contained: injects its own CSS once so it doesn't depend on
+// style.css being updated too. Shows today's routine (if any) with
+// the current block highlighted, plus upcoming reminders/events.
+let _calendarCSSInjected = false;
+function ensureCalendarCSS() {
+  if (_calendarCSSInjected) return;
+  _calendarCSSInjected = true;
+  const style = document.createElement("style");
+  style.textContent = `
+    #jarvis-calendar-overlay {
+      position: fixed; inset: 0; background: rgba(0,8,16,0.72);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 99999; font-family: 'Share Tech Mono', monospace;
+    }
+    #jarvis-calendar-panel {
+      width: min(460px, 92vw); max-height: 80vh; overflow-y: auto;
+      background: rgba(6,18,28,0.97); border: 1px solid rgba(0,200,255,0.35);
+      border-radius: 10px; box-shadow: 0 0 40px rgba(0,200,255,0.25);
+      padding: 20px 22px 24px;
+    }
+    #jarvis-calendar-panel h2 {
+      color: #00c8ff; font-size: 0.95rem; letter-spacing: 0.08em;
+      margin: 0 0 14px; display: flex; justify-content: space-between; align-items: center;
+    }
+    #jarvis-calendar-panel .jc-close {
+      cursor: pointer; color: #7fdcff; background: none; border: 1px solid rgba(0,200,255,0.4);
+      border-radius: 4px; padding: 2px 9px; font-size: 0.8rem;
+    }
+    #jarvis-calendar-panel .jc-section-title {
+      color: #7fdcff; font-size: 0.72rem; letter-spacing: 0.06em; margin: 14px 0 6px; text-transform: uppercase;
+    }
+    #jarvis-calendar-panel .jc-block {
+      display: flex; justify-content: space-between; gap: 10px;
+      padding: 6px 8px; border-radius: 5px; font-size: 0.78rem; color: #cfeeff;
+      border-bottom: 1px solid rgba(0,200,255,0.08);
+    }
+    #jarvis-calendar-panel .jc-block.current { background: rgba(0,200,255,0.14); color: #fff; }
+    #jarvis-calendar-panel .jc-time { color: #6fb8d6; white-space: nowrap; }
+    #jarvis-calendar-panel .jc-empty { color: #6fb8d6; font-size: 0.78rem; padding: 6px 8px; }
+  `;
+  document.head.appendChild(style);
+}
+
+function showCalendarUI(meta) {
+  ensureCalendarCSS();
+  const old = document.getElementById("jarvis-calendar-overlay");
+  if (old) old.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "jarvis-calendar-overlay";
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.remove(); });
+
+  const blocks    = Array.isArray(meta.blocks) ? meta.blocks : [];
+  const reminders = Array.isArray(meta.reminders) ? meta.reminders : [];
+  const currentId = meta.current?.id;
+
+  let html = `<div id="jarvis-calendar-panel">
+    <h2>J.A.R.V.I.S — AGENDA <button class="jc-close" id="jc-close-btn">CLOSE</button></h2>`;
+
+  html += `<div class="jc-section-title">Today's Routine</div>`;
+  if (blocks.length) {
+    for (const b of blocks) {
+      const isCurrent = b.id === currentId;
+      html += `<div class="jc-block${isCurrent ? " current" : ""}"><span>${b.label}</span><span class="jc-time">${b.start}–${b.end}</span></div>`;
+    }
+  } else {
+    html += `<div class="jc-empty">No routine set up yet — say "give me a healthy schedule".</div>`;
+  }
+
+  html += `<div class="jc-section-title">Reminders &amp; Events</div>`;
+  if (reminders.length) {
+    for (const r of reminders) {
+      const when = new Date(r.dueAt).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+      html += `<div class="jc-block"><span>${r.label}</span><span class="jc-time">${when}</span></div>`;
+    }
+  } else {
+    html += `<div class="jc-empty">Nothing on the books.</div>`;
+  }
+
+  html += `</div>`;
+  overlay.innerHTML = html;
+  document.body.appendChild(overlay);
+  document.getElementById("jc-close-btn").addEventListener("click", () => overlay.remove());
 }
 
 // ── TIMER BADGE ──
