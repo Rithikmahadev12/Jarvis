@@ -2,8 +2,16 @@
 # NOTE: no "set -e" here on purpose. This script boots an optional, secondary
 # voice server. If pip/curl/uvicorn hiccup, we want to log it and keep going
 # so the main Node app (server.js) still starts.
+#
+# IMPORTANT: this script now runs CONCURRENTLY with `node server.js` (see
+# package.json's start script — it's "startup.sh & node server.js", not "&&").
+# Node does not wait for this script to finish, so nothing in here should be
+# assumed to exist yet from server.js's point of view. Node binds its port
+# immediately; everything below just prepares the optional voice/Hermes
+# subsystems in the background so Render's port scan never stalls waiting
+# on pip installs or model downloads again.
 
-echo "[STARTUP] Beginning J.A.R.V.I.S boot sequence..."
+echo "[STARTUP] Beginning J.A.R.V.I.S boot sequence (background)..."
 
 # pip with --break-system-packages installs console scripts (uvicorn, piper)
 # into ~/.local/bin. That directory is NOT on PATH by default on Render's
@@ -76,12 +84,19 @@ if command -v hermes >/dev/null 2>&1; then
   echo "[STARTUP] Launching Hermes Agent gateway (API server on :8642)..."
   hermes gateway run > ./hermes.log 2>&1 &
 
-  echo "[STARTUP] Waiting for Hermes API server to come up..."
-  for i in $(seq 1 30); do
-    curl -sf -H "Authorization: Bearer $HERMES_KEY" http://127.0.0.1:8642/v1/models >/dev/null 2>&1 && \
-      { echo "[STARTUP] Hermes Agent is up."; break; }
-    sleep 1
-  done
+  # NOTE: this used to be a blocking 30s poll loop that held up the entire
+  # script (and, before the package.json fix, held up Node itself along with
+  # it). It's now fire-and-forget: we log readiness if/when it shows up, but
+  # we never block on it. Anything in server.js that talks to Hermes should
+  # handle "not ready yet" / connection-refused gracefully rather than
+  # assuming this finished.
+  (
+    for i in $(seq 1 30); do
+      curl -sf -H "Authorization: Bearer $HERMES_KEY" http://127.0.0.1:8642/v1/models >/dev/null 2>&1 && \
+        { echo "[STARTUP] Hermes Agent is up."; break; }
+      sleep 1
+    done
+  ) &
 else
   echo "[STARTUP][WARN] 'hermes' command not found on PATH after install, skipping Hermes Agent."
 fi
@@ -92,4 +107,9 @@ echo "[STARTUP] Launching voice server on :5050..."
 # the python interpreter to run the installed uvicorn module directly.
 python3 -m uvicorn voice-server.server:app --host 0.0.0.0 --port 5050 &
 
-echo "[STARTUP] Boot sequence complete."
+echo "[STARTUP] Background setup launched. (Node is already up on its own port and does not wait for this.)"
+
+# Keep this script's own process alive so its background jobs (hermes gateway,
+# uvicorn, the readiness poller) aren't orphaned/killed the instant this
+# script's foreground line finishes.
+wait
