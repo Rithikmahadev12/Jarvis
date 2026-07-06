@@ -21,7 +21,7 @@ function getUserTimezone() {
 // ── STATE ──
 const state = window.state = {
   phase: "idle",
-  outputMode: "phone",   // "phone" = normal browser TTS, "home" = cast via ElevenLabs/Google Home
+  outputMode: "phone",   // "phone" = normal browser TTS, "home" = cast via Piper/Google Home
   user: null,
   userTitle: null,
   sessionId: crypto.randomUUID(),
@@ -209,11 +209,24 @@ async function loadServerProfiles() {
   } catch { return []; }
 }
 
-async function hashPassword(pw) {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pw));
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
 const $ = id => document.getElementById(id);
+
+// ── SHARED AUTH-SCREEN CAMERA HELPER ──
+// Login and account-creation both need a live camera feed *before* the
+// user is signed in (state.cameraStream doesn't exist yet at that point),
+// so this opens its own short-lived stream and attaches it to whichever
+// <video> element is passed in.
+let _authStream = null;
+async function getAuthCameraStream(videoEl) {
+  if (!_authStream) {
+    _authStream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 480 }, audio: false });
+  }
+  if (videoEl) { videoEl.srcObject = _authStream; await videoEl.play().catch(() => {}); }
+  return _authStream;
+}
+function stopAuthCameraStream() {
+  if (_authStream) { _authStream.getTracks().forEach(t => t.stop()); _authStream = null; }
+}
 
 // ═══════════════════════════════════════════════════════════════
 // ── TESSERACT OCR ──
@@ -272,11 +285,11 @@ function pickVoice() {
 }
 window.speechSynthesis.onvoiceschanged = () => {};
 
-// ── SERVER VOICE STATE (ElevenLabs) ─────────────────────────────
-// Polls the server so we know when the configured voice (ElevenLabs if
-// ELEVENLABS_API_KEY is set. No local fallback server involved.
-// Falls back to the browser's built-in voice if the server voice never
-// comes up or a request fails.
+// ── PIPER STATE ───────────────────────────────────────────────
+// Disabled: the assistant no longer polls the server for a "Jarvis voice"
+// or tries to fetch /api/tts. It always speaks with the fixed browser
+// voice above. (Re-enable by restoring checkTTSReady() below and the
+// Piper branch in speak() if the server voice becomes reliable again.)
 let _currentAudio = null;
 let _ttsReady     = false;
 
@@ -317,9 +330,9 @@ syncHomeTalkBadge();
 
 // ── MAIN SPEAK FUNCTION ───────────────────────────────────────
 // Always speaks locally with the fixed browser voice (English - Australia
-// - William). The ElevenLabs/server round-trip is only used for Home Talk
-// (casting to a Google Home speaker) — everyday phone/browser chat goes
-// straight to the browser voice, same as before ElevenLabs was added.
+// - William). The Piper server round-trip (and the voice-switching that
+// came with it) is disabled — see the commented-out branch below if you
+// want to bring back server TTS / Home Talk casting later.
 async function speak(text, onEnd) {
   if (!text) { if (onEnd) onEnd(); return; }
 
@@ -329,13 +342,15 @@ async function speak(text, onEnd) {
 
   setOrb("speaking");
 
-  // ── Not doing Home Talk? Skip the server/ElevenLabs round-trip entirely
-  //    and just speak locally with the browser voice. ──
+  // ── Not doing Home Talk? Skip the server/Piper round-trip entirely and
+  //    just speak locally with the browser voice. Piper is only worth the
+  //    trip when we actually need to cast audio to a Google Home speaker —
+  //    hitting it on every phone reply is what was causing the lag. ──
   if (state.outputMode !== "home") {
     return _speakBrowser(text, onEnd);
   }
 
-  // ── Server TTS round-trip (ElevenLabs / Home Talk cast) ──
+  // ── Piper TTS / Home Talk round-trip ────────────────────────
   try {
     const res = await fetch("/api/tts", {
       method:  "POST",
@@ -343,7 +358,7 @@ async function speak(text, onEnd) {
       body:    JSON.stringify({ text }),
     });
 
-    // 503 = ElevenLabs not configured. If we're in Home Talk mode the server
+    // 503 = Piper model not loaded. If we're in Home Talk mode the server
     // will handle TTS via gTTS — only fall back to browser on phone mode.
     if (res.status === 503) {
       const data = await res.json().catch(() => ({}));
@@ -391,7 +406,7 @@ async function speak(text, onEnd) {
 
   } catch (e) {
     // Server unreachable or TTS not configured — fall back to browser voice
-    console.warn("[JARVIS] ElevenLabs TTS failed, using browser voice:", e.message);
+    console.warn("[JARVIS] Piper TTS failed, using browser voice:", e.message);
     _speakBrowser(text, onEnd);
   }
 }
@@ -640,6 +655,7 @@ function switchAuthMode(mode) {
     createPanel?.classList.add("hidden");
     if (savedWrap)  savedWrap.style.display = "";
     if (statusEl)   statusEl.style.display  = "";
+    attemptFaceLogin();
   } else {
     createBtn?.classList.add("active");
     loginBtn?.classList.remove("active");
@@ -651,6 +667,9 @@ function switchAuthMode(mode) {
     _voiceSamples     = [];
     _voiceSamplesDone = 0;
     updateVoiceSampleUI();
+    getAuthCameraStream($("create-face-video")).catch(() => {
+      showAuthFeedback("Camera access is needed to set up Face ID.");
+    });
   }
 }
 
@@ -679,7 +698,6 @@ function renderSavedAccounts(profiles) {
       wrap.querySelectorAll(".account-tile").forEach(t => t.classList.remove("selected"));
       tile.classList.add("selected");
       _selectedUser = p.name.toLowerCase();
-      $("auth-password-input")?.focus();
     });
     wrap.appendChild(tile);
   });
@@ -699,105 +717,75 @@ async function showAuthScreen() {
   // Default to login if profiles exist, create if none
   switchAuthMode(profiles.length > 0 ? "login" : "create");
 
-  // Wire password field Enter key
-  const pwInput = $("auth-password-input");
-if (pwInput) {
-  pwInput.addEventListener("keydown", e => {
-    if (e.key === "Enter") submitLogin();
-  });
-}
-
   startAuthListening();
-}
-async function startRetinaLogin() {
-  if (!window.RetinaScan) return;
-  const nameKey = _selectedUser || localStorage.getItem("jarvis_name_hint") || "";
-  if (!nameKey) { showAuthFeedback("Select an account first."); return; }
-  mic.suspend();
-  const result = await RetinaScan.login(nameKey);
-  if (result.success) {
-    const profiles = await loadServerProfiles();
-    const profile = profiles.find(p => p.name.toLowerCase() === nameKey);
-    if (profile) {
-      state.user = profile.name;
-      state.userTitle = profile.title;
-      localStorage.setItem("jarvis_name_hint", profile.name.toLowerCase());
-      saveProfileLocal(profile);
-      speak(`Welcome back, ${profile.title}.`, launchMain);
-    }
-  } else if (result.reason === "not_enrolled") {
-    showAuthFeedback("No iris enrolled — use password first, then say 'enroll iris'.", "info");
-  } else if (result.reason !== "cancelled") {
-    showAuthFeedback("Retina scan failed — use password instead.");
-  }
 }
 // Alias — old boot code calls showSetup when no profile exists
 // but we now send everyone to showAuthScreen which auto-switches to create
 function showSetup() { showAuthScreen(); }
 
-// ── LOGIN SUBMIT ──
-async function submitLogin() {
-  const pwEl = $("auth-password-input");
-  if (!pwEl) return;
-  const typedPw = pwEl.value.trim();
-  pwEl.value = "";
-  if (!typedPw) { showAuthFeedback("Enter your password."); return; }
-
+// ── FACE LOGIN ──
+// Runs automatically when the login screen appears (and again if the
+// person taps "SCAN AGAIN"). Opens the camera, watches for a face, sends
+// the descriptor to the server, and signs the person in the moment it
+// finds a match — no password, no typing.
+let _faceLoginRunId = 0;
+async function attemptFaceLogin() {
+  const runId = ++_faceLoginRunId; // lets a fresh call cancel a stale loop
+  const label = $("auth-face-scan-label");
   hideAuthFeedback();
-  setOrb("thinking");
+  if (label) label.textContent = "STARTING CAMERA…";
 
-  const hash = await hashPassword(typedPw);
+  let ok;
+  try {
+    await getAuthCameraStream($("auth-face-video"));
+    ok = await ensureFaceApiLoaded();
+  } catch (e) {
+    showAuthFeedback("Camera access is needed for Face ID sign-in.");
+    return;
+  }
+  if (!ok) { showAuthFeedback("Face recognition failed to load — check your connection."); return; }
 
-  // Try selected account from tiles first, then fall back to last-used hint
-  const nameKey = _selectedUser || localStorage.getItem("jarvis_name_hint") || "";
+  const vid = $("auth-face-video");
+  if (label) label.textContent = "SCANNING FOR FACE…";
 
-  if (nameKey) {
+  const MAX_ATTEMPTS = 24; // ~ up to ~24s of scanning before giving up
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (runId !== _faceLoginRunId) return; // a newer scan superseded this one
+    if (!vid || vid.readyState < 2) { await delay(500); continue; }
+
     try {
-      const res  = await fetch("/api/verify", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ name: nameKey, passwordHash: hash }),
-      });
-      const data = await res.json();
-      if (data.authorized) {
-        localStorage.setItem("jarvis_name_hint", data.profile.name.toLowerCase());
-        localStorage.setItem("jarvis_pw_hash",   hash);
-        saveProfileLocal({ ...data.profile, passwordHash: hash });
-        state.user      = data.profile.name;
-        state.userTitle = data.profile.title;
-        setOrb("idle");
-        speak(`Welcome back, ${data.profile.title}.`, launchMain);
-        return;
+      const detection = await faceapi
+        .detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (detection && detection.descriptor) {
+        const descriptor = Array.from(detection.descriptor);
+        const res  = await fetch("/api/verify-face", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ descriptor }),
+        });
+        const data = await res.json();
+        if (data.authorized) {
+          if (label) label.textContent = "FACE RECOGNIZED ✓";
+          stopAuthCameraStream();
+          localStorage.setItem("jarvis_name_hint", data.profile.name.toLowerCase());
+          saveProfileLocal(data.profile);
+          state.user      = data.profile.name;
+          state.userTitle = data.profile.title;
+          speak(`Welcome back, ${data.profile.title}.`, launchMain);
+          return;
+        }
       }
-    } catch {}
+    } catch (e) { /* keep scanning */ }
+
+    if (label) label.textContent = `SCANNING… (${attempt + 1}/${MAX_ATTEMPTS})`;
+    await delay(700);
   }
 
-  // Try all profiles (handles case where user typed without selecting tile)
-  try {
-    const res  = await fetch("/api/profiles");
-    const data = await res.json();
-    for (const p of (data.profiles || [])) {
-      const vRes = await fetch("/api/verify", {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ name: p.name, passwordHash: hash }),
-      });
-      const vData = await vRes.json();
-      if (vData.authorized) {
-        localStorage.setItem("jarvis_name_hint", vData.profile.name.toLowerCase());
-        localStorage.setItem("jarvis_pw_hash",   hash);
-        saveProfileLocal({ ...vData.profile, passwordHash: hash });
-        state.user      = vData.profile.name;
-        state.userTitle = vData.profile.title;
-        setOrb("idle");
-        speak(`Welcome back, ${vData.profile.title}.`, launchMain);
-        return;
-      }
-    }
-  } catch {}
-
-  setOrb("idle");
-  showAuthFeedback("Wrong password — try again.");
+  if (runId !== _faceLoginRunId) return;
+  if (label) label.textContent = "NO MATCH FOUND";
+  showAuthFeedback("Couldn't recognize your face. Try again, or create a new account.", "info");
 }
 
 // ── VOICE SAMPLE HELPERS ──
@@ -842,29 +830,52 @@ function skipVoice() {
 }
 
 // ── CREATE ACCOUNT SUBMIT ──
+// Instead of a password, this scans the person's face and registers that
+// descriptor as their sign-in credential.
 async function submitCreateAccount() {
-  const name  = ($("create-name")?.value     || "").trim();
-  const title = $("create-title")?.value      || "Sir";
-  const pw    = ($("create-password")?.value  || "").trim();
-  const pw2   = ($("create-password2")?.value || "").trim();
+  const name  = ($("create-name")?.value  || "").trim();
+  const title = $("create-title")?.value  || "Sir";
 
-  if (!name)         { showAuthFeedback("Enter your name.");              return; }
-  if (!pw)           { showAuthFeedback("Choose a password.");            return; }
-  if (pw !== pw2)    { showAuthFeedback("Passwords don't match.");        return; }
-  if (pw.length < 4) { showAuthFeedback("Password too short (min 4 chars)."); return; }
+  if (!name) { showAuthFeedback("Enter your name."); return; }
 
   hideAuthFeedback();
-  const hash = await hashPassword(pw);
+  const label = $("auth-face-scan-label");
+  showAuthFeedback("Look at the camera — capturing your face…", "info");
 
-  const profile = {
-    name,
-    passwordHash: hash,
-    title,
-    voiceAliases: _voiceSamples,
-  };
+  let ok;
+  try {
+    await getAuthCameraStream($("create-face-video"));
+    ok = await ensureFaceApiLoaded();
+  } catch (e) {
+    showAuthFeedback("Camera access is needed to set up Face ID.");
+    return;
+  }
+  if (!ok) { showAuthFeedback("Face recognition failed to load — check your connection."); return; }
+
+  const vid = $("create-face-video");
+  let detection = null;
+  const MAX_ATTEMPTS = 20;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS && !detection; attempt++) {
+    if (!vid || vid.readyState < 2) { await delay(500); continue; }
+    try {
+      detection = await faceapi
+        .detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.35 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+    } catch (e) { /* retry */ }
+    if (!detection) await delay(600);
+  }
+
+  if (!detection || !detection.descriptor) {
+    showAuthFeedback("Couldn't get a clear look at your face — try better lighting and try again.");
+    return;
+  }
+
+  const faceDescriptor = Array.from(detection.descriptor);
+  const profile = { name, title, faceDescriptor, voiceAliases: _voiceSamples };
 
   try {
-    const res = await fetch("/api/register", {
+    const res  = await fetch("/api/register", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify(profile),
@@ -876,22 +887,16 @@ async function submitCreateAccount() {
     return;
   }
 
-  saveProfileLocal(profile);
+  stopAuthCameraStream();
+  saveProfileLocal({ name, title, voiceAliases: _voiceSamples });
   localStorage.setItem("jarvis_name_hint", name.toLowerCase());
-  localStorage.setItem("jarvis_pw_hash",   hash);
 
-  showAuthFeedback(`Account created for ${name}. Logging you in…`, "success");
-if (window.RetinaScan) {
-  setTimeout(async () => {
-    const enroll = await RetinaScan.enroll(name.toLowerCase());
-    if (enroll.success) addMsg("system", "Iris enrolled successfully.");
-  }, 1200);
-}
+  showAuthFeedback(`Face ID set up for ${name}. Logging you in…`, "success");
   state.user      = name;
   state.userTitle = title;
 
   setTimeout(() => {
-    speak(`Welcome, ${title}. Your account is ready.`, launchMain);
+    speak(`Welcome, ${title}. Face ID is active — I'll recognize you next time.`, launchMain);
   }, 900);
 }
 
@@ -1685,45 +1690,56 @@ function hideGoogleSettings() {
 
 
 function showFaceAuthOverlay() {
-  const overlay = $("face-auth-overlay"), pwInput = $("face-auth-password"),
-        errMsg  = $("face-auth-error"),   submit   = $("face-auth-submit"),
-        dismiss = $("face-auth-dismiss");
+  const overlay = $("face-auth-overlay"), errMsg = $("face-auth-error"),
+        submit  = $("face-auth-submit"),  dismiss = $("face-auth-dismiss");
   overlay.classList.remove("hidden");
-  pwInput.value = ""; errMsg.classList.add("hidden"); pwInput.focus();
+  errMsg.classList.add("hidden");
 
   const newSubmit  = submit.cloneNode(true), newDismiss = dismiss.cloneNode(true);
   submit.parentNode.replaceChild(newSubmit, submit);
   dismiss.parentNode.replaceChild(newDismiss, dismiss);
 
+  // Re-scan the camera feed and compare against the already-enrolled owner
+  // descriptor. This is the same face-recognition check used for sign-in —
+  // just run again in case the earlier "unknown face" reading was a fluke
+  // (bad angle, lighting, etc).
   const attemptAuth = async () => {
-    const pw = $("face-auth-password").value; if (!pw) return;
-    const hash = await hashPassword(pw), profile = loadProfile();
-    let authorized = false;
-    if (profile && hash === profile.passwordHash) { authorized = true; }
-    else {
-      const nameHint = localStorage.getItem("jarvis_name_hint");
-      if (nameHint) {
-        try {
-          const res  = await fetch("/api/verify", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ name: nameHint, passwordHash: hash }) });
-          const data = await res.json();
-          if (data.authorized) authorized = true;
-        } catch {}
-      }
+    if (!state.faceEnrolled || !state.faceDescriptors || !faceApiLoaded || !state.cameraStream) {
+      showFaceAuthError("Face recognition unavailable right now.");
+      return;
     }
+    const vid = $("camera-feed");
+    if (!vid || vid.readyState < 2) { showFaceAuthError("Camera not ready — try again."); return; }
+
+    let authorized = false;
+    try {
+      const detection = await faceapi
+        .detectSingleFace(vid, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+      if (detection) {
+        const dist = faceapi.euclideanDistance(detection.descriptor, state.faceDescriptors);
+        if (dist < 0.72) authorized = true;
+      }
+    } catch {}
+
     if (authorized) {
       state.intruderAuthorized = true; hideFaceAuthOverlay();
       const panel = $("camera-panel"); if (panel) panel.classList.remove("alert");
       const reply = `Access authorized, ${state.userTitle}. Recording is still completing.`;
       addMsg("jarvis", reply); speak(reply); updateMood(10);
     } else {
-      const errEl = $("face-auth-error"); errEl.classList.remove("hidden");
-      $("face-auth-password").value = ""; $("face-auth-password").focus();
-      setTimeout(() => errEl.classList.add("hidden"), 2500);
+      showFaceAuthError("Face not recognized — access denied");
     }
   };
+  function showFaceAuthError(msg) {
+    const errEl = $("face-auth-error");
+    errEl.textContent = msg;
+    errEl.classList.remove("hidden");
+    setTimeout(() => errEl.classList.add("hidden"), 2500);
+  }
 
   $("face-auth-submit").addEventListener("click", attemptAuth);
-  $("face-auth-password").addEventListener("keydown", (e) => { if (e.key === "Enter") attemptAuth(); });
   $("face-auth-dismiss").addEventListener("click", () => { hideFaceAuthOverlay(); addMsg("system", "Overlay dismissed. Incident recording continues."); });
 }
 function hideFaceAuthOverlay() { $("face-auth-overlay").classList.add("hidden"); }
@@ -1825,7 +1841,8 @@ async function requestCameraAccess() {
 }
 
 let faceApiLoaded = false;
-async function loadFaceModels() {
+async function ensureFaceApiLoaded() {
+  if (faceApiLoaded) return true;
   try {
     if (!window.faceapi) await loadScript("https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/dist/face-api.min.js");
     const MODEL_URL = "https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights";
@@ -1835,13 +1852,18 @@ async function loadFaceModels() {
       faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
     ]);
     faceApiLoaded = true;
-    addMsg("system", "Face recognition engine loaded. Enrolling your face — please look at the camera.");
-    speak(`Face recognition active, ${state.userTitle}. Please look at the camera while I scan your face.`);
-    await enrollUserFace();
+    return true;
   } catch (e) {
-    console.warn("[JARVIS] Face-api failed:", e);
-    addMsg("system", "Face recognition unavailable — intruder detection disabled.");
+    console.warn("[JARVIS] Face-api failed to load:", e);
+    return false;
   }
+}
+async function loadFaceModels() {
+  const ok = await ensureFaceApiLoaded();
+  if (!ok) { addMsg("system", "Face recognition unavailable — intruder detection disabled."); return; }
+  addMsg("system", "Face recognition engine loaded. Enrolling your face — please look at the camera.");
+  speak(`Face recognition active, ${state.userTitle}. Please look at the camera while I scan your face.`);
+  await enrollUserFace();
 }
 
 async function enrollUserFace() {
