@@ -7,7 +7,7 @@
 
 const fs   = require("fs");
 const path = require("path");
-const Groq = require("./groq-engine");
+const Groq = require("./hermes-engine");
 
 // ── STORAGE PATHS ─────────────────────────────────────────────
 const DATA_DIR     = path.join(__dirname, "data");
