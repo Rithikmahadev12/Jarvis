@@ -5,7 +5,7 @@ import io, wave
 
 app = FastAPI()
 
-MODEL_PATH = "voice-server/voices/en_US-ryan-high.onnx"
+MODEL_PATH = "voice-server/voices/en_US-ryan-low.onnx"
 voice = PiperVoice.load(MODEL_PATH)
 
 class SynthRequest(BaseModel):
