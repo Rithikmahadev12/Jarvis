@@ -1299,7 +1299,7 @@ app.post("/api/tts", async (req, res) => {
   if (!text) return res.status(400).json({ error: "Missing text" });
 
   // ── Home Talk path ────────────────────────────────────────────
-  // Cast to Google Home regardless of whether Piper is running.
+  // Cast to Google Home regardless of whether ElevenLabs is configured.
   // Uses Google Translate TTS (no API key, no Python deps needed).
   if (outputMode === "home") {
     const Cast = require("./cast");
@@ -1330,7 +1330,11 @@ app.post("/api/tts", async (req, res) => {
   const audio = await TTS.synthesize(text);
   if (!audio) return res.status(500).json({ error: "Synthesis failed", fallback: true });
 
-  res.setHeader("Content-Type",  "audio/wav");
+  // Detect format by magic bytes so this works for both ElevenLabs (MP3)
+  // (WAV only shows up if something upstream changes — ElevenLabs is MP3).
+  const isMP3 = (audio[0] === 0xFF && (audio[1] & 0xE0) === 0xE0)
+             || (audio[0] === 0x49 && audio[1] === 0x44 && audio[2] === 0x33); // ID3
+  res.setHeader("Content-Type",  isMP3 ? "audio/mpeg" : "audio/wav");
   res.setHeader("Content-Length", audio.length);
   res.setHeader("Cache-Control",  "no-cache");
   res.send(audio);
@@ -1398,6 +1402,7 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`  Spotify:       ${Spotify.isConfigured() ? "✓ configured" : "✗ add SPOTIFY_CLIENT_ID to .env"}`);
   console.log(`  Google:        ✓ per-user credentials (users add their own in settings)`);
   console.log(`  Weather:       ${process.env.OPENWEATHER_API_KEY ? "✓ configured" : "✗ add OPENWEATHER_API_KEY to .env"}`);
+  console.log(`  Voice (TTS):   ${process.env.ELEVENLABS_API_KEY ? "✓ ElevenLabs configured — Jarvis voice active" : "✗ add ELEVENLABS_API_KEY to .env (falling back to browser voice)"}`);
   console.log(`  GitHub deploy: ${process.env.GITHUB_TOKEN ? "✓ configured" : "✗ add GITHUB_TOKEN + GITHUB_REPO to .env"}`);
   console.log(`  Training data: /data/training_data.json`);
   console.log(`  Learned:       /data/learned/\n`);
