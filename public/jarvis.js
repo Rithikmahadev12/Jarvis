@@ -317,9 +317,9 @@ syncHomeTalkBadge();
 
 // ── MAIN SPEAK FUNCTION ───────────────────────────────────────
 // Always speaks locally with the fixed browser voice (English - Australia
-// - William) whenever ElevenLabs isn't configured or fails. (The old
-// came with it) is disabled — see the commented-out branch below if you
-// want to bring back server TTS / Home Talk casting later.
+// - William). The ElevenLabs/server round-trip is only used for Home Talk
+// (casting to a Google Home speaker) — everyday phone/browser chat goes
+// straight to the browser voice, same as before ElevenLabs was added.
 async function speak(text, onEnd) {
   if (!text) { if (onEnd) onEnd(); return; }
 
@@ -329,12 +329,9 @@ async function speak(text, onEnd) {
 
   setOrb("speaking");
 
-  // ── Server voice (ElevenLabs). If not configured/ready, use browser voice. ──
-  // Previously this branch was skipped whenever Home Talk wasn't active,
-  // so phone/browser chat always used the flat built-in browser voice.
-  // Now that Jarvis has a proper ElevenLabs voice configured, use it for
-  // every reply — Home Talk casting still routes through the same call.
-  if (!_ttsReady) {
+  // ── Not doing Home Talk? Skip the server/ElevenLabs round-trip entirely
+  //    and just speak locally with the browser voice. ──
+  if (state.outputMode !== "home") {
     return _speakBrowser(text, onEnd);
   }
 
