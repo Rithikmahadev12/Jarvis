@@ -18,7 +18,7 @@
 // ═══════════════════════════════════════════════════════════════
 
 const AI       = require("./ai-engine");
-const Groq     = require("./groq-engine");
+const Groq     = require("./hermes-engine");
 const Research = require("./research");
 
 // ── GROWTH STATS (in-memory; wire to a JSON file if you want it
