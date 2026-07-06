@@ -182,6 +182,14 @@ function buildJarvisResponse(context) {
 function routeSmallTalk(text, T, tz) {
   const lower = text.toLowerCase().trim();
 
+  // "Shut up" / "be quiet" / "stop talking" — a hard silence command.
+  // Answer ONLY with a curt acknowledgment, no explanation, no apology.
+  // This must stay ahead of every other branch (including the AI engine)
+  // or it comes back as a long, over-explained reply.
+  if (/^(shut up|be quiet|quiet|hush|stop talking|silence|zip it|enough|that'?s enough)[\s!.]*$/i.test(lower)) {
+    return `Yes, ${T}.`;
+  }
+
   // "You up?" — a standing, unconditional check-in. Always the same
   // answer, every time, regardless of title/persona settings.
   if (/\b(you up|u up|you there|you awake)\b\??/i.test(lower)) {
