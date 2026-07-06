@@ -21,7 +21,7 @@ function getUserTimezone() {
 // ── STATE ──
 const state = window.state = {
   phase: "idle",
-  outputMode: "phone",   // "phone" = normal browser TTS, "home" = cast via Piper/Google Home
+  outputMode: "phone",   // "phone" = normal browser TTS, "home" = cast via ElevenLabs/Google Home
   user: null,
   userTitle: null,
   sessionId: crypto.randomUUID(),
@@ -272,11 +272,11 @@ function pickVoice() {
 }
 window.speechSynthesis.onvoiceschanged = () => {};
 
-// ── PIPER STATE ───────────────────────────────────────────────
-// Disabled: the assistant no longer polls the server for a "Jarvis voice"
-// or tries to fetch /api/tts. It always speaks with the fixed browser
-// voice above. (Re-enable by restoring checkTTSReady() below and the
-// Piper branch in speak() if the server voice becomes reliable again.)
+// ── SERVER VOICE STATE (ElevenLabs) ─────────────────────────────
+// Polls the server so we know when the configured voice (ElevenLabs if
+// ELEVENLABS_API_KEY is set. No local fallback server involved.
+// Falls back to the browser's built-in voice if the server voice never
+// comes up or a request fails.
 let _currentAudio = null;
 let _ttsReady     = false;
 
@@ -317,7 +317,7 @@ syncHomeTalkBadge();
 
 // ── MAIN SPEAK FUNCTION ───────────────────────────────────────
 // Always speaks locally with the fixed browser voice (English - Australia
-// - William). The Piper server round-trip (and the voice-switching that
+// - William) whenever ElevenLabs isn't configured or fails. (The old
 // came with it) is disabled — see the commented-out branch below if you
 // want to bring back server TTS / Home Talk casting later.
 async function speak(text, onEnd) {
@@ -329,15 +329,16 @@ async function speak(text, onEnd) {
 
   setOrb("speaking");
 
-  // ── Not doing Home Talk? Skip the server/Piper round-trip entirely and
-  //    just speak locally with the browser voice. Piper is only worth the
-  //    trip when we actually need to cast audio to a Google Home speaker —
-  //    hitting it on every phone reply is what was causing the lag. ──
-  if (state.outputMode !== "home") {
+  // ── Server voice (ElevenLabs). If not configured/ready, use browser voice. ──
+  // Previously this branch was skipped whenever Home Talk wasn't active,
+  // so phone/browser chat always used the flat built-in browser voice.
+  // Now that Jarvis has a proper ElevenLabs voice configured, use it for
+  // every reply — Home Talk casting still routes through the same call.
+  if (!_ttsReady) {
     return _speakBrowser(text, onEnd);
   }
 
-  // ── Piper TTS / Home Talk round-trip ────────────────────────
+  // ── Server TTS round-trip (ElevenLabs / Home Talk cast) ──
   try {
     const res = await fetch("/api/tts", {
       method:  "POST",
@@ -345,7 +346,7 @@ async function speak(text, onEnd) {
       body:    JSON.stringify({ text }),
     });
 
-    // 503 = Piper model not loaded. If we're in Home Talk mode the server
+    // 503 = ElevenLabs not configured. If we're in Home Talk mode the server
     // will handle TTS via gTTS — only fall back to browser on phone mode.
     if (res.status === 503) {
       const data = await res.json().catch(() => ({}));
@@ -393,7 +394,7 @@ async function speak(text, onEnd) {
 
   } catch (e) {
     // Server unreachable or TTS not configured — fall back to browser voice
-    console.warn("[JARVIS] Piper TTS failed, using browser voice:", e.message);
+    console.warn("[JARVIS] ElevenLabs TTS failed, using browser voice:", e.message);
     _speakBrowser(text, onEnd);
   }
 }
