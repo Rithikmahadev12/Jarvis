@@ -42,6 +42,7 @@
       case "UPDATE_STATUS": updateStatus(cmd.data); break;
       case "FLASH":      flashCorners(cmd.data?.color); break;
       case "ANNOUNCE":   announce(cmd.data?.text); break;
+      case "OPEN_URLS":  chrome.runtime.sendMessage({ type: "OPEN_URLS", urls: cmd.data?.urls || [] }); break;
     }
   }
 
