@@ -283,6 +283,36 @@ function cancelMostRecent(typeFilter) {
   return removed;
 }
 
+// ── CONDITIONAL REMINDERS ────────────────────────────────────────
+// Unlike timers/reminders, these don't have a dueAt — they fire the
+// next time a named event happens (currently: an agenda check), not
+// at a clock time. popConditional() is called from whatever code
+// handles that event.
+function addConditional(label, trigger) {
+  const items = loadAll();
+  const item = {
+    id:        `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    type:      "conditional",
+    label:     label || "Reminder",
+    trigger,
+    createdAt: Date.now(),
+    fired:     false,
+  };
+  items.push(item);
+  saveAll(items);
+  return item;
+}
+
+function popConditional(trigger) {
+  const items = loadAll();
+  const hits = items.filter(it => it.type === "conditional" && it.trigger === trigger && !it.fired);
+  if (hits.length) {
+    hits.forEach(it => { it.fired = true; });
+    saveAll(items);
+  }
+  return hits;
+}
+
 function getDue() {
   const items = loadAll();
   const now = Date.now();
@@ -356,6 +386,13 @@ function buildAgendaReply(T, tz, lower) {
   const wantsToday = /\btoday\b/.test(lower);
   let upcoming = listUpcoming(20);
 
+  // Firing conditional reminders happens on every agenda check, whether
+  // or not there's anything else on the schedule.
+  const fired = popConditional("next_agenda_check");
+  const firedNote = fired.length
+    ? `Also, ${T} — you asked me to bring this up: ${fired.map(f => f.label).join("; ")}. `
+    : "";
+
   if (wantsToday) {
     const todayStr = localDateString(new Date(), tz);
     upcoming = upcoming.filter(it => localDateString(new Date(it.dueAt), tz) === todayStr);
@@ -365,7 +402,7 @@ function buildAgendaReply(T, tz, lower) {
 
   if (!upcoming.length) {
     return {
-      reply: `Nothing on the books ${wantsToday ? "for today" : "right now"}, ${T}. Clean slate.`,
+      reply: `${firedNote}Nothing on the books ${wantsToday ? "for today" : "right now"}, ${T}. Clean slate.`,
       action: "CALENDAR_NATIVE",
       intent: "calendar",
       meta: { items: [] },
@@ -377,7 +414,7 @@ function buildAgendaReply(T, tz, lower) {
     .join("; ");
 
   return {
-    reply: `Here's what I have ${wantsToday ? "for today" : "coming up"}, ${T}: ${list}.`,
+    reply: `${firedNote}Here's what I have ${wantsToday ? "for today" : "coming up"}, ${T}: ${list}.`,
     action: "CALENDAR_NATIVE",
     intent: "calendar",
     meta: { items: upcoming },
@@ -486,6 +523,11 @@ module.exports = {
   formatDuration,
   extractLabel,
   addItem,
+  createTimer,
+  createReminder,
+  addConditional,
+  popConditional,
+  buildAgendaReply,
   getDue,
   listUpcoming,
   cancelMostRecent,
