@@ -20,6 +20,7 @@ const Trainer     = require("./trainer");
 const Brain       = require("./brain");
 const Reminders   = require("./reminders");
 const Schedule    = require("./schedule");
+const Briefing    = require("./briefing");
 const TTS = require("./tts");
 
 const app        = express();
@@ -479,6 +480,41 @@ app.post("/api/memory/forget", (req, res) => {
   mem[key] = mem[key].filter(m => !m.fact.toLowerCase().includes(hint.toLowerCase()));
   saveMemories(mem);
   res.json({ removed: before - mem[key].length });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── DAILY BRIEFING
+// ═══════════════════════════════════════════════════════════════
+// GET  /api/briefing/:user            → today's stored briefing, or { briefing: null }
+// POST /api/briefing  { user, userTitle, task } → generates + stores today's briefing
+// POST /api/briefing/reset  { user }  → clears today's entry so the user is asked again
+app.get("/api/briefing/:user", (req, res) => {
+  try {
+    const entry = Briefing.getToday(req.params.user);
+    res.json({ briefing: entry });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/briefing", async (req, res) => {
+  const { user, userTitle, task } = req.body || {};
+  if (!user || !task || !String(task).trim()) {
+    return res.status(400).json({ error: "Missing fields: user and task are required" });
+  }
+  try {
+    const entry = await Briefing.setToday(user, task, userTitle || "Sir");
+    res.json({ briefing: entry });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/briefing/reset", (req, res) => {
+  const { user } = req.body || {};
+  if (!user) return res.status(400).json({ error: "Missing field: user" });
+  Briefing.clearToday(user);
+  res.json({ success: true });
 });
 
 // ═══════════════════════════════════════════════════════════════
