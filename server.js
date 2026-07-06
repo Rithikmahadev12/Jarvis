@@ -331,7 +331,7 @@ app.get("/api/training/examples", (req, res) => {
   res.json({ examples: ex });
 });
 app.post("/api/training/generate", async (req, res) => {
-  if (!Groq.isConfigured()) return res.status(400).json({ error: "HERMES_API_KEY/HERMES_API_URL not set" });
+  if (!Groq.isConfigured()) return res.status(400).json({ error: "GROQ_API_KEY not set" });
   const { intent, count } = req.body;
   try {
     const examples = await Trainer.generateSyntheticExamples(intent || "general", count || 5);
@@ -345,7 +345,7 @@ app.post("/api/training/clean", (req, res) => {
 app.post("/api/improve/analyze", async (req, res) => {
   const { message, response } = req.body;
   if (!message || !response) return res.status(400).json({ error: "Missing fields" });
-  if (!Groq.isConfigured())   return res.status(400).json({ error: "HERMES_API_KEY/HERMES_API_URL not set" });
+  if (!Groq.isConfigured())   return res.status(400).json({ error: "GROQ_API_KEY not set" });
   try {
     const analysis = await Groq.analyzeIntent(message, response);
     if (analysis.confidence > 0.5) await Improve.patterns.learn(message, analysis);
@@ -690,7 +690,7 @@ app.post("/api/feature/draft", async (req, res) => {
     return res.json({ reply: `GitHub isn't configured, ${T}. Add GITHUB_TOKEN and GITHUB_REPO to your .env file.` });
   }
   if (!Groq.isConfigured()) {
-    return res.json({ reply: `Hermes isn't configured, ${T}. Check HERMES_API_KEY and the AI provider key in .env.` });
+    return res.json({ reply: `Groq isn't configured, ${T}. Add GROQ_API_KEY to your .env.` });
   }
   try {
     const GitDeploy  = require("./github-deploy");
@@ -873,7 +873,7 @@ async function handleFeatureDraft(message, T) {
   }
   if (!Groq.isConfigured()) {
     return {
-      reply:  `Hermes isn't configured, ${T}. Check HERMES_API_KEY and the AI provider key in .env — it's needed to generate the code.`,
+      reply:  `Groq isn't configured, ${T}. Add GROQ_API_KEY to your .env — it's needed to generate the code.`,
       action: "FEATURE_DRAFT",
       intent: "feature_draft",
     };
@@ -1290,7 +1290,7 @@ httpServer.listen(PORT, "0.0.0.0", () => {
   console.log(`\nJ.A.R.V.I.S online → http://localhost:${PORT}`);
   console.log(`  Comms panel    → http://localhost:${PORT}/comms`);
   console.log(`  Drafting table → http://localhost:${PORT}/blueprint`);
-  console.log(`  Hermes AI:     ${Groq.isConfigured() ? "✓ configured — primary brain active" : "✗ not configured (check HERMES_API_KEY/HERMES_API_URL in .env)"}`);
+  console.log(`  Groq AI:       ${Groq.isConfigured() ? "✓ configured — primary brain active" : "✗ not configured (add GROQ_API_KEY to .env)"}`);
   console.log(`  Spotify:       ${Spotify.isConfigured() ? "✓ configured" : "✗ add SPOTIFY_CLIENT_ID to .env"}`);
   console.log(`  Google:        ✓ per-user credentials (users add their own in settings)`);
   console.log(`  Weather:       ${process.env.OPENWEATHER_API_KEY ? "✓ configured" : "✗ add OPENWEATHER_API_KEY to .env"}`);
