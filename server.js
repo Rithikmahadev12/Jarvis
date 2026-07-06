@@ -1017,7 +1017,7 @@ app.post("/api/chat", async (req, res) => {
   //      come back as "Command failed". Falls through (returns null)
   //      for anything it doesn't recognise, e.g. explicit Google
   //      Calendar requests, which still go through the old path below.
-  const reminderResult = Reminders.route(message, T, userTimezone);
+  const reminderResult = Reminders.route(message, T, userTimezone, sessionId);
   if (reminderResult) {
     return res.json(reminderResult);
   }
