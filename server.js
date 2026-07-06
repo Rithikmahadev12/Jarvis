@@ -614,20 +614,20 @@ app.get("/api/reminders", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// ── HEALTHY SCHEDULE / DAILY ROUTINE / AUTO-SUGGEST
+// ── HEALTHY SCHEDULE / DAILY ROUTINE / WORK-SESSION NUDGE
 // ═══════════════════════════════════════════════════════════════
-// Client polls this every ~20-30s. When the user's healthy routine
-// says a "break" block just started, this fires once (per block per
-// day) with a couple of links. We also drop the same suggestion into
-// the extension queue so the Chrome extension can open real tabs via
-// chrome.tabs.create even if nobody's looking at the JARVIS page.
+// Client polls this every ~20-30s. This only ever ASKS ("want to
+// take a break?") — it never opens anything on its own. Opening only
+// happens once the user replies "yes", which goes through the normal
+// chat endpoint and therefore counts as a direct, user-triggered
+// action (same mechanism as the link bank), so it isn't blocked by
+// the browser's popup blocker and doesn't need the Chrome extension.
 app.get("/api/schedule/due", (req, res) => {
   const tz = req.query.tz || null;
-  const suggestion = Schedule.checkBreakSuggestion(tz);
-  if (suggestion) {
-    extensionQueue.push({ action: "OPEN_URLS", data: { urls: suggestion.links.map(l => l.url), reason: suggestion.label } });
-  }
-  res.json({ suggestion: suggestion || null });
+  const sessionId = req.query.sessionId || null;
+  const nudge = Schedule.checkWorkNudge(tz);
+  if (nudge && sessionId) Schedule.setPendingConfirm(sessionId);
+  res.json({ nudge: nudge || null });
 });
 app.get("/api/schedule", (req, res) => {
   res.json({ blocks: Schedule.getBlocks() });
@@ -1176,7 +1176,7 @@ app.post("/api/chat", async (req, res) => {
   // Handled natively, same reasoning as reminders.js: deterministic,
   // no API key needed, and OPEN_LINKS needs special client handling
   // anyway so it's cleaner to short-circuit here.
-  const scheduleResult = Schedule.route(message, T, userTimezone);
+  const scheduleResult = Schedule.route(message, T, userTimezone, sessionId);
   if (scheduleResult) {
     return res.json(scheduleResult);
   }
