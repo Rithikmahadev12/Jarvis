@@ -1080,16 +1080,6 @@ app.post("/api/chat", async (req, res) => {
     });
   }
 
-  // ── 0.5 Native Timers / Reminders / Jarvis Calendar ──
-  //      Handled directly — no AI engine involved, so it can never
-  //      come back as "Command failed". Falls through (returns null)
-  //      for anything it doesn't recognise, e.g. explicit Google
-  //      Calendar requests, which still go through the old path below.
-  const reminderResult = Reminders.route(message, T, userTimezone, sessionId);
-  if (reminderResult) {
-    return res.json(reminderResult);
-  }
-
   // ── 1. Home commands ──
   if (Home.isHomeCommand(message) || Home.isHomePanelRequest(message)) {
     if (Home.isHomePanelRequest(message)) {
@@ -1165,6 +1155,17 @@ app.post("/api/chat", async (req, res) => {
       console.error("[TOOLS] chatWithTools failed, falling back to legacy pipeline:", err.message);
       // fall through to the pipeline below
     }
+  }
+
+  // ── Legacy regex reminders — fallback only ──
+  // Only reached if Groq is unconfigured or the tool-calling call
+  // above threw. Kept as a safety net so timers/reminders still work
+  // in some form if the API is down, but it no longer runs first —
+  // that's what was hijacking messages before the AI stage could see
+  // them and mangling labels with its regex-based extraction.
+  const reminderResult = Reminders.route(message, T, userTimezone, sessionId);
+  if (reminderResult) {
+    return res.json(reminderResult);
   }
 
   // ── 3. Hard commands ──
