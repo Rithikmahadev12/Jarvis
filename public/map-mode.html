@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>J.A.R.V.I.S — MAP</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;background:#010c14;font-family:'Share Tech Mono',monospace;overflow:hidden}
+  :root{
+    --blue:#00c8ff;--blue-glow:rgba(0,200,255,0.35);--blue-dim:rgba(0,200,255,0.14);
+    --text-dim:#3a6a88;--text:#a8dff5;--text-bright:#d8f4ff;--hud:'Orbitron',monospace;
+  }
+  #map{position:absolute;inset:0;z-index:1;filter:saturate(1.15) brightness(0.95) contrast(1.05);}
+
+  /* darken/tint the raster tiles so they read as HUD, not a stock map */
+  .leaflet-tile-pane{filter:hue-rotate(180deg) invert(1) brightness(0.92) contrast(1.05);}
+
+  .leaflet-control-attribution{background:rgba(1,10,20,0.75) !important;color:var(--text-dim) !important;font-size:9px !important}
+  .leaflet-control-attribution a{color:var(--text-dim) !important}
+  .leaflet-control-zoom{display:none}
+
+  /* scanline + grid overlay to match the rest of the HUD */
+  body::before{content:'';position:fixed;inset:0;z-index:5;pointer-events:none;
+    background-image:repeating-linear-gradient(0deg,transparent,transparent 49px,rgba(0,200,255,0.03) 50px),
+                      repeating-linear-gradient(90deg,transparent,transparent 49px,rgba(0,200,255,0.03) 50px);}
+  .vignette{position:fixed;inset:0;z-index:6;pointer-events:none;
+    background:radial-gradient(ellipse at center, transparent 55%, rgba(1,8,18,0.75) 100%);}
+  .scanline{position:fixed;left:0;right:0;height:2px;z-index:7;pointer-events:none;
+    background:linear-gradient(90deg,transparent,rgba(0,200,255,0.15),transparent);animation:scan 8s linear infinite;}
+  @keyframes scan{from{top:-2px}to{top:100vh}}
+
+  .corner{position:fixed;width:34px;height:34px;pointer-events:none;z-index:20}
+  .corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.55}
+  .corner::before{width:100%;height:1px;top:0}.corner::after{width:1px;height:100%;top:0}
+  .corner.tl{top:14px;left:14px}.corner.tr{top:14px;right:14px;transform:scaleX(-1)}
+  .corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}.corner.br{bottom:14px;right:14px;transform:scale(-1)}
+
+  /* top readout */
+  #map-hud-top{position:fixed;top:0;left:0;right:0;z-index:30;display:flex;align-items:center;justify-content:space-between;
+    padding:16px 24px;background:linear-gradient(180deg,rgba(1,8,18,0.85),transparent);}
+  #map-hud-title{font-family:var(--hud);font-size:0.85rem;letter-spacing:0.4em;color:var(--blue);text-shadow:0 0 18px var(--blue-glow)}
+  #map-hud-sub{font-size:0.55rem;letter-spacing:0.2em;color:var(--text-dim);margin-top:3px}
+
+  /* location readout card, bottom-left */
+  #loc-card{position:fixed;left:24px;bottom:28px;z-index:30;min-width:220px;max-width:320px;
+    background:rgba(1,10,20,0.82);border:1px solid rgba(0,200,255,0.28);border-radius:3px;
+    padding:12px 16px;backdrop-filter:blur(6px);box-shadow:0 0 24px rgba(0,200,255,0.08);}
+  #loc-label{font-family:var(--hud);font-size:0.42rem;letter-spacing:0.28em;color:var(--text-dim);margin-bottom:6px}
+  #loc-name{font-size:0.95rem;letter-spacing:0.04em;color:var(--text-bright);margin-bottom:6px;line-height:1.3}
+  #loc-coords{font-size:0.6rem;letter-spacing:0.08em;color:var(--blue)}
+  #loc-status{font-size:0.55rem;letter-spacing:0.1em;color:var(--text-dim);margin-top:6px}
+
+  /* search box, top-right, also usable stand-alone */
+  #map-search-wrap{position:fixed;top:70px;right:24px;z-index:30;display:flex;gap:0;
+    background:rgba(1,10,20,0.82);border:1px solid rgba(0,200,255,0.25);border-radius:3px;overflow:hidden;
+    backdrop-filter:blur(6px);}
+  #map-search{background:transparent;border:none;outline:none;color:var(--text-bright);font-family:'Share Tech Mono',monospace;
+    font-size:0.75rem;padding:10px 12px;width:200px;}
+  #map-search::placeholder{color:var(--text-dim)}
+  #map-search-btn{background:var(--blue-dim);border:none;color:var(--blue);font-family:var(--hud);font-size:0.6rem;
+    letter-spacing:0.15em;padding:0 16px;cursor:pointer;transition:background 0.2s}
+  #map-search-btn:hover{background:rgba(0,200,255,0.28)}
+
+  /* crosshair marker for the target location */
+  .jarvis-pin{width:22px;height:22px;position:relative}
+  .jarvis-pin::before{content:'';position:absolute;inset:0;border:2px solid var(--blue);border-radius:50%;
+    box-shadow:0 0 14px var(--blue-glow);animation:pinPulse 1.8s ease-in-out infinite;}
+  .jarvis-pin::after{content:'';position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;
+    background:var(--blue);border-radius:50%;box-shadow:0 0 10px var(--blue);}
+  @keyframes pinPulse{0%,100%{transform:scale(0.7);opacity:1}50%{transform:scale(1.3);opacity:0.35}}
+
+  #map-loading{position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;
+    flex-direction:column;gap:10px;background:#010c14;transition:opacity 0.4s;}
+  #map-loading.hidden{opacity:0;pointer-events:none}
+  #map-loading .ring{width:46px;height:46px;border:2px solid rgba(0,200,255,0.15);border-top-color:var(--blue);
+    border-radius:50%;animation:spin 0.9s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #map-loading span{font-family:var(--hud);font-size:0.55rem;letter-spacing:0.3em;color:var(--text-dim)}
+</style>
+</head>
+<body>
+
+  <div id="map"></div>
+  <div class="vignette"></div>
+  <div class="scanline"></div>
+  <div class="corner tl"></div><div class="corner tr"></div>
+  <div class="corner bl"></div><div class="corner br"></div>
+
+  <div id="map-hud-top">
+    <div>
+      <div id="map-hud-title">GEOSPATIAL MAP</div>
+      <div id="map-hud-sub">LIVE CARTOGRAPHIC FEED — SATELLITE UPLINK SIMULATED</div>
+    </div>
+  </div>
+
+  <div id="map-search-wrap">
+    <input id="map-search" type="text" placeholder="Search a place…" autocomplete="off"/>
+    <button id="map-search-btn" onclick="searchPlace()">LOCATE</button>
+  </div>
+
+  <div id="loc-card">
+    <div id="loc-label">TARGET LOCATION</div>
+    <div id="loc-name">Earth</div>
+    <div id="loc-coords">--.----°, --.----°</div>
+    <div id="loc-status">Awaiting coordinates…</div>
+  </div>
+
+  <div id="map-loading"><div class="ring"></div><span>ACQUIRING MAP DATA…</span></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+  const map = L.map('map', { zoomControl:false, attributionControl:true }).setView([20, 0], 2);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    subdomains: 'abcd',
+    maxZoom: 19
+  }).addTo(map);
+
+  map.whenReady(() => {
+    document.getElementById('map-loading').classList.add('hidden');
+  });
+
+  const pinIcon = L.divIcon({ className: 'jarvis-pin-wrap', html: '<div class="jarvis-pin"></div>', iconSize: [22,22] });
+  let marker = null;
+
+  function setLocCard(name, lat, lon, statusText) {
+    document.getElementById('loc-name').textContent = name || 'Unknown location';
+    document.getElementById('loc-coords').textContent = `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
+    document.getElementById('loc-status').textContent = statusText || 'Lock acquired.';
+  }
+
+  function flyTo(lat, lon, name, zoom) {
+    if (marker) map.removeLayer(marker);
+    marker = L.marker([lat, lon], { icon: pinIcon }).addTo(map);
+    map.flyTo([lat, lon], zoom || 11, { duration: 1.4 });
+    setLocCard(name, lat, lon, 'Lock acquired.');
+  }
+
+  async function geocode(query) {
+    setLocCard(query, 0, 0, 'Searching…');
+    document.getElementById('loc-coords').textContent = '--.----°, --.----°';
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      if (data && data.length) {
+        const r = data[0];
+        flyTo(parseFloat(r.lat), parseFloat(r.lon), r.display_name.split(',').slice(0,3).join(','), 11);
+      } else {
+        setLocCard(query, 0, 0, 'No match found.');
+      }
+    } catch (e) {
+      setLocCard(query, 0, 0, 'Lookup failed — network issue.');
+    }
+  }
+
+  function searchPlace() {
+    const q = document.getElementById('map-search').value.trim();
+    if (q) geocode(q);
+  }
+  document.getElementById('map-search').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') searchPlace();
+  });
+
+  // Receive commands from the parent JARVIS window
+  window.addEventListener('message', (e) => {
+    if (e.data?.type === 'MAP_SEARCH' && e.data.query) {
+      document.getElementById('map-search').value = e.data.query;
+      geocode(e.data.query);
+    }
+  });
+
+  // Tell the parent we're ready in case it sent a message before we loaded
+  try { window.parent.postMessage({ type: 'MAP_READY' }, '*'); } catch (e) {}
+</script>
+</body>
+</html>
