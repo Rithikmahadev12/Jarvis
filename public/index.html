@@ -43,27 +43,21 @@
     <div class="intro-vignette"></div>
 
     <div class="boot-badge-wrap">
-      <!-- scattered particles -->
-      <span class="boot-particle" style="--x:-95px; --y:-70px; --d:0s"></span>
-      <span class="boot-particle" style="--x:100px; --y:-85px; --d:0.4s"></span>
-      <span class="boot-particle" style="--x:-115px; --y:20px; --d:0.8s"></span>
-      <span class="boot-particle" style="--x:120px; --y:35px; --d:1.2s"></span>
-      <span class="boot-particle" style="--x:-60px; --y:100px; --d:1.6s"></span>
-      <span class="boot-particle" style="--x:75px; --y:105px; --d:2s"></span>
-      <span class="boot-particle small" style="--x:-30px; --y:-115px; --d:0.6s"></span>
-      <span class="boot-particle small" style="--x:40px; --y:-120px; --d:1.4s"></span>
-
-      <!-- tick marks around the badge -->
-      <div class="boot-ticks">
-        <span style="--t:0"></span><span style="--t:1"></span><span style="--t:2"></span><span style="--t:3"></span>
-        <span style="--t:4"></span><span style="--t:5"></span><span style="--t:6"></span><span style="--t:7"></span>
-        <span style="--t:8"></span><span style="--t:9"></span><span style="--t:10"></span><span style="--t:11"></span>
-      </div>
-
-      <div class="boot-badge">
-        <div class="boot-badge-ring outer"></div>
-        <div class="boot-badge-ring spin"></div>
-        <div class="boot-badge-core">JARVIS</div>
+      <div class="jr-orb">
+        <div class="jr-core-glow"></div>
+        <div class="jr-inner-ring">
+          <div class="jr-title">JARVIS</div>
+        </div>
+        <div class="jr-outer-ring-1"></div>
+        <div class="jr-outer-ring-2"></div>
+        <svg class="jr-hud-svg" viewBox="0 0 400 400">
+          <circle class="jr-svg-rotate-ccw" cx="200" cy="200" r="115"
+                  fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="2 25"/>
+          <g class="jr-svg-rotate-cw">
+            <circle cx="200" cy="200" r="135" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="4" stroke-dasharray="1 12"/>
+            <circle cx="200" cy="200" r="155" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="3" stroke-dasharray="3 140"/>
+          </g>
+        </svg>
       </div>
     </div>
 
@@ -336,25 +330,21 @@
       <div class="intro-vignette"></div>
 
       <div class="boot-badge-wrap">
-        <span class="boot-particle" style="--x:-95px; --y:-70px; --d:0s"></span>
-        <span class="boot-particle" style="--x:100px; --y:-85px; --d:0.4s"></span>
-        <span class="boot-particle" style="--x:-115px; --y:20px; --d:0.8s"></span>
-        <span class="boot-particle" style="--x:120px; --y:35px; --d:1.2s"></span>
-        <span class="boot-particle" style="--x:-60px; --y:100px; --d:1.6s"></span>
-        <span class="boot-particle" style="--x:75px; --y:105px; --d:2s"></span>
-        <span class="boot-particle small" style="--x:-30px; --y:-115px; --d:0.6s"></span>
-        <span class="boot-particle small" style="--x:40px; --y:-120px; --d:1.4s"></span>
-
-        <div class="boot-ticks">
-          <span style="--t:0"></span><span style="--t:1"></span><span style="--t:2"></span><span style="--t:3"></span>
-          <span style="--t:4"></span><span style="--t:5"></span><span style="--t:6"></span><span style="--t:7"></span>
-          <span style="--t:8"></span><span style="--t:9"></span><span style="--t:10"></span><span style="--t:11"></span>
-        </div>
-
-        <div class="boot-badge">
-          <div class="boot-badge-ring outer"></div>
-          <div class="boot-badge-ring spin"></div>
-          <div class="boot-badge-core">JARVIS</div>
+        <div class="jr-orb">
+          <div class="jr-core-glow"></div>
+          <div class="jr-inner-ring">
+            <div class="jr-title">JARVIS</div>
+          </div>
+          <div class="jr-outer-ring-1"></div>
+          <div class="jr-outer-ring-2"></div>
+          <svg class="jr-hud-svg" viewBox="0 0 400 400">
+            <circle class="jr-svg-rotate-ccw" cx="200" cy="200" r="115"
+                    fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="2 25"/>
+            <g class="jr-svg-rotate-cw">
+              <circle cx="200" cy="200" r="135" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="4" stroke-dasharray="1 12"/>
+              <circle cx="200" cy="200" r="155" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="3" stroke-dasharray="3 140"/>
+            </g>
+          </svg>
         </div>
 
         <!-- functional orb — drives setOrb()/mood state, kept invisible behind the badge -->
