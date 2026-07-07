@@ -589,21 +589,31 @@
     <!-- ══ MODE TASKBAR — bottom dock, switch modes by tap or by voice ("Jarvis, switch to map") ══ -->
     <nav id="mode-taskbar">
       <button class="taskbar-btn active" id="tb-btn-chat" onclick="switchMode('chat')" title="Chat">
-        <span class="tb-icon">💬</span><span class="tb-label">CHAT</span>
+        <span class="tb-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5h16a1 1 0 0 1 1 1V16a1 1 0 0 1-1 1H9l-4.4 3.3A.5.5 0 0 1 4 19.9V17H4a1 1 0 0 1-1-1V6.5a1 1 0 0 1 1-1Z"/></svg>
+        </span><span class="tb-label">CHAT</span>
       </button>
       <button class="taskbar-btn" id="tb-btn-map" onclick="switchMode('map')" title="Map">
-        <span class="tb-icon">🗺</span><span class="tb-label">MAP</span>
+        <span class="tb-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 4 4 6v14l5-2 6 2 5-2V4l-5 2-6-2Z"/><path d="M9 4v14M15 6v14"/></svg>
+        </span><span class="tb-label">MAP</span>
       </button>
       <div class="taskbar-sep"></div>
       <button class="taskbar-btn mic-btn" id="tb-btn-mic" onclick="toggleListening()" title="Mic">
-        <span class="tb-icon">🎙</span><span class="tb-label">MIC</span>
+        <span class="tb-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
+        </span><span class="tb-label">MIC</span>
       </button>
       <div class="taskbar-sep"></div>
       <button class="taskbar-btn" id="tb-btn-hologram" onclick="switchMode('hologram')" title="3D Hologram">
-        <span class="tb-icon">🧊</span><span class="tb-label">3D</span>
+        <span class="tb-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 4 7.5v9L12 21l8-4.5v-9L12 3Z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>
+        </span><span class="tb-label">3D</span>
       </button>
       <button class="taskbar-btn" id="tb-btn-build" onclick="switchMode('build')" title="Build">
-        <span class="tb-icon">📐</span><span class="tb-label">BUILD</span>
+        <span class="tb-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 6.5 18 3l3 3-3.5 3.5M14.5 6.5 4 17v3h3L17.5 9.5M14.5 6.5l3 3"/></svg>
+        </span><span class="tb-label">BUILD</span>
       </button>
     </nav>
 
