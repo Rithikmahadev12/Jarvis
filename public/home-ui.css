@@ -44,8 +44,29 @@
   justify-content: center;
   pointer-events: none;
   background: #05070c;
+  transition: background 0.45s ease, z-index 0s;
 }
 .hud-home .boot-badge-wrap { z-index: 2; }
+
+/* ── CORNER MODE — orb slides down to a small badge in the bottom-left
+   corner whenever another mode (map / hologram / build) is open, so
+   JARVIS stays visible while the full-screen panel takes over. ── */
+.hud-home .boot-badge-wrap,
+.hud-home .intro-grid,
+.hud-home .intro-vignette {
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease;
+}
+.hud-home.corner-mode {
+  z-index: 250;
+  background: transparent;
+}
+.hud-home.corner-mode .intro-grid,
+.hud-home.corner-mode .intro-vignette {
+  opacity: 0;
+}
+.hud-home.corner-mode .boot-badge-wrap {
+  transform: translate(calc(-50vw + 96px), calc(50vh - 96px)) scale(0.32);
+}
 
 /* The functional #orb stays in the DOM for setOrb()/mood logic, but
    is folded invisibly behind the decorative badge — so nothing in
