@@ -13,6 +13,7 @@ const News        = require("./news");
 const Spotify     = require("./spotify");
 const Google      = require("./google");
 const DIY         = require("./diy-builder");
+const Build       = require("./build-engine");
 const Home        = require("./home");
 const Groq        = require("./hermes-engine");
 const Improve     = require("./self-improve");
@@ -82,12 +83,13 @@ app.get("/comms", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// ── DRAFTING TABLE / BLUEPRINT MODE
-// Hand-tracked sketch workspace: pull reference images from the
-// web, draw over them, project the result as a 3D hologram.
+// ── BUILD MODE — hand-tracked CAD engine
+// Pull real 3D models from Sketchfab, drag/spin them into place with
+// your hands (or a mouse), and let Jarvis screw parts together once
+// it notices two pieces are touching but not yet connected.
 // ═══════════════════════════════════════════════════════════════
-app.get("/blueprint", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "blueprint-mode.html"));
+app.get("/build", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "build-mode.html"));
 });
 
 // ── Holographic Workspace — AI-powered multi-object scene builder ──
@@ -95,16 +97,27 @@ app.get("/workspace", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "hologram-workspace.html"));
 });
 
-app.get("/api/blueprint/search", async (req, res) => {
+app.get("/api/build/search", async (req, res) => {
   const q = (req.query.q || "").trim();
-  if (!q) return res.json({ images: [] });
   try {
-    const images = await DIY.searchImages(`${q} blueprint schematic engineering diagram`, 8);
-    res.json({ images });
+    const data = await Build.searchModels(q, 12);
+    res.json(data);
   } catch (e) {
-    res.status(500).json({ images: [], error: e.message });
+    res.status(500).json({ results: [], error: e.message });
   }
 });
+
+app.get("/api/build/model/:uid", async (req, res) => {
+  try {
+    const data = await Build.getLoadableModel(req.params.uid);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ kind: "error", error: e.message });
+  }
+});
+
+// Static cache of unpacked glTF models pulled from Sketchfab
+app.use("/build-cache", express.static(Build.CACHE_DIR));
 
 // ── LINKS BANK ────────────────────────────────────────────────
 const LINKS = {
