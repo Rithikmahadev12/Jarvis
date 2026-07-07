@@ -499,6 +499,46 @@
       ></iframe>
     </div>
 
+    <!-- MAP PANEL -->
+    <div id="map-panel" class="hologram-panel" style="display:none">
+      <button id="map-close-btn" class="holo-close-btn" onclick="closeMapMode()">✕ CLOSE</button>
+      <iframe id="map-iframe"
+        src="map-mode.html"
+        style="width:100%;height:100%;border:none"
+        allow="autoplay; fullscreen"
+      ></iframe>
+    </div>
+
+    <!-- BLUEPRINT / BUILD PANEL -->
+    <div id="blueprint-panel" class="hologram-panel" style="display:none">
+      <iframe id="blueprint-iframe"
+        src="blueprint-mode.html"
+        style="width:100%;height:100%;border:none"
+        allow="camera; microphone; autoplay; fullscreen"
+      ></iframe>
+    </div>
+
+    <!-- ══ MODE TASKBAR — bottom dock, switch modes by tap or by voice ("Jarvis, switch to map") ══ -->
+    <nav id="mode-taskbar">
+      <button class="taskbar-btn active" id="tb-btn-chat" onclick="switchMode('chat')">
+        <span class="tb-icon">💬</span>CHAT
+      </button>
+      <button class="taskbar-btn" id="tb-btn-map" onclick="switchMode('map')">
+        <span class="tb-icon">🗺</span>MAP
+      </button>
+      <div class="taskbar-sep"></div>
+      <button class="taskbar-btn mic-btn" id="tb-btn-mic" onclick="toggleListening()">
+        <span class="tb-icon">🎙</span>MIC
+      </button>
+      <div class="taskbar-sep"></div>
+      <button class="taskbar-btn" id="tb-btn-hologram" onclick="switchMode('hologram')">
+        <span class="tb-icon">🧊</span>3D
+      </button>
+      <button class="taskbar-btn" id="tb-btn-build" onclick="switchMode('build')">
+        <span class="tb-icon">📐</span>BUILD
+      </button>
+    </nav>
+
   </div><!-- /main-screen -->
 
 <script src="retina-scan.js"></script>
