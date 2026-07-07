@@ -41,16 +41,31 @@ window.JarvisVisuals = (function () {
 
     spawn() {
       this.particles = [];
-      for (let i = 0; i < this.COUNT; i++) {
-        this.particles.push({
-          x:    Math.random() * this.w,
-          y:    Math.random() * this.h,
-          vx:   (Math.random() - 0.5) * this.SPEED,
-          vy:   (Math.random() - 0.5) * this.SPEED,
-          r:    Math.random() * 1.2 + 0.3,
-          base: Math.random(),          // phase offset
-          bright: Math.random() < 0.08, // 8% are bright nodes
-        });
+      // Evenly-jittered grid spawn: divides the screen into cells and drops
+      // one particle per cell (with small random jitter) so particles are
+      // always spread across the whole viewport instead of risking a random
+      // clump in one corner (which is what pure Math.random() placement
+      // could produce, and looked like a "displaced" trail of dots).
+      const cols = Math.max(1, Math.round(Math.sqrt(this.COUNT * (this.w / this.h))));
+      const rows = Math.max(1, Math.ceil(this.COUNT / cols));
+      const cellW = this.w / cols;
+      const cellH = this.h / rows;
+      let placed = 0;
+      for (let ry = 0; ry < rows && placed < this.COUNT; ry++) {
+        for (let rx = 0; rx < cols && placed < this.COUNT; rx++) {
+          const jitterX = (Math.random() - 0.5) * cellW * 0.9;
+          const jitterY = (Math.random() - 0.5) * cellH * 0.9;
+          this.particles.push({
+            x:    rx * cellW + cellW / 2 + jitterX,
+            y:    ry * cellH + cellH / 2 + jitterY,
+            vx:   (Math.random() - 0.5) * this.SPEED,
+            vy:   (Math.random() - 0.5) * this.SPEED,
+            r:    Math.random() * 1.2 + 0.3,
+            base: Math.random(),          // phase offset
+            bright: Math.random() < 0.08, // 8% are bright nodes
+          });
+          placed++;
+        }
       }
     },
 
