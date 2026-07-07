@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="hand-tracking.css"/>
   <link rel="stylesheet" href="daily-briefing.css"/>
   <link rel="stylesheet" href="glass-ui.css"/>
+  <link rel="stylesheet" href="home-ui.css"/>
 
   <!-- PWA: lets this be "Added to Home Screen" as an app on a phone -->
   <link rel="manifest" href="manifest.json"/>
@@ -256,9 +257,10 @@
   <!-- ═══════════════════════════════════════════════ -->
   <!-- MAIN SCREEN                                    -->
   <!-- ═══════════════════════════════════════════════ -->
-  <div id="main-screen" class="screen">
+  <div id="main-screen" class="screen hud-minimal">
 
-    <!-- TOP BAR -->
+    <!-- TOP BAR (hidden in minimal mode via CSS — kept so existing JS
+         that updates these fields doesn't need to change) -->
     <div class="top-bar">
       <div class="top-bar-left">
         <div class="tb-block">
@@ -282,14 +284,6 @@
           <span class="top-title">J.A.R.V.I.S</span>
           <span class="top-subtitle">COGNITIVE ENGINE v7.0</span>
         </div>
-        <div class="orb" id="orb">
-          <div class="orb-ring r1"></div>
-          <div class="orb-ring r2"></div>
-          <div class="orb-ring r3"></div>
-          <div class="orb-core"></div>
-          <div class="orb-pulse"></div>
-        </div>
-        <div class="orb-label" id="status-text">STANDBY</div>
       </div>
 
       <div class="top-bar-right">
@@ -308,6 +302,46 @@
           <div class="tb-val" id="hud-phase">IDLE</div>
         </div>
       </div>
+    </div>
+
+    <!-- HUD HOME — minimal centered badge, replaces the old dashboard look -->
+    <div class="hud-home">
+      <div class="hud-home-grid"></div>
+      <div class="hud-home-vignette"></div>
+
+      <div class="home-badge-wrap">
+        <span class="boot-particle" style="--x:-95px; --y:-70px; --d:0s"></span>
+        <span class="boot-particle" style="--x:100px; --y:-85px; --d:0.4s"></span>
+        <span class="boot-particle" style="--x:-115px; --y:20px; --d:0.8s"></span>
+        <span class="boot-particle" style="--x:120px; --y:35px; --d:1.2s"></span>
+        <span class="boot-particle" style="--x:-60px; --y:100px; --d:1.6s"></span>
+        <span class="boot-particle" style="--x:75px; --y:105px; --d:2s"></span>
+        <span class="boot-particle small" style="--x:-30px; --y:-115px; --d:0.6s"></span>
+        <span class="boot-particle small" style="--x:40px; --y:-120px; --d:1.4s"></span>
+
+        <div class="boot-ticks">
+          <span style="--t:0"></span><span style="--t:1"></span><span style="--t:2"></span><span style="--t:3"></span>
+          <span style="--t:4"></span><span style="--t:5"></span><span style="--t:6"></span><span style="--t:7"></span>
+          <span style="--t:8"></span><span style="--t:9"></span><span style="--t:10"></span><span style="--t:11"></span>
+        </div>
+
+        <div class="home-badge">
+          <div class="home-badge-ring outer"></div>
+          <div class="home-badge-ring spin"></div>
+          <div class="home-badge-core">JARVIS</div>
+        </div>
+
+        <!-- functional orb — drives setOrb()/mood state, kept invisible behind the badge -->
+        <div class="orb" id="orb">
+          <div class="orb-ring r1"></div>
+          <div class="orb-ring r2"></div>
+          <div class="orb-ring r3"></div>
+          <div class="orb-core"></div>
+          <div class="orb-pulse"></div>
+        </div>
+      </div>
+
+      <div class="home-status-text" id="status-text">STANDBY</div>
     </div>
 
     <!-- MAIN CONTENT AREA -->
@@ -550,22 +584,22 @@
 
     <!-- ══ MODE TASKBAR — bottom dock, switch modes by tap or by voice ("Jarvis, switch to map") ══ -->
     <nav id="mode-taskbar">
-      <button class="taskbar-btn active" id="tb-btn-chat" onclick="switchMode('chat')">
-        <span class="tb-icon">💬</span>CHAT
+      <button class="taskbar-btn active" id="tb-btn-chat" onclick="switchMode('chat')" title="Chat">
+        <span class="tb-icon">💬</span><span class="tb-label">CHAT</span>
       </button>
-      <button class="taskbar-btn" id="tb-btn-map" onclick="switchMode('map')">
-        <span class="tb-icon">🗺</span>MAP
-      </button>
-      <div class="taskbar-sep"></div>
-      <button class="taskbar-btn mic-btn" id="tb-btn-mic" onclick="toggleListening()">
-        <span class="tb-icon">🎙</span>MIC
+      <button class="taskbar-btn" id="tb-btn-map" onclick="switchMode('map')" title="Map">
+        <span class="tb-icon">🗺</span><span class="tb-label">MAP</span>
       </button>
       <div class="taskbar-sep"></div>
-      <button class="taskbar-btn" id="tb-btn-hologram" onclick="switchMode('hologram')">
-        <span class="tb-icon">🧊</span>3D
+      <button class="taskbar-btn mic-btn" id="tb-btn-mic" onclick="toggleListening()" title="Mic">
+        <span class="tb-icon">🎙</span><span class="tb-label">MIC</span>
       </button>
-      <button class="taskbar-btn" id="tb-btn-build" onclick="switchMode('build')">
-        <span class="tb-icon">📐</span>BUILD
+      <div class="taskbar-sep"></div>
+      <button class="taskbar-btn" id="tb-btn-hologram" onclick="switchMode('hologram')" title="3D Hologram">
+        <span class="tb-icon">🧊</span><span class="tb-label">3D</span>
+      </button>
+      <button class="taskbar-btn" id="tb-btn-build" onclick="switchMode('build')" title="Build">
+        <span class="tb-icon">📐</span><span class="tb-label">BUILD</span>
       </button>
     </nav>
 
