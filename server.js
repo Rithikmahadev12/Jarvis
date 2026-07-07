@@ -19,7 +19,6 @@ const Improve     = require("./self-improve");
 const Trainer     = require("./trainer");
 const Brain       = require("./brain");
 const Reminders   = require("./reminders");
-const Schedule    = require("./schedule");
 const Briefing    = require("./briefing");
 const TTS = require("./tts");
 
@@ -650,26 +649,6 @@ app.get("/api/reminders", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// ── HEALTHY SCHEDULE / DAILY ROUTINE / WORK-SESSION NUDGE
-// ═══════════════════════════════════════════════════════════════
-// Client polls this every ~20-30s. This only ever ASKS ("want to
-// take a break?") — it never opens anything on its own. Opening only
-// happens once the user replies "yes", which goes through the normal
-// chat endpoint and therefore counts as a direct, user-triggered
-// action (same mechanism as the link bank), so it isn't blocked by
-// the browser's popup blocker and doesn't need the Chrome extension.
-app.get("/api/schedule/due", (req, res) => {
-  const tz = req.query.tz || null;
-  const sessionId = req.query.sessionId || null;
-  const nudge = Schedule.checkWorkNudge(tz);
-  if (nudge && sessionId) Schedule.setPendingConfirm(sessionId);
-  res.json({ nudge: nudge || null });
-});
-app.get("/api/schedule", (req, res) => {
-  res.json({ blocks: Schedule.getBlocks() });
-});
-
-// ═══════════════════════════════════════════════════════════════
 // ── PERSONALITY
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/personality/comment", (req, res) => {
@@ -1206,15 +1185,6 @@ app.post("/api/chat", async (req, res) => {
   if (smalltalkReply) {
     Trainer.addExample(message, smalltalkReply, "smalltalk", null, 0.8, "personality");
     return res.json({ reply: smalltalkReply, action: "SMALLTALK", intent: "smalltalk" });
-  }
-
-  // ── 2.1 Healthy schedule / daily routine / "inspo" requests ──
-  // Handled natively, same reasoning as reminders.js: deterministic,
-  // no API key needed, and OPEN_LINKS needs special client handling
-  // anyway so it's cleaner to short-circuit here.
-  const scheduleResult = Schedule.route(message, T, userTimezone, sessionId);
-  if (scheduleResult) {
-    return res.json(scheduleResult);
   }
 
   // ── 2.5 AI decides + acts — replaces regex command matching ──
