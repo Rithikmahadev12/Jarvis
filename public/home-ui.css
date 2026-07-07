@@ -65,7 +65,7 @@
   opacity: 0;
 }
 .hud-home.corner-mode .boot-badge-wrap {
-  transform: translate(calc(-50vw + 96px), calc(50vh - 96px)) scale(0.32);
+  transform: translate(calc(50vw - 110px), calc(50vh - 110px)) scale(0.42);
 }
 
 /* The functional #orb stays in the DOM for setOrb()/mood logic, but
