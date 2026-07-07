@@ -1335,6 +1335,12 @@ function switchMode(mode, query) {
   const btn = $("tb-btn-" + (mode === "hologram" ? "hologram" : mode === "build" ? "build" : mode === "map" ? "map" : "chat"));
   if (btn) btn.classList.add("active");
 
+  // Send the JARVIS orb sliding down into the bottom-left corner whenever
+  // we leave chat for another full-screen mode, and bring it back to
+  // center when we return to chat.
+  const homeHero = document.querySelector(".hud-home");
+  if (homeHero) homeHero.classList.toggle("corner-mode", mode !== "chat");
+
   if (mode === "map") openMapMode(query);
   else if (mode === "hologram") openHologram(query || "");
   else if (mode === "build") openBlueprint(query || "");
@@ -1406,6 +1412,8 @@ function _setTaskbarChatActive() {
   document.querySelectorAll(".taskbar-btn").forEach(b => b.classList.remove("active"));
   const chatBtn = $("tb-btn-chat");
   if (chatBtn) chatBtn.classList.add("active");
+  const homeHero = document.querySelector(".hud-home");
+  if (homeHero) homeHero.classList.remove("corner-mode");
 }
 
 // ═══════════════════════════════════════════════════════════════
