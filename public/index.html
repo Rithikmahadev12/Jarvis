@@ -275,6 +275,21 @@
       </div>
     </div>
 
+    <!-- FLOATING QUICK ACTIONS CARD (top-left) -->
+    <div class="hv2-qa-card" id="hv2-qa-card">
+      <div class="hv2-qa-header">
+        <span class="hv2-qa-dot"></span>
+        <span>QUICK ACTIONS</span>
+      </div>
+      <div class="hv2-qa-row" id="quick-ring-row">
+        <button class="hv2-qa-btn q-ring-btn" title="3D Hologram" onclick="handleChatCommand('Jarvis show me a 3D model of Iron Man')">3D · Hologram</button>
+        <button class="hv2-qa-btn q-ring-btn" title="Build Mode" onclick="handleChatCommand('Jarvis build mode')">BM · Build Mode</button>
+        <button class="hv2-qa-btn q-ring-btn" title="Diagnostics" onclick="handleChatCommand('Jarvis system status')">DX · Diagnostics</button>
+        <button class="hv2-qa-btn q-ring-btn" title="Weather" onclick="handleChatCommand('Jarvis what is the weather')">WX · Weather</button>
+        <button class="hv2-qa-btn q-ring-btn" title="New Daily Task" onclick="window.JarvisBriefing && window.JarvisBriefing.reset()">NT · New Task</button>
+      </div>
+    </div>
+
     <!-- MAIN CONTENT AREA -->
     <div class="main-content">
 
@@ -325,7 +340,12 @@
 
       <!-- TRANSCRIPT AREA -->
       <div class="transcript-column">
-        <canvas id="ambient-globe-canvas"></canvas>
+        <div class="hv2-orb-frame" id="hv2-orb-frame">
+          <div class="hv2-orb-ticks"></div>
+          <div class="hv2-orb-ring outer"></div>
+          <div class="hv2-orb-ring inner"></div>
+          <canvas id="ambient-globe-canvas"></canvas>
+        </div>
         <div class="transcript-header">
           <div class="th-edge left"></div>
           <div class="th-title">NEURAL INTERFACE — ACTIVE SESSION</div>
@@ -368,17 +388,6 @@
           <div class="hv2-dotgrid" aria-hidden="true">
             <span></span><span></span><span></span><span></span>
             <span></span><span></span><span></span><span></span>
-          </div>
-        </div>
-
-        <div class="panel-section">
-          <div class="panel-section-label">QUICK ACTIONS</div>
-          <div class="bf-ring-row" id="quick-ring-row">
-            <div class="bf-ring-dot q-ring-btn" title="3D Hologram" onclick="handleChatCommand('Jarvis show me a 3D model of Iron Man')">3D</div>
-            <div class="bf-ring-dot q-ring-btn" title="Build Mode" onclick="handleChatCommand('Jarvis build mode')">BM</div>
-            <div class="bf-ring-dot q-ring-btn" title="Diagnostics" onclick="handleChatCommand('Jarvis system status')">DX</div>
-            <div class="bf-ring-dot q-ring-btn" title="Weather" onclick="handleChatCommand('Jarvis what is the weather')">WX</div>
-            <div class="bf-ring-dot q-ring-btn" title="New Daily Task" onclick="window.JarvisBriefing && window.JarvisBriefing.reset()">NT</div>
           </div>
         </div>
 
