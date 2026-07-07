@@ -276,24 +276,28 @@ input[type="text"], input[type="password"], select, textarea,
   position: absolute;
   top: 50%; left: 50%;
   width: 195px; height: 195px;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
   border: 2px solid transparent;
   border-top: 3px solid rgba(255, 255, 255, 0.9);
   border-left: 2px solid rgba(255, 255, 255, 0.4);
   border-bottom: 1px solid transparent;
   border-radius: 50%;
   z-index: 4;
-  animation: jrRotateCW 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: jrRotateCW1 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .jr-outer-ring-2 {
   position: absolute;
   top: 50%; left: 50%;
   width: 210px; height: 210px;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
   border: 1.5px solid transparent;
   border-bottom: 2px solid rgba(58, 134, 255, 0.8);
   border-radius: 50%;
   z-index: 2;
-  animation: jrRotateCCW 6s linear infinite;
+  animation: jrRotateCCW1 6s linear infinite;
 }
 
 .jr-hud-svg {
@@ -309,6 +313,8 @@ input[type="text"], input[type="password"], select, textarea,
 
 @keyframes jrRotateCW  { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(360deg); } }
 @keyframes jrRotateCCW { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(-360deg); } }
+@keyframes jrRotateCW1  { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(360deg); } }
+@keyframes jrRotateCCW1 { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(-360deg); } }
 
 /* ── COUNTDOWN ── */
 #intro-countdown {
