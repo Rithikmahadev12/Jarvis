@@ -581,6 +581,8 @@ const mic = {
 
 setInterval(() => {
   if ((state.phase === "chatting" || state.phase === "idle") && !mic.suspended && !mic.active && !mic.retryTimer) mic._launch();
+  const micBtn = $("tb-btn-mic");
+  if (micBtn) micBtn.classList.toggle("live", mic.active && !mic.suspended);
 }, 2000);
 
 document.addEventListener("visibilitychange", () => {
@@ -1159,6 +1161,38 @@ function handleChatCommand(text) {
 
   const cleanedLower = cleaned.toLowerCase();
 
+  // ── Mode switching: "Jarvis switch to map/chat/3d/build" ──
+  const switchMatch = cleanedLower.match(/\bswitch(?:\s+(?:to|into))?\s+(map|chat|3d|hologram|holo|build|blueprint)\s*(?:mode)?\b/);
+  if (switchMatch) {
+    const target = switchMatch[1];
+    const modeMap = { map: "map", chat: "chat", "3d": "hologram", hologram: "hologram", holo: "hologram", build: "build", blueprint: "build" };
+    const mode = modeMap[target] || "chat";
+    switchMode(mode);
+    const r = `Switching to ${mode} mode, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r);
+    return;
+  }
+
+  // ── Map lookups: "show me a map of X" / "map of X" / "where is X" / "find X on the map" ──
+  const mapMatch =
+    cleanedLower.match(/\b(?:show me|show|open|pull up|display)\s+(?:a\s+|the\s+)?map\s+(?:of|for|showing)\s+(.+)/) ||
+    cleanedLower.match(/\bmap\s+(?:of|for)\s+(.+)/) ||
+    cleanedLower.match(/\bwhere\s+is\s+(.+?)(?:\s+located)?\??$/) ||
+    cleanedLower.match(/\bfind\s+(.+?)\s+on\s+(?:the\s+)?map\b/);
+  if (mapMatch && mapMatch[1] && mapMatch[1].trim().length > 1) {
+    const place = mapMatch[1].trim().replace(/[?.!]+$/, "");
+    switchMode("map", place);
+    const r = `Pulling up a map of ${place}, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r);
+    return;
+  }
+  if (/\b(open|show|switch to)\s+(the\s+)?map\b/.test(cleanedLower) && !mapMatch) {
+    switchMode("map");
+    const r = `Here's the map, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r);
+    return;
+  }
+
   // ── Notification / intruder settings ──
   if (/\b(notification|alert|intruder|settings|setting|configure|config|toggle|manage)\b/.test(cleanedLower) &&
       /\b(settings|setting|panel|menu|page|where|open|show|go to|find|access)\b/.test(cleanedLower)) {
@@ -1286,8 +1320,59 @@ async function sendToAI(message) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── HOLOGRAM FUNCTIONS ──
+// ── MODE TASKBAR ──
+// Single entry point used by the bottom taskbar buttons AND by voice/text
+// commands ("Jarvis, switch to map"). Keeps the active tab highlighted
+// and makes sure only one full-screen panel is open at a time.
 // ═══════════════════════════════════════════════════════════════
+function switchMode(mode, query) {
+  // Close whatever full-screen panel is currently open (idempotent if none is)
+  closeHologram();
+  closeBlueprint();
+  closeMapMode();
+
+  document.querySelectorAll(".taskbar-btn").forEach(b => b.classList.remove("active"));
+  const btn = $("tb-btn-" + (mode === "hologram" ? "hologram" : mode === "build" ? "build" : mode === "map" ? "map" : "chat"));
+  if (btn) btn.classList.add("active");
+
+  if (mode === "map") openMapMode(query);
+  else if (mode === "hologram") openHologram(query || "");
+  else if (mode === "build") openBlueprint(query || "");
+  // "chat" needs nothing further — closing the panels above already returns to it
+}
+
+function openMapMode(query) {
+  const panel = $("map-panel");
+  const iframe = $("map-iframe");
+  if (!panel || !iframe) return;
+  panel.style.display = "block";
+  mic.suspend();
+  const sendMsg = () => {
+    try { if (query) iframe.contentWindow.postMessage({ type: "MAP_SEARCH", query }, "*"); }
+    catch (e) {}
+  };
+  if (iframe.contentDocument?.readyState === "complete") setTimeout(sendMsg, 300);
+  else iframe.onload = () => setTimeout(sendMsg, 300);
+}
+function closeMapMode() {
+  const panel = $("map-panel");
+  if (panel) panel.style.display = "none";
+  if (state.phase === "chatting") mic.resume();
+  _setTaskbarChatActive();
+}
+
+function toggleListening() {
+  const micBtn = $("tb-btn-mic");
+  if (mic.suspended) {
+    mic.resume();
+    if (micBtn) micBtn.classList.add("live");
+  } else {
+    mic.suspend();
+    if (micBtn) micBtn.classList.remove("live");
+  }
+}
+
+
 function openHologram(query) {
   const panel  = $("hologram-panel");
   const iframe = $("hologram-iframe");
@@ -1315,6 +1400,12 @@ function closeHologram() {
   const panel = $("hologram-panel");
   if (panel) panel.style.display = "none";
   if (state.phase === "chatting") mic.resume();
+  _setTaskbarChatActive();
+}
+function _setTaskbarChatActive() {
+  document.querySelectorAll(".taskbar-btn").forEach(b => b.classList.remove("active"));
+  const chatBtn = $("tb-btn-chat");
+  if (chatBtn) chatBtn.classList.add("active");
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1343,6 +1434,7 @@ function closeBlueprint() {
   const panel = $("blueprint-panel");
   if (panel) panel.style.display = "none";
   if (state.phase === "chatting") mic.resume();
+  _setTaskbarChatActive();
 }
 
 // Listen for the iframe's exit button telling us to close
