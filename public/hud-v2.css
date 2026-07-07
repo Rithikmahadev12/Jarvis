@@ -210,3 +210,132 @@ body::before {
   #ambient-globe-canvas { width: 76vw !important; height: 76vw !important; }
   .transcript-column::before { width: 60vw; height: 60vw; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   ORB v2 — elliptical iris-scanner look (reference image 1)
+   ═══════════════════════════════════════════════════════════════ */
+.hv2-orb-frame {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(92%, 620px);
+  aspect-ratio: 4 / 3;
+  height: auto;
+  z-index: 0;
+  pointer-events: none;
+}
+.hv2-orb-frame #ambient-globe-canvas {
+  position: absolute;
+  inset: 6%;
+  top: 6%; left: 6%;
+  transform: none;
+  width: 88% !important;
+  height: 88% !important;
+  border-radius: 50%;
+  opacity: 0.95 !important;
+}
+.hv2-orb-ticks {
+  position: absolute;
+  inset: 0;
+  background-image: url('orb-ticks.svg');
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  animation: hv2TickSpin 90s linear infinite;
+  opacity: 0.85;
+}
+@keyframes hv2TickSpin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
+
+.hv2-orb-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(120,215,255,0.35);
+  pointer-events: none;
+}
+.hv2-orb-ring.outer { inset: -3%; }
+.hv2-orb-ring.inner { inset: 9%; border-color: rgba(120,215,255,0.5); }
+
+/* the old glow-blob pseudo elements should sit behind the new oval frame */
+.transcript-column::before { display: none; }
+
+/* ═══════════════════════════════════════════════════════════════
+   FLOATING QUICK-ACTIONS CARD — top-left, rounded panel look
+   (reference image 2)
+   ═══════════════════════════════════════════════════════════════ */
+.hv2-qa-card {
+  position: absolute;
+  top: 62px;
+  left: 16px;
+  z-index: 40;
+  width: 190px;
+  background: rgba(4,20,34,0.72);
+  border: 1px solid var(--hv2-line);
+  border-radius: 10px;
+  padding: 10px 10px 12px;
+  box-shadow: 0 8px 28px rgba(0,10,20,0.4), 0 0 18px rgba(90,190,255,0.08);
+}
+.hv2-qa-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--hv2-mono);
+  font-size: 0.44rem;
+  letter-spacing: 0.18em;
+  color: var(--hv2-dim);
+  margin-bottom: 8px;
+}
+.hv2-qa-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--hv2-glow);
+  box-shadow: 0 0 6px var(--hv2-glow);
+  flex-shrink: 0;
+}
+.hv2-qa-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hv2-qa-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: rgba(90,190,255,0.06);
+  border: 1px solid rgba(90,190,255,0.18);
+  border-radius: 5px;
+  color: var(--hv2-text);
+  font-family: var(--hv2-mono);
+  font-size: 0.56rem;
+  letter-spacing: 0.03em;
+  padding: 6px 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.hv2-qa-btn:hover {
+  background: rgba(90,190,255,0.16);
+  border-color: var(--hv2-glow);
+  transform: translateX(2px);
+}
+
+@media (max-width: 900px) {
+  .hv2-qa-card { display: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WAVEFORM v2 — pill/lens shape that grows while speaking and
+   settles back down when done (reference image 3)
+   ═══════════════════════════════════════════════════════════════ */
+#waveform-canvas {
+  border-radius: 999px !important;
+  transform: scaleX(0.5) scaleY(0.4);
+  transform-origin: center;
+  opacity: 0.35 !important;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.4s ease;
+}
+#waveform-canvas.active {
+  opacity: 1 !important;
+  animation: hv2WaveBreathe 1.4s ease-in-out infinite alternate;
+}
+@keyframes hv2WaveBreathe {
+  from { transform: scaleX(0.94) scaleY(0.85); }
+  to   { transform: scaleX(1.05) scaleY(1.15); }
+}
