@@ -1352,7 +1352,6 @@ function openMapMode(query) {
   const iframe = $("map-iframe");
   if (!panel || !iframe) return;
   panel.style.display = "block";
-  mic.suspend();
   const sendMsg = () => {
     try { if (query) iframe.contentWindow.postMessage({ type: "MAP_SEARCH", query }, "*"); }
     catch (e) {}
@@ -1384,7 +1383,6 @@ function openHologram(query) {
   const iframe = $("hologram-iframe");
   if (!panel || !iframe) return;
   panel.style.display = "block";
-  mic.suspend();
   const lower = (query || "").toLowerCase();
   const isBuildMode = /build mode|launcher|build me|make me|design|create/i.test(lower);
   const sendMsg = () => {
@@ -1424,7 +1422,6 @@ function openBlueprint(query) {
   const iframe = $("blueprint-iframe");
   if (!panel || !iframe) return;
   panel.style.display = "block";
-  mic.suspend();
 
   // Load the iframe lazily — only the first time Build mode is actually
   // opened, so it doesn't boot (and speak "Drafting table online, sir")
