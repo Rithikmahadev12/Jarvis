@@ -43,6 +43,7 @@
   align-items: center;
   justify-content: center;
   pointer-events: none;
+  background: #05070c;
 }
 .hud-home .boot-badge-wrap { z-index: 2; }
 
@@ -128,9 +129,10 @@
   justify-content: center;
 }
 #main-screen.hud-minimal .taskbar-btn .tb-icon { font-size: 1rem; }
+#main-screen.hud-minimal .taskbar-btn .tb-icon svg { width: 17px; height: 17px; display: block; color: inherit; }
 #main-screen.hud-minimal .taskbar-btn .tb-label { display: none; }
 #main-screen.hud-minimal .taskbar-btn.mic-btn { width: 40px; height: 40px; }
-#main-screen.hud-minimal .taskbar-btn.mic-btn .tb-icon { font-size: 1.15rem; }
+#main-screen.hud-minimal .taskbar-btn.mic-btn .tb-icon svg { width: 19px; height: 19px; }
 #main-screen.hud-minimal .taskbar-sep { height: 18px; }
 
 @media (max-width: 640px) {
