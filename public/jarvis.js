@@ -1418,13 +1418,19 @@ function openBlueprint(query) {
   panel.style.display = "block";
   mic.suspend();
 
+  // Load the iframe lazily — only the first time Build mode is actually
+  // opened, so it doesn't boot (and speak "Drafting table online, sir")
+  // in the background while the user is still on the login/boot screen.
+  const needsLoad = !iframe.src && iframe.dataset.src;
+  if (needsLoad) iframe.src = iframe.dataset.src;
+
   const sendMsg = () => {
     try {
       if (query) iframe.contentWindow.postMessage({ type: "BLUEPRINT_SEARCH", query }, "*");
     } catch (e) {}
   };
 
-  if (iframe.contentDocument?.readyState === "complete") {
+  if (!needsLoad && iframe.contentDocument?.readyState === "complete") {
     setTimeout(sendMsg, 300);
   } else {
     iframe.onload = () => setTimeout(sendMsg, 300);
