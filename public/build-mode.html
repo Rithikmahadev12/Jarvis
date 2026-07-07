@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>J.A.R.V.I.S — Build Mode</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="hand-tracking.css"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Share Tech Mono',monospace;color:#00c8ff}
+:root{
+  --blue:#00c8ff;--glow:rgba(0,200,255,0.45);--bg:#000508;
+  --dim:rgba(0,200,255,0.25);--text:#a8dff5;--dim-text:#2e5a78;
+  --amber:#ffaa00;--green:#00ff88;--red:#ff3333;
+  --hud:'Orbitron',monospace;
+}
+#c{position:fixed;inset:0;display:block;width:100%!important;height:100%!important;cursor:grab}
+#c.dragging{cursor:grabbing}
+
+/* boot */
+#loading{position:fixed;inset:0;background:#000508;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+.load-ring{width:56px;height:56px;border:2px solid rgba(0,200,255,0.15);border-top-color:var(--blue);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.load-title{font-family:var(--hud);font-size:1rem;letter-spacing:0.5em;color:var(--blue)}
+.load-sub{font-size:0.62rem;letter-spacing:0.2em;color:var(--dim-text)}
+
+.corner{position:fixed;width:44px;height:44px;pointer-events:none;z-index:20}
+.corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.7}
+.corner::before{width:100%;height:1.5px;top:0}
+.corner::after{width:1.5px;height:100%;top:0}
+.corner.tl{top:14px;left:14px}.corner.tr{top:14px;right:14px;transform:scaleX(-1)}
+.corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}.corner.br{bottom:14px;right:14px;transform:scale(-1)}
+
+#top{position:fixed;top:0;left:0;right:0;height:52px;background:linear-gradient(180deg,rgba(0,4,12,0.98),rgba(0,6,18,0.85));border-bottom:1px solid rgba(0,200,255,0.18);display:flex;align-items:center;justify-content:space-between;padding:0 18px;z-index:30}
+.top-title{font-family:var(--hud);font-size:0.95rem;font-weight:900;letter-spacing:0.45em;color:var(--blue);text-shadow:0 0 20px var(--glow)}
+.top-right{display:flex;align-items:center;gap:14px;font-size:0.5rem;letter-spacing:0.18em;color:var(--dim-text)}
+#exit-btn{background:rgba(255,51,51,0.08);border:1px solid rgba(255,51,51,0.35);color:#ff8a8a;font-family:var(--hud);font-size:0.4rem;letter-spacing:0.2em;padding:7px 14px;cursor:pointer;border-radius:2px}
+#exit-btn:hover{background:rgba(255,51,51,0.2)}
+
+#sidebar{position:fixed;top:52px;left:0;bottom:0;width:220px;background:rgba(0,3,10,0.94);border-right:1px solid rgba(0,200,255,0.1);z-index:20;display:flex;flex-direction:column;padding:12px 0;overflow:hidden}
+.sb-label{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.28em;color:var(--dim-text);padding:8px 14px 6px;text-transform:uppercase}
+#search-row{display:flex;padding:0 12px 8px;gap:6px}
+#search-input{flex:1;background:rgba(0,200,255,0.05);border:1px solid rgba(0,200,255,0.2);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:0.7rem;padding:7px 8px;outline:none;border-radius:2px}
+#search-btn{background:rgba(0,200,255,0.12);border:1px solid rgba(0,200,255,0.3);color:var(--blue);font-family:var(--hud);font-size:0.4rem;padding:0 10px;cursor:pointer;border-radius:2px}
+#search-btn:hover{background:rgba(0,200,255,0.25)}
+#results{flex:0 0 auto;max-height:34vh;overflow-y:auto;padding:0 10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;scrollbar-width:none}
+#results::-webkit-scrollbar{display:none}
+.part-card{background:rgba(0,200,255,0.05);border:1px solid rgba(0,200,255,0.15);border-radius:3px;padding:6px;cursor:pointer;transition:all .15s;text-align:center}
+.part-card:hover{border-color:var(--blue);background:rgba(0,200,255,0.12)}
+.part-card img,.part-card .swatch{width:100%;height:52px;object-fit:cover;border-radius:2px;background:#0a1520;display:flex;align-items:center;justify-content:center;font-size:1.3rem}
+.part-card .pc-name{font-size:0.5rem;letter-spacing:0.03em;color:var(--text);margin-top:4px;line-height:1.2;max-height:2.4em;overflow:hidden}
+.part-card.loading{opacity:0.5;pointer-events:none}
+#search-status{padding:6px 14px;font-size:0.5rem;color:var(--dim-text);letter-spacing:0.06em}
+
+#my-parts{flex:1;overflow-y:auto;padding:0 10px;scrollbar-width:none}
+#my-parts::-webkit-scrollbar{display:none}
+.mp-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-left:2px solid transparent;border-bottom:1px solid rgba(0,200,255,0.05);cursor:pointer;font-size:0.62rem;color:var(--dim-text)}
+.mp-item:hover{background:rgba(0,200,255,0.06);color:var(--text)}
+.mp-item.selected{border-left-color:var(--amber);color:var(--amber);background:rgba(255,170,0,0.06)}
+.mp-item .mp-dot{width:6px;height:6px;border-radius:50%;background:var(--dim-text);flex-shrink:0}
+.mp-item.connected .mp-dot{background:var(--green);box-shadow:0 0 6px var(--green)}
+.mp-item .mp-del{margin-left:auto;color:var(--red);opacity:0.5;font-size:0.7rem}
+.mp-item .mp-del:hover{opacity:1}
+
+#right-panel{position:fixed;top:52px;right:0;bottom:0;width:210px;background:rgba(0,3,10,0.94);border-left:1px solid rgba(0,200,255,0.1);z-index:20;display:flex;flex-direction:column;padding:12px 0;gap:4px}
+.rp-section{padding:8px 14px;border-bottom:1px solid rgba(0,200,255,0.06)}
+.rp-title{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.26em;color:var(--dim-text);margin-bottom:6px}
+.rp-val{font-size:0.6rem;color:var(--text);line-height:1.6}
+.rp-btn{width:100%;background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.25);color:var(--blue);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.12em;padding:9px 4px;cursor:pointer;border-radius:2px;margin-top:6px}
+.rp-btn:hover{background:rgba(0,200,255,0.2)}
+.rp-btn.amber{border-color:rgba(255,170,0,0.5);color:var(--amber)}
+.rp-btn.amber:hover{background:rgba(255,170,0,0.18)}
+.rp-btn.green{border-color:rgba(0,255,136,0.5);color:var(--green)}
+.rp-btn.green:hover{background:rgba(0,255,136,0.15)}
+.rp-btn.active{background:rgba(0,255,136,0.18);border-color:var(--green);color:var(--green)}
+.rot-row{display:flex;gap:4px;margin-top:6px}
+.rot-row button{flex:1;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);color:var(--text);font-size:0.6rem;padding:6px 0;cursor:pointer;border-radius:2px}
+.rot-row button:hover{background:rgba(0,200,255,0.18)}
+.gesture-hint{font-size:0.52rem;color:var(--dim-text);line-height:1.7;letter-spacing:0.01em}
+
+#ticker{position:fixed;bottom:0;left:220px;right:210px;height:24px;background:rgba(0,3,10,0.98);border-top:1px solid rgba(0,200,255,0.1);display:flex;align-items:center;padding:0 14px;z-index:25;font-size:0.55rem;color:var(--dim-text);letter-spacing:0.05em}
+
+/* connect confirmation toast */
+#confirm-toast{position:fixed;left:50%;bottom:60px;transform:translateX(-50%) translateY(20px);z-index:40;background:rgba(0,6,16,0.97);border:1px solid rgba(255,170,0,0.5);border-radius:4px;padding:14px 18px;display:none;flex-direction:column;align-items:center;gap:10px;box-shadow:0 0 30px rgba(255,170,0,0.15);opacity:0;transition:opacity .25s, transform .25s;min-width:340px}
+#confirm-toast.show{display:flex;opacity:1;transform:translateX(-50%) translateY(0)}
+#confirm-text{font-size:0.72rem;color:var(--amber);text-align:center;letter-spacing:0.02em}
+#confirm-btns{display:flex;gap:10px}
+#confirm-btns button{font-family:var(--hud);font-size:0.42rem;letter-spacing:0.14em;padding:8px 16px;border-radius:2px;cursor:pointer}
+#btn-connect-yes{background:rgba(0,255,136,0.15);border:1px solid var(--green);color:var(--green)}
+#btn-connect-yes:hover{background:rgba(0,255,136,0.3)}
+#btn-connect-no{background:rgba(255,51,51,0.1);border:1px solid rgba(255,51,51,0.4);color:#ff8a8a}
+#btn-connect-no:hover{background:rgba(255,51,51,0.25)}
+
+/* generic status toast */
+#toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:40;background:rgba(0,6,16,0.95);border:1px solid rgba(0,200,255,0.35);color:var(--text);font-size:0.66rem;letter-spacing:0.03em;padding:9px 18px;border-radius:3px;opacity:0;pointer-events:none;transition:opacity .3s}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="load-ring"></div>
+  <div class="load-title">J.A.R.V.I.S</div>
+  <div class="load-sub">BUILD MODE — INITIALISING CAD ENGINE</div>
+</div>
+
+<canvas id="c"></canvas>
+<div class="corner tl"></div><div class="corner tr"></div>
+<div class="corner bl"></div><div class="corner br"></div>
+
+<div id="top">
+  <div class="top-title">BUILD MODE</div>
+  <div class="top-right">
+    <span id="part-count">0 PARTS</span>
+    <span id="assembly-status">—</span>
+    <button id="exit-btn" onclick="exitBuild()">✕ EXIT</button>
+  </div>
+</div>
+
+<div id="sidebar">
+  <div class="sb-label">⬡ PULL A REAL 3D PART</div>
+  <div id="search-row">
+    <input id="search-input" placeholder="e.g. jet engine, hinge, gear…" onkeydown="if(event.key==='Enter')runSearch()"/>
+    <button id="search-btn" onclick="runSearch()">GO</button>
+  </div>
+  <div id="search-status"></div>
+  <div id="results"></div>
+  <div class="sb-label" style="margin-top:6px">MY BUILD — CLICK TO SELECT</div>
+  <div id="my-parts"></div>
+</div>
+
+<div id="right-panel">
+  <div class="rp-section">
+    <div class="rp-title">SELECTED PART</div>
+    <div class="rp-val" id="sel-name">— none —</div>
+    <div class="rot-row">
+      <button onclick="nudgeRotate('y',-15)">↺ Y</button>
+      <button onclick="nudgeRotate('y',15)">↻ Y</button>
+    </div>
+    <div class="rot-row">
+      <button onclick="nudgeRotate('x',-15)">↺ X</button>
+      <button onclick="nudgeRotate('x',15)">↻ X</button>
+    </div>
+    <button class="rp-btn" style="border-color:rgba(255,51,51,0.4);color:#ff8a8a" onclick="deleteSelected()">🗑 DELETE PART</button>
+  </div>
+  <div class="rp-section">
+    <div class="rp-title">HAND CONTROL</div>
+    <div class="gesture-hint">Pinch thumb + index over a part to grab it. Move your hand to drag it. Twist your wrist while pinching to spin it. Release the pinch to let go.</div>
+    <button class="rp-btn green" id="hand-toggle-btn" onclick="toggleHandControl()">✋ ENABLE HAND CONTROL</button>
+  </div>
+  <div class="rp-section" style="flex:1">
+    <div class="rp-title">ASSEMBLY</div>
+    <div class="rp-val" id="assembly-detail">No parts placed yet.</div>
+    <button class="rp-btn amber" onclick="validateBuild()">⚡ VALIDATE / RENDER BUILD</button>
+  </div>
+</div>
+
+<div id="ticker">Drag parts with your mouse, or enable hand control and pinch to grab. Jarvis will ask before screwing touching parts together.</div>
+
+<div id="confirm-toast">
+  <div id="confirm-text"></div>
+  <div id="confirm-btns">
+    <button id="btn-connect-yes" onclick="answerConnect(true)">🔩 CONNECT</button>
+    <button id="btn-connect-no" onclick="answerConnect(false)">IGNORE</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<video id="camera-feed" autoplay muted playsinline style="position:fixed;bottom:-9999px;width:2px;height:2px;opacity:0"></video>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="hand-tracking.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════
+// J.A.R.V.I.S — BUILD MODE (CAD engine)
+// ═══════════════════════════════════════════════════════════════
+const $ = (id) => document.getElementById(id);
+
+// ── THREE.JS SETUP ──
+const canvas = $("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputEncoding = THREE.sRGBEncoding;
+renderer.shadowMap.enabled = true;
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000508);
+scene.fog = new THREE.FogExp2(0x000508, 0.03);
+
+const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 300);
+camera.position.set(3.4, 2.6, 3.4);
+
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.08;
+controls.target.set(0, 0.5, 0);
+controls.maxPolarAngle = Math.PI * 0.49;
+
+scene.add(new THREE.AmbientLight(0x445566, 0.9));
+const key = new THREE.DirectionalLight(0xffffff, 1.6);
+key.position.set(5, 8, 4); key.castShadow = true;
+scene.add(key);
+const rim = new THREE.PointLight(0x00aaff, 1.2, 30);
+rim.position.set(-4, 3, -3); scene.add(rim);
+
+const grid = new THREE.GridHelper(20, 40, 0x00475e, 0x001522);
+scene.add(grid);
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(20, 20),
+  new THREE.MeshStandardMaterial({ color: 0x000a12, roughness: 1 })
+);
+floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
+scene.add(floor);
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+resize();
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.enabled = !dragState.active;
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+setTimeout(() => { $("loading").style.display = "none"; }, 500);
+
+// ── TOAST HELPERS ──
+let toastTimer = null;
+function showToast(msg, ms = 3200) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), ms);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── PART LIBRARY (primitives used for placeholder / offline parts) ──
+// ═══════════════════════════════════════════════════════════════
+function buildPrimitiveMesh(shape, colorHex) {
+  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, metalness: 0.35, roughness: 0.55 });
+  const color = new THREE.Color(colorHex || "#8fa3b0");
+  const group = new THREE.Group();
+
+  switch (shape) {
+    case "plate":
+    case "panel": {
+      const g = new THREE.Mesh(new THREE.BoxGeometry(1, 0.08, 0.7), mat(color));
+      group.add(g);
+      break;
+    }
+    case "cylinder": {
+      const g = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.9, 24), mat(color));
+      group.add(g);
+      break;
+    }
+    case "sphere": {
+      const g = new THREE.Mesh(new THREE.SphereGeometry(0.35, 24, 24), mat(color));
+      group.add(g);
+      break;
+    }
+    case "beam": {
+      const g = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.18, 0.18), mat(color));
+      group.add(g);
+      break;
+    }
+    case "bracket": {
+      const a = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.12, 0.3), mat(color));
+      a.position.set(0, -0.24, 0);
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.6, 0.3), mat(color));
+      b.position.set(-0.24, 0, 0);
+      group.add(a, b);
+      break;
+    }
+    case "gear": {
+      const core = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.15, 24), mat(color));
+      group.add(core);
+      const teeth = 12;
+      for (let i = 0; i < teeth; i++) {
+        const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.15, 0.09), mat(color));
+        const a = (i / teeth) * Math.PI * 2;
+        tooth.position.set(Math.cos(a) * 0.36, 0, Math.sin(a) * 0.36);
+        tooth.rotation.y = -a;
+        group.add(tooth);
+      }
+      break;
+    }
+    case "box":
+    default: {
+      const g = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), mat(color));
+      group.add(g);
+      break;
+    }
+  }
+  group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return group;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── PARTS DATA MODEL ──
+// ═══════════════════════════════════════════════════════════════
+let parts = new Map();          // id -> part
+let assemblyOf = new Map();     // partId -> assemblyId
+let assemblyMembers = new Map();// assemblyId -> Set(partId)
+let dismissedPairs = new Map(); // "a|b" -> timestamp
+let selectedId = null;
+let spawnIndex = 0;
+const loader = new THREE.GLTFLoader();
+const GLTF_SCALE_TARGET = 1.1; // normalise loaded models to roughly this size
+
+function uid() { return "p" + Math.random().toString(36).slice(2, 10); }
+
+function nextSpawnPosition() {
+  const i = spawnIndex++;
+  const cols = 4;
+  const x = (i % cols) * 1.5 - (cols - 1) * 0.75;
+  const z = Math.floor(i / cols) * 1.5 - 1.5;
+  return new THREE.Vector3(x, 0.5, z);
+}
+
+function addPart(name, mesh, uidStr) {
+  const wrapper = new THREE.Group();
+  wrapper.add(mesh);
+  wrapper.position.copy(nextSpawnPosition());
+  scene.add(wrapper);
+
+  const id = uid();
+  const part = { id, name, wrapper, sourceUid: uidStr };
+  parts.set(id, part);
+  assemblyOf.set(id, id);
+  assemblyMembers.set(id, new Set([id]));
+
+  refreshPartsList();
+  updateTopStatus();
+  selectPart(id);
+  showToast(`Placed: ${name}`);
+  return part;
+}
+
+function centerAndScale(root) {
+  const box = new THREE.Box3().setFromObject(root);
+  const size = new THREE.Vector3(); box.getSize(size);
+  const center = new THREE.Vector3(); box.getCenter(center);
+  root.position.sub(center); // center on origin
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const scale = GLTF_SCALE_TARGET / maxDim;
+  const holder = new THREE.Group();
+  holder.add(root);
+  root.scale.setScalar(scale);
+  root.position.multiplyScalar(scale);
+  root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return holder;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── SEARCH + SPAWN ──
+// ═══════════════════════════════════════════════════════════════
+async function runSearch(queryOverride) {
+  const q = (queryOverride ?? $("search-input").value).trim();
+  if (queryOverride) $("search-input").value = q;
+  if (!q) return;
+  $("search-status").textContent = "SEARCHING…";
+  $("results").innerHTML = "";
+  try {
+    const res = await fetch(`/api/build/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    renderResults(data.results || []);
+    $("search-status").textContent = data.source === "sketchfab"
+      ? `${data.results.length} real models found`
+      : "using built-in parts (no live results)";
+  } catch (e) {
+    $("search-status").textContent = "search failed — offline?";
+  }
+}
+
+function renderResults(results) {
+  const box = $("results");
+  box.innerHTML = "";
+  for (const r of results) {
+    const card = document.createElement("div");
+    card.className = "part-card";
+    card.innerHTML = r.thumbnail
+      ? `<img src="${r.thumbnail}" loading="lazy"/>`
+      : `<div class="swatch" style="color:${r.color || '#00c8ff'}">⬡</div>`;
+    const label = document.createElement("div");
+    label.className = "pc-name";
+    label.textContent = r.name;
+    card.appendChild(label);
+    card.onclick = () => spawnFromResult(card, r);
+    box.appendChild(card);
+  }
+}
+
+async function spawnFromResult(cardEl, r) {
+  cardEl.classList.add("loading");
+  try {
+    const res = await fetch(`/api/build/model/${encodeURIComponent(r.uid)}`);
+    const data = await res.json();
+
+    if (data.kind === "placeholder") {
+      const mesh = buildPrimitiveMesh(data.part.shape, data.part.color);
+      addPart(data.part.name, mesh, r.uid);
+    } else if (data.kind === "gltf") {
+      loader.load(data.url, (gltf) => {
+        const holder = centerAndScale(gltf.scene);
+        addPart(r.name, holder, r.uid);
+      }, undefined, (err) => {
+        showToast(`Couldn't load ${r.name} — placing a placeholder instead.`);
+        const mesh = buildPrimitiveMesh("box", "#8fa3b0");
+        addPart(r.name, mesh, r.uid);
+      });
+    } else if (data.kind === "error") {
+      showToast(data.error);
+      if (data.fallback?.part) {
+        const mesh = buildPrimitiveMesh(data.fallback.part.shape, data.fallback.part.color);
+        addPart(data.fallback.part.name, mesh, r.uid);
+      }
+    }
+  } catch (e) {
+    showToast("Couldn't reach Build Mode's model service.");
+  } finally {
+    cardEl.classList.remove("loading");
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── SELECTION / LIST UI ──
+// ═══════════════════════════════════════════════════════════════
+function refreshPartsList() {
+  const box = $("my-parts");
+  box.innerHTML = "";
+  for (const part of parts.values()) {
+    const row = document.createElement("div");
+    const isConnected = assemblyMembers.get(assemblyOf.get(part.id)).size > 1;
+    row.className = "mp-item" + (part.id === selectedId ? " selected" : "") + (isConnected ? " connected" : "");
+    row.innerHTML = `<span class="mp-dot"></span><span style="flex:1">${part.name}</span><span class="mp-del" title="delete">✕</span>`;
+    row.querySelector("span:nth-child(2)").onclick = () => selectPart(part.id);
+    row.querySelector(".mp-del").onclick = (e) => { e.stopPropagation(); removePart(part.id); };
+    box.appendChild(row);
+  }
+  $("part-count").textContent = `${parts.size} PART${parts.size === 1 ? "" : "S"}`;
+}
+
+function selectPart(id) {
+  selectedId = id;
+  const part = parts.get(id);
+  $("sel-name").textContent = part ? part.name : "— none —";
+  refreshPartsList();
+  updateAssemblyDetail();
+}
+
+function deleteSelected() { if (selectedId) removePart(selectedId); }
+
+function removePart(id) {
+  const part = parts.get(id);
+  if (!part) return;
+  scene.remove(part.wrapper);
+  parts.delete(id);
+  const asm = assemblyOf.get(id);
+  assemblyMembers.get(asm)?.delete(id);
+  assemblyOf.delete(id);
+  if (selectedId === id) selectedId = null;
+  refreshPartsList();
+  updateTopStatus();
+  updateAssemblyDetail();
+}
+
+function nudgeRotate(axis, deg) {
+  if (!selectedId) return;
+  rotateAssemblyAround(selectedId, axis, THREE.MathUtils.degToRad(deg));
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── UNION-FIND (assemblies) ──
+// ═══════════════════════════════════════════════════════════════
+function sameAssembly(a, b) { return assemblyOf.get(a) === assemblyOf.get(b); }
+
+function unionAssemblies(a, b) {
+  const asmA = assemblyOf.get(a), asmB = assemblyOf.get(b);
+  if (asmA === asmB) return;
+  const membersA = assemblyMembers.get(asmA);
+  const membersB = assemblyMembers.get(asmB);
+  for (const m of membersB) { assemblyOf.set(m, asmA); membersA.add(m); }
+  assemblyMembers.delete(asmB);
+}
+
+function assemblyMemberIds(partId) {
+  return Array.from(assemblyMembers.get(assemblyOf.get(partId)) || [partId]);
+}
+
+// Move every part in the same rigid assembly by the same world-space delta.
+function translateAssembly(partId, deltaWorld) {
+  for (const id of assemblyMemberIds(partId)) {
+    parts.get(id)?.wrapper.position.add(deltaWorld);
+  }
+}
+
+// Rotate the whole assembly rigidly about the pivot part's current position.
+function rotateAssemblyAround(partId, axis, radians) {
+  const pivotPart = parts.get(partId);
+  if (!pivotPart) return;
+  const pivot = pivotPart.wrapper.position.clone();
+  const axisVec = axis === "x" ? new THREE.Vector3(1, 0, 0) : axis === "z" ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+  const q = new THREE.Quaternion().setFromAxisAngle(axisVec, radians);
+  for (const id of assemblyMemberIds(partId)) {
+    const p = parts.get(id);
+    if (!p) continue;
+    const rel = p.wrapper.position.clone().sub(pivot);
+    rel.applyQuaternion(q);
+    p.wrapper.position.copy(pivot.clone().add(rel));
+    p.wrapper.quaternion.premultiply(q);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── MOUSE CONTROLS: click + drag a part along a horizontal plane ──
+// ═══════════════════════════════════════════════════════════════
+const raycaster = new THREE.Raycaster();
+const pointerNdc = new THREE.Vector2();
+const dragState = { active: false, partId: null, plane: new THREE.Plane(), offset: new THREE.Vector3() };
+
+function ndcFromEvent(e) {
+  const r = canvas.getBoundingClientRect();
+  pointerNdc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  pointerNdc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+}
+
+function partMeshes() { return Array.from(parts.values()).map((p) => p.wrapper); }
+
+function wrapperOwning(object3D) {
+  let cur = object3D;
+  while (cur) {
+    for (const p of parts.values()) if (p.wrapper === cur) return p;
+    cur = cur.parent;
+  }
+  return null;
+}
+
+function pickPart(e) {
+  ndcFromEvent(e);
+  raycaster.setFromCamera(pointerNdc, camera);
+  const hits = raycaster.intersectObjects(partMeshes(), true);
+  if (!hits.length) return null;
+  const part = wrapperOwning(hits[0].object);
+  return part ? { part, point: hits[0].point } : null;
+}
+
+canvas.addEventListener("pointerdown", (e) => {
+  const hit = pickPart(e);
+  if (!hit) return;
+  selectPart(hit.part.id);
+  dragState.active = true;
+  dragState.partId = hit.part.id;
+  canvas.classList.add("dragging");
+  const y = hit.part.wrapper.position.y;
+  dragState.plane.setComponents(0, 1, 0, -y);
+  dragState.offset.copy(hit.part.wrapper.position).sub(hit.point);
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener("pointermove", (e) => {
+  if (!dragState.active) return;
+  ndcFromEvent(e);
+  raycaster.setFromCamera(pointerNdc, camera);
+  const hitPoint = new THREE.Vector3();
+  if (raycaster.ray.intersectPlane(dragState.plane, hitPoint)) {
+    const target = hitPoint.add(dragState.offset);
+    const part = parts.get(dragState.partId);
+    const delta = target.clone().sub(part.wrapper.position);
+    translateAssembly(dragState.partId, delta);
+    checkProximity();
+  }
+});
+window.addEventListener("pointerup", () => {
+  dragState.active = false;
+  dragState.partId = null;
+  canvas.classList.remove("dragging");
+});
+
+window.addEventListener("keydown", (e) => {
+  if (!selectedId) return;
+  if (e.key === "q") nudgeRotate("y", -15);
+  if (e.key === "e") nudgeRotate("y", 15);
+  if (e.key === "z") nudgeRotate("x", -15);
+  if (e.key === "x") nudgeRotate("x", 15);
+  if (e.key === "Delete" || e.key === "Backspace") deleteSelected();
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── HAND CONTROL: pinch to grab, twist to spin ──
+// Reuses the app's existing hand-tracking.js module and its raw
+// "jarvis:handframe" landmark broadcast so Build Mode gets real
+// pinch/grab/twist gestures instead of reinventing hand tracking.
+// ═══════════════════════════════════════════════════════════════
+let handActive = false;
+let handStream = null;
+const handState = [
+  { pinching: false, grabbedId: null, lastWorldPos: null, lastAngle: 0 },
+  { pinching: false, grabbedId: null, lastWorldPos: null, lastAngle: 0 },
+];
+const PINCH_ON = 0.055, PINCH_OFF = 0.075;
+
+async function toggleHandControl() {
+  const btn = $("hand-toggle-btn");
+  if (!handActive) {
+    try {
+      handStream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 480 }, audio: false });
+      const vid = $("camera-feed");
+      vid.srcObject = handStream;
+      await vid.play();
+      await window.HandTracking.start();
+      handActive = true;
+      btn.textContent = "✋ HAND CONTROL: ON";
+      btn.classList.add("active");
+      showToast("Hand control enabled — pinch a part to grab it.");
+    } catch (e) {
+      showToast("Couldn't access the camera for hand control.");
+    }
+  } else {
+    window.HandTracking.stop();
+    if (handStream) handStream.getTracks().forEach((t) => t.stop());
+    handActive = false;
+    handState.forEach((h) => { h.pinching = false; h.grabbedId = null; });
+    btn.textContent = "✋ ENABLE HAND CONTROL";
+    btn.classList.remove("active");
+  }
+}
+
+function dist2(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+function screenPointFromLandmark(lm) {
+  return { x: (1 - lm.x) * window.innerWidth, y: lm.y * window.innerHeight };
+}
+
+function raycastAt(screenPt) {
+  pointerNdc.x = (screenPt.x / window.innerWidth) * 2 - 1;
+  pointerNdc.y = -(screenPt.y / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(pointerNdc, camera);
+  const hits = raycaster.intersectObjects(partMeshes(), true);
+  if (!hits.length) return null;
+  const part = wrapperOwning(hits[0].object);
+  return part ? { part, point: hits[0].point, dist: hits[0].distance } : null;
+}
+
+window.addEventListener("jarvis:handframe", (e) => {
+  if (!handActive) return;
+  const allHands = e.detail.allLandmarks || [];
+  for (let h = 0; h < 2; h++) {
+    const st = handState[h];
+    const lm = allHands[h];
+    if (!lm) { st.pinching = false; st.grabbedId = null; continue; }
+
+    const thumb = lm[4], index = lm[8], wrist = lm[0], indexMcp = lm[5];
+    const pd = dist2(thumb, index);
+    const wasPinching = st.pinching;
+    st.pinching = wasPinching ? pd < PINCH_OFF : pd < PINCH_ON;
+
+    const screenPt = screenPointFromLandmark(index);
+    const angle = Math.atan2(indexMcp.y - wrist.y, indexMcp.x - wrist.x);
+
+    if (st.pinching && !wasPinching) {
+      // pinch just started — try to grab whatever's under the fingertip
+      const hit = raycastAt(screenPt);
+      if (hit) {
+        st.grabbedId = hit.part.id;
+        st.lastWorldPos = hit.point.clone();
+        st.lastAngle = angle;
+        selectPart(hit.part.id);
+      }
+    } else if (st.pinching && st.grabbedId && parts.has(st.grabbedId)) {
+      pointerNdc.x = (screenPt.x / window.innerWidth) * 2 - 1;
+      pointerNdc.y = -(screenPt.y / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(pointerNdc, camera);
+      const depth = camera.position.distanceTo(st.lastWorldPos);
+      const dir = raycaster.ray.direction.clone();
+      const newWorldPos = camera.position.clone().add(dir.multiplyScalar(depth));
+
+      const deltaMove = newWorldPos.clone().sub(st.lastWorldPos);
+      if (deltaMove.length() > 0.0005) translateAssembly(st.grabbedId, deltaMove);
+
+      let deltaAngle = angle - st.lastAngle;
+      while (deltaAngle > Math.PI) deltaAngle -= Math.PI * 2;
+      while (deltaAngle < -Math.PI) deltaAngle += Math.PI * 2;
+      if (Math.abs(deltaAngle) > 0.01) rotateAssemblyAround(st.grabbedId, "y", -deltaAngle);
+
+      st.lastWorldPos = newWorldPos;
+      st.lastAngle = angle;
+      checkProximity();
+    } else if (!st.pinching) {
+      st.grabbedId = null;
+    }
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── PROXIMITY / AUTO-SCREW CONFIRMATION ──
+// Jarvis notices when two unconnected parts are touching and asks
+// before joining them — never silently welds things together.
+// ═══════════════════════════════════════════════════════════════
+const SNAP_MARGIN = 0.06;
+const DISMISS_COOLDOWN_MS = 15000;
+let pendingQueue = [];
+let currentConfirm = null;
+
+function pairKey(a, b) { return [a, b].sort().join("|"); }
+
+function checkProximity() {
+  if (currentConfirm) return; // one at a time
+  const ids = Array.from(parts.keys());
+  for (let i = 0; i < ids.length; i++) {
+    for (let j = i + 1; j < ids.length; j++) {
+      const a = ids[i], b = ids[j];
+      if (sameAssembly(a, b)) continue;
+      const key = pairKey(a, b);
+      const dismissedAt = dismissedPairs.get(key);
+      if (dismissedAt && Date.now() - dismissedAt < DISMISS_COOLDOWN_MS) continue;
+      if (alreadyQueued(a, b)) continue;
+
+      const boxA = new THREE.Box3().setFromObject(parts.get(a).wrapper).expandByScalar(SNAP_MARGIN);
+      const boxB = new THREE.Box3().setFromObject(parts.get(b).wrapper).expandByScalar(SNAP_MARGIN);
+      if (boxA.intersectsBox(boxB)) {
+        pendingQueue.push({ a, b });
+      }
+    }
+  }
+  processQueue();
+}
+
+function alreadyQueued(a, b) {
+  const key = pairKey(a, b);
+  return pendingQueue.some((p) => pairKey(p.a, p.b) === key);
+}
+
+function processQueue() {
+  if (currentConfirm || !pendingQueue.length) return;
+  const next = pendingQueue.shift();
+  if (!parts.has(next.a) || !parts.has(next.b) || sameAssembly(next.a, next.b)) return processQueue();
+  currentConfirm = next;
+  const nameA = parts.get(next.a).name, nameB = parts.get(next.b).name;
+  const question = `${nameA} and ${nameB} are touching but not connected. Shall I connect them with screws?`;
+  $("confirm-text").textContent = `🔩 ${question}`;
+  $("confirm-toast").classList.add("show");
+  try { window.parent.postMessage({ type: "BUILD_ASK_CONNECT", question }, "*"); } catch (e) {}
+}
+
+function answerConnect(yes) {
+  if (!currentConfirm) return;
+  const { a, b } = currentConfirm;
+  $("confirm-toast").classList.remove("show");
+  if (yes && parts.has(a) && parts.has(b)) {
+    unionAssemblies(a, b);
+    placeScrewMarker(a, b);
+    showToast(`Connected ${parts.get(a).name} to ${parts.get(b).name}.`);
+    refreshPartsList();
+    updateAssemblyDetail();
+  } else {
+    dismissedPairs.set(pairKey(a, b), Date.now());
+  }
+  currentConfirm = null;
+  processQueue();
+}
+
+// Called by jarvis.js (parent window) when the user answers by voice
+// instead of tapping the on-screen buttons.
+window.addEventListener("message", (e) => {
+  if (e.data?.type === "BUILD_CONFIRM") answerConnect(!!e.data.yes);
+  if (e.data?.type === "BUILD_SEARCH" && e.data.query) runSearch(e.data.query);
+});
+
+function placeScrewMarker(a, b) {
+  const pa = parts.get(a).wrapper.position, pb = parts.get(b).wrapper.position;
+  const mid = pa.clone().add(pb).multiplyScalar(0.5);
+  const screw = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.025, 0.025, 0.12, 8),
+    new THREE.MeshStandardMaterial({ color: 0x222831, metalness: 0.8, roughness: 0.3 })
+  );
+  screw.position.copy(mid);
+  scene.add(screw);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── VALIDATE / RENDER BUILD ──
+// ═══════════════════════════════════════════════════════════════
+function validateBuild() {
+  checkProximity();
+  if (currentConfirm || pendingQueue.length) {
+    showToast("Resolve the pending connection prompt first, sir.");
+    return;
+  }
+  const assemblies = new Set(assemblyOf.values());
+  if (parts.size === 0) { showToast("Nothing to render yet — pull in a part first."); return; }
+  if (assemblies.size === 1) {
+    showToast("BUILD VALIDATED — one solid structure. Rendering.");
+    flashAssemblyGreen();
+  } else {
+    showToast(`Warning: ${assemblies.size} separate, unconnected pieces — this will fall apart when rendered.`, 5000);
+  }
+  updateAssemblyDetail();
+}
+
+function flashAssemblyGreen() {
+  for (const part of parts.values()) {
+    const helper = new THREE.BoxHelper(part.wrapper, 0x00ff88);
+    scene.add(helper);
+    setTimeout(() => scene.remove(helper), 1200);
+  }
+}
+
+function updateTopStatus() {
+  $("part-count").textContent = `${parts.size} PART${parts.size === 1 ? "" : "S"}`;
+}
+function updateAssemblyDetail() {
+  const assemblies = new Set(assemblyOf.values());
+  $("assembly-status").textContent = parts.size ? `${assemblies.size} ASSEMBLY GROUP${assemblies.size === 1 ? "" : "S"}` : "—";
+  if (!parts.size) { $("assembly-detail").textContent = "No parts placed yet."; return; }
+  $("assembly-detail").textContent = assemblies.size === 1
+    ? "All parts are screwed into a single structure."
+    : `${assemblies.size} disconnected groups — move pieces together so Jarvis can offer to screw them.`;
+}
+
+setInterval(checkProximity, 700);
+
+function exitBuild() {
+  try { window.parent.postMessage({ type: "CLOSE_BUILD" }, "*"); } catch (e) {}
+}
+
+</script>
+</body>
+</html>
