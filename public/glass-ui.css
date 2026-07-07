@@ -224,73 +224,93 @@ input[type="text"], input[type="password"], select, textarea,
   background: radial-gradient(ellipse 900px 700px at 50% 45%, transparent 40%, rgba(2,6,12,0.85) 100%);
 }
 
-/* ── BADGE WRAP (particles + ticks + ring sit inside this) ── */
+/* ── BADGE WRAP (new ring UI sits centered inside this) ── */
 .boot-badge-wrap {
   position: relative;
-  width: 260px; height: 260px;
+  width: 320px; height: 320px;
   display: flex; align-items: center; justify-content: center;
   z-index: 2;
 }
 
-.boot-particle {
-  position: absolute; left: 50%; top: 50%;
-  width: 4px; height: 4px;
-  background: var(--blue);
-  border-radius: 1px;
-  transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) rotate(45deg);
-  box-shadow: 0 0 6px var(--blue-glow);
-  opacity: 0;
-  animation: bootParticleFade 3.6s ease-in-out infinite;
-  animation-delay: var(--d);
-}
-.boot-particle.small { width: 2px; height: 2px; }
-@keyframes bootParticleFade {
-  0%, 100% { opacity: 0; }
-  15%, 60% { opacity: 0.85; }
-}
-
-.boot-ticks {
-  position: absolute; inset: 0;
-}
-.boot-ticks span {
-  position: absolute; left: 50%; top: 50%;
-  width: 2px; height: 8px;
-  background: rgba(0,200,255,0.35);
-  transform-origin: 50% 118px;
-  transform: translate(-50%, -118px) rotate(calc(var(--t) * 30deg));
-}
-
-.boot-badge {
+/* ── JARVIS ORB — core glow + inner ring + segmented spinning rings + SVG tech-dot rings ── */
+.jr-orb {
   position: relative;
-  width: 148px; height: 148px;
+  width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
 }
-.boot-badge-ring {
-  position: absolute; inset: 0;
-  border-radius: 50%;
-}
-.boot-badge-ring.outer {
-  border: 1px dashed rgba(0,200,255,0.3);
-  animation: introSpinSlow 40s linear infinite;
-}
-.boot-badge-ring.spin {
-  border: 2px solid transparent;
-  border-top-color: var(--blue);
-  border-right-color: var(--blue);
-  box-shadow: 0 0 22px rgba(0,200,255,0.35);
-  animation: introSpin 2.2s linear infinite;
-}
-@keyframes introSpin { to { transform: rotate(360deg); } }
-@keyframes introSpinSlow { to { transform: rotate(-360deg); } }
 
-.boot-badge-core {
-  font-family: var(--hud);
-  font-size: 0.85rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: #f2fbff;
-  text-shadow: 0 0 10px rgba(140, 215, 255, 0.6), 0 0 26px rgba(0, 200, 255, 0.3);
+.jr-core-glow {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 180px; height: 180px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(58,134,255,0.2) 0%, rgba(11,15,25,0) 70%);
+  box-shadow: 0 0 70px 25px rgba(58, 134, 255, 0.6);
+  z-index: 1;
 }
+
+.jr-inner-ring {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 160px; height: 160px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 3;
+  box-shadow: inset 0 0 15px rgba(255,255,255,0.2), 0 0 15px rgba(255,255,255,0.2);
+}
+
+.jr-title {
+  font-family: var(--hud);
+  color: #ffffff;
+  font-size: 1.2rem;
+  font-weight: 500;
+  letter-spacing: 0.3em;
+  text-indent: 5px;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+}
+
+.jr-outer-ring-1 {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 195px; height: 195px;
+  transform: translate(-50%, -50%);
+  border: 2px solid transparent;
+  border-top: 3px solid rgba(255, 255, 255, 0.9);
+  border-left: 2px solid rgba(255, 255, 255, 0.4);
+  border-bottom: 1px solid transparent;
+  border-radius: 50%;
+  z-index: 4;
+  animation: jrRotateCW 3s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.jr-outer-ring-2 {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 210px; height: 210px;
+  transform: translate(-50%, -50%);
+  border: 1.5px solid transparent;
+  border-bottom: 2px solid rgba(58, 134, 255, 0.8);
+  border-radius: 50%;
+  z-index: 2;
+  animation: jrRotateCCW 6s linear infinite;
+}
+
+.jr-hud-svg {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 320px; height: 320px;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  pointer-events: none;
+}
+.jr-svg-rotate-cw  { transform-origin: center; animation: jrRotateCW 40s linear infinite; }
+.jr-svg-rotate-ccw { transform-origin: center; animation: jrRotateCCW 60s linear infinite; }
+
+@keyframes jrRotateCW  { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes jrRotateCCW { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
 
 /* ── COUNTDOWN ── */
 #intro-countdown {
