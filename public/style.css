@@ -30,6 +30,7 @@
   --panel-w:     210px;
   --top-h:       72px;
   --ticker-h:    22px;
+  --taskbar-h:   64px;
   --bracket-w:   66px; /* corner bracket footprint: 16px offset + 50px width */
 }
 
@@ -604,6 +605,7 @@ select option { background: var(--bg2); }
   position: relative;
   z-index: 20;
   overflow: hidden;
+  padding-bottom: var(--taskbar-h);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1154,7 +1156,7 @@ select option { background: var(--bg2); }
 
 .hint-strip {
   flex-shrink: 0;
-  padding: 5px 20px calc(var(--ticker-h) + 5px);
+  padding: 5px 20px calc(var(--ticker-h) + var(--taskbar-h) + 5px);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1251,6 +1253,64 @@ select option { background: var(--bg2); }
   transition: all 0.2s;
 }
 .holo-close-btn:hover { background: var(--blue-mid); }
+
+/* ═══════════════════════════════════════════════════════════════
+   MODE TASKBAR — bottom dock used to switch between JARVIS modes
+   (voice command equivalent: "Jarvis, switch to map")
+   ═══════════════════════════════════════════════════════════════ */
+#mode-taskbar {
+  position: fixed;
+  left: 0; right: 0;
+  bottom: var(--ticker-h);
+  height: var(--taskbar-h);
+  z-index: 61;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 14px;
+  background: rgba(1, 8, 18, 0.96);
+  border-top: 1px solid rgba(0, 200, 255, 0.18);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 -6px 30px rgba(0, 0, 0, 0.35);
+}
+.taskbar-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 68px;
+  padding: 8px 10px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-family: var(--hud);
+  font-size: 0.36rem;
+  letter-spacing: 0.2em;
+  cursor: pointer;
+  transition: all 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.taskbar-btn .tb-icon { font-size: 1.25rem; line-height: 1; transition: all 0.2s; }
+.taskbar-btn:hover { color: var(--text); background: rgba(0,200,255,0.06); }
+.taskbar-btn.active {
+  color: var(--blue);
+  background: rgba(0,200,255,0.1);
+  border-color: rgba(0,200,255,0.35);
+  box-shadow: 0 0 16px rgba(0,200,255,0.12);
+}
+.taskbar-btn.active .tb-icon { filter: drop-shadow(0 0 8px rgba(0,200,255,0.8)); }
+.taskbar-btn.mic-btn {
+  min-width: 76px;
+  border: 1px solid rgba(0,200,255,0.3);
+  background: rgba(0,200,255,0.05);
+}
+.taskbar-btn.mic-btn .tb-icon { font-size: 1.5rem; }
+.taskbar-btn.mic-btn.live { border-color: var(--green); color: var(--green); }
+.taskbar-btn.mic-btn.live .tb-icon { animation: pulse 0.9s ease-in-out infinite; filter: drop-shadow(0 0 10px rgba(0,255,136,0.7)); }
+.taskbar-sep { width: 1px; height: 30px; background: rgba(0,200,255,0.12); flex-shrink: 0; }
 
 /* ═══════════════════════════════════════════════════════════════
    FACE AUTH OVERLAY
@@ -1615,7 +1675,7 @@ select option { background: var(--bg2); }
 .mobile-nav {
   display: none;
   position: fixed;
-  bottom: var(--ticker-h);
+  bottom: calc(var(--ticker-h) + var(--taskbar-h));
   left: 0; right: 0;
   height: 52px;
   background: rgba(1, 8, 18, 0.98);
@@ -1783,7 +1843,7 @@ select option { background: var(--bg2); }
 
   /* Hint strip — simplified */
   .hint-strip {
-    padding: 4px 14px calc(var(--ticker-h) + 52px + 4px);
+    padding: 4px 14px calc(var(--ticker-h) + var(--taskbar-h) + 52px + 4px);
     font-size: 0.48rem;
     flex-wrap: nowrap;
     overflow: hidden;
@@ -1797,8 +1857,8 @@ select option { background: var(--bg2); }
   .corner { width: 34px; height: 34px; }
   .corner.tl { top: 10px; left: 10px; }
   .corner.tr { top: 10px; right: 10px; }
-  .corner.bl { bottom: calc(var(--ticker-h) + 52px + 10px); left: 10px; }
-  .corner.br { bottom: calc(var(--ticker-h) + 52px + 10px); right: 10px; }
+  .corner.bl { bottom: calc(var(--ticker-h) + var(--taskbar-h) + 52px + 10px); left: 10px; }
+  .corner.br { bottom: calc(var(--ticker-h) + var(--taskbar-h) + 52px + 10px); right: 10px; }
 
   /* JARVIS title on auth screen */
   .jarvis-title { font-size: 2.2rem; letter-spacing: 0.4em; }
@@ -1821,13 +1881,13 @@ select option { background: var(--bg2); }
   /* Timer badge — reposition above mobile nav */
   .timer-badge {
     top: auto;
-    bottom: calc(var(--ticker-h) + 52px + 10px);
+    bottom: calc(var(--ticker-h) + var(--taskbar-h) + 52px + 10px);
     transform: translateX(-50%);
   }
 
   /* Clip toast — above mobile nav */
   .clip-toast {
-    bottom: calc(var(--ticker-h) + 52px + 8px);
+    bottom: calc(var(--ticker-h) + var(--taskbar-h) + 52px + 8px);
   }
 
   /* Retina box — comfortable on small screens */
