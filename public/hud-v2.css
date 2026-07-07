@@ -1,18 +1,20 @@
 /* ═══════════════════════════════════════════════════════════════
    J.A.R.V.I.S — HUD v2 "RADAR CONSOLE" RESKIN
-   Loads last. Overrides the glassmorphism look with a flat, dense,
-   dot-grid radar-console aesthetic (thin hairlines, monospace data,
-   a large central particle globe with ring, no blur / no radius).
+   Loads last. Overrides the glassmorphism look with the bright,
+   dense, brick-grid radar-console aesthetic from the reference
+   photo: vivid saturated blue, a huge solid glowing sphere, plain
+   log-style text rows (no boxes), a segmented dial + dot matrix,
+   and a visible waveform readout box.
    Pure visual layer — no ids/classes used by JS are removed.
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
-  --hv2-line:   rgba(70,190,255,0.28);
-  --hv2-line-soft: rgba(70,190,255,0.12);
-  --hv2-glow:   rgba(70,190,255,0.55);
-  --hv2-text:   #bfe9ff;
-  --hv2-dim:    #4d7f9c;
-  --hv2-mono:   'Share Tech Mono', 'Consolas', monospace;
+  --hv2-line:      rgba(90,200,255,0.35);
+  --hv2-line-soft: rgba(90,200,255,0.14);
+  --hv2-glow:      rgba(120,215,255,0.9);
+  --hv2-text:      #d3f2ff;
+  --hv2-dim:       #6fa8c4;
+  --hv2-mono:      'Share Tech Mono', 'Consolas', monospace;
 }
 
 /* ── KILL THE GLASS LOOK ───────────────────────────────────────── */
@@ -26,145 +28,175 @@
   box-shadow: none !important;
 }
 
-/* ── BACKGROUND — deep navy with a fine dot-grid, like a radar sweep table ── */
+/* ── BACKGROUND — bright saturated blue, brick/lattice pattern, CRT bloom ── */
 body {
   background:
-    radial-gradient(circle at 1px 1px, rgba(70,190,255,0.14) 1px, transparent 1.6px) 0 0/26px 26px,
-    radial-gradient(ellipse 1400px 900px at 50% 20%, rgba(20,90,150,0.10), transparent 60%),
-    linear-gradient(180deg, #020509 0%, #01070d 55%, #010508 100%) !important;
+    repeating-linear-gradient(0deg,  rgba(90,190,255,0.06) 0 1px, transparent 1px 28px),
+    repeating-linear-gradient(90deg, rgba(90,190,255,0.06) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(90deg, rgba(90,190,255,0.045) 0 1px, transparent 1px 44px) 22px 14px,
+    radial-gradient(ellipse 1500px 1000px at 50% 15%, rgba(40,140,220,0.22), transparent 62%),
+    linear-gradient(180deg, #041826 0%, #051d30 45%, #03141f 100%) !important;
 }
-.global-grid { opacity: 0.5; }
+.global-grid { opacity: 0.35; }
 
-/* ── TOP BAR — thinner, flat, hairline only ─────────────────────── */
+/* Soft screen-glare bloom, like a photographed monitor */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: radial-gradient(ellipse 900px 500px at 50% 8%, rgba(180,230,255,0.10), transparent 65%);
+  mix-blend-mode: screen;
+}
+
+/* ── TOP BAR — thin, flat, bright hairline ─────────────────────── */
 .top-bar {
-  background: rgba(2,8,14,0.65) !important;
+  background: rgba(4,20,34,0.55) !important;
   border-bottom: 1px solid var(--hv2-line) !important;
-  height: 54px;
+  height: 50px;
 }
 .tb-val { color: var(--hv2-text); font-family: var(--hv2-mono); font-weight: 400; }
-.top-title { letter-spacing: 0.4em; font-size: 0.95rem; text-shadow: 0 0 14px var(--hv2-glow); }
+.tb-label { color: var(--hv2-dim); }
+.top-title { letter-spacing: 0.4em; font-size: 0.9rem; text-shadow: 0 0 16px var(--hv2-glow); }
 
-/* ── SIDE PANELS — transparent console columns, hairline dividers ── */
+/* ── SIDE PANELS — transparent console columns, hairline dividers only ── */
 .side-panel {
-  background: rgba(1,8,14,0.35) !important;
+  background: rgba(4,20,34,0.28) !important;
   border-color: var(--hv2-line-soft) !important;
 }
-.left-panel { border-right: 1px solid var(--hv2-line-soft) !important; }
+.left-panel  { border-right: 1px solid var(--hv2-line-soft) !important; }
 .right-panel { border-left: 1px solid var(--hv2-line-soft) !important; }
 .panel-header {
   background: transparent !important;
   border-bottom: 1px solid var(--hv2-line-soft) !important;
   color: var(--hv2-dim);
-  font-size: 0.42rem;
+  font-size: 0.4rem;
 }
-.panel-section { border-bottom: 1px solid rgba(70,190,255,0.05) !important; }
+.panel-section { border-bottom: 1px solid rgba(90,190,255,0.06) !important; }
 
-/* Camera stays useful but flatter / smaller so it reads as one log entry, not a hero element */
+/* Camera — smaller, flatter, reads as one log entry not a hero element */
 .camera-wrap { padding-top: 8px; }
 .camera-feed-wrap { aspect-ratio: 16/10; }
-.camera-feed { border: 1px solid var(--hv2-line) !important; opacity: 0.8; }
+.camera-feed { border: 1px solid var(--hv2-line) !important; opacity: 0.85; }
 
-/* Stat blocks -> thin bracket rows, no card / no radius, monospace values */
+/* Stat rows -> plain bracket rows, no card, no radius, monospace values */
 .bf-stat-block {
   background: transparent !important;
   border: none !important;
-  border-top: 1px solid rgba(70,190,255,0.08) !important;
+  border-top: 1px solid rgba(90,190,255,0.08) !important;
   padding: 8px 0 !important;
   gap: 2px !important;
 }
-.bf-stat-block-label { font-size: 0.42rem; letter-spacing: 0.2em; color: var(--hv2-dim); }
+.bf-stat-block-label { font-size: 0.4rem; letter-spacing: 0.2em; color: var(--hv2-dim); }
 .bf-stat-block-val { font-family: var(--hv2-mono) !important; font-size: 0.72rem !important; color: var(--hv2-text); }
 
-/* Ring-dot quick actions -> square data chips, tighter, less "app icon" */
+/* Quick-action chips -> bright square data buttons */
 .bf-ring-dot {
   border-radius: 2px !important;
   width: 24px; height: 20px;
-  border-color: rgba(70,190,255,0.25) !important;
-  font-size: 0.48rem !important;
+  border-color: rgba(90,190,255,0.3) !important;
+  color: var(--hv2-dim);
+  font-size: 0.46rem !important;
 }
-.bf-ring-dot.done, .bf-ring-dot.active { box-shadow: 0 0 6px var(--hv2-glow) !important; }
+.bf-ring-dot.done, .bf-ring-dot.active { box-shadow: 0 0 8px var(--hv2-glow) !important; color: var(--hv2-text); }
 
-/* Donut — keep the ring but flatten the inset + tighten text */
-.bf-donut::before { background: #010a12 !important; box-shadow: none !important; }
-.bf-donut-label { font-family: var(--hv2-mono); font-size: 0.8rem !important; }
-.bf-donut-caption { font-size: 0.5rem; }
+/* ── DONUT -> segmented radar dial with tick marks ─────────────── */
+.bf-donut-wrap { position: relative; }
+.bf-donut {
+  background:
+    repeating-conic-gradient(rgba(2,10,18,0.9) 0deg 3deg, transparent 3deg 12deg),
+    conic-gradient(var(--hv2-glow) 0deg, var(--hv2-glow) calc(var(--bf-progress,0) * 1deg), rgba(90,190,255,0.12) calc(var(--bf-progress,0) * 1deg)) !important;
+}
+.bf-donut::before { background: #041420 !important; box-shadow: inset 0 0 16px rgba(90,190,255,0.25) !important; }
+.bf-donut-label { font-family: var(--hv2-mono); font-size: 0.82rem !important; color: var(--hv2-text); }
+.bf-donut-caption { font-size: 0.48rem; color: var(--hv2-dim); }
+
+/* Decorative dot-matrix strip under the dial */
+.hv2-dotgrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 7px;
+  margin-top: 4px;
+}
+.hv2-dotgrid span {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: rgba(90,190,255,0.18);
+  border: 1px solid rgba(120,215,255,0.4);
+}
+.hv2-dotgrid span:nth-child(-n+3) {
+  background: var(--hv2-glow);
+  box-shadow: 0 0 6px var(--hv2-glow);
+}
 
 /* ── CENTER STAGE — the transcript column becomes a radar console ── */
 .transcript-header { background: transparent !important; border-bottom: 1px solid var(--hv2-line-soft) !important; }
-.th-title { color: var(--hv2-dim); font-size: 0.36rem; }
+.th-title { color: var(--hv2-dim); font-size: 0.34rem; }
 
-/* Big, bright, central particle globe with a scan ring around it */
+/* Huge, solid, bright particle globe — the dominant visual element */
 #ambient-globe-canvas {
-  width: min(84%, 560px) !important;
-  height: min(84%, 560px) !important;
-  opacity: 0.85 !important;
+  width: min(92%, 620px) !important;
+  height: min(92%, 620px) !important;
+  opacity: 0.95 !important;
 }
+/* soft glow bloom behind the globe instead of a hard ring outline */
 .transcript-column::before {
   content: '';
   position: absolute;
   top: 50%; left: 50%;
-  width: min(60%, 400px); height: min(60%, 400px);
+  width: min(70%, 480px); height: min(70%, 480px);
   transform: translate(-50%, -50%);
-  border: 1px solid rgba(70,190,255,0.18);
-  border-radius: 50%;
-  box-shadow: 0 0 40px rgba(0,150,255,0.06) inset;
+  background: radial-gradient(circle, rgba(90,200,255,0.20) 0%, transparent 70%);
   pointer-events: none;
   z-index: 0;
-  animation: hv2RingSpin 40s linear infinite;
 }
-.transcript-column::after {
-  content: '';
-  position: absolute;
-  top: 50%; left: 50%;
-  width: min(74%, 480px); height: min(74%, 480px);
-  transform: translate(-50%, -50%);
-  border: 1px dashed rgba(70,190,255,0.10);
-  border-radius: 50%;
-  pointer-events: none;
-  z-index: 0;
-  animation: hv2RingSpin 70s linear infinite reverse;
-}
-@keyframes hv2RingSpin { from { transform: translate(-50%,-50%) rotate(0deg); } to { transform: translate(-50%,-50%) rotate(360deg); } }
+.transcript-column::after { content: none; }
 
-/* Log lines instead of chat bubbles — dense, left-aligned, monospace, no card bg */
+/* Log lines instead of chat bubbles — plain, dense, no card bg, no border box */
 .msg { gap: 1px !important; }
 .msg.user, .msg.jarvis, .msg.system { align-items: stretch !important; }
 .msg-label {
   font-family: var(--hv2-mono);
-  font-size: 0.42rem !important;
+  font-size: 0.4rem !important;
   letter-spacing: 0.14em !important;
   color: var(--hv2-dim) !important;
 }
 .msg-text {
   font-family: var(--hv2-mono) !important;
-  font-size: 0.78rem !important;
+  font-size: 0.76rem !important;
   line-height: 1.5 !important;
   max-width: 100% !important;
-  padding: 6px 10px !important;
-  background: rgba(2,10,18,0.55) !important;
+  padding: 3px 2px !important;
+  background: transparent !important;
+  border: none !important;
   border-radius: 0 !important;
   text-align: left !important;
+  color: var(--hv2-text) !important;
 }
-.msg.user .msg-text { border: none !important; border-right: 2px solid rgba(70,190,255,0.35) !important; }
-.msg.jarvis .msg-text { border: none !important; border-left: 2px solid var(--hv2-glow) !important; }
+.msg.user .msg-text   { color: var(--hv2-text) !important; }
+.msg.jarvis .msg-text { color: var(--hv2-text) !important; }
 .msg.system .msg-text {
-  border: 1px solid rgba(70,190,255,0.14) !important;
   color: var(--hv2-dim) !important;
-  background: rgba(2,10,18,0.4) !important;
+  background: transparent !important;
+  border: none !important;
   text-align: left !important;
   font-size: 0.68rem !important;
 }
 
-/* Waveform readout — framed like a scope, not floating free */
+/* ── Waveform readout — always-visible framed scope box ─────────── */
 #waveform-canvas {
-  border: 1px solid var(--hv2-line-soft);
-  background: rgba(2,10,18,0.4);
+  opacity: 1 !important;
+  display: block !important;
+  border: 1px solid var(--hv2-line);
+  background: rgba(4,18,30,0.55);
   padding: 4px 8px;
+  box-shadow: inset 0 0 12px rgba(90,190,255,0.08);
 }
 
 /* Input bar — hairline console prompt, not a rounded glass pill */
 .input-bar {
-  background: rgba(2,10,18,0.5) !important;
+  background: rgba(4,18,30,0.6) !important;
   border: 1px solid var(--hv2-line) !important;
   margin: 6px 16px !important;
 }
@@ -175,7 +207,6 @@ body {
 .corner .pip { background: var(--hv2-glow); box-shadow: 0 0 10px var(--hv2-glow), 0 0 22px var(--hv2-line); }
 
 @media (max-width: 900px) {
-  #ambient-globe-canvas { width: 70vw !important; height: 70vw !important; }
-  .transcript-column::before { width: 55vw; height: 55vw; }
-  .transcript-column::after  { width: 68vw; height: 68vw; }
+  #ambient-globe-canvas { width: 76vw !important; height: 76vw !important; }
+  .transcript-column::before { width: 60vw; height: 60vw; }
 }
