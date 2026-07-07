@@ -26,6 +26,7 @@ const state = window.state = {
   userTitle: null,
   sessionId: crypto.randomUUID(),
   lastJarvisQuestion: null,   // tracks what JARVIS last asked so "yes/no" replies have context
+  pendingBuildConfirm: false, // true while Build Mode is waiting on a "connect these parts?" answer
   synth: window.speechSynthesis,
   isListening: false,
   micActive: false,
@@ -1152,6 +1153,16 @@ function handleChatCommand(text) {
   // ── Context injection: if user says "yes/no/sure/ok" after JARVIS asked a question,
   //    automatically inject the question context so the AI understands the reply ──
   const isShortAffirmOrNeg = /^(yes|yeah|yep|sure|ok|okay|no|nope|nah|please|go ahead|do it|confirm|cancel|skip)\.?$/i.test(cleaned.trim());
+  if (isShortAffirmOrNeg && state.pendingBuildConfirm) {
+    const isYes = /^(yes|yeah|yep|sure|ok|okay|please|go ahead|do it|confirm)\.?$/i.test(cleaned.trim());
+    const iframe = $("build-iframe");
+    try { iframe?.contentWindow?.postMessage({ type: "BUILD_CONFIRM", yes: isYes }, "*"); } catch (e) {}
+    state.pendingBuildConfirm = false;
+    state.lastJarvisQuestion = null;
+    const r = isYes ? `Connecting them now, ${state.userTitle}.` : `Understood — leaving them as they are.`;
+    addMsg("jarvis", r); speak(r);
+    return;
+  }
   if (isShortAffirmOrNeg && state.lastJarvisQuestion) {
     const contextualText = `${cleaned} (in response to: "${state.lastJarvisQuestion}")`;
     state.lastJarvisQuestion = null;
@@ -1162,10 +1173,10 @@ function handleChatCommand(text) {
   const cleanedLower = cleaned.toLowerCase();
 
   // ── Mode switching: "Jarvis switch to map/chat/3d/build" ──
-  const switchMatch = cleanedLower.match(/\bswitch(?:\s+(?:to|into))?\s+(map|chat|3d|hologram|holo|build|blueprint)\s*(?:mode)?\b/);
+  const switchMatch = cleanedLower.match(/\bswitch(?:\s+(?:to|into))?\s+(map|chat|3d|hologram|holo|build|blueprint|cad)\s*(?:mode)?\b/);
   if (switchMatch) {
     const target = switchMatch[1];
-    const modeMap = { map: "map", chat: "chat", "3d": "hologram", hologram: "hologram", holo: "hologram", build: "build", blueprint: "build" };
+    const modeMap = { map: "map", chat: "chat", "3d": "build", hologram: "build", holo: "build", build: "build", blueprint: "build", cad: "build" };
     const mode = modeMap[target] || "chat";
     switchMode(mode);
     const r = `Switching to ${mode} mode, ${state.userTitle}.`;
@@ -1327,12 +1338,11 @@ async function sendToAI(message) {
 // ═══════════════════════════════════════════════════════════════
 function switchMode(mode, query) {
   // Close whatever full-screen panel is currently open (idempotent if none is)
-  closeHologram();
-  closeBlueprint();
+  closeBuild();
   closeMapMode();
 
   document.querySelectorAll(".taskbar-btn").forEach(b => b.classList.remove("active"));
-  const btn = $("tb-btn-" + (mode === "hologram" ? "hologram" : mode === "build" ? "build" : mode === "map" ? "map" : "chat"));
+  const btn = $("tb-btn-" + (mode === "build" ? "build" : mode === "map" ? "map" : "chat"));
   if (btn) btn.classList.add("active");
 
   // Send the JARVIS orb sliding down into the bottom-left corner whenever
@@ -1342,8 +1352,7 @@ function switchMode(mode, query) {
   if (homeHero) homeHero.classList.toggle("corner-mode", mode !== "chat");
 
   if (mode === "map") openMapMode(query);
-  else if (mode === "hologram") openHologram(query || "");
-  else if (mode === "build") openBlueprint(query || "");
+  else if (mode === "build") openBuild(query || "");
   // "chat" needs nothing further — closing the panels above already returns to it
 }
 
@@ -1378,34 +1387,6 @@ function toggleListening() {
 }
 
 
-function openHologram(query) {
-  const panel  = $("hologram-panel");
-  const iframe = $("hologram-iframe");
-  if (!panel || !iframe) return;
-  panel.style.display = "block";
-  const lower = (query || "").toLowerCase();
-  const isBuildMode = /build mode|launcher|build me|make me|design|create/i.test(lower);
-  const sendMsg = () => {
-    try {
-      if (isBuildMode) {
-        iframe.contentWindow.postMessage({ type: "HOLOGRAM_SEARCH", query: "build mode" }, "*");
-      } else if (query) {
-        iframe.contentWindow.postMessage({ type: "HOLOGRAM_SEARCH", query }, "*");
-      }
-    } catch (e) {}
-  };
-  if (iframe.contentDocument?.readyState === "complete") {
-    setTimeout(sendMsg, 300);
-  } else {
-    iframe.onload = () => setTimeout(sendMsg, 300);
-  }
-}
-function closeHologram() {
-  const panel = $("hologram-panel");
-  if (panel) panel.style.display = "none";
-  if (state.phase === "chatting") mic.resume();
-  _setTaskbarChatActive();
-}
 function _setTaskbarChatActive() {
   document.querySelectorAll(".taskbar-btn").forEach(b => b.classList.remove("active"));
   const chatBtn = $("tb-btn-chat");
@@ -1415,23 +1396,25 @@ function _setTaskbarChatActive() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── BLUEPRINT FUNCTIONS ──
+// ── BUILD MODE FUNCTIONS ──
+// CAD-style engine: pull real 3D parts, grab/spin them by hand,
+// Jarvis screws touching parts together on confirmation.
 // ═══════════════════════════════════════════════════════════════
-function openBlueprint(query) {
-  const panel  = $("blueprint-panel");
-  const iframe = $("blueprint-iframe");
+function openBuild(query) {
+  const panel  = $("build-panel");
+  const iframe = $("build-iframe");
   if (!panel || !iframe) return;
   panel.style.display = "block";
 
   // Load the iframe lazily — only the first time Build mode is actually
-  // opened, so it doesn't boot (and speak "Drafting table online, sir")
-  // in the background while the user is still on the login/boot screen.
+  // opened, so it doesn't boot in the background while the user is
+  // still on the login/boot screen.
   const needsLoad = !iframe.src && iframe.dataset.src;
   if (needsLoad) iframe.src = iframe.dataset.src;
 
   const sendMsg = () => {
     try {
-      if (query) iframe.contentWindow.postMessage({ type: "BLUEPRINT_SEARCH", query }, "*");
+      if (query) iframe.contentWindow.postMessage({ type: "BUILD_SEARCH", query }, "*");
     } catch (e) {}
   };
 
@@ -1441,8 +1424,8 @@ function openBlueprint(query) {
     iframe.onload = () => setTimeout(sendMsg, 300);
   }
 }
-function closeBlueprint() {
-  const panel = $("blueprint-panel");
+function closeBuild() {
+  const panel = $("build-panel");
   if (panel) panel.style.display = "none";
   if (state.phase === "chatting") mic.resume();
   _setTaskbarChatActive();
@@ -1450,7 +1433,13 @@ function closeBlueprint() {
 
 // Listen for the iframe's exit button telling us to close
 window.addEventListener("message", (e) => {
-  if (e.data?.type === "CLOSE_BLUEPRINT") closeBlueprint();
+  if (e.data?.type === "CLOSE_BUILD") closeBuild();
+  if (e.data?.type === "BUILD_ASK_CONNECT" && e.data.question) {
+    state.pendingBuildConfirm = true;
+    state.lastJarvisQuestion = e.data.question;
+    addMsg("jarvis", e.data.question);
+    speak(e.data.question);
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -1463,7 +1452,7 @@ async function handleAction(action, meta, replyText) {
     case "SHOW_HOLOGRAM": {
       const query = meta?.query || "";
       speak(replyText, () => {
-        openHologram(query);
+        switchMode("build", query);
         mic.resume();
       });
       break;
