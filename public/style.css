@@ -1285,7 +1285,7 @@ select option { background: var(--bg2); }
   background: transparent;
   border: 1px solid transparent;
   border-radius: 4px;
-  color: var(--text-dim);
+  color: rgba(255, 255, 255, 0.82);
   font-family: var(--hud);
   font-size: 0.36rem;
   letter-spacing: 0.2em;
@@ -1294,7 +1294,7 @@ select option { background: var(--bg2); }
   -webkit-tap-highlight-color: transparent;
 }
 .taskbar-btn .tb-icon { font-size: 1.25rem; line-height: 1; transition: all 0.2s; }
-.taskbar-btn:hover { color: var(--text); background: rgba(0,200,255,0.06); }
+.taskbar-btn:hover { color: #ffffff; background: rgba(0,200,255,0.06); }
 .taskbar-btn.active {
   color: var(--blue);
   background: rgba(0,200,255,0.1);
