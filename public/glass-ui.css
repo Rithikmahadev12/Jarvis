@@ -288,8 +288,8 @@ input[type="text"], input[type="password"], select, textarea,
   font-size: 0.85rem;
   font-weight: 700;
   letter-spacing: 0.18em;
-  color: var(--blue);
-  text-shadow: 0 0 18px var(--blue-glow);
+  color: #f2fbff;
+  text-shadow: 0 0 10px rgba(140, 215, 255, 0.6), 0 0 26px rgba(0, 200, 255, 0.3);
 }
 
 /* ── COUNTDOWN ── */
@@ -370,6 +370,38 @@ input[type="text"], input[type="password"], select, textarea,
   box-shadow: 0 0 8px var(--blue-glow);
   animation: pulse 1.6s ease-in-out infinite;
 }
+
+/* ── INTRO TASKBAR — real mode-taskbar icons previewed during boot,
+     pinned to the bottom exactly like the home screen's taskbar ── */
+.intro-taskbar {
+  position: fixed;
+  left: 50%;
+  bottom: 46px;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  background: rgba(1, 8, 18, 0.9);
+  border: 1px solid rgba(0, 200, 255, 0.18);
+  border-radius: 999px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 -6px 30px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.intro-taskbar .taskbar-btn {
+  min-width: 0;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border-radius: 50%;
+}
+.intro-taskbar .taskbar-btn.mic-btn { width: 42px; height: 42px; }
+.intro-taskbar .taskbar-btn .tb-icon svg { width: 17px; height: 17px; display: block; }
+.intro-taskbar .taskbar-btn.mic-btn .tb-icon svg { width: 19px; height: 19px; }
+.intro-taskbar .taskbar-sep { height: 18px; }
 
 .intro-skip-btn {
   position: fixed;
