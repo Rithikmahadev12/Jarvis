@@ -224,6 +224,11 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
+// Declared here (instead of only near the mouse-controls section further
+// below) so that animate(), which runs immediately, doesn't reference it
+// while it's still in the temporal dead zone.
+const dragState = { active: false, partId: null, plane: new THREE.Plane(), offset: new THREE.Vector3() };
+
 function animate() {
   requestAnimationFrame(animate);
   controls.enabled = !dragState.active;
@@ -525,7 +530,6 @@ function rotateAssemblyAround(partId, axis, radians) {
 // ═══════════════════════════════════════════════════════════════
 const raycaster = new THREE.Raycaster();
 const pointerNdc = new THREE.Vector2();
-const dragState = { active: false, partId: null, plane: new THREE.Plane(), offset: new THREE.Vector3() };
 
 function ndcFromEvent(e) {
   const r = canvas.getBoundingClientRect();
