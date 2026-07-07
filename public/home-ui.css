@@ -1,11 +1,17 @@
 /* ═══════════════════════════════════════════════════════════════
-   J.A.R.V.I.S — MINIMAL HOME UI v1.0
-   Replaces the panel-heavy main dashboard with a single centered
-   badge (matching the boot/intro badge look) on a grid backdrop,
-   plus a slim icon-only mode dock at the bottom.
+   J.A.R.V.I.S — MINIMAL HOME UI v2.0
+   Replaces the panel-heavy main dashboard with the SAME centered
+   badge used on the boot screen (reuses .intro-grid / .intro-vignette /
+   .boot-badge-* directly so the look is pixel-identical), plus a
+   slim icon-only mode dock at the bottom.
+
+   No visible chat log / system messages on this screen — JARVIS
+   only speaks. The type-to-chat box is hidden until the user asks
+   for it by voice ("Jarvis, pull up typing feature") — see home-ui.js.
+
    Load this LAST, after style.css / glass-ui.css. Old dashboard
-   elements are kept in the DOM (so existing JS logic keeps
-   working) but visually hidden/relocated here.
+   elements are kept in the DOM (so existing JS logic keeps working)
+   but visually hidden/relocated here.
    ═══════════════════════════════════════════════════════════════ */
 
 /* ── Hide the old top bar entirely (orb + status-text were moved
@@ -25,132 +31,74 @@
 #main-screen.hud-minimal .side-panel.right-panel { display: none !important; }
 #main-screen.hud-minimal #status-ticker { display: none !important; }
 
-/* ── HERO — full-bleed grid + centered JARVIS badge ── */
+/* ── HERO — full-bleed grid + centered JARVIS badge.
+   .intro-grid / .intro-vignette / .boot-badge-* are already defined
+   in glass-ui.css (used by the boot screen) — reusing them here
+   directly guarantees this looks exactly the same. ── */
 .hud-home {
   position: absolute;
   inset: 0;
   z-index: 5;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
   pointer-events: none;
 }
-.hud-home-grid {
-  position: absolute; inset: -2px;
-  background-image:
-    linear-gradient(rgba(0,200,255,0.10) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0,200,255,0.10) 1px, transparent 1px);
-  background-size: 42px 42px;
-  -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 45%, #000 40%, transparent 85%);
-          mask-image: radial-gradient(ellipse 70% 70% at 50% 45%, #000 40%, transparent 85%);
-  animation: homeGridDrift 26s linear infinite;
-}
-@keyframes homeGridDrift { from { background-position: 0 0, 0 0; } to { background-position: 42px 42px, 42px 42px; } }
-.hud-home-vignette {
-  position: absolute; inset: 0;
-  background: radial-gradient(ellipse 900px 700px at 50% 45%, transparent 40%, rgba(2,6,12,0.55) 100%);
-}
-
-/* Badge wrap — particles + ticks around the ring, same layout language as the boot screen */
-.home-badge-wrap {
-  position: relative;
-  width: 260px; height: 260px;
-  display: flex; align-items: center; justify-content: center;
-  z-index: 2;
-}
-.home-badge {
-  position: relative;
-  width: 148px; height: 148px;
-  display: flex; align-items: center; justify-content: center;
-}
-.home-badge-ring {
-  position: absolute; inset: 0;
-  border-radius: 50%;
-}
-.home-badge-ring.outer {
-  border: 1px dashed rgba(0,200,255,0.3);
-  animation: homeSpinSlow 40s linear infinite;
-}
-.home-badge-ring.spin {
-  border: 2px solid transparent;
-  border-top-color: var(--blue);
-  border-right-color: var(--blue);
-  box-shadow: 0 0 22px rgba(0,200,255,0.35);
-  animation: homeSpin 2.2s linear infinite;
-}
-@keyframes homeSpin { to { transform: rotate(360deg); } }
-@keyframes homeSpinSlow { to { transform: rotate(-360deg); } }
-.home-badge-core {
-  font-family: var(--hud);
-  font-size: 0.85rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  color: var(--blue);
-  text-shadow: 0 0 18px var(--blue-glow);
-}
-
-/* Status caption under the badge — driven by the real #status-text element */
-#status-text.home-status-text {
-  position: static;
-  font-family: var(--hud);
-  font-size: 0.5rem;
-  letter-spacing: 0.32em;
-  color: var(--text-dim);
-  text-align: center;
-  z-index: 2;
-  pointer-events: none;
-}
+.hud-home .boot-badge-wrap { z-index: 2; }
 
 /* The functional #orb stays in the DOM for setOrb()/mood logic, but
-   is folded invisibly behind the decorative badge — tiny + transparent
-   so it never visually competes with the badge, while still animating
-   (so nothing errors if code reads its computed size, etc.) */
-.home-badge-wrap #orb.orb {
+   is folded invisibly behind the decorative badge — so nothing in
+   jarvis.js breaks, while the badge you see stays purely decorative
+   and matches the reference exactly. */
+.hud-home .boot-badge-wrap #orb.orb {
   position: absolute;
   width: 148px; height: 148px;
   opacity: 0;
+  pointer-events: none;
 }
 
+/* status-text is kept via .sr-only (screen-reader only) — no visible
+   caption under the badge, to match the reference screens exactly */
+
 /* ═══════════════════════════════════════════════════════════════
-   TRANSCRIPT — floating minimal overlay instead of a boxed column
+   CHAT — no visible log/system messages, JARVIS only speaks.
+   The transcript/live-hearing/waveform are hidden entirely; only
+   the type-to-chat input exists, and even that stays hidden until
+   requested by voice (see home-ui.js).
    ═══════════════════════════════════════════════════════════════ */
 #main-screen.hud-minimal .main-content { padding-bottom: var(--taskbar-h); }
+
+#main-screen.hud-minimal .transcript-header,
+#main-screen.hud-minimal .hint-strip,
+#main-screen.hud-minimal .transcript-area,
+#main-screen.hud-minimal #live-hearing,
+#main-screen.hud-minimal #waveform-canvas {
+  display: none !important;
+}
 
 #main-screen.hud-minimal .transcript-column {
   position: absolute;
   left: 50%;
   bottom: 18px;
   transform: translateX(-50%);
-  width: min(640px, 92vw);
-  max-height: 44vh;
+  width: min(520px, 92vw);
   flex: none;
-  justify-content: flex-end;
   z-index: 15;
   pointer-events: none;
 }
 #main-screen.hud-minimal .transcript-column > * { pointer-events: auto; }
 
-#main-screen.hud-minimal .transcript-header,
-#main-screen.hud-minimal .hint-strip {
-  display: none !important;
-}
-
-#main-screen.hud-minimal .transcript-area {
-  padding: 0 4px 6px;
-  -webkit-mask-image: linear-gradient(to bottom, transparent, black 24px);
-          mask-image: linear-gradient(to bottom, transparent, black 24px);
-}
-
+/* Hidden by default — revealed only via window.showTypingFeature() */
 #main-screen.hud-minimal .input-bar {
+  display: none;
   border-radius: 999px;
-  background: rgba(1, 10, 20, 0.55);
+  background: rgba(1, 10, 20, 0.6);
   border-color: rgba(0,200,255,0.28);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  margin: 6px 0 0;
+  margin: 0;
 }
+#main-screen.hud-minimal .input-bar.show-typing { display: flex; }
 #main-screen.hud-minimal .input-bar-prefix { border-right-color: rgba(0,200,255,0.18); }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -189,7 +137,4 @@
   #main-screen.hud-minimal #mode-taskbar { bottom: calc(var(--ticker-h) + 12px); padding: 6px 7px; }
   #main-screen.hud-minimal .taskbar-btn { width: 32px; height: 32px; }
   #main-screen.hud-minimal .taskbar-btn.mic-btn { width: 36px; height: 36px; }
-  .home-badge-wrap { width: 200px; height: 200px; }
-  .home-badge { width: 116px; height: 116px; }
-  .home-badge-wrap #orb.orb { width: 116px; height: 116px; }
 }
