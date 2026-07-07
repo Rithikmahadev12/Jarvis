@@ -86,7 +86,7 @@ function buildJarvisResponse(context) {
     }
 
     case "capabilities": {
-      return `Quite a range, ${T}. Code in any language, terminal commands for Linux or Windows, OSINT person lookups across the open web, smart home control, screen reading via OCR, face recognition security, rolling clip buffer, Spotify and Gmail integration, timers, memory bank, a hand-tracked drafting table that projects your sketches as 3D holograms, and a 3D holographic viewer. The list goes on. What are you actually trying to do?`;
+      return `Quite a range, ${T}. Code in any language, terminal commands for Linux or Windows, OSINT person lookups across the open web, smart home control, screen reading via OCR, face recognition security, rolling clip buffer, Spotify and Gmail integration, timers, memory bank, and a hand-tracked Build Mode — a CAD engine that pulls real 3D parts and lets you grab, spin, and screw them together with your own hands. The list goes on. What are you actually trying to do?`;
     }
 
     case "unknown_face": {
