@@ -72,20 +72,24 @@ const notif = {
   _ctx: null,
 
   async init() {
+    if (typeof Notification === "undefined") { this.perms = "unsupported"; updateNotifPermDisplay(); return; }
     this.perms = Notification.permission;
     try { this._ctx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) {}
-    if (this.perms === "default") this.perms = await Notification.requestPermission();
+    if (this.perms === "default") {
+      try { this.perms = await Notification.requestPermission(); } catch (e) {}
+    }
     updateNotifPermDisplay();
   },
 
   async requestPerm() {
-    this.perms = await Notification.requestPermission();
+    if (typeof Notification === "undefined") { this.perms = "unsupported"; updateNotifPermDisplay(); return false; }
+    try { this.perms = await Notification.requestPermission(); } catch (e) { this.perms = "unsupported"; }
     updateNotifPermDisplay();
     return this.perms === "granted";
   },
 
   push(title, body, tag, requireInteraction = false) {
-    if (this.perms !== "granted") return null;
+    if (typeof Notification === "undefined" || this.perms !== "granted") return null;
     const n = new Notification(title, { body, tag, icon: "/favicon.ico", requireInteraction });
     n.onclick = () => { window.focus(); n.close(); };
     return n;
@@ -516,6 +520,7 @@ const mic = {
   },
 
   _launch() {
+    if (!SR) return;
     if (this.suspended) return;
     if (this.active) { this._killing = true; this._kill(); this._killing = false; }
     const r = new SR();
@@ -1010,12 +1015,15 @@ function launchMain() {
   ];
   addMsg("system", greetings[Math.floor(Math.random() * greetings.length)]);
 
-  requestScreenRecord();
-  requestCameraAccess();
-  setupTypingBox();
-  startChatListening();
-  initTesseract();
-  CameraObserver.start();
+  // Each of these is independent — if one throws (e.g. an API missing on
+  // this browser/device), it should not prevent the others from starting.
+  const safeInit = (fn, label) => { try { fn(); } catch (e) { console.error(`launchMain: ${label} failed`, e); } };
+  safeInit(requestScreenRecord, "requestScreenRecord");
+  safeInit(requestCameraAccess, "requestCameraAccess");
+  safeInit(setupTypingBox, "setupTypingBox");
+  safeInit(startChatListening, "startChatListening");
+  safeInit(initTesseract, "initTesseract");
+  safeInit(() => CameraObserver.start(), "CameraObserver.start");
   setTimeout(() => checkIntruderClips(), 2000);
 
   setInterval(syncExtensionStatus, 3000);
