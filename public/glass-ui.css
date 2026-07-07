@@ -201,59 +201,137 @@ input[type="text"], input[type="password"], select, textarea,
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  gap: 22px;
-  background:
-    radial-gradient(ellipse 900px 600px at 50% 40%, rgba(0,140,220,0.12), transparent 65%),
-    linear-gradient(160deg, #010c14 0%, #020e1c 60%, #010a16 100%);
+  gap: 14px;
+  overflow: hidden;
+  background: #05070c;
 }
 #intro-screen.active { display: flex; }
 
-.intro-glass-card {
-  width: 100%;
-  max-width: 520px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-  padding: 44px 38px;
-  background: var(--glass-bg-soft);
-  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
-  border: 1px solid var(--glass-border);
-  border-radius: 28px;
-  box-shadow: var(--glass-glow);
+/* ── GRID BACKDROP ── */
+.intro-grid {
+  position: absolute; inset: -2px;
+  background-image:
+    linear-gradient(rgba(0,200,255,0.09) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,200,255,0.09) 1px, transparent 1px);
+  background-size: 42px 42px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 70% at 50% 45%, #000 40%, transparent 85%);
+          mask-image: radial-gradient(ellipse 70% 70% at 50% 45%, #000 40%, transparent 85%);
+  animation: introGridDrift 26s linear infinite;
+}
+@keyframes introGridDrift { from { background-position: 0 0, 0 0; } to { background-position: 42px 42px, 42px 42px; } }
+.intro-vignette {
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse 900px 700px at 50% 45%, transparent 40%, rgba(2,6,12,0.85) 100%);
 }
 
-#intro-boot-log {
-  width: 100%;
-  min-height: 110px;
+/* ── BADGE WRAP (particles + ticks + ring sit inside this) ── */
+.boot-badge-wrap {
+  position: relative;
+  width: 260px; height: 260px;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2;
+}
+
+.boot-particle {
+  position: absolute; left: 50%; top: 50%;
+  width: 4px; height: 4px;
+  background: var(--blue);
+  border-radius: 1px;
+  transform: translate(calc(-50% + var(--x)), calc(-50% + var(--y))) rotate(45deg);
+  box-shadow: 0 0 6px var(--blue-glow);
+  opacity: 0;
+  animation: bootParticleFade 3.6s ease-in-out infinite;
+  animation-delay: var(--d);
+}
+.boot-particle.small { width: 2px; height: 2px; }
+@keyframes bootParticleFade {
+  0%, 100% { opacity: 0; }
+  15%, 60% { opacity: 0.85; }
+}
+
+.boot-ticks {
+  position: absolute; inset: 0;
+}
+.boot-ticks span {
+  position: absolute; left: 50%; top: 50%;
+  width: 2px; height: 8px;
+  background: rgba(0,200,255,0.35);
+  transform-origin: 50% 118px;
+  transform: translate(-50%, -118px) rotate(calc(var(--t) * 30deg));
+}
+
+.boot-badge {
+  position: relative;
+  width: 148px; height: 148px;
+  display: flex; align-items: center; justify-content: center;
+}
+.boot-badge-ring {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+}
+.boot-badge-ring.outer {
+  border: 1px dashed rgba(0,200,255,0.3);
+  animation: introSpinSlow 40s linear infinite;
+}
+.boot-badge-ring.spin {
+  border: 2px solid transparent;
+  border-top-color: var(--blue);
+  border-right-color: var(--blue);
+  box-shadow: 0 0 22px rgba(0,200,255,0.35);
+  animation: introSpin 2.2s linear infinite;
+}
+@keyframes introSpin { to { transform: rotate(360deg); } }
+@keyframes introSpinSlow { to { transform: rotate(-360deg); } }
+
+.boot-badge-core {
+  font-family: var(--hud);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  color: var(--blue);
+  text-shadow: 0 0 18px var(--blue-glow);
+}
+
+/* ── COUNTDOWN ── */
+#intro-countdown {
+  font-family: var(--mono);
+  font-size: 1.6rem;
+  letter-spacing: 0.12em;
+  color: var(--text-bright);
+  text-shadow: 0 0 14px rgba(0,200,255,0.3);
+  z-index: 2;
+}
+#intro-countdown-sub {
+  font-family: var(--hud);
+  font-size: 0.4rem;
+  letter-spacing: 0.28em;
+  color: var(--text-dim);
+  margin-top: -8px;
+  z-index: 2;
+}
+
+#intro-caption {
+  min-height: 18px;
   font-family: var(--mono);
   font-size: 0.68rem;
   letter-spacing: 0.08em;
-  color: rgba(0,200,255,0.65);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 14px 16px;
-  background: rgba(0,200,255,0.04);
-  border: 1px solid rgba(0,200,255,0.12);
-  border-radius: var(--glass-radius-sm);
+  color: rgba(0,200,255,0.7);
+  text-align: center;
+  z-index: 2;
 }
-#intro-boot-log .boot-line {
-  opacity: 0;
-  animation: bootLineIn 0.35s ease forwards;
-  display: flex;
-  gap: 8px;
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap;
 }
-#intro-boot-log .boot-line::before { content: '✓'; color: var(--green); flex-shrink: 0; }
-@keyframes bootLineIn { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
 
 #intro-progress-wrap {
   width: 100%;
-  height: 3px;
+  max-width: 260px;
+  height: 2px;
   background: rgba(0,200,255,0.08);
-  border-radius: 3px;
+  border-radius: 2px;
   overflow: hidden;
+  z-index: 2;
 }
 #intro-progress-bar {
   height: 100%;
@@ -265,15 +343,33 @@ input[type="text"], input[type="password"], select, textarea,
 
 #intro-greeting {
   font-family: var(--raj);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   color: var(--text-bright);
   text-align: center;
   line-height: 1.6;
   min-height: 24px;
+  max-width: 480px;
   opacity: 0;
   transition: opacity 0.5s ease;
+  z-index: 2;
+  padding: 0 24px;
 }
 #intro-greeting.show { opacity: 1; }
+
+/* ── DECORATIVE MODE-DOT PREVIEW — echoes the taskbar the user lands on ── */
+.boot-mode-preview {
+  display: flex; gap: 10px; align-items: center;
+  z-index: 2; margin-top: 4px;
+}
+.bmp-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: rgba(0,200,255,0.25);
+}
+.bmp-dot.active {
+  background: var(--blue);
+  box-shadow: 0 0 8px var(--blue-glow);
+  animation: pulse 1.6s ease-in-out infinite;
+}
 
 .intro-skip-btn {
   position: fixed;
