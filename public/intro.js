@@ -20,16 +20,44 @@
 
   function $(id) { return document.getElementById(id); }
 
+  function formatCountdown(totalSeconds) {
+    const s = Math.max(0, Math.round(totalSeconds));
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  }
+
+  function runCountdown(durationMs) {
+    const el = $("intro-countdown");
+    if (!el) return;
+    const startSeconds = 23 * 60 + 59; // stylised "23:59" starting point, matches boot reference
+    const startTime = Date.now();
+    el.textContent = formatCountdown(startSeconds);
+    const timer = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const pct = Math.min(1, elapsed / durationMs);
+      // ease-out so it races down quickly then settles at 00:00 right as boot finishes
+      const remaining = startSeconds * Math.pow(1 - pct, 2);
+      el.textContent = formatCountdown(remaining);
+      if (pct >= 1) { el.textContent = "00:00"; clearInterval(timer); }
+    }, 80);
+    return timer;
+  }
+
   function typeBootLines(onComplete) {
     const log = $("intro-boot-log");
     const bar = $("intro-progress-bar");
+    const caption = $("intro-caption");
     if (!log) { onComplete(); return; }
     log.innerHTML = "";
     let i = 0;
 
+    runCountdown(BOOT_LINES.length * 380 + 350);
+
     function next() {
       if (i >= BOOT_LINES.length) {
         if (bar) bar.style.width = "100%";
+        if (caption) caption.textContent = "All systems nominal.";
         setTimeout(onComplete, 350);
         return;
       }
@@ -38,6 +66,7 @@
       line.textContent = BOOT_LINES[i];
       log.appendChild(line);
       log.scrollTop = log.scrollHeight;
+      if (caption) caption.textContent = BOOT_LINES[i];
       if (bar) bar.style.width = `${Math.round(((i + 1) / BOOT_LINES.length) * 100)}%`;
       i++;
       setTimeout(next, 380);
