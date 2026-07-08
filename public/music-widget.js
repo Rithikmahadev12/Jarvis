@@ -229,6 +229,26 @@ window.MusicWidget = (function () {
   }
   function stopProgressTimer() { if (progressTimer) { clearInterval(progressTimer); progressTimer = null; } }
 
+  // Same idea as the server-side lookup used for the first track: YouTube
+  // itself has no album metadata, so whenever we land on a track without
+  // one (next/prev, or a mix/playlist auto-advancing) we ask Apple's public
+  // iTunes Search API directly from the browser. Guarded by videoId so a
+  // slow response can't overwrite a track the user has already moved past.
+  async function lookupAlbumClient(title, artist, videoId) {
+    const term = [artist, title].filter(Boolean).join(" ").trim();
+    if (!term) return;
+    try {
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=1`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const data = await res.json();
+      const hit = data?.results?.[0];
+      if (!hit || videoId !== currentVideoId) return; // track changed while we waited
+      if (hit.collectionName) $("mw-album").textContent = hit.collectionName;
+      if (hit.artworkUrl100) setArtwork(hit.artworkUrl100.replace("100x100", "600x600"));
+    } catch { /* leave blank, not worth surfacing an error for this */ }
+  }
+
   // Whenever a new video actually starts playing — including ones the
   // radio mix/playlist picked on its own — sync the card to match.
   function syncNowPlayingFromPlayer() {
@@ -251,6 +271,7 @@ window.MusicWidget = (function () {
       $("mw-artist").textContent = artist || "Unknown Artist";
       $("mw-album").textContent = "";
       setArtwork("");
+      lookupAlbumClient(title, artist, currentVideoId);
     }
   }
 
