@@ -552,17 +552,22 @@ const mic = {
       switch (e.error) {
         case "not-allowed": case "service-not-allowed":
           this.permGranted = false; updateMicDebug("Mic: blocked — check permissions"); this.suspended = true; return;
-        case "no-speech": updateMicDebug("Mic: silence…"); this._scheduleRetry(100); return;
+        // "no-speech" fires constantly in continuous mode and is not a real error —
+        // relaunch immediately with NO backoff so we never leave a dead gap that
+        // swallows the start of what the person is saying.
+        case "no-speech": updateMicDebug("Mic: listening…"); setTimeout(() => this._launch(), 0); return;
         case "audio-capture": this._scheduleRetry(800); return;
         case "network": this._scheduleRetry(1500); return;
-        case "aborted": if (!this.suspended && !this._killing) this._scheduleRetry(150); return;
+        case "aborted": if (!this.suspended && !this._killing) setTimeout(() => this._launch(), 0); return;
         default: this._scheduleRetry(500);
       }
     };
 
     r.onend = () => {
       this.active = false; state.isListening = false;
-      if (!this.suspended) this._scheduleRetry(50);
+      // Relaunch instantly on normal end (Chrome ends the session periodically
+      // even mid-conversation) instead of routing through the backoff timer.
+      if (!this.suspended) setTimeout(() => this._launch(), 0);
     };
 
     try { r.start(); updateMicDebug("Mic: listening…"); }
