@@ -284,7 +284,7 @@ function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON
 // similar songs once the first one ends, so Jarvis never just stops.
 // Add more songs by editing data/music-library.json directly — no
 // code changes or restart needed, it's read fresh on every request.
-// Optional "artist" field is shown as the subtitle on the now-playing
+// Optional "artist" and "album" fields are shown on the now-playing
 // widget in the UI — purely cosmetic, safe to omit.
 const MUSIC_FILE = path.join(DATA_DIR, "music-library.json");
 function ensureMusicFile() {
@@ -293,6 +293,7 @@ function ensureMusicFile() {
       "self aware": {
         title: "Self Aware",
         artist: "",
+        album: "",
         url: "https://www.youtube.com/watch?v=pGsgAOmkS40&list=RDpGsgAOmkS40&start_radio=1",
         mood: "chill, introspective, late-night",
       },
@@ -1247,12 +1248,12 @@ async function executeAssistantTool(name, args, ctx) {
         if (!song) {
           return { reply: `My music library's empty, ${T} — add a song or two to data/music-library.json and I'll start picking for you.`, action: "ASK_MUSIC", intent: "music" };
         }
-        return { reply: `Playing "${song.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: song.url, title: song.title, artist: song.artist || "" } };
+        return { reply: `Playing "${song.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: song.url, title: song.title, artist: song.artist || "", album: song.album || "" } };
       }
 
       const hit = lookupMusicByKeyword(query);
       if (hit.found) {
-        return { reply: `Playing "${hit.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: hit.url, title: hit.title, artist: hit.artist || "" } };
+        return { reply: `Playing "${hit.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: hit.url, title: hit.title, artist: hit.artist || "", album: hit.album || "" } };
       }
 
       const videoId = await findYoutubeVideoId(query);
