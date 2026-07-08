@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>J.A.R.V.I.S — World News</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Share+Tech+Mono&family=Orbitron:wght@400;500;700;900&display=swap');
+
+  :root {
+    --blue:        #00c8ff;
+    --blue-dim:    rgba(0,200,255,0.18);
+    --blue-glow:   rgba(0,200,255,0.35);
+    --blue-mid:    rgba(0,200,255,0.12);
+    --amber:       #ffaa00;
+    --red:         #ff3333;
+    --red-glow:    rgba(255,51,51,0.35);
+    --green:       #00ff88;
+    --bg:          #010c14;
+    --bg2:         #021526;
+    --panel-bg:    rgba(2,18,36,0.88);
+    --text:        #a8dff5;
+    --text-dim:    #4d7f9c;
+    --text-bright: #d8f4ff;
+    --mono:        'Share Tech Mono', monospace;
+    --hud:         'Orbitron', monospace;
+    --raj:         'Rajdhani', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 50% -10%, rgba(0,150,255,0.08) 0%, transparent 55%), var(--bg);
+    color: var(--text);
+    font-family: var(--raj);
+    overflow: hidden;
+  }
+
+  .wrap {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    padding: 14px;
+    gap: 12px;
+  }
+
+  /* ── TOP BAR ── */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .topbar-title {
+    font-family: var(--hud);
+    font-size: 1rem;
+    font-weight: 900;
+    letter-spacing: 0.4em;
+    color: var(--blue);
+    text-shadow: 0 0 18px var(--blue-glow);
+  }
+  .topbar-sub {
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+    margin-top: 2px;
+  }
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .cat-pills { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .cat-pill {
+    font-family: var(--hud);
+    font-size: 0.42rem;
+    letter-spacing: 0.14em;
+    color: var(--text-dim);
+    border: 1px solid rgba(0,200,255,0.2);
+    background: rgba(0,200,255,0.03);
+    padding: 5px 9px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .cat-pill:hover { color: var(--text-bright); border-color: var(--blue-dim); background: var(--blue-mid); }
+  .cat-pill.active { color: #001018; background: var(--blue); border-color: var(--blue); box-shadow: 0 0 12px var(--blue-glow); }
+
+  /* ── MAIN GRID ── */
+  .grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    grid-template-rows: 1fr;
+    gap: 12px;
+    min-height: 0;
+  }
+
+  .left-col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+
+  .panel {
+    background: var(--panel-bg);
+    border: 1px solid rgba(0,200,255,0.16);
+    border-radius: 3px;
+    position: relative;
+    backdrop-filter: blur(6px);
+  }
+
+  /* ── BROADCAST HERO ── */
+  .broadcast {
+    flex: 1.4;
+    display: grid;
+    grid-template-columns: 1fr 190px;
+    grid-template-rows: 1fr auto;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .broadcast-main {
+    grid-row: 1;
+    grid-column: 1;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(0,200,255,0.16), transparent 55%),
+      linear-gradient(135deg, #0d2035, #010c14);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 22px 26px;
+    position: relative;
+    border-right: 1px solid rgba(0,200,255,0.14);
+    min-height: 0;
+    overflow: hidden;
+  }
+  .broadcast-eyebrow {
+    font-family: var(--mono);
+    font-size: 0.55rem;
+    letter-spacing: 0.25em;
+    color: var(--amber);
+    margin-bottom: 8px;
+  }
+  .broadcast-headline {
+    font-family: var(--hud);
+    font-size: clamp(1.1rem, 2.4vw, 1.9rem);
+    font-weight: 800;
+    line-height: 1.25;
+    color: var(--text-bright);
+    text-shadow: 0 0 22px rgba(0,200,255,0.25);
+    max-width: 92%;
+  }
+  .broadcast-src {
+    margin-top: 14px;
+    font-family: var(--mono);
+    font-size: 0.5rem;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+  }
+  .broadcast-glyph {
+    position: absolute;
+    right: -10px; bottom: -20px;
+    font-size: 8rem;
+    color: rgba(0,200,255,0.05);
+    font-family: var(--hud);
+    pointer-events: none;
+  }
+
+  .broadcast-side {
+    grid-row: 1;
+    grid-column: 2;
+    background: linear-gradient(180deg, #0a3a63, #052346);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: #eaf7ff;
+    min-height: 0;
+  }
+  .live-tag {
+    background: var(--red);
+    color: #fff;
+    font-family: var(--hud);
+    font-size: 0.42rem;
+    letter-spacing: 0.14em;
+    padding: 3px 7px;
+    border-radius: 2px;
+    width: fit-content;
+    box-shadow: 0 0 10px var(--red-glow);
+    animation: liveBlink 1.6s ease-in-out infinite;
+  }
+  @keyframes liveBlink { 0%,100%{opacity:1} 50%{opacity:0.55} }
+  .broadcast-side h3 {
+    font-family: var(--hud);
+    font-size: 0.68rem;
+    letter-spacing: 0.1em;
+    border-bottom: 1px solid rgba(255,255,255,0.18);
+    padding-bottom: 6px;
+    line-height: 1.3;
+  }
+  .broadcast-side p {
+    font-size: 0.65rem;
+    line-height: 1.4;
+    opacity: 0.9;
+    font-family: var(--raj);
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 5;
+    -webkit-box-orient: vertical;
+  }
+  .broadcast-side a.side-link {
+    margin-top: auto;
+    font-family: var(--mono);
+    font-size: 0.48rem;
+    color: #fff;
+    text-decoration: none;
+    border: 1px solid rgba(255,255,255,0.35);
+    padding: 5px 8px;
+    text-align: center;
+    border-radius: 2px;
+  }
+  .broadcast-side a.side-link:hover { background: rgba(255,255,255,0.12); }
+
+  .ticker-bar {
+    grid-column: 1 / span 2;
+    grid-row: 2;
+    background: #000;
+    border-top: 2px solid var(--amber);
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    height: 30px;
+  }
+  .breaking-tag {
+    background: var(--amber);
+    color: #000;
+    font-family: var(--hud);
+    font-size: 0.5rem;
+    letter-spacing: 0.08em;
+    padding: 0 12px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .ticker-viewport { flex: 1; overflow: hidden; height: 100%; display: flex; align-items: center; }
+  .ticker-track {
+    display: flex;
+    white-space: nowrap;
+    animation: tickerScroll 32s linear infinite;
+  }
+  .ticker-track span {
+    padding: 0 34px;
+    font-family: var(--mono);
+    font-size: 0.62rem;
+    color: #fff;
+  }
+  @keyframes tickerScroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+
+  /* ── FEED PANEL ── */
+  .feed-panel {
+    flex: 1;
+    padding: 10px 12px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+  }
+  .feed-panel::-webkit-scrollbar { width: 4px; }
+  .feed-panel::-webkit-scrollbar-thumb { background: rgba(0,200,255,0.25); }
+  .feed-panel-label {
+    font-family: var(--hud);
+    font-size: 0.44rem;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+  }
+  .feed-item {
+    display: block;
+    padding: 7px 9px;
+    border-left: 2px solid var(--blue);
+    background: rgba(255,255,255,0.02);
+    text-decoration: none;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    line-height: 1.4;
+    transition: background .15s;
+  }
+  .feed-item:hover { background: rgba(0,200,255,0.06); color: var(--text-bright); }
+  .feed-item .feed-meta { display: block; color: var(--text-dim); font-size: 0.5rem; margin-top: 3px; letter-spacing: .05em; }
+
+  /* ── RIGHT COLUMN: JARVIS COMMENTARY ── */
+  .right-col { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+
+  .jarvis-panel {
+    flex: 1;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .jarvis-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+  }
+  .jarvis-panel-title {
+    font-family: var(--hud);
+    font-size: 0.5rem;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+  }
+  .jarvis-status {
+    font-family: var(--mono);
+    font-size: 0.44rem;
+    letter-spacing: 0.1em;
+    color: var(--green);
+  }
+
+  .commentary-text {
+    font-family: var(--raj);
+    font-size: 0.92rem;
+    line-height: 1.6;
+    color: var(--text-bright);
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  .commentary-text::-webkit-scrollbar { width: 4px; }
+  .commentary-text::-webkit-scrollbar-thumb { background: rgba(0,200,255,0.25); }
+  .commentary-cursor {
+    display: inline-block;
+    width: 7px; height: 1.05em;
+    background: var(--blue);
+    margin-left: 2px;
+    vertical-align: text-bottom;
+    animation: blink 0.9s step-end infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .orb-row {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 12px;
+    flex-shrink: 0;
+  }
+  .orb-label {
+    font-family: var(--hud);
+    font-size: 0.38rem;
+    letter-spacing: 0.24em;
+    color: var(--text-dim);
+  }
+
+  /* ── ORB (matches the main HUD orb) ── */
+  .orb { position: relative; width: 54px; height: 54px; display: flex; align-items: center; justify-content: center; }
+  .orb-ring { position: absolute; border-radius: 50%; border: 1px solid rgba(0,200,255,0.18); transition: border-color .4s, box-shadow .4s; }
+  .orb .r1 { width: 54px; height: 54px; }
+  .orb .r2 { width: 39px; height: 39px; }
+  .orb .r3 { width: 26px; height: 26px; border-color: rgba(0,200,255,0.35); }
+  .orb-core {
+    width: 13px; height: 13px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, rgba(0,200,255,0.9), rgba(0,100,180,0.7));
+    box-shadow: 0 0 10px rgba(0,200,255,0.6);
+    z-index: 1; transition: box-shadow .3s;
+  }
+  .orb-pulse { position: absolute; width: 62px; height: 62px; border-radius: 50%; border: 1px solid rgba(0,200,255,0.06); animation: orbBreath 3.5s ease-in-out infinite; }
+  @keyframes orbBreath { 0%,100%{transform:scale(1);opacity:.4} 50%{transform:scale(1.12);opacity:1} }
+  @keyframes spin { 100% { transform: rotate(360deg); } }
+  @keyframes pulseCore { 0%,100%{transform:scale(1)} 50%{transform:scale(1.25)} }
+
+  .orb.speaking .r1, .orb.speaking .r2 { border-color: var(--green); }
+  .orb.speaking .r1 { animation: spin 5s linear infinite; }
+  .orb.speaking .r2 { animation: spin 3s linear infinite reverse; }
+  .orb.speaking .orb-core { background: radial-gradient(circle at 35% 35%, rgba(0,255,136,0.9), rgba(0,100,60,0.7)); box-shadow: 0 0 18px rgba(0,255,136,0.8); animation: pulseCore .5s ease-in-out infinite; }
+
+  .orb.thinking .r1, .orb.thinking .r2 { border-color: var(--amber); }
+  .orb.thinking .r1 { animation: spin 2s linear infinite; }
+  .orb.thinking .r2 { animation: spin 1.2s linear infinite reverse; }
+  .orb.thinking .orb-core { background: radial-gradient(circle at 35% 35%, rgba(255,190,80,0.9), rgba(140,80,0,0.7)); box-shadow: 0 0 18px rgba(255,170,0,0.8); }
+
+  .orb.idle .r1 { animation: spin 20s linear infinite; }
+  .orb.idle .r2 { animation: spin 14s linear infinite reverse; }
+
+  /* ── SENTIMENT / IMPACT STRIP ── */
+  .impact-panel { flex-shrink: 0; padding: 10px 12px; }
+  .impact-header { display:flex; justify-content:space-between; font-family: var(--mono); font-size: 0.48rem; color: var(--text-dim); letter-spacing:.08em; }
+  .impact-bars { display: flex; gap: 3px; margin-top: 8px; height: 26px; align-items: flex-end; }
+  .impact-bar { flex: 1; background: linear-gradient(180deg, var(--blue), rgba(0,200,255,0.15)); border-radius: 1px; opacity: .85; }
+  .impact-footer { margin-top: 6px; font-family: var(--mono); font-size: 0.44rem; color: var(--text-dim); letter-spacing:.06em; }
+
+  .loading-msg { font-family: var(--mono); font-size: 0.62rem; color: var(--text-dim); padding: 20px; }
+</style>
+</head>
+<body>
+
+  <div class="wrap">
+
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">J.A.R.V.I.S — WORLD NEWS</div>
+        <div class="topbar-sub" id="topbar-date">SYNCING…</div>
+      </div>
+      <div class="topbar-right">
+        <div class="cat-pills" id="cat-pills"></div>
+      </div>
+    </div>
+
+    <div class="grid">
+
+      <div class="left-col">
+        <div class="panel broadcast">
+          <div class="broadcast-main">
+            <div class="broadcast-eyebrow" id="hero-eyebrow">TOP STORY</div>
+            <div class="broadcast-headline" id="hero-headline">Pulling the latest, standby…</div>
+            <div class="broadcast-src" id="hero-src"></div>
+            <div class="broadcast-glyph">⟁</div>
+          </div>
+          <div class="broadcast-side">
+            <span class="live-tag">LIVE</span>
+            <h3 id="side-headline">SECOND STORY</h3>
+            <p id="side-summary">Standing by for headlines.</p>
+            <a class="side-link" id="side-link" href="#" target="_blank" rel="noopener">READ FULL STORY →</a>
+          </div>
+          <div class="ticker-bar">
+            <div class="breaking-tag">BREAKING</div>
+            <div class="ticker-viewport">
+              <div class="ticker-track" id="ticker-track">
+                <span>Loading headlines…</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel feed-panel" id="feed-panel">
+          <div class="feed-panel-label">HEADLINE FEED</div>
+          <div class="loading-msg" id="feed-loading">Pulling headlines, standby…</div>
+        </div>
+      </div>
+
+      <div class="right-col">
+        <div class="panel jarvis-panel">
+          <div class="jarvis-panel-header">
+            <div class="jarvis-panel-title">J.A.R.V.I.S — ANALYSIS</div>
+            <div class="jarvis-status" id="jarvis-status">● ONLINE</div>
+          </div>
+          <div class="commentary-text" id="commentary-text"><span class="commentary-cursor"></span></div>
+          <div class="orb-row">
+            <span class="orb-label">JARVIS</span>
+            <div class="orb idle" id="orb">
+              <div class="orb-ring r1"></div>
+              <div class="orb-ring r2"></div>
+              <div class="orb-ring r3"></div>
+              <div class="orb-core"></div>
+              <div class="orb-pulse"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel impact-panel">
+          <div class="impact-header"><span>HEADLINE VOLUME</span><span id="impact-count">— STORIES</span></div>
+          <div class="impact-bars" id="impact-bars"></div>
+          <div class="impact-footer" id="impact-footer">MONITORING GLOBAL WIRE</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  const $ = id => document.getElementById(id);
+  const orb = $("orb");
+
+  function setOrb(state) {
+    orb.classList.remove("idle", "thinking", "speaking");
+    orb.classList.add(state);
+  }
+
+  function fmtTime(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d)) return "";
+    const diffMin = Math.round((Date.now() - d.getTime()) / 60000);
+    if (diffMin < 1) return "just now";
+    if (diffMin < 60) return diffMin + "m ago";
+    const diffH = Math.round(diffMin / 60);
+    if (diffH < 24) return diffH + "h ago";
+    return d.toLocaleDateString();
+  }
+
+  function updateClock() {
+    const now = new Date();
+    $("topbar-date").textContent = now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" }).toUpperCase() +
+      "  //  " + now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  }
+  updateClock();
+  setInterval(updateClock, 30000);
+
+  // ── CATEGORY PILLS ──
+  const CATS = ["general", "technology", "business", "science", "health", "entertainment", "sports"];
+  let currentCat = "general";
+  const pillWrap = $("cat-pills");
+  CATS.forEach(cat => {
+    const b = document.createElement("button");
+    b.className = "cat-pill" + (cat === currentCat ? " active" : "");
+    b.textContent = cat.toUpperCase();
+    b.onclick = () => { currentCat = cat; loadNews(cat); };
+    b.dataset.cat = cat;
+    pillWrap.appendChild(b);
+  });
+  function setActivePill(cat) {
+    pillWrap.querySelectorAll(".cat-pill").forEach(b => b.classList.toggle("active", b.dataset.cat === cat));
+  }
+
+  // ── SARCASTIC LOCAL FALLBACK (used only if no briefing text arrives) ──
+  const OPENERS = [
+    "Here's the world, in all its chaotic glory.",
+    "Brace yourself — humanity's been busy again.",
+    "Right then. Let's see what's on fire today.",
+    "Today's headlines. Try to contain your excitement."
+  ];
+  function buildLocalBriefing(articles) {
+    const opener = OPENERS[Math.floor(Math.random() * OPENERS.length)];
+    if (!articles || !articles.length) return opener + " Unfortunately the wire's gone quiet. Riveting.";
+    const top = articles.slice(0, 4).map(a => a.title).filter(Boolean);
+    const lines = top.map((t, i) => (i === 0 ? "" : i === top.length - 1 ? "And finally, " : "Meanwhile, ") + t + ".");
+    return opener + " " + lines.join(" ") + " Riveting stuff, as always.";
+  }
+
+  // ── TYPEWRITER COMMENTARY ──
+  let typeTimer = null;
+  function typeCommentary(text) {
+    const el = $("commentary-text");
+    clearTimeout(typeTimer);
+    el.innerHTML = '<span class="commentary-cursor"></span>';
+    setOrb("speaking");
+    $("jarvis-status").textContent = "● NARRATING";
+    let i = 0;
+    function step() {
+      if (i > text.length) {
+        setOrb("idle");
+        $("jarvis-status").textContent = "● ONLINE";
+        return;
+      }
+      el.innerHTML = escapeHtml(text.slice(0, i)) + '<span class="commentary-cursor"></span>';
+      el.scrollTop = el.scrollHeight;
+      i += 2;
+      typeTimer = setTimeout(step, 14);
+    }
+    setOrb("thinking");
+    setTimeout(step, 260);
+  }
+
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  // ── RENDER ──
+  function render(newsData, briefing) {
+    const articles = (newsData && newsData.articles) || [];
+
+    // hero + side
+    const a0 = articles[0], a1 = articles[1];
+    $("hero-eyebrow").textContent = (newsData && (newsData.query ? "SEARCH: " + newsData.query.toUpperCase() : (newsData.category || "TOP STORY").toUpperCase())) || "TOP STORY";
+    $("hero-headline").textContent = a0 ? a0.title : "No headlines available right now.";
+    $("hero-src").textContent = a0 ? (a0.source + (a0.publishedAt ? "  //  " + fmtTime(a0.publishedAt) : "")) : "";
+    if (a0 && a0.url) $("hero-headline").parentElement.onclick = () => window.open(a0.url, "_blank", "noopener");
+
+    $("side-headline").textContent = a1 ? a1.title : "STANDING BY";
+    $("side-summary").textContent = a1 ? (a1.source + " — " + fmtTime(a1.publishedAt)) : "No secondary story yet.";
+    const sideLink = $("side-link");
+    if (a1 && a1.url) { sideLink.href = a1.url; sideLink.style.display = ""; } else { sideLink.style.display = "none"; }
+
+    // ticker
+    const tickerItems = articles.slice(0, 8).map(a => a.title).filter(Boolean);
+    const track = $("ticker-track");
+    if (tickerItems.length) {
+      const html = tickerItems.map(t => `<span>${escapeHtml(t)}</span>`).join("");
+      track.innerHTML = html + html; // duplicate for seamless loop
+    } else {
+      track.innerHTML = "<span>No wire data available.</span>";
+    }
+
+    // feed
+    const feedPanel = $("feed-panel");
+    const loading = $("feed-loading");
+    if (loading) loading.remove();
+    feedPanel.querySelectorAll(".feed-item").forEach(n => n.remove());
+    if (!articles.length) {
+      const d = document.createElement("div");
+      d.className = "loading-msg";
+      d.id = "feed-loading";
+      d.textContent = "No headlines came through. The wire may need an API key.";
+      feedPanel.appendChild(d);
+    } else {
+      articles.forEach(a => {
+        const item = document.createElement("a");
+        item.className = "feed-item";
+        item.href = a.url || "#";
+        item.target = "_blank";
+        item.rel = "noopener";
+        item.innerHTML = `${escapeHtml(a.title || "")}<span class="feed-meta">${escapeHtml(a.source || "")} · ${fmtTime(a.publishedAt)}</span>`;
+        feedPanel.appendChild(item);
+      });
+    }
+
+    // impact strip
+    $("impact-count").textContent = articles.length + " STORIES";
+    const bars = $("impact-bars");
+    bars.innerHTML = "";
+    const n = Math.max(articles.length, 1);
+    for (let i = 0; i < 24; i++) {
+      const h = 20 + Math.round(Math.sin(i * 1.3 + n) * 10 + Math.random() * 30);
+      const bar = document.createElement("div");
+      bar.className = "impact-bar";
+      bar.style.height = Math.max(8, Math.min(26, h)) + "px";
+      bars.appendChild(bar);
+    }
+    $("impact-footer").textContent = "LAST SYNC " + new Date().toLocaleTimeString();
+
+    // commentary
+    typeCommentary(briefing || buildLocalBriefing(articles));
+  }
+
+  // ── DATA LOADING ──
+  async function loadNews(category) {
+    setActivePill(category);
+    setOrb("thinking");
+    $("jarvis-status").textContent = "● SYNCING";
+    try {
+      const res = await fetch(`/api/news?category=${encodeURIComponent(category)}`);
+      const d = await res.json();
+      if (d.error) {
+        render({ articles: [] }, "The news wire isn't configured. " + d.error);
+        return;
+      }
+      render(d, null);
+    } catch (e) {
+      render({ articles: [] }, "Couldn't reach the news wire. Network's being uncooperative.");
+    }
+  }
+
+  // ── LISTEN FOR DATA PUSHED FROM THE MAIN HUD (voice-triggered opens) ──
+  let gotPushedData = false;
+  window.addEventListener("message", (e) => {
+    if (!e.data || e.data.type !== "NEWS_DATA") return;
+    const meta = e.data.meta;
+    if (meta && meta.newsData) {
+      gotPushedData = true;
+      if (meta.newsData.category) {
+        currentCat = meta.newsData.category;
+        setActivePill(currentCat);
+      }
+      render(meta.newsData, meta.briefing);
+    }
+  });
+
+  // Fallback: if nothing arrives shortly (opened via taskbar click, not voice),
+  // just fetch general headlines ourselves.
+  setTimeout(() => { if (!gotPushedData) loadNews(currentCat); }, 500);
+
+})();
+</script>
+</body>
+</html>
