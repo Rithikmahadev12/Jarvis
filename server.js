@@ -25,6 +25,62 @@ const TTS = require("./tts");
 
 const app        = express();
 
+// ── VOICE MISHEARING CORRECTION ─────────────────────────────────────────────
+// Speech-to-text sometimes hears a close-but-wrong word for the handful of
+// words that actually trigger something (e.g. "tired" -> "tarot"/"tyred").
+// Regex/keyword routing further down needs the *exact* word, so before any
+// routing happens we nudge near-miss words back to the closest known trigger
+// word using Levenshtein distance. This never touches words that are already
+// a clean match, and only fires when a word is close enough (short edit
+// distance relative to its length) to be a plausible mishearing rather than
+// an unrelated word -- so it won't rewrite the rest of the sentence.
+const VOICE_TRIGGER_VOCAB = [
+  "tired", "exhausted", "sleepy", "drained", "worn",
+  "bored", "boring",
+  "stressed", "overwhelmed",
+  "break", "relax", "unwind",
+  "instagram", "insta", "youtube",
+  "reminder", "reminders", "timer", "timers",
+  "weather", "music", "spotify",
+  "lights", "thermostat",
+  "calendar", "schedule", "agenda",
+  "research",
+];
+
+function levenshtein(a, b) {
+  const m = a.length, n = b.length;
+  const dp = Array.from({ length: m + 1 }, (_, i) => [i, ...new Array(n).fill(0)]);
+  for (let j = 1; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+function correctMishearings(message) {
+  if (!message || typeof message !== "string") return message;
+  return message.replace(/[A-Za-z']+/g, (word) => {
+    const lower = word.toLowerCase();
+    if (word.length < 4 || VOICE_TRIGGER_VOCAB.includes(lower)) return word;
+
+    let best = null, bestDist = Infinity;
+    for (const cand of VOICE_TRIGGER_VOCAB) {
+      if (Math.abs(cand.length - lower.length) > 2) continue;
+      const d = levenshtein(lower, cand);
+      if (d < bestDist) { bestDist = d; best = cand; }
+    }
+    const threshold = lower.length <= 5 ? 1 : 2; // stricter for short words
+    if (!best || bestDist > threshold) return word;
+
+    // preserve original capitalisation style
+    return word[0] === word[0].toUpperCase() ? best[0].toUpperCase() + best.slice(1) : best;
+  });
+}
+
 // ── CONVERSATION HISTORY STORE ──────────────────────────────────────────────
 // Keeps last N exchanges per sessionId so JARVIS remembers what it asked you.
 // Entries are { role: "user"|"assistant", content: string }
@@ -1226,8 +1282,15 @@ async function executeAssistantTool(name, args, ctx) {
 }
 
 app.post("/api/chat", async (req, res) => {
-  const { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, screenActive, userTimezone } = req.body;
+  let { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, screenActive, userTimezone } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
+
+  // Fix likely speech-to-text mishearings (e.g. "tired" heard as "tarot")
+  // before anything downstream tries to match on exact words.
+  const heardMessage = message;
+  message = correctMishearings(message);
+  if (message !== heardMessage) console.log(`[VOICE-CORRECT] "${heardMessage}" -> "${message}"`);
+
   // Inject camera/screen context into the message if relevant so AI knows they're already active
   let enrichedMessage = message;
   if (cameraActive && /\b(camera|see|look|watch|analyze|analyse|fighting|style|face|visual)\b/i.test(message) && !/permission|access|grant/i.test(message)) {
