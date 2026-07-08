@@ -1007,7 +1007,8 @@ const HARD_COMMANDS = {
   openLink:     /\b(open|launch|pull up|go to)\b.{1,40}\b(infamous|petzah|fern|vapor)\b/i,
   hologram:     /\b(show me a (3d|hologram)|holographic|3d model|3d scan|build mode)\b/i,
   workspace:    /\b(hologram(ic)? workspace|holo workspace|open workspace|scene builder|build a scene|3d workspace)\b/i,
-  newsWidget:   /\b(news widget|world news|news dashboard|news wall|open (the )?news|pull up (the )?news|show (me )?(the )?news|what'?s happening in the world|what'?s going on in the world|catch me up on the news|latest headlines|top headlines)\b/i,
+  newsWidget:   /\bnews widget\b/i,
+  newsPage:     /\b(world news|news dashboard|news wall|open (the )?news|pull up (the )?news|show (me )?(the )?news|what'?s happening in the world|what'?s going on in the world|catch me up on the news|latest headlines|top headlines)\b/i,
   lookup:       /\b(look up|lookup|background check|pull everything on|find info on|osint|intel on)\b/i,
   memory:       /\b(remember that|memorize|save that fact|note that|i want you to remember)\b/i,
   memForget:    /\b(forget|delete memory|erase|clear memory|stop remembering)\b/i,
@@ -1154,11 +1155,12 @@ function buildCannedNewsBriefing(articles, T) {
 }
 function pickRandom(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
-async function handleNewsFetch(message, T) {
+async function handleNewsFetch(message, T, mode) {
+  const action = mode === "widget" ? "SHOW_NEWS_WIDGET" : "SHOW_NEWS_PAGE";
   try {
     const nd = await News.handleNewsCommand(message || "news");
     if (nd.error) {
-      return { reply: `Couldn't reach the news wire, ${T}. ${nd.error}`, action: "SHOW_NEWS", intent: "news" };
+      return { reply: `Couldn't reach the news wire, ${T}. ${nd.error}`, action, intent: "news" };
     }
     const label = nd.type === "search" ? nd.query : nd.category;
     let briefing = null;
@@ -1168,12 +1170,12 @@ async function handleNewsFetch(message, T) {
     if (!briefing) briefing = buildCannedNewsBriefing(nd.articles, T);
     return {
       reply: briefing,
-      action: "SHOW_NEWS",
+      action,
       intent: "news",
       meta: { newsData: nd, briefing, label },
     };
   } catch (e) {
-    return { reply: `News fetch failed, ${T}.`, action: "SHOW_NEWS", intent: "news" };
+    return { reply: `News fetch failed, ${T}.`, action, intent: "news" };
   }
 }
 
@@ -1353,7 +1355,7 @@ async function executeAssistantTool(name, args, ctx) {
 
     case "get_news": {
       const msg = args.topic ? `news about ${args.topic}` : (args.category ? `${args.category} news` : "news");
-      return await handleNewsFetch(msg, T);
+      return await handleNewsFetch(msg, T, args.display === "widget" ? "widget" : "page");
     }
 
     case "play_music": {
@@ -1613,7 +1615,10 @@ app.post("/api/chat", async (req, res) => {
       return res.json(handleHologramOpen(message, T));
     }
     if (hardCommandType === "newsWidget") {
-      return res.json(await handleNewsFetch(message, T));
+      return res.json(await handleNewsFetch(message, T, "widget"));
+    }
+    if (hardCommandType === "newsPage") {
+      return res.json(await handleNewsFetch(message, T, "page"));
     }
 
     const linkSummary = getLinksSummary();
