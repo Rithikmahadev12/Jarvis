@@ -1580,7 +1580,14 @@ async function handleAction(action, meta, replyText) {
     case "PLAY_MUSIC":
     case "PLAY_MUSIC_SEARCH": {
       const url = meta?.playUrl;
-      if (url) {
+      if (url && window.MusicWidget) {
+        // Music is always the floating now-playing widget — never a tab.
+        speak(replyText, () => {
+          window.MusicWidget.play({ url, title: meta?.title, artist: meta?.artist });
+          mic.resume();
+        });
+      } else if (url) {
+        // Fallback only if the widget script somehow failed to load.
         speak(replyText, () => { window.open(url, "_blank", "noopener"); mic.resume(); });
       } else {
         speak(replyText, () => mic.resume());
