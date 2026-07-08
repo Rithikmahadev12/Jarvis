@@ -1378,9 +1378,10 @@ function switchMode(mode, query) {
   // Close whatever full-screen panel is currently open (idempotent if none is)
   closeBuild();
   closeMapMode();
+  closeNews();
 
   document.querySelectorAll(".taskbar-btn").forEach(b => b.classList.remove("active"));
-  const btn = $("tb-btn-" + (mode === "build" ? "build" : mode === "map" ? "map" : "chat"));
+  const btn = $("tb-btn-" + (mode === "build" ? "build" : mode === "map" ? "map" : mode === "news" ? "news" : "chat"));
   if (btn) btn.classList.add("active");
 
   // Send the JARVIS orb sliding down into the bottom-left corner whenever
@@ -1391,6 +1392,7 @@ function switchMode(mode, query) {
 
   if (mode === "map") openMapMode(query);
   else if (mode === "build") openBuild(query || "");
+  else if (mode === "news") openNews(query || null);
   // "chat" needs nothing further — closing the panels above already returns to it
 }
 
@@ -1469,6 +1471,37 @@ function closeBuild() {
   _setTaskbarChatActive();
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ── NEWS WIDGET FUNCTIONS ──
+// Broadcast-style dashboard, real headlines, JARVIS narrates with
+// its usual dry sarcasm. No typing — voice/taskbar only.
+// ═══════════════════════════════════════════════════════════════
+function openNews(newsMeta) {
+  const panel  = $("news-panel");
+  const iframe = $("news-iframe");
+  if (!panel || !iframe) return;
+  panel.style.display = "block";
+
+  const needsLoad = !iframe.src && iframe.dataset.src;
+  if (needsLoad) iframe.src = iframe.dataset.src;
+
+  const sendData = () => {
+    try { iframe.contentWindow.postMessage({ type: "NEWS_DATA", meta: newsMeta || null }, "*"); } catch (e) {}
+  };
+
+  if (!needsLoad && iframe.contentDocument?.readyState === "complete") {
+    setTimeout(sendData, 250);
+  } else {
+    iframe.onload = () => setTimeout(sendData, 250);
+  }
+}
+function closeNews() {
+  const panel = $("news-panel");
+  if (panel) panel.style.display = "none";
+  if (state.phase === "chatting") mic.resume();
+  _setTaskbarChatActive();
+}
+
 // Used by voice commands ("render it", "make it bigger") to talk to
 // Build Mode — opens it if it isn't already open, then posts once the
 // iframe has actually finished loading (handles the very-first-open case
@@ -1504,6 +1537,14 @@ async function handleAction(action, meta, replyText) {
       const query = meta?.query || "";
       speak(replyText, () => {
         switchMode("build", query);
+        mic.resume();
+      });
+      break;
+    }
+    case "SHOW_NEWS": {
+      const newsPayload = { newsData: meta?.newsData || null, briefing: replyText, label: meta?.label || "" };
+      speak(replyText, () => {
+        switchMode("news", newsPayload);
         mic.resume();
       });
       break;
