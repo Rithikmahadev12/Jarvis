@@ -237,7 +237,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "play_music",
-      description: "Play a song by opening it on YouTube — not Spotify, Jarvis doesn't use Spotify for playback. Call this whenever the user asks to play music or a song, named or not. If they don't name a song, leave query empty so Jarvis asks what to play. If they respond with something like 'you pick', 'surprise me', 'whatever you think', or 'play something good', set pick_for_me to true so Jarvis chooses based on the conversation's mood.",
+      description: "Play a song in the on-screen now-playing widget (audio pulled from YouTube in the background — not Spotify, Jarvis doesn't use Spotify for playback, and it never opens a browser tab for this). Call this whenever the user asks to play music or a song, named or not. If they don't name a song, leave query empty so Jarvis asks what to play. If they respond with something like 'you pick', 'surprise me', 'whatever you think', or 'play something good', set pick_for_me to true so Jarvis chooses based on the conversation's mood.",
       parameters: {
         type: "object",
         properties: {
