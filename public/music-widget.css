@@ -13,17 +13,17 @@
   color: #ffffff;
   font-family: var(--raj, 'Rajdhani', sans-serif);
 
-  background: linear-gradient(135deg, rgba(24,76,120,0.28) 0%, rgba(12,38,64,0.45) 100%);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: linear-gradient(135deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 60%, rgba(255,255,255,0.06) 100%),
+              rgba(18,26,38,0.55);
+  backdrop-filter: blur(22px) saturate(140%);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
 
   box-shadow:
-    0 0 30px rgba(0,162,255,0.15),
-    inset 0 1px 0 rgba(255,255,255,0.2),
-    inset 0 0 15px rgba(0,162,255,0.1),
-    0 12px 40px rgba(0,0,0,0.5);
+    0 8px 32px rgba(0,0,0,0.45),
+    inset 0 1px 1px rgba(255,255,255,0.25),
+    inset 0 0 0 1px rgba(255,255,255,0.04);
 
-  border: 1px solid rgba(0,195,255,0.35);
+  border: 1px solid rgba(255,255,255,0.22);
 
   clip-path: polygon(26px 0%, 100% 0%, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0% 100%, 0% 0%);
 
@@ -43,16 +43,16 @@
   cursor: grabbing;
 }
 
-/* Top-left cyan neon accent tab */
+/* Top-left glass highlight accent */
 .music-widget::before {
   content: '';
   position: absolute;
   top: 0;
   left: 26px;
   width: 80px;
-  height: 4px;
-  background-color: #00d2ff;
-  box-shadow: 0 0 12px #00d2ff;
+  height: 3px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.7), rgba(120,200,255,0.4));
+  box-shadow: 0 0 8px rgba(120,200,255,0.35);
 }
 
 .mw-close {
@@ -82,15 +82,17 @@
 .mw-art {
   width: 100px;
   height: 100px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 2px;
+  background: linear-gradient(160deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.16);
+  border-radius: 8px;
   flex-shrink: 0;
   display: flex;
   justify-content: center;
   align-items: center;
-  color: rgba(255,255,255,0.35);
+  color: rgba(255,255,255,0.4);
+  overflow: hidden;
 }
+.mw-art img { width: 100%; height: 100%; object-fit: cover; border-radius: 7px; }
 .mw-art svg { transition: opacity .2s; }
 .mw-art.playing svg { opacity: 0.9; }
 
