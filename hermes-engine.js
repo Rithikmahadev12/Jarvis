@@ -270,6 +270,31 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "open_build_mode",
+      description: "Open Build Mode — the hand-tracked 3D CAD workspace. Call this whenever the user says things like 'build mode', 'jarvis build mode', 'show me a 3d model of X', 'holographic view', or otherwise wants the 3D building workspace opened. Not for the word 'build' used generically (e.g. 'build me a website').",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string", description: "What to load in build mode, if the user named a specific object/part. Leave empty otherwise." } },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_news",
+      description: "Open the on-screen news dashboard/widget and brief the user on current headlines. Call this for 'show me the news', 'news widget', 'world news', 'what's happening in the world', 'catch me up on the news', 'top headlines', or any request for a news rundown.",
+      parameters: {
+        type: "object",
+        properties: {
+          category: { type: "string", enum: ["general","business","entertainment","health","science","sports","technology"], description: "News category, if the user asked for a specific one. Omit for general top headlines." },
+          topic:    { type: "string", description: "A specific topic/keyword to search news for, if the user named one (e.g. 'news about Iran'). Omit if they just want general headlines." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "control_home",
       description: "Control smart home devices — lights, plugs, thermostats, casting audio, etc.",
       parameters: {
@@ -552,12 +577,46 @@ function clearLearnedIntents() {
   return true;
 }
 
+// ── SARCASTIC NEWS BRIEFING ────────────────────────────────────
+// Turns a list of headlines into a short, dry, sarcastic-but-informative
+// spoken briefing in JARVIS's voice. Falls back to null (caller supplies
+// a canned template) if Groq isn't configured or the call fails.
+async function summarizeNewsSarcastically(articles, userTitle = "Sir", categoryLabel = "the world") {
+  if (!GROQ_API_KEY) return null;
+  const T = userTitle || "Sir";
+  const headlineList = (articles || [])
+    .slice(0, 6)
+    .map((a, i) => `${i + 1}. ${a.title}${a.source ? ` (${a.source})` : ""}`)
+    .join("\n");
+  if (!headlineList.trim()) return null;
+
+  const messages = [
+    {
+      role: "system",
+      content: `You are J.A.R.V.I.S, Tony Stark's AI, briefing "${T}" on the news. Write ONE short spoken briefing, 3-5 sentences, in character: dry British wit, understated sarcasm, effortlessly composed — never manic, never a stand-up routine. Address "${T}" naturally, not in every sentence. You may editorialize lightly but keep the actual facts from the headlines accurate — don't invent details beyond what's given. No bullet points, no markdown, no headers — this is spoken dialogue only.`,
+    },
+    {
+      role: "user",
+      content: `Here are the current top headlines (category: ${categoryLabel}):\n${headlineList}\n\nGive me the briefing.`,
+    },
+  ];
+
+  try {
+    const reply = await groqFetch(messages, MODELS.smart, 0.85, 320);
+    const trimmed = (reply || "").trim();
+    return trimmed || null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function isConfigured() { return !!GROQ_API_KEY; }
 
 module.exports = {
   chat,
   chatWithTools,
   groqFetchRaw,
+  summarizeNewsSarcastically,
   TOOLS,
   generateCode,
   analyzeIntent,
