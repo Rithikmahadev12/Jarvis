@@ -45,6 +45,23 @@
   }
 
   /* ── TOP BAR ── */
+  .topbar-left { display: flex; align-items: center; gap: 14px; }
+  .back-btn {
+    font-family: var(--hud);
+    font-size: 0.48rem;
+    letter-spacing: 0.14em;
+    color: var(--blue);
+    border: 1px solid rgba(0,200,255,0.3);
+    background: rgba(0,200,255,0.05);
+    padding: 7px 11px;
+    border-radius: 3px;
+    text-decoration: none;
+    transition: all .15s;
+    flex-shrink: 0;
+  }
+  .back-btn:hover { background: var(--blue-mid); color: var(--text-bright); }
+  .back-btn.hidden { display: none; }
+
   .topbar {
     display: flex;
     align-items: center;
@@ -400,9 +417,12 @@
   <div class="wrap">
 
     <div class="topbar">
-      <div>
-        <div class="topbar-title">J.A.R.V.I.S — WORLD NEWS</div>
-        <div class="topbar-sub" id="topbar-date">SYNCING…</div>
+      <div class="topbar-left">
+        <a class="back-btn" href="/" id="back-btn" title="Back to JARVIS">← JARVIS</a>
+        <div>
+          <div class="topbar-title">J.A.R.V.I.S — WORLD NEWS</div>
+          <div class="topbar-sub" id="topbar-date">SYNCING…</div>
+        </div>
       </div>
       <div class="topbar-right">
         <div class="cat-pills" id="cat-pills"></div>
@@ -476,6 +496,12 @@
 
   const $ = id => document.getElementById(id);
   const orb = $("orb");
+
+  // When embedded as a widget panel inside the main HUD, the parent page
+  // already draws its own "✕ CLOSE" button over this iframe — so hide our
+  // own back link to avoid two conflicting ways to leave.
+  const embedded = window.self !== window.top;
+  if (embedded) $("back-btn").classList.add("hidden");
 
   function setOrb(state) {
     orb.classList.remove("idle", "thinking", "speaking");
@@ -646,7 +672,7 @@
     }
   }
 
-  // ── LISTEN FOR DATA PUSHED FROM THE MAIN HUD (voice-triggered opens) ──
+  // ── LISTEN FOR DATA PUSHED FROM THE MAIN HUD (voice-triggered widget opens) ──
   let gotPushedData = false;
   window.addEventListener("message", (e) => {
     if (!e.data || e.data.type !== "NEWS_DATA") return;
@@ -661,9 +687,33 @@
     }
   });
 
-  // Fallback: if nothing arrives shortly (opened via taskbar click, not voice),
-  // just fetch general headlines ourselves.
-  setTimeout(() => { if (!gotPushedData) loadNews(currentCat); }, 500);
+  // ── SESSIONSTORAGE HANDOFF ──
+  // "Jarvis, show me the news" navigates this same tab to /news (no iframe,
+  // so no postMessage channel exists). jarvis.js stashes the freshly-fetched
+  // headlines + the exact briefing it just spoke here right before navigating,
+  // so the page shows/reads back the same thing instead of re-rolling a new
+  // random line. Only trust it if it's a few seconds old — otherwise a stale
+  // reload of /news would replay yesterday's headlines.
+  function loadFromHandoff() {
+    try {
+      const raw = sessionStorage.getItem("jarvis_news_payload");
+      if (!raw) return false;
+      sessionStorage.removeItem("jarvis_news_payload");
+      const payload = JSON.parse(raw);
+      if (!payload || Date.now() - payload.ts > 15000) return false;
+      if (!payload.newsData) return false;
+      gotPushedData = true;
+      if (payload.newsData.category) { currentCat = payload.newsData.category; setActivePill(currentCat); }
+      render(payload.newsData, payload.briefing);
+      return true;
+    } catch (e) { return false; }
+  }
+
+  // Fallback order: sessionStorage handoff (direct /news navigation) →
+  // postMessage (widget iframe) → plain self-fetch (bookmarked/cold open).
+  if (!loadFromHandoff()) {
+    setTimeout(() => { if (!gotPushedData) loadNews(currentCat); }, 500);
+  }
 
 })();
 </script>
