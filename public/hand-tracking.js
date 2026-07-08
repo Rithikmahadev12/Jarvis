@@ -49,6 +49,21 @@ const HandTracking = (() => {
   let dwellStart        = 0;
   let dwellRingEl       = null;
 
+  // ── HOVER SOUND EFFECT ──
+  // Plays whenever the hand-tracking cursor moves onto a NEW clickable
+  // element (any dwell target — taskbar buttons, mode-picker nodes,
+  // dialogs, etc). Cloning the node on every play lets rapid hovers
+  // overlap instead of cutting each other off.
+  let hoverAudio = null;
+  function playHoverSound() {
+    if (!hoverAudio) return;
+    try {
+      const a = hoverAudio.cloneNode();
+      a.volume = 0.35;
+      a.play().catch(() => {});
+    } catch (e) {}
+  }
+
   // ── PINCH-DRAG STATE (direct manipulation — no spoken command needed) ──
   // Pinching thumb + index over anything marked [data-hand-drag] grabs it;
   // moving the hand while pinched moves it; releasing the pinch drops it.
@@ -100,6 +115,9 @@ const HandTracking = (() => {
     document.body.appendChild(badge);
 
     buildKeyboard();
+
+    hoverAudio = new Audio("/soundeffects/UI-soundeffect.mp3");
+    hoverAudio.preload = "auto";
 
     window.addEventListener("resize", resizeCanvas);
     resizeCanvas();
@@ -500,7 +518,7 @@ const HandTracking = (() => {
     cursorEl.style.pointerEvents = "none";
     const el = document.elementFromPoint(x, y);
     cursorEl.style.pointerEvents = "";
-    const clickable = el ? el.closest("button, a, .q-btn, .hud-btn, .account-tile, .ht-key, input[type=checkbox], .mode-btn") : null;
+    const clickable = el ? el.closest("button, a, .q-btn, .hud-btn, .account-tile, .ht-key, input[type=checkbox], .mode-btn, .mp-node, .mp-close-btn") : null;
 
     if (!clickable) { clearDwell(); return; }
 
@@ -508,6 +526,7 @@ const HandTracking = (() => {
       dwellTarget = clickable;
       dwellStart = performance.now();
       clickable.classList.add("ht-hover");
+      playHoverSound(); // hand just moved onto a new selectable option
     }
 
     const elapsed = performance.now() - dwellStart;
@@ -542,7 +561,7 @@ const HandTracking = (() => {
 
   function $id(id) { return document.getElementById(id); }
 
-  return { start, stop, get active() { return active; } };
+  return { start, stop, playHoverSound, get active() { return active; } };
 })();
 
 window.HandTracking = HandTracking;
