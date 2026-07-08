@@ -47,7 +47,7 @@ window.MusicWidget = (function () {
       <button class="mw-close" id="mw-close" aria-label="Close" title="Stop">&#10005;</button>
       <div class="mw-content" id="mw-content">
         <div class="mw-art" id="mw-art">
-          <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.4">
+          <svg id="mw-art-fallback" viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.4">
             <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
           </svg>
         </div>
@@ -180,6 +180,28 @@ window.MusicWidget = (function () {
     } catch { return { videoId: null, list: null }; }
   }
 
+  function setArtwork(url) {
+    const art = $("mw-art");
+    if (!art) return;
+    const existingImg = art.querySelector("img");
+    if (url) {
+      if (existingImg) { existingImg.src = url; }
+      else {
+        const img = document.createElement("img");
+        img.src = url;
+        img.alt = "";
+        img.onerror = () => { img.remove(); const fb = $("mw-art-fallback"); if (fb) fb.style.display = ""; };
+        art.appendChild(img);
+      }
+      const fb = $("mw-art-fallback");
+      if (fb) fb.style.display = "none";
+    } else {
+      if (existingImg) existingImg.remove();
+      const fb = $("mw-art-fallback");
+      if (fb) fb.style.display = "";
+    }
+  }
+
   function show() { ensureDOM(); $("music-widget").classList.remove("hidden"); }
   function hide() { const w = $("music-widget"); if (w) w.classList.add("hidden"); }
 
@@ -218,9 +240,17 @@ window.MusicWidget = (function () {
     if (currentVideoId !== requestedVideoId) {
       // The mix moved on to a track we didn't explicitly request —
       // show YouTube's own title/channel for it since that's all we have.
-      $("mw-title").textContent = data.title || "Unknown Track";
-      $("mw-artist").textContent = data.author || "YouTube";
+      // Auto-generated music channels are usually named "<Artist> - Topic",
+      // and "Artist - Song" titles are common too, so clean both up rather
+      // than showing the raw channel name or the word "YouTube".
+      let title = (data.title || "").trim();
+      let artist = (data.author || "").trim().replace(/\s*-\s*Topic$/i, "").trim();
+      const dashSplit = title.match(/^(.{1,60}?)\s+-\s+(.{1,80})$/);
+      if (dashSplit) { artist = dashSplit[1].trim(); title = dashSplit[2].trim(); }
+      $("mw-title").textContent = title || "Unknown Track";
+      $("mw-artist").textContent = artist || "Unknown Artist";
       $("mw-album").textContent = "";
+      setArtwork("");
     }
   }
 
@@ -266,7 +296,7 @@ window.MusicWidget = (function () {
   }
 
   // ── Public API ─────────────────────────────────────────────
-  async function play({ url, title, artist, album }) {
+  async function play({ url, title, artist, album, artwork }) {
     if (!url) return;
     const { videoId, list } = parseYouTubeUrl(url);
     if (!videoId && !list) return;
@@ -277,8 +307,9 @@ window.MusicWidget = (function () {
     repeatOn = false;
     $("mw-repeat").classList.remove("active");
     $("mw-title").textContent = title || "Unknown Track";
-    $("mw-artist").textContent = artist || "YouTube";
+    $("mw-artist").textContent = artist || "Unknown Artist";
     $("mw-album").textContent = album || "";
+    setArtwork(artwork || "");
     $("mw-elapsed").textContent = "0:00";
     $("mw-duration").textContent = "0:00";
     $("mw-progress-fill").style.width = "0%";
