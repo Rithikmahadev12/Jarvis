@@ -14,7 +14,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Sh
   --amber:#ffaa00;--green:#00ff88;--red:#ff3333;
   --hud:'Orbitron',monospace;
 }
-#c{position:fixed;inset:0;display:block;width:100%!important;height:100%!important;cursor:grab}
+#c{position:fixed;inset:0;display:block;width:100%!important;height:100%!important;cursor:crosshair}
 #c.dragging{cursor:grabbing}
 
 /* boot */
@@ -37,32 +37,28 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Sh
 #exit-btn{background:rgba(255,51,51,0.08);border:1px solid rgba(255,51,51,0.35);color:#ff8a8a;font-family:var(--hud);font-size:0.4rem;letter-spacing:0.2em;padding:7px 14px;cursor:pointer;border-radius:2px}
 #exit-btn:hover{background:rgba(255,51,51,0.2)}
 
-#sidebar{position:fixed;top:52px;left:0;bottom:0;width:220px;background:rgba(0,3,10,0.94);border-right:1px solid rgba(0,200,255,0.1);z-index:20;display:flex;flex-direction:column;padding:12px 0;overflow:hidden}
+#sidebar{position:fixed;top:52px;left:0;bottom:0;width:220px;background:rgba(0,3,10,0.94);border-right:1px solid rgba(0,200,255,0.1);z-index:20;display:flex;flex-direction:column;padding:12px 0;overflow-y:auto;scrollbar-width:none}
+#sidebar::-webkit-scrollbar{display:none}
 .sb-label{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.28em;color:var(--dim-text);padding:8px 14px 6px;text-transform:uppercase}
-#search-row{display:flex;padding:0 12px 8px;gap:6px}
-#search-input{flex:1;background:rgba(0,200,255,0.05);border:1px solid rgba(0,200,255,0.2);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:0.7rem;padding:7px 8px;outline:none;border-radius:2px}
-#search-btn{background:rgba(0,200,255,0.12);border:1px solid rgba(0,200,255,0.3);color:var(--blue);font-family:var(--hud);font-size:0.4rem;padding:0 10px;cursor:pointer;border-radius:2px}
-#search-btn:hover{background:rgba(0,200,255,0.25)}
-#results{flex:0 0 auto;max-height:34vh;overflow-y:auto;padding:0 10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;scrollbar-width:none}
-#results::-webkit-scrollbar{display:none}
-.part-card{background:rgba(0,200,255,0.05);border:1px solid rgba(0,200,255,0.15);border-radius:3px;padding:6px;cursor:pointer;transition:all .15s;text-align:center}
-.part-card:hover{border-color:var(--blue);background:rgba(0,200,255,0.12)}
-.part-card img,.part-card .swatch{width:100%;height:52px;object-fit:cover;border-radius:2px;background:#0a1520;display:flex;align-items:center;justify-content:center;font-size:1.3rem}
-.part-card .pc-name{font-size:0.5rem;letter-spacing:0.03em;color:var(--text);margin-top:4px;line-height:1.2;max-height:2.4em;overflow:hidden}
-.part-card.loading{opacity:0.5;pointer-events:none}
-#search-status{padding:6px 14px;font-size:0.5rem;color:var(--dim-text);letter-spacing:0.06em}
+.tool-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:0 12px 6px}
+.tool-grid.single{grid-template-columns:1fr}
+.tool-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.22);color:var(--text);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.08em;padding:10px 4px;cursor:pointer;border-radius:3px;text-align:center;line-height:1.5}
+.tool-btn:hover{background:rgba(0,200,255,0.16)}
+.tool-btn.active{background:rgba(255,170,0,0.18);border-color:var(--amber);color:var(--amber);box-shadow:0 0 10px rgba(255,170,0,0.25)}
+.tool-btn.weld.active{background:rgba(255,51,51,0.18);border-color:var(--red);color:#ff9a9a;box-shadow:0 0 10px rgba(255,51,51,0.3)}
 
-#my-parts{flex:1;overflow-y:auto;padding:0 10px;scrollbar-width:none}
+#my-parts{flex:1;overflow-y:auto;padding:0 10px;scrollbar-width:none;min-height:80px}
 #my-parts::-webkit-scrollbar{display:none}
 .mp-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-left:2px solid transparent;border-bottom:1px solid rgba(0,200,255,0.05);cursor:pointer;font-size:0.62rem;color:var(--dim-text)}
 .mp-item:hover{background:rgba(0,200,255,0.06);color:var(--text)}
 .mp-item.selected{border-left-color:var(--amber);color:var(--amber);background:rgba(255,170,0,0.06)}
 .mp-item .mp-dot{width:6px;height:6px;border-radius:50%;background:var(--dim-text);flex-shrink:0}
-.mp-item.connected .mp-dot{background:var(--green);box-shadow:0 0 6px var(--green)}
+.mp-item.welded .mp-dot{background:var(--green);box-shadow:0 0 6px var(--green)}
 .mp-item .mp-del{margin-left:auto;color:var(--red);opacity:0.5;font-size:0.7rem}
 .mp-item .mp-del:hover{opacity:1}
 
-#right-panel{position:fixed;top:52px;right:0;bottom:0;width:210px;background:rgba(0,3,10,0.94);border-left:1px solid rgba(0,200,255,0.1);z-index:20;display:flex;flex-direction:column;padding:12px 0;gap:4px}
+#right-panel{position:fixed;top:52px;right:0;bottom:0;width:220px;background:rgba(0,3,10,0.94);border-left:1px solid rgba(0,200,255,0.1);z-index:20;display:flex;flex-direction:column;padding:12px 0;gap:4px;overflow-y:auto;scrollbar-width:none}
+#right-panel::-webkit-scrollbar{display:none}
 .rp-section{padding:8px 14px;border-bottom:1px solid rgba(0,200,255,0.06)}
 .rp-title{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.26em;color:var(--dim-text);margin-bottom:6px}
 .rp-val{font-size:0.6rem;color:var(--text);line-height:1.6}
@@ -74,22 +70,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Sh
 .rp-btn.green:hover{background:rgba(0,255,136,0.15)}
 .rp-btn.active{background:rgba(0,255,136,0.18);border-color:var(--green);color:var(--green)}
 .rot-row{display:flex;gap:4px;margin-top:6px}
-.rot-row button{flex:1;background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);color:var(--text);font-size:0.6rem;padding:6px 0;cursor:pointer;border-radius:2px}
-.rot-row button:hover{background:rgba(0,200,255,0.18)}
+.rot-row .rp-btn{margin-top:0}
 .gesture-hint{font-size:0.52rem;color:var(--dim-text);line-height:1.7;letter-spacing:0.01em}
+input[type=range]{width:100%;accent-color:var(--amber);margin-top:2px}
+.slider-val{color:var(--amber);font-family:var(--hud)}
 
-#ticker{position:fixed;bottom:0;left:220px;right:210px;height:24px;background:rgba(0,3,10,0.98);border-top:1px solid rgba(0,200,255,0.1);display:flex;align-items:center;padding:0 14px;z-index:25;font-size:0.55rem;color:var(--dim-text);letter-spacing:0.05em}
-
-/* connect confirmation toast */
-#confirm-toast{position:fixed;left:50%;bottom:60px;transform:translateX(-50%) translateY(20px);z-index:40;background:rgba(0,6,16,0.97);border:1px solid rgba(255,170,0,0.5);border-radius:4px;padding:14px 18px;display:none;flex-direction:column;align-items:center;gap:10px;box-shadow:0 0 30px rgba(255,170,0,0.15);opacity:0;transition:opacity .25s, transform .25s;min-width:340px}
-#confirm-toast.show{display:flex;opacity:1;transform:translateX(-50%) translateY(0)}
-#confirm-text{font-size:0.72rem;color:var(--amber);text-align:center;letter-spacing:0.02em}
-#confirm-btns{display:flex;gap:10px}
-#confirm-btns button{font-family:var(--hud);font-size:0.42rem;letter-spacing:0.14em;padding:8px 16px;border-radius:2px;cursor:pointer}
-#btn-connect-yes{background:rgba(0,255,136,0.15);border:1px solid var(--green);color:var(--green)}
-#btn-connect-yes:hover{background:rgba(0,255,136,0.3)}
-#btn-connect-no{background:rgba(255,51,51,0.1);border:1px solid rgba(255,51,51,0.4);color:#ff8a8a}
-#btn-connect-no:hover{background:rgba(255,51,51,0.25)}
+#ticker{position:fixed;bottom:0;left:220px;right:220px;height:24px;background:rgba(0,3,10,0.98);border-top:1px solid rgba(0,200,255,0.1);display:flex;align-items:center;padding:0 14px;z-index:25;font-size:0.55rem;color:var(--dim-text);letter-spacing:0.05em}
 
 /* generic status toast */
 #toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:40;background:rgba(0,6,16,0.95);border:1px solid rgba(0,200,255,0.35);color:var(--text);font-size:0.66rem;letter-spacing:0.03em;padding:9px 18px;border-radius:3px;opacity:0;pointer-events:none;transition:opacity .3s}
@@ -101,7 +87,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Sh
 <div id="loading">
   <div class="load-ring"></div>
   <div class="load-title">J.A.R.V.I.S</div>
-  <div class="load-sub">BUILD MODE — INITIALISING CAD ENGINE</div>
+  <div class="load-sub">BUILD MODE — INITIALISING FORGE</div>
 </div>
 
 <canvas id="c"></canvas>
@@ -111,73 +97,91 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Sh
 <div id="top">
   <div class="top-title">BUILD MODE</div>
   <div class="top-right">
-    <span id="part-count">0 PARTS</span>
+    <span id="part-count">0 PIECES</span>
     <span id="assembly-status">—</span>
     <button id="exit-btn" onclick="exitBuild()">✕ EXIT</button>
   </div>
 </div>
 
 <div id="sidebar">
-  <div class="sb-label">⬡ PULL A REAL 3D PART</div>
-  <div id="search-row">
-    <input id="search-input" placeholder="e.g. jet engine, hinge, gear…" onkeydown="if(event.key==='Enter')runSearch()"/>
-    <button id="search-btn" onclick="runSearch()">GO</button>
+  <div class="sb-label">⬡ RAW METAL</div>
+  <div class="tool-grid">
+    <button class="tool-btn" onclick="spawnBar()">＋ BAR</button>
+    <button class="tool-btn" onclick="spawnServo()">＋ SERVO</button>
   </div>
-  <div id="search-status"></div>
-  <div id="results"></div>
-  <div class="sb-label" style="margin-top:6px">MY BUILD — CLICK TO SELECT</div>
+
+  <div class="sb-label">⬡ TOOLS</div>
+  <div class="tool-grid">
+    <button class="tool-btn active" id="tool-bend" onclick="setTool('bend')">🖐 BEND</button>
+    <button class="tool-btn" id="tool-move" onclick="setTool('move')">✋ MOVE</button>
+    <button class="tool-btn weld" id="tool-weld" onclick="setTool('weld')">🔥 WELD</button>
+    <button class="tool-btn" id="tool-delete" onclick="setTool('delete')">🗑 DELETE</button>
+  </div>
+
+  <div class="sb-label">⬡ VIEW</div>
+  <div class="tool-grid">
+    <button class="tool-btn" onclick="zoomBy(0.82)">🔍+ IN</button>
+    <button class="tool-btn" onclick="zoomBy(1.22)">🔍− OUT</button>
+  </div>
+
+  <div class="sb-label" style="margin-top:6px">WORKSHOP — CLICK TO SELECT</div>
   <div id="my-parts"></div>
 </div>
 
 <div id="right-panel">
   <div class="rp-section">
-    <div class="rp-title">SELECTED PART</div>
+    <div class="rp-title">SELECTED</div>
     <div class="rp-val" id="sel-name">— none —</div>
-    <div class="rot-row">
-      <button onclick="nudgeRotate('y',-15)">↺ Y</button>
-      <button onclick="nudgeRotate('y',15)">↻ Y</button>
+
+    <div id="bar-controls" style="display:none">
+      <button class="rp-btn" onclick="straightenSelected()">📏 STRAIGHTEN</button>
     </div>
-    <div class="rot-row">
-      <button onclick="nudgeRotate('x',-15)">↺ X</button>
-      <button onclick="nudgeRotate('x',15)">↻ X</button>
+
+    <div id="servo-controls" style="display:none">
+      <div class="rp-title" style="margin-top:10px">MODE</div>
+      <div class="rot-row">
+        <button class="rp-btn" id="mode-manual" onclick="setServoMode('manual')">POSE</button>
+        <button class="rp-btn" id="mode-sweep" onclick="setServoMode('sweep')">SWEEP</button>
+        <button class="rp-btn" id="mode-continuous" onclick="setServoMode('continuous')">SPIN</button>
+      </div>
+      <div class="rp-title" style="margin-top:10px">ANGLE <span class="slider-val" id="angle-val"></span></div>
+      <input type="range" id="angle-slider" min="-150" max="150" value="60" oninput="onAngleSlider(this.value)"/>
+      <div class="rp-title" style="margin-top:10px">SPEED <span class="slider-val" id="speed-val"></span></div>
+      <input type="range" id="speed-slider" min="10" max="360" value="90" oninput="onSpeedSlider(this.value)"/>
+      <button class="rp-btn green" id="servo-run-btn" onclick="toggleServoRun()">▶ RUN</button>
     </div>
-    <button class="rp-btn" style="border-color:rgba(255,51,51,0.4);color:#ff8a8a" onclick="deleteSelected()">🗑 DELETE PART</button>
+
+    <button class="rp-btn" style="border-color:rgba(255,51,51,0.4);color:#ff8a8a" onclick="deleteSelected()">🗑 DELETE PIECE</button>
   </div>
+
   <div class="rp-section">
     <div class="rp-title">HAND CONTROL</div>
-    <div class="gesture-hint">Pinch thumb + index over a part to grab it. Move your hand to drag it. Twist your wrist while pinching to spin it. Release the pinch to let go.</div>
+    <div class="gesture-hint" id="gesture-hint">Pick a tool, then pinch thumb + index to use it with your hand. Spread both hands apart / together to zoom.</div>
     <button class="rp-btn green" id="hand-toggle-btn" onclick="toggleHandControl()">✋ ENABLE HAND CONTROL</button>
   </div>
+
   <div class="rp-section" style="flex:1">
-    <div class="rp-title">ASSEMBLY</div>
-    <div class="rp-val" id="assembly-detail">No parts placed yet.</div>
-    <button class="rp-btn amber" onclick="validateBuild()">⚡ VALIDATE / RENDER BUILD</button>
+    <div class="rp-title">STRUCTURE</div>
+    <div class="rp-val" id="assembly-detail">Nothing built yet.</div>
   </div>
 </div>
 
-<div id="ticker">Drag parts with your mouse, or enable hand control and pinch to grab. Jarvis will ask before screwing touching parts together.</div>
-
-<div id="confirm-toast">
-  <div id="confirm-text"></div>
-  <div id="confirm-btns">
-    <button id="btn-connect-yes" onclick="answerConnect(true)">🔩 CONNECT</button>
-    <button id="btn-connect-no" onclick="answerConnect(false)">IGNORE</button>
-  </div>
-</div>
+<div id="ticker">BEND: grab &amp; drag any point on a bar. WELD: touch two pieces with the torch to fuse them. Scroll or use the view buttons to zoom.</div>
 
 <div id="toast"></div>
 
 <video id="camera-feed" autoplay muted playsinline style="position:fixed;bottom:-9999px;width:2px;height:2px;opacity:0"></video>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
 <script src="hand-tracking.js"></script>
 <script>
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — BUILD MODE (CAD engine)
+// J.A.R.V.I.S — BUILD MODE (metal workshop: bend, weld, servos)
+// Everything is built from raw stock in-scene — no online parts.
 // ═══════════════════════════════════════════════════════════════
 const $ = (id) => document.getElementById(id);
+const YAXIS = new THREE.Vector3(0, 1, 0);
 
 // ── THREE.JS SETUP ──
 const canvas = $("c");
@@ -198,11 +202,13 @@ controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.target.set(0, 0.5, 0);
 controls.maxPolarAngle = Math.PI * 0.49;
+controls.minDistance = 0.6;
+controls.maxDistance = 40;
 
 scene.add(new THREE.AmbientLight(0x445566, 0.9));
-const key = new THREE.DirectionalLight(0xffffff, 1.6);
-key.position.set(5, 8, 4); key.castShadow = true;
-scene.add(key);
+const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
+keyLight.position.set(5, 8, 4); keyLight.castShadow = true;
+scene.add(keyLight);
 const rim = new THREE.PointLight(0x00aaff, 1.2, 30);
 rim.position.set(-4, 3, -3); scene.add(rim);
 
@@ -224,15 +230,19 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// Declared here (instead of only near the mouse-controls section further
-// below) so that animate(), which runs immediately, doesn't reference it
-// while it's still in the temporal dead zone.
-const dragState = { active: false, partId: null, plane: new THREE.Plane(), offset: new THREE.Vector3() };
+// Drag contexts declared before animate() runs, so they're never in the
+// temporal dead zone when the render loop reads them on the first frame.
+let bendCtx = null;   // {pieceId, jointIndex}
+let moveCtx = null;   // {entityId, plane, offset}
+const clock = new THREE.Clock();
 
 function animate() {
   requestAnimationFrame(animate);
-  controls.enabled = !dragState.active;
+  controls.enabled = !(bendCtx || moveCtx);
   controls.update();
+  const dt = Math.min(clock.getDelta(), 0.05);
+  stepAllServos(dt);
+  weldBeads.forEach((w) => w.mesh.position.copy(w.getPos()));
   renderer.render(scene, camera);
 }
 animate();
@@ -248,368 +258,632 @@ function showToast(msg, ms = 3200) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── PART LIBRARY (primitives used for placeholder / offline parts) ──
+// ── ENTITY MODEL: bars (bendable chains) + servos ──
 // ═══════════════════════════════════════════════════════════════
-function buildPrimitiveMesh(shape, colorHex) {
-  const mat = (c) => new THREE.MeshStandardMaterial({ color: c, metalness: 0.35, roughness: 0.55 });
-  const color = new THREE.Color(colorHex || "#8fa3b0");
-  const group = new THREE.Group();
-
-  switch (shape) {
-    case "plate":
-    case "panel": {
-      const g = new THREE.Mesh(new THREE.BoxGeometry(1, 0.08, 0.7), mat(color));
-      group.add(g);
-      break;
-    }
-    case "cylinder": {
-      const g = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.9, 24), mat(color));
-      group.add(g);
-      break;
-    }
-    case "sphere": {
-      const g = new THREE.Mesh(new THREE.SphereGeometry(0.35, 24, 24), mat(color));
-      group.add(g);
-      break;
-    }
-    case "beam": {
-      const g = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.18, 0.18), mat(color));
-      group.add(g);
-      break;
-    }
-    case "bracket": {
-      const a = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.12, 0.3), mat(color));
-      a.position.set(0, -0.24, 0);
-      const b = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.6, 0.3), mat(color));
-      b.position.set(-0.24, 0, 0);
-      group.add(a, b);
-      break;
-    }
-    case "gear": {
-      const core = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.15, 24), mat(color));
-      group.add(core);
-      const teeth = 12;
-      for (let i = 0; i < teeth; i++) {
-        const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.15, 0.09), mat(color));
-        const a = (i / teeth) * Math.PI * 2;
-        tooth.position.set(Math.cos(a) * 0.36, 0, Math.sin(a) * 0.36);
-        tooth.rotation.y = -a;
-        group.add(tooth);
-      }
-      break;
-    }
-    case "box":
-    default: {
-      const g = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.6, 0.6), mat(color));
-      group.add(g);
-      break;
-    }
-  }
-  group.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  return group;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── PARTS DATA MODEL ──
-// ═══════════════════════════════════════════════════════════════
-let parts = new Map();          // id -> part
-let assemblyOf = new Map();     // partId -> assemblyId
-let assemblyMembers = new Map();// assemblyId -> Set(partId)
-let dismissedPairs = new Map(); // "a|b" -> timestamp
+let entities = new Map();             // id -> entity
+let entityAssemblyOf = new Map();     // entityId -> assemblyId
+let entityAssemblyMembers = new Map();// assemblyId -> Set(entityId)
+let weldBeads = [];                   // [{mesh, getPos, entityIds}]
 let selectedId = null;
-let spawnIndex = 0;
-const loader = new THREE.GLTFLoader();
-const GLTF_SCALE_TARGET = 1.1; // normalise loaded models to roughly this size
+let spawnIndex = 0, barCount = 0, servoCount = 0;
 
-function uid() { return "p" + Math.random().toString(36).slice(2, 10); }
+function uid() { return "e" + Math.random().toString(36).slice(2, 10); }
 
 function nextSpawnPosition() {
   const i = spawnIndex++;
   const cols = 4;
-  const x = (i % cols) * 1.5 - (cols - 1) * 0.75;
-  const z = Math.floor(i / cols) * 1.5 - 1.5;
+  const x = (i % cols) * 1.6 - (cols - 1) * 0.8;
+  const z = Math.floor(i / cols) * 1.6 - 1.6;
   return new THREE.Vector3(x, 0.5, z);
 }
 
-function addPart(name, mesh, uidStr) {
-  const wrapper = new THREE.Group();
-  wrapper.add(mesh);
-  wrapper.position.copy(nextSpawnPosition());
-  scene.add(wrapper);
+function unionEntities(a, b) {
+  const asmA = entityAssemblyOf.get(a), asmB = entityAssemblyOf.get(b);
+  if (asmA === asmB) return;
+  const membersA = entityAssemblyMembers.get(asmA);
+  const membersB = entityAssemblyMembers.get(asmB);
+  for (const m of membersB) { entityAssemblyOf.set(m, asmA); membersA.add(m); }
+  entityAssemblyMembers.delete(asmB);
+}
+function sameAssembly(a, b) { return entityAssemblyOf.get(a) === entityAssemblyOf.get(b); }
+function assemblyMemberIds(id) { return Array.from(entityAssemblyMembers.get(entityAssemblyOf.get(id)) || [id]); }
+
+function translateAssemblyEntities(id, delta) {
+  for (const mid of assemblyMemberIds(id)) {
+    const e = entities.get(mid);
+    if (!e) continue;
+    if (e.kind === "bar") { e.joints.forEach((j) => j.add(delta)); updateBarMesh(e); }
+    else { e.base.add(delta); updateServoVisual(e); }
+  }
+}
+function rotateAssemblyEntitiesAround(id, pivot, axis, radians) {
+  if (Math.abs(radians) < 1e-9) return;
+  const q = new THREE.Quaternion().setFromAxisAngle(axis, radians);
+  for (const mid of assemblyMemberIds(id)) {
+    const e = entities.get(mid);
+    if (!e) continue;
+    if (e.kind === "bar") {
+      e.joints.forEach((j) => { const rel = j.clone().sub(pivot); rel.applyQuaternion(q); j.copy(pivot).add(rel); });
+      updateBarMesh(e);
+    } else {
+      const rel = e.base.clone().sub(pivot); rel.applyQuaternion(q); e.base.copy(pivot).add(rel);
+      updateServoVisual(e);
+    }
+  }
+}
+
+function entityAnchorPoint(id) {
+  const e = entities.get(id);
+  if (!e) return new THREE.Vector3();
+  if (e.kind === "bar") {
+    const c = new THREE.Vector3();
+    e.joints.forEach((j) => c.add(j));
+    return c.divideScalar(e.joints.length);
+  }
+  return e.base.clone();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── BARS (raw metal rods you bend by hand) ──
+// ═══════════════════════════════════════════════════════════════
+const BAR_JOINTS = 9;
+const BAR_LENGTH = 1.5;
+const BAR_RADIUS = 0.045;
+
+function spawnBar() {
+  const rest = BAR_LENGTH / (BAR_JOINTS - 1);
+  const start = nextSpawnPosition();
+  const joints = [];
+  for (let i = 0; i < BAR_JOINTS; i++) {
+    joints.push(new THREE.Vector3(start.x - BAR_LENGTH / 2 + i * rest, start.y + 0.5, start.z));
+  }
+  const mat = new THREE.MeshStandardMaterial({ color: 0x9fb4c4, metalness: 0.85, roughness: 0.32 });
+  const group = new THREE.Group();
+  const segMeshes = [], capMeshes = [];
+  const id = uid();
+
+  for (let i = 0; i < BAR_JOINTS - 1; i++) {
+    const geo = new THREE.CylinderGeometry(BAR_RADIUS, BAR_RADIUS, rest, 10);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = mesh.receiveShadow = true;
+    mesh.userData = { entityId: id, kind: "seg", segIndex: i };
+    group.add(mesh); segMeshes.push(mesh);
+  }
+  for (let i = 0; i < BAR_JOINTS; i++) {
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(BAR_RADIUS, 10, 10), mat);
+    cap.castShadow = true;
+    cap.userData = { entityId: id, kind: "cap", jointIndex: i };
+    group.add(cap); capMeshes.push(cap);
+  }
+  scene.add(group);
+
+  const piece = {
+    id, kind: "bar", name: `Metal Bar ${++barCount}`,
+    joints, restLength: rest, group, segMeshes, capMeshes,
+    weldedJointIndices: new Set(),
+  };
+  entities.set(id, piece);
+  entityAssemblyOf.set(id, id);
+  entityAssemblyMembers.set(id, new Set([id]));
+  updateBarMesh(piece);
+  refreshEntityList(); updateTopStatus(); selectEntity(id);
+  showToast(`Placed: ${piece.name}`);
+  return piece;
+}
+
+function updateBarMesh(piece) {
+  const { joints, segMeshes, capMeshes, restLength } = piece;
+  for (let i = 0; i < segMeshes.length; i++) {
+    const a = joints[i], b = joints[i + 1];
+    const mid = a.clone().add(b).multiplyScalar(0.5);
+    const dir = b.clone().sub(a);
+    const len = dir.length() || 0.0001;
+    segMeshes[i].position.copy(mid);
+    segMeshes[i].scale.set(1, len / restLength, 1);
+    segMeshes[i].quaternion.setFromUnitVectors(YAXIS, dir.normalize());
+  }
+  for (let i = 0; i < capMeshes.length; i++) capMeshes[i].position.copy(joints[i]);
+}
+
+// Position-based-dynamics distance solve: the grabbed joint is pinned,
+// the rest of the chain relaxes to keep each segment's length — this is
+// what makes dragging a point *bend* the rod instead of stretching it.
+function pbdRelax(piece, pinnedIndex, iterations = 14) {
+  const { joints, restLength: rest } = piece;
+  const n = joints.length;
+  for (let iter = 0; iter < iterations; iter++) {
+    for (let i = 0; i < n - 1; i++) {
+      const a = joints[i], b = joints[i + 1];
+      const delta = b.clone().sub(a);
+      const dist = delta.length() || 0.0001;
+      const diff = (dist - rest) / dist;
+      const correction = delta.multiplyScalar(diff * 0.5);
+      if (i !== pinnedIndex) a.add(correction);
+      if (i + 1 !== pinnedIndex) b.sub(correction);
+    }
+  }
+}
+
+function straightenSelected() {
+  const e = entities.get(selectedId);
+  if (!e || e.kind !== "bar") return;
+  const n = e.joints.length;
+  const a = e.joints[0].clone(), b = e.joints[n - 1].clone();
+  for (let i = 0; i < n; i++) e.joints[i].copy(a.clone().lerp(b, i / (n - 1)));
+  updateBarMesh(e);
+  showToast("Straightened.");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── SERVOS (motorised joints — weld other pieces to the arm) ──
+// ═══════════════════════════════════════════════════════════════
+function spawnServo() {
+  const start = nextSpawnPosition();
+  const base = new THREE.Vector3(start.x, 0.42, start.z);
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x223344, metalness: 0.55, roughness: 0.45 });
+  const armMat = new THREE.MeshStandardMaterial({ color: 0x00c8ff, metalness: 0.7, roughness: 0.3, emissive: 0x002233 });
+
+  const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.18), bodyMat);
+  bodyMesh.castShadow = bodyMesh.receiveShadow = true;
+  const mountMesh = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 10), bodyMat);
+  const armMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1, 10), armMat);
+  armMesh.castShadow = true;
+  const tipMesh = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 10), armMat);
 
   const id = uid();
-  const part = { id, name, wrapper, sourceUid: uidStr };
-  parts.set(id, part);
-  assemblyOf.set(id, id);
-  assemblyMembers.set(id, new Set([id]));
+  bodyMesh.userData = { entityId: id, kind: "servoBody" };
+  mountMesh.userData = { entityId: id, kind: "servoMount" };
+  armMesh.userData = { entityId: id, kind: "servoArm" };
+  tipMesh.userData = { entityId: id, kind: "servoTip" };
 
-  refreshPartsList();
-  updateTopStatus();
-  selectPart(id);
-  showToast(`Placed: ${name}`);
-  return part;
+  const group = new THREE.Group();
+  group.add(bodyMesh, mountMesh, armMesh, tipMesh);
+  scene.add(group);
+
+  const servo = {
+    id, kind: "servo", name: `Servo ${++servoCount}`,
+    base, armLength: 0.5, angle: 0,
+    targetAngle: THREE.MathUtils.degToRad(60),
+    speed: THREE.MathUtils.degToRad(90),
+    mode: "manual", running: false, sweepDir: 1,
+    bodyMesh, mountMesh, armMesh, tipMesh, group,
+    attached: new Set(),
+  };
+  entities.set(id, servo);
+  entityAssemblyOf.set(id, id);
+  entityAssemblyMembers.set(id, new Set([id]));
+  updateServoVisual(servo);
+  refreshEntityList(); updateTopStatus(); selectEntity(id);
+  showToast(`Placed: ${servo.name}`);
+  return servo;
 }
 
-function centerAndScale(root) {
-  const box = new THREE.Box3().setFromObject(root);
-  const size = new THREE.Vector3(); box.getSize(size);
-  const center = new THREE.Vector3(); box.getCenter(center);
-  root.position.sub(center); // center on origin
-  const maxDim = Math.max(size.x, size.y, size.z) || 1;
-  const scale = GLTF_SCALE_TARGET / maxDim;
-  const holder = new THREE.Group();
-  holder.add(root);
-  root.scale.setScalar(scale);
-  root.position.multiplyScalar(scale);
-  root.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  return holder;
+function servoTipWorld(servo) {
+  return new THREE.Vector3(
+    servo.base.x + Math.cos(servo.angle) * servo.armLength,
+    servo.base.y,
+    servo.base.z + Math.sin(servo.angle) * servo.armLength
+  );
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── SEARCH + SPAWN ──
-// ═══════════════════════════════════════════════════════════════
-async function runSearch(queryOverride) {
-  const q = (queryOverride ?? $("search-input").value).trim();
-  if (queryOverride) $("search-input").value = q;
-  if (!q) return;
-  $("search-status").textContent = "SEARCHING…";
-  $("results").innerHTML = "";
-  try {
-    const res = await fetch(`/api/build/search?q=${encodeURIComponent(q)}`);
-    const data = await res.json();
-    renderResults(data.results || []);
-    $("search-status").textContent = data.source === "sketchfab"
-      ? `${data.results.length} real models found`
-      : "using built-in parts (no live results)";
-  } catch (e) {
-    $("search-status").textContent = "search failed — offline?";
+function updateServoVisual(servo) {
+  servo.bodyMesh.position.copy(servo.base).add(new THREE.Vector3(0, 0.11, 0));
+  servo.mountMesh.position.copy(servo.base);
+  const tip = servoTipWorld(servo);
+  const mid = servo.base.clone().add(tip).multiplyScalar(0.5);
+  const dir = tip.clone().sub(servo.base);
+  const len = dir.length() || 0.0001;
+  servo.armMesh.position.copy(mid);
+  servo.armMesh.scale.set(1, len, 1);
+  servo.armMesh.quaternion.setFromUnitVectors(YAXIS, dir.normalize());
+  servo.tipMesh.position.copy(tip);
+}
+
+function stepServo(servo, dt) {
+  if (!servo.running) return 0;
+  const before = servo.angle;
+  if (servo.mode === "continuous") {
+    servo.angle += servo.speed * dt;
+  } else if (servo.mode === "sweep") {
+    const limit = servo.targetAngle;
+    let na = servo.angle + servo.speed * dt * servo.sweepDir;
+    if (na > limit) { na = limit; servo.sweepDir = -1; }
+    if (na < -limit) { na = -limit; servo.sweepDir = 1; }
+    servo.angle = na;
+  } else {
+    const diff = servo.targetAngle - servo.angle;
+    const maxStep = servo.speed * dt;
+    servo.angle += Math.max(-maxStep, Math.min(maxStep, diff));
   }
+  return servo.angle - before;
 }
 
-function renderResults(results) {
-  const box = $("results");
-  box.innerHTML = "";
-  for (const r of results) {
-    const card = document.createElement("div");
-    card.className = "part-card";
-    card.innerHTML = r.thumbnail
-      ? `<img src="${r.thumbnail}" loading="lazy"/>`
-      : `<div class="swatch" style="color:${r.color || '#00c8ff'}">⬡</div>`;
-    const label = document.createElement("div");
-    label.className = "pc-name";
-    label.textContent = r.name;
-    card.appendChild(label);
-    card.onclick = () => spawnFromResult(card, r);
-    box.appendChild(card);
-  }
-}
-
-async function spawnFromResult(cardEl, r) {
-  cardEl.classList.add("loading");
-  try {
-    const res = await fetch(`/api/build/model/${encodeURIComponent(r.uid)}`);
-    const data = await res.json();
-
-    if (data.kind === "placeholder") {
-      const mesh = buildPrimitiveMesh(data.part.shape, data.part.color);
-      addPart(data.part.name, mesh, r.uid);
-    } else if (data.kind === "gltf") {
-      loader.load(data.url, (gltf) => {
-        const holder = centerAndScale(gltf.scene);
-        addPart(r.name, holder, r.uid);
-      }, undefined, (err) => {
-        showToast(`Couldn't load ${r.name} — placing a placeholder instead.`);
-        const mesh = buildPrimitiveMesh("box", "#8fa3b0");
-        addPart(r.name, mesh, r.uid);
-      });
-    } else if (data.kind === "error") {
-      showToast(data.error);
-      if (data.fallback?.part) {
-        const mesh = buildPrimitiveMesh(data.fallback.part.shape, data.fallback.part.color);
-        addPart(data.fallback.part.name, mesh, r.uid);
-      }
+function stepAllServos(dt) {
+  for (const e of entities.values()) {
+    if (e.kind !== "servo") continue;
+    const dAngle = stepServo(e, dt);
+    updateServoVisual(e);
+    if (dAngle !== 0 && e.attached.size) {
+      for (const rootId of e.attached) rotateAssemblyEntitiesAround(rootId, e.base, YAXIS, dAngle);
     }
-  } catch (e) {
-    showToast("Couldn't reach Build Mode's model service.");
-  } finally {
-    cardEl.classList.remove("loading");
   }
+}
+
+function setServoMode(mode) {
+  const e = entities.get(selectedId);
+  if (!e || e.kind !== "servo") return;
+  e.mode = mode;
+  if (mode === "sweep") e.sweepDir = 1;
+  updateModeButtons(e);
+}
+function updateModeButtons(e) {
+  ["manual", "sweep", "continuous"].forEach((m) => {
+    $("mode-" + m).classList.toggle("active", e.mode === m);
+  });
+}
+function onAngleSlider(val) {
+  const e = entities.get(selectedId);
+  if (!e || e.kind !== "servo") return;
+  e.targetAngle = THREE.MathUtils.degToRad(+val);
+  $("angle-val").textContent = Math.round(val) + "°";
+  if (!e.running) {
+    const dAngle = e.targetAngle - e.angle;
+    e.angle = e.targetAngle;
+    updateServoVisual(e);
+    if (e.attached.size) for (const r of e.attached) rotateAssemblyEntitiesAround(r, e.base, YAXIS, dAngle);
+  }
+}
+function onSpeedSlider(val) {
+  const e = entities.get(selectedId);
+  if (!e || e.kind !== "servo") return;
+  e.speed = THREE.MathUtils.degToRad(+val);
+  $("speed-val").textContent = Math.round(val) + "°/s";
+}
+function toggleServoRun() {
+  const e = entities.get(selectedId);
+  if (!e || e.kind !== "servo") return;
+  e.running = !e.running;
+  $("servo-run-btn").textContent = e.running ? "⏸ STOP" : "▶ RUN";
+  $("servo-run-btn").classList.toggle("active", e.running);
+  showToast(e.running ? `${e.name} running.` : `${e.name} stopped.`);
 }
 
 // ═══════════════════════════════════════════════════════════════
 // ── SELECTION / LIST UI ──
 // ═══════════════════════════════════════════════════════════════
-function refreshPartsList() {
+function refreshEntityList() {
   const box = $("my-parts");
   box.innerHTML = "";
-  for (const part of parts.values()) {
+  for (const e of entities.values()) {
     const row = document.createElement("div");
-    const isConnected = assemblyMembers.get(assemblyOf.get(part.id)).size > 1;
-    row.className = "mp-item" + (part.id === selectedId ? " selected" : "") + (isConnected ? " connected" : "");
-    row.innerHTML = `<span class="mp-dot"></span><span style="flex:1">${part.name}</span><span class="mp-del" title="delete">✕</span>`;
-    row.querySelector("span:nth-child(2)").onclick = () => selectPart(part.id);
-    row.querySelector(".mp-del").onclick = (e) => { e.stopPropagation(); removePart(part.id); };
+    const welded = entityAssemblyMembers.get(entityAssemblyOf.get(e.id)).size > 1;
+    row.className = "mp-item" + (e.id === selectedId ? " selected" : "") + (welded ? " welded" : "");
+    row.innerHTML = `<span class="mp-dot"></span><span style="flex:1">${e.name}</span><span class="mp-del" title="delete">✕</span>`;
+    row.querySelector("span:nth-child(2)").onclick = () => selectEntity(e.id);
+    row.querySelector(".mp-del").onclick = (ev) => { ev.stopPropagation(); deleteEntity(e.id); };
     box.appendChild(row);
   }
-  $("part-count").textContent = `${parts.size} PART${parts.size === 1 ? "" : "S"}`;
 }
 
-function selectPart(id) {
+function selectEntity(id) {
   selectedId = id;
-  const part = parts.get(id);
-  $("sel-name").textContent = part ? part.name : "— none —";
-  refreshPartsList();
+  const e = entities.get(id);
+  $("sel-name").textContent = e ? e.name : "— none —";
+  $("bar-controls").style.display = e && e.kind === "bar" ? "block" : "none";
+  $("servo-controls").style.display = e && e.kind === "servo" ? "block" : "none";
+  if (e && e.kind === "servo") {
+    const ang = Math.round(THREE.MathUtils.radToDeg(e.targetAngle));
+    const spd = Math.round(THREE.MathUtils.radToDeg(e.speed));
+    $("angle-slider").value = ang; $("angle-val").textContent = ang + "°";
+    $("speed-slider").value = spd; $("speed-val").textContent = spd + "°/s";
+    updateModeButtons(e);
+    $("servo-run-btn").textContent = e.running ? "⏸ STOP" : "▶ RUN";
+    $("servo-run-btn").classList.toggle("active", e.running);
+  }
+  refreshEntityList();
   updateAssemblyDetail();
 }
 
-function deleteSelected() { if (selectedId) removePart(selectedId); }
+function deleteSelected() { if (selectedId) deleteEntity(selectedId); }
 
-function removePart(id) {
-  const part = parts.get(id);
-  if (!part) return;
-  scene.remove(part.wrapper);
-  parts.delete(id);
-  const asm = assemblyOf.get(id);
-  assemblyMembers.get(asm)?.delete(id);
-  assemblyOf.delete(id);
+function deleteEntity(id) {
+  const e = entities.get(id);
+  if (!e) return;
+  scene.remove(e.kind === "bar" ? e.group : e.group);
+  entities.delete(id);
+  const asm = entityAssemblyOf.get(id);
+  entityAssemblyMembers.get(asm)?.delete(id);
+  entityAssemblyOf.delete(id);
+  for (const other of entities.values()) if (other.kind === "servo") other.attached.delete(id);
+  weldBeads = weldBeads.filter((w) => {
+    if (w.entityIds.includes(id)) { scene.remove(w.mesh); return false; }
+    return true;
+  });
+  if (weldPending && weldPending.entityId === id) clearWeldPending();
   if (selectedId === id) selectedId = null;
-  refreshPartsList();
-  updateTopStatus();
-  updateAssemblyDetail();
+  refreshEntityList(); updateTopStatus(); updateAssemblyDetail();
+  $("sel-name").textContent = "— none —";
+  $("bar-controls").style.display = "none";
+  $("servo-controls").style.display = "none";
 }
 
-function nudgeRotate(axis, deg) {
-  if (!selectedId) return;
-  rotateAssemblyAround(selectedId, axis, THREE.MathUtils.degToRad(deg));
+function updateTopStatus() {
+  $("part-count").textContent = `${entities.size} PIECE${entities.size === 1 ? "" : "S"}`;
 }
-
-// ═══════════════════════════════════════════════════════════════
-// ── UNION-FIND (assemblies) ──
-// ═══════════════════════════════════════════════════════════════
-function sameAssembly(a, b) { return assemblyOf.get(a) === assemblyOf.get(b); }
-
-function unionAssemblies(a, b) {
-  const asmA = assemblyOf.get(a), asmB = assemblyOf.get(b);
-  if (asmA === asmB) return;
-  const membersA = assemblyMembers.get(asmA);
-  const membersB = assemblyMembers.get(asmB);
-  for (const m of membersB) { assemblyOf.set(m, asmA); membersA.add(m); }
-  assemblyMembers.delete(asmB);
-}
-
-function assemblyMemberIds(partId) {
-  return Array.from(assemblyMembers.get(assemblyOf.get(partId)) || [partId]);
-}
-
-// Move every part in the same rigid assembly by the same world-space delta.
-function translateAssembly(partId, deltaWorld) {
-  for (const id of assemblyMemberIds(partId)) {
-    parts.get(id)?.wrapper.position.add(deltaWorld);
-  }
-}
-
-// Rotate the whole assembly rigidly about the pivot part's current position.
-function rotateAssemblyAround(partId, axis, radians) {
-  const pivotPart = parts.get(partId);
-  if (!pivotPart) return;
-  const pivot = pivotPart.wrapper.position.clone();
-  const axisVec = axis === "x" ? new THREE.Vector3(1, 0, 0) : axis === "z" ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
-  const q = new THREE.Quaternion().setFromAxisAngle(axisVec, radians);
-  for (const id of assemblyMemberIds(partId)) {
-    const p = parts.get(id);
-    if (!p) continue;
-    const rel = p.wrapper.position.clone().sub(pivot);
-    rel.applyQuaternion(q);
-    p.wrapper.position.copy(pivot.clone().add(rel));
-    p.wrapper.quaternion.premultiply(q);
-  }
+function updateAssemblyDetail() {
+  const asm = new Set(entityAssemblyOf.values());
+  $("assembly-status").textContent = entities.size ? `${asm.size} STRUCTURE${asm.size === 1 ? "" : "S"}` : "—";
+  if (!entities.size) { $("assembly-detail").textContent = "Nothing built yet."; return; }
+  $("assembly-detail").textContent = asm.size === 1
+    ? "Everything is welded into one structure."
+    : `${asm.size} separate pieces — weld them together to build one structure.`;
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── MOUSE CONTROLS: click + drag a part along a horizontal plane ──
+// ── TOOLS ──
 // ═══════════════════════════════════════════════════════════════
-const raycaster = new THREE.Raycaster();
-const pointerNdc = new THREE.Vector2();
+let activeTool = "bend";
+const TOOL_HINTS = {
+  bend: "Grab any point on a bar and drag to bend it. Metal holds its shape once you let go.",
+  move: "Grab a piece and drag it around the floor. Welded pieces move together.",
+  weld: "Touch a point on one piece, then touch a point on another to fuse them with the torch.",
+  delete: "Click a piece to scrap it.",
+};
+function setTool(name) {
+  activeTool = name;
+  clearWeldPending();
+  ["bend", "move", "weld", "delete"].forEach((t) => $("tool-" + t).classList.toggle("active", t === name));
+  $("ticker").textContent = TOOL_HINTS[name];
+  $("gesture-hint").textContent = "Pinch thumb + index to " + name + " with your hand. Spread both hands apart / together to zoom.";
+}
 
-function ndcFromEvent(e) {
+function ndcFromScreen(sp) {
   const r = canvas.getBoundingClientRect();
-  pointerNdc.x = ((e.clientX - r.left) / r.width) * 2 - 1;
-  pointerNdc.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  return new THREE.Vector2(((sp.x - r.left) / r.width) * 2 - 1, -((sp.y - r.top) / r.height) * 2 + 1);
 }
 
-function partMeshes() { return Array.from(parts.values()).map((p) => p.wrapper); }
+const raycaster = new THREE.Raycaster();
 
-function wrapperOwning(object3D) {
-  let cur = object3D;
-  while (cur) {
-    for (const p of parts.values()) if (p.wrapper === cur) return p;
-    cur = cur.parent;
+function allPickableMeshes() {
+  const arr = [];
+  for (const e of entities.values()) {
+    if (e.kind === "bar") arr.push(...e.segMeshes, ...e.capMeshes);
+    else arr.push(e.bodyMesh, e.mountMesh, e.armMesh, e.tipMesh);
   }
+  return arr;
+}
+function pickAnyEntity() {
+  const hits = raycaster.intersectObjects(allPickableMeshes(), false);
+  if (!hits.length) return null;
+  return { entityId: hits[0].object.userData.entityId, point: hits[0].point };
+}
+function pickBarJoint() {
+  const meshes = [];
+  for (const e of entities.values()) if (e.kind === "bar") meshes.push(...e.segMeshes, ...e.capMeshes);
+  const hits = raycaster.intersectObjects(meshes, false);
+  if (!hits.length) return null;
+  const ud = hits[0].object.userData;
+  const piece = entities.get(ud.entityId);
+  if (!piece) return null;
+  let jointIndex;
+  if (ud.kind === "cap") jointIndex = ud.jointIndex;
+  else {
+    const a = piece.joints[ud.segIndex], b = piece.joints[ud.segIndex + 1];
+    jointIndex = hits[0].point.distanceTo(a) < hits[0].point.distanceTo(b) ? ud.segIndex : ud.segIndex + 1;
+  }
+  return { piece, jointIndex, point: hits[0].point };
+}
+function pickWeldPoint() {
+  const meshes = [];
+  for (const e of entities.values()) {
+    if (e.kind === "bar") meshes.push(...e.capMeshes);
+    else meshes.push(e.mountMesh, e.tipMesh);
+  }
+  const hits = raycaster.intersectObjects(meshes, false);
+  if (!hits.length) return null;
+  const ud = hits[0].object.userData;
+  if (ud.kind === "cap") return { entityId: ud.entityId, anchorKind: "joint", jointIndex: ud.jointIndex };
+  if (ud.kind === "servoMount") return { entityId: ud.entityId, anchorKind: "mount" };
+  if (ud.kind === "servoTip") return { entityId: ud.entityId, anchorKind: "tip" };
   return null;
 }
-
-function pickPart(e) {
-  ndcFromEvent(e);
-  raycaster.setFromCamera(pointerNdc, camera);
-  const hits = raycaster.intersectObjects(partMeshes(), true);
-  if (!hits.length) return null;
-  const part = wrapperOwning(hits[0].object);
-  return part ? { part, point: hits[0].point } : null;
+function anchorWorldPos(hit) {
+  const e = entities.get(hit.entityId);
+  if (!e) return new THREE.Vector3();
+  if (hit.anchorKind === "joint") return e.joints[hit.jointIndex].clone();
+  if (hit.anchorKind === "mount") return e.base.clone();
+  return servoTipWorld(e);
 }
 
-canvas.addEventListener("pointerdown", (e) => {
-  const hit = pickPart(e);
-  if (!hit) return;
-  selectPart(hit.part.id);
-  dragState.active = true;
-  dragState.partId = hit.part.id;
-  canvas.classList.add("dragging");
-  const y = hit.part.wrapper.position.y;
-  dragState.plane.setComponents(0, 1, 0, -y);
-  dragState.offset.copy(hit.part.wrapper.position).sub(hit.point);
-  canvas.setPointerCapture(e.pointerId);
-});
-canvas.addEventListener("pointermove", (e) => {
-  if (!dragState.active) return;
-  ndcFromEvent(e);
-  raycaster.setFromCamera(pointerNdc, camera);
-  const hitPoint = new THREE.Vector3();
-  if (raycaster.ray.intersectPlane(dragState.plane, hitPoint)) {
-    const target = hitPoint.add(dragState.offset);
-    const part = parts.get(dragState.partId);
-    const delta = target.clone().sub(part.wrapper.position);
-    translateAssembly(dragState.partId, delta);
-    checkProximity();
+// ── weld torch state ──
+let weldPending = null;
+let weldMarker = null;
+function clearWeldPending() {
+  weldPending = null;
+  if (weldMarker) { scene.remove(weldMarker); weldMarker = null; }
+}
+function handleWeldPick(hit) {
+  if (!weldPending) {
+    weldPending = hit;
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.85 });
+    weldMarker = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 12), mat);
+    weldMarker.position.copy(anchorWorldPos(hit));
+    scene.add(weldMarker);
+    showToast("Torch armed — now touch the second piece to fuse them.");
+    return;
   }
-});
-window.addEventListener("pointerup", () => {
-  dragState.active = false;
-  dragState.partId = null;
+  if (weldPending.entityId === hit.entityId) {
+    showToast("Pick a point on a different piece to weld to.");
+    return;
+  }
+  performWeld(weldPending, hit);
+  clearWeldPending();
+}
+function performWeld(hit1, hit2) {
+  let fixedHit = hit1, movingHit = hit2;
+  if (hit1.anchorKind === "tip") { fixedHit = hit1; movingHit = hit2; }
+  else if (hit2.anchorKind === "tip") { fixedHit = hit2; movingHit = hit1; }
+
+  const fixedPos = anchorWorldPos(fixedHit);
+  const movingPos = anchorWorldPos(movingHit);
+  translateAssemblyEntities(movingHit.entityId, fixedPos.clone().sub(movingPos));
+
+  if (fixedHit.anchorKind === "tip") {
+    const servo = entities.get(fixedHit.entityId);
+    servo.attached.add(movingHit.entityId);
+  }
+  const lock = (h) => {
+    const e = entities.get(h.entityId);
+    if (e && e.kind === "bar" && h.anchorKind === "joint") e.weldedJointIndices.add(h.jointIndex);
+  };
+  lock(fixedHit); lock(movingHit);
+
+  addWeldBead(fixedHit, movingHit);
+  unionEntities(fixedHit.entityId, movingHit.entityId);
+  refreshEntityList(); updateAssemblyDetail();
+  showToast("Welded.");
+}
+function addWeldBead(fixedHit, movingHit) {
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0xff6600, emissiveIntensity: 1.1, metalness: 0.2, roughness: 0.6 });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.058, 10, 10), mat);
+  scene.add(mesh);
+  const getPos = () => anchorWorldPos(fixedHit);
+  mesh.position.copy(getPos());
+  weldBeads.push({ mesh, getPos, entityIds: [fixedHit.entityId, movingHit.entityId] });
+  spawnWeldSparks(getPos());
+}
+function spawnWeldSparks(pos) {
+  const count = 18;
+  const positions = new Float32Array(count * 3);
+  const velocities = [];
+  for (let i = 0; i < count; i++) {
+    positions[i * 3] = pos.x; positions[i * 3 + 1] = pos.y; positions[i * 3 + 2] = pos.z;
+    velocities.push(new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.5 + 0.2, Math.random() - 0.5).normalize().multiplyScalar(0.6 + Math.random() * 0.8));
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({ color: 0xffcc55, size: 0.035, transparent: true, opacity: 1 });
+  const pts = new THREE.Points(geo, mat);
+  scene.add(pts);
+  const start = performance.now();
+  (function step() {
+    const t = (performance.now() - start) / 500;
+    if (t >= 1) { scene.remove(pts); geo.dispose(); mat.dispose(); return; }
+    const arr = geo.attributes.position.array;
+    for (let i = 0; i < count; i++) {
+      arr[i * 3] += velocities[i].x * 0.016;
+      arr[i * 3 + 1] += velocities[i].y * 0.016 - 0.02;
+      arr[i * 3 + 2] += velocities[i].z * 0.016;
+    }
+    geo.attributes.position.needsUpdate = true;
+    mat.opacity = 1 - t;
+    requestAnimationFrame(step);
+  })();
+}
+
+// ── unified pointer handling (mouse + hand share this) ──
+function toolPointerDown(sp) {
+  const ndc = ndcFromScreen(sp);
+  raycaster.setFromCamera(ndc, camera);
+
+  if (activeTool === "bend") {
+    const hit = pickBarJoint();
+    if (hit && !hit.piece.weldedJointIndices.has(hit.jointIndex)) {
+      bendCtx = { pieceId: hit.piece.id, jointIndex: hit.jointIndex };
+      selectEntity(hit.piece.id);
+      canvas.classList.add("dragging");
+    } else if (hit) {
+      showToast("That joint is welded — bend it somewhere else on the bar.");
+    }
+  } else if (activeTool === "move") {
+    const hit = pickAnyEntity();
+    if (hit) {
+      selectEntity(hit.entityId);
+      const anchor = entityAnchorPoint(hit.entityId);
+      moveCtx = {
+        entityId: hit.entityId,
+        plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -anchor.y),
+        offset: anchor.clone().sub(hit.point),
+      };
+      canvas.classList.add("dragging");
+    }
+  } else if (activeTool === "weld") {
+    const hit = pickWeldPoint();
+    if (hit) handleWeldPick(hit);
+  } else if (activeTool === "delete") {
+    const hit = pickAnyEntity();
+    if (hit) deleteEntity(hit.entityId);
+  }
+}
+function toolPointerMove(sp) {
+  const ndc = ndcFromScreen(sp);
+  raycaster.setFromCamera(ndc, camera);
+
+  if (bendCtx) {
+    const piece = entities.get(bendCtx.pieceId);
+    if (!piece) { bendCtx = null; return; }
+    const jp = piece.joints[bendCtx.jointIndex];
+    const normal = new THREE.Vector3(); camera.getWorldDirection(normal);
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, jp);
+    const hitPoint = new THREE.Vector3();
+    if (raycaster.ray.intersectPlane(plane, hitPoint)) {
+      jp.copy(hitPoint);
+      pbdRelax(piece, bendCtx.jointIndex);
+      updateBarMesh(piece);
+    }
+  } else if (moveCtx) {
+    const hitPoint = new THREE.Vector3();
+    if (raycaster.ray.intersectPlane(moveCtx.plane, hitPoint)) {
+      const target = hitPoint.add(moveCtx.offset);
+      const anchor = entityAnchorPoint(moveCtx.entityId);
+      translateAssemblyEntities(moveCtx.entityId, target.clone().sub(anchor));
+    }
+  }
+}
+function toolPointerUp() {
+  bendCtx = null; moveCtx = null;
   canvas.classList.remove("dragging");
-});
+}
+
+canvas.addEventListener("pointerdown", (e) => { toolPointerDown({ x: e.clientX, y: e.clientY }); canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener("pointermove", (e) => { if (bendCtx || moveCtx) toolPointerMove({ x: e.clientX, y: e.clientY }); });
+window.addEventListener("pointerup", () => toolPointerUp());
 
 window.addEventListener("keydown", (e) => {
-  if (!selectedId) return;
-  if (e.key === "q") nudgeRotate("y", -15);
-  if (e.key === "e") nudgeRotate("y", 15);
-  if (e.key === "z") nudgeRotate("x", -15);
-  if (e.key === "x") nudgeRotate("x", 15);
-  if (e.key === "Delete" || e.key === "Backspace") deleteSelected();
+  if (e.key === "1") setTool("bend");
+  if (e.key === "2") setTool("move");
+  if (e.key === "3") setTool("weld");
+  if (e.key === "4") setTool("delete");
+  if ((e.key === "Delete" || e.key === "Backspace") && selectedId) deleteSelected();
 });
 
 // ═══════════════════════════════════════════════════════════════
-// ── HAND CONTROL: pinch to grab, twist to spin ──
-// Reuses the app's existing hand-tracking.js module and its raw
-// "jarvis:handframe" landmark broadcast so Build Mode gets real
-// pinch/grab/twist gestures instead of reinventing hand tracking.
+// ── ZOOM ──
+// ═══════════════════════════════════════════════════════════════
+function zoomBy(factor) {
+  const offset = camera.position.clone().sub(controls.target).multiplyScalar(factor);
+  const dist = THREE.MathUtils.clamp(offset.length(), controls.minDistance, controls.maxDistance);
+  offset.setLength(dist);
+  camera.position.copy(controls.target).add(offset);
+}
+// hand-tracking.js already detects a two-hand spread/close gesture and
+// fires this — spreading hands pulls back (out), bringing them together
+// zooms in, matching the same convention used elsewhere in the app.
+window.addEventListener("jarvis:zoom", (e) => {
+  zoomBy(e.detail.dir === "out" ? 1.25 : 0.8);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── HAND CONTROL: pinch drives whichever tool is active ──
 // ═══════════════════════════════════════════════════════════════
 let handActive = false;
 let handStream = null;
 const handState = [
-  { pinching: false, grabbedId: null, lastWorldPos: null, lastAngle: 0 },
-  { pinching: false, grabbedId: null, lastWorldPos: null, lastAngle: 0 },
+  { pinching: false, owner: false },
+  { pinching: false, owner: false },
 ];
 const PINCH_ON = 0.055, PINCH_OFF = 0.075;
+let dragOwnerHand = -1; // only one hand drives bend/move at a time
 
 async function toggleHandControl() {
   const btn = $("hand-toggle-btn");
@@ -623,7 +897,7 @@ async function toggleHandControl() {
       handActive = true;
       btn.textContent = "✋ HAND CONTROL: ON";
       btn.classList.add("active");
-      showToast("Hand control enabled — pinch a part to grab it.");
+      showToast("Hand control enabled — pinch to use the active tool.");
     } catch (e) {
       showToast("Couldn't access the camera for hand control.");
     }
@@ -631,27 +905,16 @@ async function toggleHandControl() {
     window.HandTracking.stop();
     if (handStream) handStream.getTracks().forEach((t) => t.stop());
     handActive = false;
-    handState.forEach((h) => { h.pinching = false; h.grabbedId = null; });
+    handState.forEach((h) => { h.pinching = false; h.owner = false; });
+    dragOwnerHand = -1;
+    toolPointerUp();
     btn.textContent = "✋ ENABLE HAND CONTROL";
     btn.classList.remove("active");
   }
 }
 
 function dist2(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
-
-function screenPointFromLandmark(lm) {
-  return { x: (1 - lm.x) * window.innerWidth, y: lm.y * window.innerHeight };
-}
-
-function raycastAt(screenPt) {
-  pointerNdc.x = (screenPt.x / window.innerWidth) * 2 - 1;
-  pointerNdc.y = -(screenPt.y / window.innerHeight) * 2 + 1;
-  raycaster.setFromCamera(pointerNdc, camera);
-  const hits = raycaster.intersectObjects(partMeshes(), true);
-  if (!hits.length) return null;
-  const part = wrapperOwning(hits[0].object);
-  return part ? { part, point: hits[0].point, dist: hits[0].distance } : null;
-}
+function screenPointFromLandmark(lm) { return { x: (1 - lm.x) * window.innerWidth, y: lm.y * window.innerHeight }; }
 
 window.addEventListener("jarvis:handframe", (e) => {
   if (!handActive) return;
@@ -659,182 +922,38 @@ window.addEventListener("jarvis:handframe", (e) => {
   for (let h = 0; h < 2; h++) {
     const st = handState[h];
     const lm = allHands[h];
-    if (!lm) { st.pinching = false; st.grabbedId = null; continue; }
-
-    const thumb = lm[4], index = lm[8], wrist = lm[0], indexMcp = lm[5];
+    if (!lm) {
+      if (st.owner) { toolPointerUp(); dragOwnerHand = -1; }
+      st.pinching = false; st.owner = false;
+      continue;
+    }
+    const thumb = lm[4], index = lm[8];
     const pd = dist2(thumb, index);
     const wasPinching = st.pinching;
     st.pinching = wasPinching ? pd < PINCH_OFF : pd < PINCH_ON;
-
     const screenPt = screenPointFromLandmark(index);
-    const angle = Math.atan2(indexMcp.y - wrist.y, indexMcp.x - wrist.x);
 
-    if (st.pinching && !wasPinching) {
-      // pinch just started — try to grab whatever's under the fingertip
-      const hit = raycastAt(screenPt);
-      if (hit) {
-        st.grabbedId = hit.part.id;
-        st.lastWorldPos = hit.point.clone();
-        st.lastAngle = angle;
-        selectPart(hit.part.id);
-      }
-    } else if (st.pinching && st.grabbedId && parts.has(st.grabbedId)) {
-      pointerNdc.x = (screenPt.x / window.innerWidth) * 2 - 1;
-      pointerNdc.y = -(screenPt.y / window.innerHeight) * 2 + 1;
-      raycaster.setFromCamera(pointerNdc, camera);
-      const depth = camera.position.distanceTo(st.lastWorldPos);
-      const dir = raycaster.ray.direction.clone();
-      const newWorldPos = camera.position.clone().add(dir.multiplyScalar(depth));
-
-      const deltaMove = newWorldPos.clone().sub(st.lastWorldPos);
-      if (deltaMove.length() > 0.0005) translateAssembly(st.grabbedId, deltaMove);
-
-      let deltaAngle = angle - st.lastAngle;
-      while (deltaAngle > Math.PI) deltaAngle -= Math.PI * 2;
-      while (deltaAngle < -Math.PI) deltaAngle += Math.PI * 2;
-      if (Math.abs(deltaAngle) > 0.01) rotateAssemblyAround(st.grabbedId, "y", -deltaAngle);
-
-      st.lastWorldPos = newWorldPos;
-      st.lastAngle = angle;
-      checkProximity();
-    } else if (!st.pinching) {
-      st.grabbedId = null;
+    if (st.pinching && !wasPinching && dragOwnerHand === -1) {
+      dragOwnerHand = h; st.owner = true;
+      toolPointerDown(screenPt);
+    } else if (st.pinching && st.owner) {
+      toolPointerMove(screenPt);
+    } else if (!st.pinching && wasPinching && st.owner) {
+      toolPointerUp();
+      st.owner = false; dragOwnerHand = -1;
     }
   }
 });
 
 // ═══════════════════════════════════════════════════════════════
-// ── PROXIMITY / AUTO-SCREW CONFIRMATION ──
-// Jarvis notices when two unconnected parts are touching and asks
-// before joining them — never silently welds things together.
+// ── STARTER PIECE ──
 // ═══════════════════════════════════════════════════════════════
-const SNAP_MARGIN = 0.06;
-const DISMISS_COOLDOWN_MS = 15000;
-let pendingQueue = [];
-let currentConfirm = null;
-
-function pairKey(a, b) { return [a, b].sort().join("|"); }
-
-function checkProximity() {
-  if (currentConfirm) return; // one at a time
-  const ids = Array.from(parts.keys());
-  for (let i = 0; i < ids.length; i++) {
-    for (let j = i + 1; j < ids.length; j++) {
-      const a = ids[i], b = ids[j];
-      if (sameAssembly(a, b)) continue;
-      const key = pairKey(a, b);
-      const dismissedAt = dismissedPairs.get(key);
-      if (dismissedAt && Date.now() - dismissedAt < DISMISS_COOLDOWN_MS) continue;
-      if (alreadyQueued(a, b)) continue;
-
-      const boxA = new THREE.Box3().setFromObject(parts.get(a).wrapper).expandByScalar(SNAP_MARGIN);
-      const boxB = new THREE.Box3().setFromObject(parts.get(b).wrapper).expandByScalar(SNAP_MARGIN);
-      if (boxA.intersectsBox(boxB)) {
-        pendingQueue.push({ a, b });
-      }
-    }
-  }
-  processQueue();
-}
-
-function alreadyQueued(a, b) {
-  const key = pairKey(a, b);
-  return pendingQueue.some((p) => pairKey(p.a, p.b) === key);
-}
-
-function processQueue() {
-  if (currentConfirm || !pendingQueue.length) return;
-  const next = pendingQueue.shift();
-  if (!parts.has(next.a) || !parts.has(next.b) || sameAssembly(next.a, next.b)) return processQueue();
-  currentConfirm = next;
-  const nameA = parts.get(next.a).name, nameB = parts.get(next.b).name;
-  const question = `${nameA} and ${nameB} are touching but not connected. Shall I connect them with screws?`;
-  $("confirm-text").textContent = `🔩 ${question}`;
-  $("confirm-toast").classList.add("show");
-  try { window.parent.postMessage({ type: "BUILD_ASK_CONNECT", question }, "*"); } catch (e) {}
-}
-
-function answerConnect(yes) {
-  if (!currentConfirm) return;
-  const { a, b } = currentConfirm;
-  $("confirm-toast").classList.remove("show");
-  if (yes && parts.has(a) && parts.has(b)) {
-    unionAssemblies(a, b);
-    placeScrewMarker(a, b);
-    showToast(`Connected ${parts.get(a).name} to ${parts.get(b).name}.`);
-    refreshPartsList();
-    updateAssemblyDetail();
-  } else {
-    dismissedPairs.set(pairKey(a, b), Date.now());
-  }
-  currentConfirm = null;
-  processQueue();
-}
-
-// Called by jarvis.js (parent window) when the user answers by voice
-// instead of tapping the on-screen buttons.
-window.addEventListener("message", (e) => {
-  if (e.data?.type === "BUILD_CONFIRM") answerConnect(!!e.data.yes);
-  if (e.data?.type === "BUILD_SEARCH" && e.data.query) runSearch(e.data.query);
-});
-
-function placeScrewMarker(a, b) {
-  const pa = parts.get(a).wrapper.position, pb = parts.get(b).wrapper.position;
-  const mid = pa.clone().add(pb).multiplyScalar(0.5);
-  const screw = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.025, 0.025, 0.12, 8),
-    new THREE.MeshStandardMaterial({ color: 0x222831, metalness: 0.8, roughness: 0.3 })
-  );
-  screw.position.copy(mid);
-  scene.add(screw);
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── VALIDATE / RENDER BUILD ──
-// ═══════════════════════════════════════════════════════════════
-function validateBuild() {
-  checkProximity();
-  if (currentConfirm || pendingQueue.length) {
-    showToast("Resolve the pending connection prompt first, sir.");
-    return;
-  }
-  const assemblies = new Set(assemblyOf.values());
-  if (parts.size === 0) { showToast("Nothing to render yet — pull in a part first."); return; }
-  if (assemblies.size === 1) {
-    showToast("BUILD VALIDATED — one solid structure. Rendering.");
-    flashAssemblyGreen();
-  } else {
-    showToast(`Warning: ${assemblies.size} separate, unconnected pieces — this will fall apart when rendered.`, 5000);
-  }
-  updateAssemblyDetail();
-}
-
-function flashAssemblyGreen() {
-  for (const part of parts.values()) {
-    const helper = new THREE.BoxHelper(part.wrapper, 0x00ff88);
-    scene.add(helper);
-    setTimeout(() => scene.remove(helper), 1200);
-  }
-}
-
-function updateTopStatus() {
-  $("part-count").textContent = `${parts.size} PART${parts.size === 1 ? "" : "S"}`;
-}
-function updateAssemblyDetail() {
-  const assemblies = new Set(assemblyOf.values());
-  $("assembly-status").textContent = parts.size ? `${assemblies.size} ASSEMBLY GROUP${assemblies.size === 1 ? "" : "S"}` : "—";
-  if (!parts.size) { $("assembly-detail").textContent = "No parts placed yet."; return; }
-  $("assembly-detail").textContent = assemblies.size === 1
-    ? "All parts are screwed into a single structure."
-    : `${assemblies.size} disconnected groups — move pieces together so Jarvis can offer to screw them.`;
-}
-
-setInterval(checkProximity, 700);
+spawnBar();
+setTool("bend");
 
 function exitBuild() {
   try { window.parent.postMessage({ type: "CLOSE_BUILD" }, "*"); } catch (e) {}
 }
-
 </script>
 </body>
 </html>
