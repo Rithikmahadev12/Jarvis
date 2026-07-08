@@ -1541,11 +1541,25 @@ async function handleAction(action, meta, replyText) {
       });
       break;
     }
-    case "SHOW_NEWS": {
+    case "SHOW_NEWS_WIDGET": {
       const newsPayload = { newsData: meta?.newsData || null, briefing: replyText, label: meta?.label || "" };
       speak(replyText, () => {
         switchMode("news", newsPayload);
         mic.resume();
+      });
+      break;
+    }
+    case "SHOW_NEWS_PAGE": {
+      const newsPayload = { newsData: meta?.newsData || null, briefing: replyText, label: meta?.label || "" };
+      speak(replyText, () => {
+        // Hand the fresh data to the news page via sessionStorage so it
+        // shows the exact same headlines/briefing JARVIS just spoke —
+        // this is a real same-tab navigation, not an iframe, so there's
+        // no postMessage channel to use instead.
+        try {
+          sessionStorage.setItem("jarvis_news_payload", JSON.stringify({ ts: Date.now(), ...newsPayload }));
+        } catch (e) {}
+        window.location.href = "/news";
       });
       break;
     }
