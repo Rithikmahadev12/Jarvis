@@ -236,12 +236,34 @@ const TOOLS = [
   {
     type: "function",
     function: {
-      name: "control_spotify",
-      description: "Control Spotify — play a song/artist, pause, resume, skip, check what's playing, or change volume.",
+      name: "play_music",
+      description: "Play a song by opening it on YouTube — not Spotify, Jarvis doesn't use Spotify for playback. Call this whenever the user asks to play music or a song, named or not. If they don't name a song, leave query empty so Jarvis asks what to play. If they respond with something like 'you pick', 'surprise me', 'whatever you think', or 'play something good', set pick_for_me to true so Jarvis chooses based on the conversation's mood.",
       parameters: {
         type: "object",
-        properties: { query: { type: "string", description: "The playback command in natural language, e.g. 'play Bohemian Rhapsody', 'pause', 'skip', 'volume 40', 'what's playing'." } },
-        required: ["query"],
+        properties: {
+          query:       { type: "string", description: "Song or artist name, if the user named one. Leave empty otherwise." },
+          pick_for_me: { type: "boolean", description: "True if the user wants Jarvis to choose the song itself instead of naming one." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "trigger_break",
+      description: "Call this when the user expresses that they're tired, exhausted, worn out, or need a break — an emotional/state statement like 'I'm tired', not a literal request to open an app. Jarvis will tell them to take a break and pull up YouTube and Instagram for them automatically, unprompted.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "open_research",
+      description: "Call when the user wants you to actually research or look into a topic and pull something up to help — e.g. 'I want to research X', 'look into X for me', 'find me something on X', 'pull something up about X'. Not for quick factual questions you can just answer directly in words.",
+      parameters: {
+        type: "object",
+        properties: { topic: { type: "string", description: "What to research." } },
+        required: ["topic"],
       },
     },
   },
@@ -274,7 +296,7 @@ async function chatWithTools({ message, userTitle = "Sir", memories = [], contex
 
   const systemPrompt = getSystemPrompt(T, memories, context, []) + `
 
-You have real tools for real actions — timers, reminders, weather, Spotify, and smart home control. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. If nothing calls for a tool, just answer normally in plain text.
+You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, and noticing when the user needs a break. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. If nothing calls for a tool, just answer normally in plain text.
 
 Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use this to compute datetime_iso for reminders.`;
 
