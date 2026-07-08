@@ -52,6 +52,15 @@
 .ht-cursor-click {
   animation: htClickPulse 0.22s ease-out;
 }
+.ht-cursor-grabbing .ht-cursor-dot {
+  background: var(--green, #00ff88);
+  box-shadow: 0 0 12px rgba(0,255,136,0.75);
+  transform: translate(-50%, -50%) scale(1.35);
+}
+.ht-cursor-grabbing .ht-cursor-ring-fill,
+.ht-cursor-grabbing .ht-cursor-ring-bg {
+  stroke: var(--green, #00ff88);
+}
 @keyframes htClickPulse {
   0%   { transform: translate(-50%, -50%) scale(1); }
   50%  { transform: translate(-50%, -50%) scale(1.6); }
