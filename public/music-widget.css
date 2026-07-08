@@ -13,17 +13,18 @@
   color: #ffffff;
   font-family: var(--raj, 'Rajdhani', sans-serif);
 
-  background: linear-gradient(135deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.03) 60%, rgba(255,255,255,0.06) 100%),
-              rgba(18,26,38,0.55);
-  backdrop-filter: blur(22px) saturate(140%);
-  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  background: linear-gradient(135deg, rgba(160,220,255,0.14) 0%, rgba(80,150,210,0.06) 60%, rgba(180,225,255,0.10) 100%),
+              rgba(18,30,44,0.55);
+  backdrop-filter: blur(22px) saturate(160%);
+  -webkit-backdrop-filter: blur(22px) saturate(160%);
 
   box-shadow:
-    0 8px 32px rgba(0,0,0,0.45),
-    inset 0 1px 1px rgba(255,255,255,0.25),
-    inset 0 0 0 1px rgba(255,255,255,0.04);
+    0 8px 32px rgba(0,20,40,0.45),
+    inset 0 1px 1px rgba(200,235,255,0.35),
+    inset 0 0 0 1px rgba(160,220,255,0.06),
+    0 0 24px rgba(100,190,255,0.10);
 
-  border: 1px solid rgba(255,255,255,0.22);
+  border: 1px solid rgba(170,225,255,0.30);
 
   clip-path: polygon(26px 0%, 100% 0%, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0% 100%, 0% 0%);
 
@@ -51,8 +52,8 @@
   left: 26px;
   width: 80px;
   height: 3px;
-  background: linear-gradient(90deg, rgba(255,255,255,0.7), rgba(120,200,255,0.4));
-  box-shadow: 0 0 8px rgba(120,200,255,0.35);
+  background: linear-gradient(90deg, rgba(190,230,255,0.85), rgba(100,190,255,0.55));
+  box-shadow: 0 0 10px rgba(100,190,255,0.45);
 }
 
 .mw-close {
@@ -82,14 +83,14 @@
 .mw-art {
   width: 100px;
   height: 100px;
-  background: linear-gradient(160deg, rgba(255,255,255,0.10), rgba(255,255,255,0.02));
-  border: 1px solid rgba(255,255,255,0.16);
+  background: linear-gradient(160deg, rgba(170,220,255,0.16), rgba(120,190,255,0.03));
+  border: 1px solid rgba(170,225,255,0.22);
   border-radius: 8px;
   flex-shrink: 0;
   display: flex;
   justify-content: center;
   align-items: center;
-  color: rgba(255,255,255,0.4);
+  color: rgba(200,230,255,0.55);
   overflow: hidden;
 }
 .mw-art img { width: 100%; height: 100%; object-fit: cover; border-radius: 7px; }
