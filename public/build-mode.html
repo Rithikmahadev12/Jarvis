@@ -132,7 +132,13 @@ input[type=range]{width:100%;accent-color:var(--amber);margin-top:2px}
     <button class="tool-btn" onclick="zoomBy(1.22)">🔍− OUT</button>
   </div>
 
-  <div class="sb-label">⬡ SCALE BUILD</div>
+  <div class="sb-label">⬡ SCALE PIECE</div>
+  <div class="tool-grid">
+    <button class="tool-btn" onclick="scaleSelectedPiece(1.25)">⤢ BIGGER</button>
+    <button class="tool-btn" onclick="scaleSelectedPiece(0.8)">⤡ SMALLER</button>
+  </div>
+
+  <div class="sb-label">⬡ SCALE WHOLE BUILD</div>
   <div class="tool-grid">
     <button class="tool-btn" onclick="scaleBuild(1.25)">⤢ BIGGER</button>
     <button class="tool-btn" onclick="scaleBuild(0.8)">⤡ SMALLER</button>
@@ -427,6 +433,44 @@ function scaleBuild(factor) {
   // zoom the camera out to keep a growing build in frame
   if (factor > 1) zoomBy(Math.min(factor, 1.4));
   showToast(`Build scaled to ${Math.round(buildScale * 100)}%.`);
+}
+
+// Scales just the SELECTED piece (and anything welded to it, so a fused
+// assembly grows as one object) around its own centroid, leaving every
+// other piece in the scene untouched — unlike scaleBuild() above, which
+// grows everything at once.
+function scaleSelectedPiece(factor) {
+  if (!selectedId || !entities.has(selectedId)) {
+    showToast("Select a piece first, then scale it.");
+    return;
+  }
+  const memberIds = assemblyMemberIds(selectedId);
+  const members = memberIds.map((id) => entities.get(id)).filter(Boolean);
+  if (!members.length) return;
+
+  const pts = [];
+  for (const e of members) {
+    if (e.kind === "bar") e.joints.forEach((j) => pts.push(j));
+    else pts.push(e.base);
+  }
+  const pivot = new THREE.Vector3();
+  pts.forEach((p) => pivot.add(p));
+  pivot.divideScalar(pts.length);
+
+  for (const e of members) {
+    e.sizeScale = (e.sizeScale || 1) * factor;
+    if (e.kind === "bar") {
+      e.joints.forEach((j) => { j.sub(pivot).multiplyScalar(factor).add(pivot); });
+      e.restLength *= factor;
+      updateBarMesh(e);
+    } else {
+      e.base.sub(pivot).multiplyScalar(factor).add(pivot);
+      if (e.kind === "servo") e.armLength *= factor;
+      updateEntityVisual(e);
+    }
+  }
+  const label = members.length > 1 ? "Piece (welded assembly)" : (entities.get(selectedId)?.name || "Piece");
+  showToast(`${label} scaled to ${Math.round((members[0].sizeScale || 1) * 100)}%.`);
 }
 
 // ═══════════════════════════════════════════════════════════════
