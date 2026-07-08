@@ -270,6 +270,8 @@ let entities = new Map();             // id -> entity
 let entityAssemblyOf = new Map();     // entityId -> assemblyId
 let entityAssemblyMembers = new Map();// assemblyId -> Set(entityId)
 let weldBeads = [];                   // [{mesh, getPos, entityIds}]
+let barWeldLinks = [];                // [{aId,aIdx,bId,bIdx}] bar-to-bar joint welds —
+                                       // these are the only weld type bend ripples through
 let selectedId = null;
 let spawnIndex = 0, barCount = 0, servoCount = 0, ledCount = 0;
 
@@ -490,28 +492,68 @@ function updateBarMesh(piece) {
   for (let i = 0; i < capMeshes.length; i++) { capMeshes[i].position.copy(joints[i]); capMeshes[i].scale.setScalar(t); }
 }
 
-// Position-based-dynamics distance solve: the grabbed joint is pinned,
-// the rest of the chain relaxes to keep each segment's length — this is
-// what makes dragging a point *bend* the rod instead of stretching it.
-// Welded joints are ALSO pinned (not just excluded from being grabbed) —
-// otherwise bending the free end of an already-welded bar would drag the
-// welded end away from the servo it's attached to, which is exactly why
-// the bar and the servo used to visibly fly apart when the servo ran.
-function pbdRelax(piece, pinnedIndex, iterations = 14) {
-  const { joints, restLength: rest, weldedJointIndices } = piece;
-  const n = joints.length;
-  const isPinned = (i) => i === pinnedIndex || weldedJointIndices.has(i);
+// A joint welded to a SERVO or LED stays a fixed anchor — those parts are
+// rigid, not bendable, so the bar shouldn't be able to drag them around.
+// A joint welded to another BAR is different: it's a link in a longer
+// chain, so it should NOT be pinned — it should propagate motion into
+// the other bar instead, which is what makes a whole welded assembly
+// bend as one continuous piece.
+function jointWeldedToNonBar(piece, jointIndex) {
+  if (!piece.weldedJointIndices.has(jointIndex)) return false;
+  const isBarLink = barWeldLinks.some((w) =>
+    (w.aId === piece.id && w.aIdx === jointIndex) ||
+    (w.bId === piece.id && w.bIdx === jointIndex));
+  return !isBarLink;
+}
+
+// Position-based-dynamics distance solve, run across every bar in the
+// welded assembly at once: the grabbed joint is pinned, joints welded to
+// a servo/LED are pinned to that anchor, and everything else (including
+// bar-to-bar weld joints) relaxes to keep each segment's length. After
+// each bar's internal pass, bar-to-bar weld joints are snapped back to
+// coincide with their partner joint — that coupling is what lets a bend
+// on one bar ripple through every bar fused to it, like one long chain.
+function pbdRelaxAssembly(pinnedEntityId, pinnedJointIndex, iterations = 14) {
+  const asmId = entityAssemblyOf.get(pinnedEntityId);
+  const memberIds = Array.from(entityAssemblyMembers.get(asmId) || [pinnedEntityId]);
+  const bars = memberIds.map((id) => entities.get(id)).filter((e) => e && e.kind === "bar");
+  if (!bars.length) return;
+
+  const isHardPinned = (piece, i) =>
+    (piece.id === pinnedEntityId && i === pinnedJointIndex) || jointWeldedToNonBar(piece, i);
+
+  const links = barWeldLinks.filter((w) =>
+    bars.some((b) => b.id === w.aId) && bars.some((b) => b.id === w.bId));
+
   for (let iter = 0; iter < iterations; iter++) {
-    for (let i = 0; i < n - 1; i++) {
-      const a = joints[i], b = joints[i + 1];
-      const delta = b.clone().sub(a);
-      const dist = delta.length() || 0.0001;
-      const diff = (dist - rest) / dist;
-      const correction = delta.multiplyScalar(diff * 0.5);
-      if (!isPinned(i)) a.add(correction);
-      if (!isPinned(i + 1)) b.sub(correction);
+    for (const piece of bars) {
+      const { joints, restLength: rest } = piece;
+      for (let i = 0; i < joints.length - 1; i++) {
+        const a = joints[i], b = joints[i + 1];
+        const delta = b.clone().sub(a);
+        const dist = delta.length() || 0.0001;
+        const diff = (dist - rest) / dist;
+        const correction = delta.multiplyScalar(diff * 0.5);
+        if (!isHardPinned(piece, i)) a.add(correction);
+        if (!isHardPinned(piece, i + 1)) b.sub(correction);
+      }
+    }
+    for (const link of links) {
+      const pieceA = entities.get(link.aId), pieceB = entities.get(link.bId);
+      if (!pieceA || !pieceB) continue;
+      const jointA = pieceA.joints[link.aIdx], jointB = pieceB.joints[link.bIdx];
+      const aPinned = isHardPinned(pieceA, link.aIdx);
+      const bPinned = isHardPinned(pieceB, link.bIdx);
+      if (aPinned && bPinned) continue;
+      if (aPinned) jointB.copy(jointA);
+      else if (bPinned) jointA.copy(jointB);
+      else {
+        const mid = jointA.clone().add(jointB).multiplyScalar(0.5);
+        jointA.copy(mid); jointB.copy(mid);
+      }
     }
   }
+  for (const piece of bars) updateBarMesh(piece);
 }
 
 function straightenSelected() {
@@ -838,6 +880,7 @@ function deleteEntity(id) {
     if (w.entityIds.includes(id)) { scene.remove(w.mesh); return false; }
     return true;
   });
+  barWeldLinks = barWeldLinks.filter((w) => w.aId !== id && w.bId !== id);
   if (weldPending && weldPending.entityId === id) clearWeldPending();
   if (selectedId === id) selectedId = null;
   refreshEntityList(); updateTopStatus(); updateAssemblyDetail();
@@ -981,6 +1024,18 @@ function performWeld(hit1, hit2) {
   };
   lock(fixedHit); lock(movingHit);
 
+  // If both sides of the weld are bar joints, remember the link so bend
+  // can propagate across it instead of treating it as a fixed anchor.
+  if (fixedHit.anchorKind === "joint" && movingHit.anchorKind === "joint") {
+    const eA = entities.get(fixedHit.entityId), eB = entities.get(movingHit.entityId);
+    if (eA && eA.kind === "bar" && eB && eB.kind === "bar") {
+      barWeldLinks.push({
+        aId: fixedHit.entityId, aIdx: fixedHit.jointIndex,
+        bId: movingHit.entityId, bIdx: movingHit.jointIndex,
+      });
+    }
+  }
+
   addWeldBead(fixedHit, movingHit);
   unionEntities(fixedHit.entityId, movingHit.entityId);
   refreshEntityList(); updateAssemblyDetail();
@@ -1031,12 +1086,12 @@ function toolPointerDown(sp) {
 
   if (activeTool === "bend") {
     const hit = pickBarJoint();
-    if (hit && !hit.piece.weldedJointIndices.has(hit.jointIndex)) {
+    if (hit && !jointWeldedToNonBar(hit.piece, hit.jointIndex)) {
       bendCtx = { pieceId: hit.piece.id, jointIndex: hit.jointIndex };
       selectEntity(hit.piece.id);
       canvas.classList.add("dragging");
     } else if (hit) {
-      showToast("That joint is welded — bend it somewhere else on the bar.");
+      showToast("That joint is welded to a servo/LED — bend it somewhere else on the bar.");
     }
   } else if (activeTool === "move") {
     const hit = pickAnyEntity();
@@ -1071,8 +1126,7 @@ function toolPointerMove(sp) {
     const hitPoint = new THREE.Vector3();
     if (raycaster.ray.intersectPlane(plane, hitPoint)) {
       jp.copy(hitPoint);
-      pbdRelax(piece, bendCtx.jointIndex);
-      updateBarMesh(piece);
+      pbdRelaxAssembly(bendCtx.pieceId, bendCtx.jointIndex);
     }
   } else if (moveCtx) {
     const hitPoint = new THREE.Vector3();
