@@ -282,12 +282,13 @@ const TOOLS = [
     type: "function",
     function: {
       name: "get_news",
-      description: "Open the on-screen news dashboard/widget and brief the user on current headlines. Call this for 'show me the news', 'news widget', 'world news', 'what's happening in the world', 'catch me up on the news', 'top headlines', or any request for a news rundown.",
+      description: "Show the user current news headlines. Call for 'show me the news', 'world news', 'news widget', 'what's happening in the world', 'catch me up on the news', 'top headlines', or any request for a news rundown.",
       parameters: {
         type: "object",
         properties: {
           category: { type: "string", enum: ["general","business","entertainment","health","science","sports","technology"], description: "News category, if the user asked for a specific one. Omit for general top headlines." },
           topic:    { type: "string", description: "A specific topic/keyword to search news for, if the user named one (e.g. 'news about Iran'). Omit if they just want general headlines." },
+          display:  { type: "string", enum: ["page","widget"], description: "'widget' ONLY if the user's wording explicitly includes the word 'widget' (e.g. 'jarvis news widget'). Otherwise always 'page' — that's the default for 'show me the news', 'world news', etc." },
         },
       },
     },
