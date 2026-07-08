@@ -3,14 +3,20 @@
 // Always-a-widget now-playing card. Audio comes from a 1px hidden
 // YouTube IFrame player (we don't have Spotify), but nothing ever
 // opens a new tab or page for playback — this is the only UI.
+// Draggable, and keeps itself in sync when a radio mix / playlist
+// auto-advances to a new track.
 // ═══════════════════════════════════════════════════════════════
 window.MusicWidget = (function () {
   let player = null;
   let playerReady = false;
-  let pendingPlay = null;   // { videoId, list } queued while player boots
+  let pendingPlay = null;    // { videoId, list } queued while player boots
   let apiPromise = null;
   let progressTimer = null;
   let scrubbing = false;
+  let repeatOn = false;
+  let isPlaylist = false;    // whether the current source is a list/mix
+  let requestedVideoId = null; // the video we explicitly asked to play
+  let currentVideoId = null;   // whatever's actually loaded right now
 
   function $(id) { return document.getElementById(id); }
 
@@ -38,55 +44,127 @@ window.MusicWidget = (function () {
     wrap.id = "music-widget";
     wrap.className = "music-widget hidden";
     wrap.innerHTML = `
-      <div class="mw-header">
-        <span class="mw-label">&#9670; NOW PLAYING</span>
-        <button class="mw-close" id="mw-close" aria-label="Close" title="Stop">&#10005;</button>
-      </div>
-      <div class="mw-body">
+      <button class="mw-close" id="mw-close" aria-label="Close" title="Stop">&#10005;</button>
+      <div class="mw-content" id="mw-content">
         <div class="mw-art" id="mw-art">
-          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.4">
             <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
           </svg>
         </div>
         <div class="mw-info">
           <div class="mw-title" id="mw-title">—</div>
-          <div class="mw-subtitle" id="mw-subtitle">—</div>
+          <div class="mw-artist" id="mw-artist">—</div>
+          <div class="mw-album" id="mw-album"></div>
+          <div class="mw-progress-container">
+            <span id="mw-elapsed">0:00</span>
+            <div class="mw-progress-track" id="mw-progress-track"><div class="mw-progress-fill" id="mw-progress-fill"></div></div>
+            <span id="mw-duration">0:00</span>
+          </div>
+          <div class="mw-controls">
+            <button class="mw-btn" id="mw-prev" title="Restart / previous">|&#9664;</button>
+            <button class="mw-btn active" id="mw-playpause" title="Play/Pause">&#10074;&#10074;</button>
+            <button class="mw-btn" id="mw-next" title="Next">&#9654;|</button>
+            <button class="mw-btn" id="mw-repeat" title="Repeat">&#8635;</button>
+          </div>
         </div>
-      </div>
-      <div class="mw-progress">
-        <div class="mw-progress-track" id="mw-progress-track">
-          <div class="mw-progress-fill" id="mw-progress-fill"></div>
-        </div>
-        <div class="mw-times"><span id="mw-elapsed">0:00</span><span id="mw-duration">0:00</span></div>
-      </div>
-      <div class="mw-controls">
-        <button class="mw-btn" id="mw-stop" aria-label="Stop" title="Stop">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="1.5"/></svg>
-        </button>
-        <button class="mw-btn mw-btn-main" id="mw-playpause" aria-label="Play or pause" title="Play/Pause">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" id="mw-playpause-icon"><polygon points="6,4 20,12 6,20"/></svg>
-        </button>
-        <a class="mw-btn" id="mw-open-yt" target="_blank" rel="noopener" aria-label="Open source" title="Open source">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><path d="M15 3h6v6"/><path d="M10 14 21 3"/></svg>
-        </a>
       </div>
       <div id="mw-yt-mount" class="mw-yt-mount"></div>
     `;
     document.body.appendChild(wrap);
 
     $("mw-close").addEventListener("click", stop);
-    $("mw-stop").addEventListener("click", stop);
     $("mw-playpause").addEventListener("click", togglePlayPause);
-    $("mw-progress-track").addEventListener("click", onScrub);
+    $("mw-prev").addEventListener("click", onPrev);
+    $("mw-next").addEventListener("click", onNext);
+    $("mw-repeat").addEventListener("click", onToggleRepeat);
+    $("mw-progress-track").addEventListener("pointerdown", onScrub);
+
+    initDrag(wrap);
+    restorePosition(wrap);
+  }
+
+  // ── Dragging (pointer events cover mouse + touch) ───────────
+  function initDrag(wrap) {
+    let dragging = false, offsetX = 0, offsetY = 0;
+
+    wrap.addEventListener("pointerdown", (e) => {
+      if (e.target.closest(".mw-btn, .mw-close, .mw-progress-track")) return;
+      dragging = true;
+      const rect = wrap.getBoundingClientRect();
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      wrap.style.left = rect.left + "px";
+      wrap.style.top = rect.top + "px";
+      wrap.style.right = "auto";
+      wrap.style.bottom = "auto";
+      wrap.classList.add("dragging");
+      try { wrap.setPointerCapture(e.pointerId); } catch {}
+    });
+
+    wrap.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      let x = e.clientX - offsetX;
+      let y = e.clientY - offsetY;
+      const maxX = window.innerWidth - wrap.offsetWidth - 4;
+      const maxY = window.innerHeight - wrap.offsetHeight - 4;
+      x = Math.min(Math.max(4, x), Math.max(4, maxX));
+      y = Math.min(Math.max(4, y), Math.max(4, maxY));
+      wrap.style.left = x + "px";
+      wrap.style.top = y + "px";
+    });
+
+    function endDrag(e) {
+      if (!dragging) return;
+      dragging = false;
+      wrap.classList.remove("dragging");
+      try { wrap.releasePointerCapture(e.pointerId); } catch {}
+      savePosition(wrap);
+    }
+    wrap.addEventListener("pointerup", endDrag);
+    wrap.addEventListener("pointercancel", endDrag);
+  }
+
+  function savePosition(wrap) {
+    try {
+      localStorage.setItem("jarvisMusicWidgetPos", JSON.stringify({ left: wrap.style.left, top: wrap.style.top }));
+    } catch {}
+  }
+  function restorePosition(wrap) {
+    try {
+      const raw = localStorage.getItem("jarvisMusicWidgetPos");
+      if (!raw) return;
+      const pos = JSON.parse(raw);
+      if (pos && pos.left && pos.top) {
+        wrap.style.left = pos.left;
+        wrap.style.top = pos.top;
+        wrap.style.right = "auto";
+        wrap.style.bottom = "auto";
+      }
+    } catch {}
   }
 
   function onScrub(e) {
     if (!player || typeof player.seekTo !== "function") return;
+    scrubbing = true;
     const track = $("mw-progress-track");
-    const rect = track.getBoundingClientRect();
-    const pct = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    const dur = player.getDuration ? player.getDuration() : 0;
-    if (dur > 0) player.seekTo(dur * pct, true);
+    const seek = (evt) => {
+      const rect = track.getBoundingClientRect();
+      const pct = Math.min(1, Math.max(0, (evt.clientX - rect.left) / rect.width));
+      const dur = player.getDuration ? player.getDuration() : 0;
+      if (dur > 0) {
+        $("mw-progress-fill").style.width = `${pct * 100}%`;
+        player.seekTo(dur * pct, true);
+      }
+    };
+    seek(e);
+    const onMove = (evt) => seek(evt);
+    const onUp = () => {
+      scrubbing = false;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   }
 
   function fmtTime(sec) {
@@ -106,13 +184,12 @@ window.MusicWidget = (function () {
   function hide() { const w = $("music-widget"); if (w) w.classList.add("hidden"); }
 
   function setPlayPauseIcon(isPlaying) {
-    const icon = $("mw-playpause-icon");
-    const art = $("mw-art");
-    if (icon) {
-      icon.innerHTML = isPlaying
-        ? '<rect x="5" y="4" width="4.5" height="16" rx="1"/><rect x="14.5" y="4" width="4.5" height="16" rx="1"/>'
-        : '<polygon points="6,4 20,12 6,20"/>';
+    const btn = $("mw-playpause");
+    if (btn) {
+      btn.innerHTML = isPlaying ? "&#10074;&#10074;" : "&#9654;";
+      btn.classList.toggle("active", !!isPlaying);
     }
+    const art = $("mw-art");
     if (art) art.classList.toggle("playing", !!isPlaying);
   }
 
@@ -130,18 +207,44 @@ window.MusicWidget = (function () {
   }
   function stopProgressTimer() { if (progressTimer) { clearInterval(progressTimer); progressTimer = null; } }
 
+  // Whenever a new video actually starts playing — including ones the
+  // radio mix/playlist picked on its own — sync the card to match.
+  function syncNowPlayingFromPlayer() {
+    if (!player || typeof player.getVideoData !== "function") return;
+    let data;
+    try { data = player.getVideoData(); } catch { return; }
+    if (!data || !data.video_id || data.video_id === currentVideoId) return;
+    currentVideoId = data.video_id;
+    if (currentVideoId !== requestedVideoId) {
+      // The mix moved on to a track we didn't explicitly request —
+      // show YouTube's own title/channel for it since that's all we have.
+      $("mw-title").textContent = data.title || "Unknown Track";
+      $("mw-artist").textContent = data.author || "YouTube";
+      $("mw-album").textContent = "";
+    }
+  }
+
   function onPlayerStateChange(e) {
     if (!window.YT) return;
-    if (e.data === YT.PlayerState.PLAYING) setPlayPauseIcon(true);
-    else if (e.data === YT.PlayerState.PAUSED || e.data === YT.PlayerState.ENDED) setPlayPauseIcon(false);
+    if (e.data === YT.PlayerState.PLAYING) {
+      setPlayPauseIcon(true);
+      syncNowPlayingFromPlayer();
+    } else if (e.data === YT.PlayerState.PAUSED) {
+      setPlayPauseIcon(false);
+    } else if (e.data === YT.PlayerState.ENDED) {
+      setPlayPauseIcon(false);
+      if (repeatOn && player) { player.seekTo(0, true); player.playVideo(); }
+    }
   }
 
   function loadIntoPlayer(videoId, list) {
+    isPlaylist = !!list;
     if (list) player.loadPlaylist({ list, listType: "playlist" });
     else if (videoId) player.loadVideoById(videoId);
   }
 
   function createPlayer(videoId, list) {
+    isPlaylist = !!list;
     const playerVars = { autoplay: 1, controls: 0, playsinline: 1, rel: 0 };
     if (list) { playerVars.listType = "playlist"; playerVars.list = list; }
     player = new YT.Player("mw-yt-mount", {
@@ -163,15 +266,19 @@ window.MusicWidget = (function () {
   }
 
   // ── Public API ─────────────────────────────────────────────
-  async function play({ url, title, artist }) {
+  async function play({ url, title, artist, album }) {
     if (!url) return;
     const { videoId, list } = parseYouTubeUrl(url);
     if (!videoId && !list) return;
 
     ensureDOM();
+    requestedVideoId = videoId || null;
+    currentVideoId = null;
+    repeatOn = false;
+    $("mw-repeat").classList.remove("active");
     $("mw-title").textContent = title || "Unknown Track";
-    $("mw-subtitle").textContent = artist || "Now playing";
-    $("mw-open-yt").href = url;
+    $("mw-artist").textContent = artist || "YouTube";
+    $("mw-album").textContent = album || "";
     $("mw-elapsed").textContent = "0:00";
     $("mw-duration").textContent = "0:00";
     $("mw-progress-fill").style.width = "0%";
@@ -196,6 +303,22 @@ window.MusicWidget = (function () {
     const state = player.getPlayerState();
     if (state === YT.PlayerState.PLAYING) { player.pauseVideo(); setPlayPauseIcon(false); }
     else { player.playVideo(); setPlayPauseIcon(true); }
+  }
+
+  function onPrev() {
+    if (!player) return;
+    if (isPlaylist && typeof player.previousVideo === "function") player.previousVideo();
+    else if (player.seekTo) player.seekTo(0, true);
+  }
+
+  function onNext() {
+    if (!player || !isPlaylist || typeof player.nextVideo !== "function") return;
+    player.nextVideo();
+  }
+
+  function onToggleRepeat() {
+    repeatOn = !repeatOn;
+    $("mw-repeat").classList.toggle("active", repeatOn);
   }
 
   function pause() { if (player && player.pauseVideo) { player.pauseVideo(); setPlayPauseIcon(false); } }
