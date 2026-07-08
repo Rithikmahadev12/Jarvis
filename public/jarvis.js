@@ -1577,6 +1577,34 @@ async function handleAction(action, meta, replyText) {
       }
       break;
     }
+    case "PLAY_MUSIC":
+    case "PLAY_MUSIC_SEARCH": {
+      const url = meta?.playUrl;
+      if (url) {
+        speak(replyText, () => { window.open(url, "_blank", "noopener"); mic.resume(); });
+      } else {
+        speak(replyText, () => mic.resume());
+      }
+      break;
+    }
+    case "OPEN_BREAK_TABS": {
+      const urls = Array.isArray(meta?.urls) ? meta.urls : [];
+      speak(replyText, () => {
+        // Staggered like OPEN_LINKS below — a burst of window.open calls
+        // tied to one gesture is what usually survives the popup blocker.
+        urls.forEach((u, i) => setTimeout(() => window.open(u, "_blank", "noopener"), i * 400));
+        mic.resume();
+      });
+      break;
+    }
+    case "OPEN_RESEARCH": {
+      const url = meta?.url;
+      speak(replyText, () => {
+        if (url) window.open(url, "_blank", "noopener");
+        mic.resume();
+      });
+      break;
+    }
     case "CLIP_SAVE": {
       speak(replyText, () => {
         const clipType = meta.clipType || "both";
