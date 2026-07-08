@@ -1184,6 +1184,39 @@ function handleChatCommand(text) {
     return;
   }
 
+  // ── Build Mode voice control: "render it" runs every servo in the
+  //    build, "make it bigger/smaller" scales the whole thing. Gated on
+  //    Build Mode actually being open (or the phrase saying "build"
+  //    outright) so ordinary chat like "that's bigger than I thought"
+  //    never gets hijacked. ──
+  const buildPanelOpen = $("build-panel")?.style.display === "block";
+  if (buildPanelOpen || /\bbuild\b/.test(cleanedLower)) {
+    if (/\b(render|animate|play|run)\s+(it|this|the\s+build|my\s+build|the\s+model|the\s+mechanism)\b/.test(cleanedLower)) {
+      postToBuild({ type: "BUILD_RUN" });
+      const r = `Rendering it now, ${state.userTitle}.`;
+      addMsg("jarvis", r); speak(r);
+      return;
+    }
+    if (/\b(stop|pause|halt)\s+(it|this|the\s+build|rendering|running)\b/.test(cleanedLower)) {
+      postToBuild({ type: "BUILD_STOP" });
+      const r = `Stopped, ${state.userTitle}.`;
+      addMsg("jarvis", r); speak(r);
+      return;
+    }
+    if (/\b(make it bigger|bigger|scale (?:it\s+)?up|spread it out|spread out|grow it|make it larger)\b/.test(cleanedLower)) {
+      postToBuild({ type: "BUILD_SCALE_UP" });
+      const r = `Scaling it up, ${state.userTitle}.`;
+      addMsg("jarvis", r); speak(r);
+      return;
+    }
+    if (/\b(make it smaller|smaller|scale (?:it\s+)?down|shrink it)\b/.test(cleanedLower)) {
+      postToBuild({ type: "BUILD_SCALE_DOWN" });
+      const r = `Scaling it down, ${state.userTitle}.`;
+      addMsg("jarvis", r); speak(r);
+      return;
+    }
+  }
+
   // ── Map lookups: "show me a map of X" / "map of X" / "where is X" / "find X on the map" ──
   const mapMatch =
     cleanedLower.match(/\b(?:show me|show|open|pull up|display)\s+(?:a\s+|the\s+)?map\s+(?:of|for|showing)\s+(.+)/) ||
@@ -1429,6 +1462,19 @@ function closeBuild() {
   if (panel) panel.style.display = "none";
   if (state.phase === "chatting") mic.resume();
   _setTaskbarChatActive();
+}
+
+// Used by voice commands ("render it", "make it bigger") to talk to
+// Build Mode — opens it if it isn't already open, then posts once the
+// iframe has actually finished loading (handles the very-first-open case
+// where the iframe src hasn't loaded yet).
+function postToBuild(msg) {
+  switchMode("build");
+  const iframe = $("build-iframe");
+  if (!iframe) return;
+  const send = () => { try { iframe.contentWindow.postMessage(msg, "*"); } catch (e) {} };
+  if (iframe.contentDocument?.readyState === "complete") setTimeout(send, 250);
+  else iframe.onload = () => setTimeout(send, 250);
 }
 
 // Listen for the iframe's exit button telling us to close
