@@ -331,6 +331,57 @@ async function findYoutubeVideoId(query) {
     return match ? match[1] : null;
   } catch { return null; }
 }
+// Pulls real title/channel info for a video via YouTube's public oEmbed
+// endpoint (no API key needed) so the widget can show an actual artist
+// instead of just falling back to "YouTube". Many music uploads use an
+// auto-generated "<Artist> - Topic" channel, so we strip that suffix to
+// get a clean artist name. If the video title itself looks like
+// "Artist - Song", we prefer that as the more reliable source and use
+// it to fill in the artist too when the channel name isn't usable.
+async function getYoutubeVideoMeta(videoId) {
+  try {
+    const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`;
+    const res = await fetch(oembedUrl, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    let title = (data.title || "").trim();
+    let author = (data.author_name || "").trim();
+    let artist = author.replace(/\s*-\s*Topic$/i, "").trim();
+
+    // "Artist - Song Title" is the most common convention for music
+    // uploads — prefer splitting the video title when it matches, since
+    // it's usually more accurate than the channel name.
+    const dashSplit = title.match(/^(.{1,60}?)\s+-\s+(.{1,80})$/);
+    if (dashSplit) {
+      const [, left, right] = dashSplit;
+      artist = left.trim();
+      title = right.trim();
+    }
+
+    return { title: title || null, artist: artist || null };
+  } catch { return null; }
+}
+// YouTube has no reliable album metadata, so for that we go to a
+// different source entirely: Apple's public iTunes Search API (no key
+// needed), searching by song name (+ artist if we have one). Used to
+// backfill album (and can correct/confirm artist) for any track missing it.
+async function lookupAlbumMetadata(title, artist) {
+  const term = [artist, title].filter(Boolean).join(" ").trim();
+  if (!term) return null;
+  try {
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=1`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const hit = data?.results?.[0];
+    if (!hit) return null;
+    return {
+      album: hit.collectionName || null,
+      artist: hit.artistName || null,
+      artwork: hit.artworkUrl100 ? hit.artworkUrl100.replace("100x100", "600x600") : null,
+    };
+  } catch { return null; }
+}
 // Asks Groq to pick the best-fitting song from the library given the
 // current mood/context. Falls back to a random pick if Groq is
 // unavailable or doesn't clearly match anything in the list.
@@ -1248,21 +1299,52 @@ async function executeAssistantTool(name, args, ctx) {
         if (!song) {
           return { reply: `My music library's empty, ${T} — add a song or two to data/music-library.json and I'll start picking for you.`, action: "ASK_MUSIC", intent: "music" };
         }
-        return { reply: `Playing "${song.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: song.url, title: song.title, artist: song.artist || "", album: song.album || "" } };
+        let album = song.album || "";
+        let artist = song.artist || "";
+        let artwork = song.artwork || "";
+        if (!album || !artwork) {
+          const found = await lookupAlbumMetadata(song.title, artist);
+          if (found) { album = found.album || album; artwork = artwork || found.artwork || ""; if (!artist) artist = found.artist || artist; }
+        }
+        return { reply: `Playing "${song.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: song.url, title: song.title, artist, album, artwork } };
       }
 
       const hit = lookupMusicByKeyword(query);
       if (hit.found) {
-        return { reply: `Playing "${hit.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: hit.url, title: hit.title, artist: hit.artist || "", album: hit.album || "" } };
+        let album = hit.album || "";
+        let artist = hit.artist || "";
+        let artwork = hit.artwork || "";
+        if (!album || !artwork) {
+          const found = await lookupAlbumMetadata(hit.title, artist);
+          if (found) { album = found.album || album; artwork = artwork || found.artwork || ""; if (!artist) artist = found.artist || artist; }
+        }
+        return { reply: `Playing "${hit.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: hit.url, title: hit.title, artist, album, artwork } };
       }
 
       const videoId = await findYoutubeVideoId(query);
       if (videoId) {
+        const vidMeta = await getYoutubeVideoMeta(videoId);
+        const title = vidMeta?.title || query;
+        let artist = vidMeta?.artist || "";
+        let album = "";
+        let artwork = "";
+        const found = await lookupAlbumMetadata(title, artist);
+        if (found) {
+          album = found.album || "";
+          artwork = found.artwork || "";
+          if (!artist) artist = found.artist || "";
+        }
         return {
           reply: `That's not in my library yet, ${T} — playing it now.`,
           action: "PLAY_MUSIC_SEARCH",
           intent: "music",
-          meta: { playUrl: `https://www.youtube.com/watch?v=${videoId}`, title: query, artist: "" },
+          meta: {
+            playUrl: `https://www.youtube.com/watch?v=${videoId}`,
+            title,
+            artist,
+            album,
+            artwork,
+          },
         };
       }
       return {
