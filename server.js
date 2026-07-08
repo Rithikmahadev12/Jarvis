@@ -128,6 +128,11 @@ app.use(express.static(path.join(__dirname, "public"), {
   }
 }));
 
+// Serve /soundeffects/* (e.g. the mode-picker's hand-hover UI sound) from
+// the top-level soundeffects/ folder, so files dropped there are reachable
+// at the exact path referenced in the front-end: /soundeffects/<file>.
+app.use("/soundeffects", express.static(path.join(__dirname, "soundeffects")));
+
 // ═══════════════════════════════════════════════════════════════
 // ── COMMS
 // ═══════════════════════════════════════════════════════════════
