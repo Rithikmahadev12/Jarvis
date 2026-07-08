@@ -508,6 +508,55 @@
     orb.classList.add(state);
   }
 
+  // ── VOICE (mirrors the main HUD's fixed browser voice) ──
+  const synth = window.speechSynthesis;
+  const FIXED_VOICE_LANG = "en-AU";
+  const FIXED_VOICE_NAME = "William";
+  function pickVoice() {
+    const voices = synth.getVoices(); if (!voices.length) return null;
+    return voices.find(v => v.lang === FIXED_VOICE_LANG && v.name.includes(FIXED_VOICE_NAME))
+        || voices.find(v => v.name.includes(FIXED_VOICE_NAME))
+        || null;
+  }
+  if (synth) synth.onvoiceschanged = () => {};
+
+  function cleanForSpeech(text) {
+    return (text || "")
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/\*(.+?)\*/g, "$1")
+      .replace(/[`#*_~]/g, "")
+      .replace(/→|⬡|●|◈|▲|◌|◯|⚡/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  let _finishedTyping = false;
+  let _finishedSpeaking = false;
+  function _maybeIdle() {
+    if (_finishedTyping && _finishedSpeaking) {
+      setOrb("idle");
+      $("jarvis-status").textContent = "● ONLINE";
+    }
+  }
+
+  function speakCommentary(text) {
+    if (!synth) { _finishedSpeaking = true; _maybeIdle(); return; }
+    synth.cancel();
+    const clean = cleanForSpeech(text);
+    if (!clean) { _finishedSpeaking = true; _maybeIdle(); return; }
+    const utter = new SpeechSynthesisUtterance(clean);
+    utter.rate = 0.93;
+    utter.pitch = 0.8;
+    utter.volume = 1;
+    const trySetVoice = () => { const v = pickVoice(); if (v) utter.voice = v; };
+    trySetVoice();
+    if (!utter.voice) setTimeout(trySetVoice, 150);
+    const done = () => { _finishedSpeaking = true; _maybeIdle(); };
+    utter.onend = done;
+    utter.onerror = done;
+    synth.speak(utter);
+  }
+
   function fmtTime(iso) {
     if (!iso) return "";
     const d = new Date(iso);
@@ -567,11 +616,14 @@
     el.innerHTML = '<span class="commentary-cursor"></span>';
     setOrb("speaking");
     $("jarvis-status").textContent = "● NARRATING";
+    _finishedTyping = false;
+    _finishedSpeaking = false;
+    speakCommentary(text);
     let i = 0;
     function step() {
       if (i > text.length) {
-        setOrb("idle");
-        $("jarvis-status").textContent = "● ONLINE";
+        _finishedTyping = true;
+        _maybeIdle();
         return;
       }
       el.innerHTML = escapeHtml(text.slice(0, i)) + '<span class="commentary-cursor"></span>';
