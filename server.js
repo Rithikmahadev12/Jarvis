@@ -220,6 +220,65 @@ function saveProfiles(p) { ensureDataDir(); fs.writeFileSync(PROFILES_FILE, JSON
 function loadMemories() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(MEMORIES_FILE, "utf8")); } catch { return {}; } }
 function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON.stringify(m, null, 2), "utf8"); }
 
+// ── MUSIC LIBRARY ────────────────────────────────────────────
+// No YouTube API key needed. Each entry is a real youtube.com/watch
+// URL — grab one straight from your browser. Tacking on
+// "&list=RDxxxxxxxx&start_radio=1" (copy the ID from the "Mix"/Radio
+// link YouTube generates under any video) makes it auto-continue into
+// similar songs once the first one ends, so Jarvis never just stops.
+// Add more songs by editing data/music-library.json directly — no
+// code changes or restart needed, it's read fresh on every request.
+const MUSIC_FILE = path.join(DATA_DIR, "music-library.json");
+function ensureMusicFile() {
+  if (!fs.existsSync(MUSIC_FILE)) {
+    fs.writeFileSync(MUSIC_FILE, JSON.stringify({
+      "self aware": {
+        title: "Self Aware",
+        url: "https://www.youtube.com/watch?v=pGsgAOmkS40&list=RDpGsgAOmkS40&start_radio=1",
+        mood: "chill, introspective, late-night",
+      },
+    }, null, 2), "utf8");
+  }
+}
+function loadMusicLibrary() {
+  ensureDataDir(); ensureMusicFile();
+  try { return JSON.parse(fs.readFileSync(MUSIC_FILE, "utf8")); } catch { return {}; }
+}
+function lookupMusicByKeyword(text) {
+  const lib = loadMusicLibrary();
+  const lower = (text || "").toLowerCase();
+  for (const [key, song] of Object.entries(lib)) {
+    if (lower.includes(key.toLowerCase())) return { found: true, key, ...song };
+  }
+  return { found: false };
+}
+function youtubeSearchUrl(query) {
+  return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+}
+// Asks Groq to pick the best-fitting song from the library given the
+// current mood/context. Falls back to a random pick if Groq is
+// unavailable or doesn't clearly match anything in the list.
+async function pickSongForMood(contextText) {
+  const lib = loadMusicLibrary();
+  const entries = Object.entries(lib);
+  if (!entries.length) return null;
+  if (entries.length === 1 || !Groq.isConfigured()) {
+    const [key, song] = entries[Math.floor(Math.random() * entries.length)];
+    return { key, ...song };
+  }
+  const menu = entries.map(([key, s]) => `- "${key}" (mood: ${s.mood || "n/a"})`).join("\n");
+  try {
+    const raw = await Groq.groqFetch([
+      { role: "system", content: `Pick exactly one song from this library based on the conversation's mood. Reply with ONLY the song's key, in quotes, nothing else:\n${menu}` },
+      { role: "user", content: contextText || "Pick something good." },
+    ], undefined, 0.6, 30);
+    const match = entries.find(([key]) => raw.toLowerCase().includes(key.toLowerCase()));
+    if (match) return { key: match[0], ...match[1] };
+  } catch (e) { /* fall through to random */ }
+  const [key, song] = entries[Math.floor(Math.random() * entries.length)];
+  return { key, ...song };
+}
+
 // ── BOOTSTRAP OWNER ───────────────────────────────────────────
 // Face-ID only: an owner account is only auto-created if config.json
 // already has a captured faceDescriptor for them. Plain password-based
@@ -1100,8 +1159,57 @@ async function executeAssistantTool(name, args, ctx) {
     case "get_weather":
       return await handleWeatherFetch(args.location ? `weather in ${args.location}` : "weather", T);
 
-    case "control_spotify":
-      return await handleSpotifyFetch(args.query || "", T);
+    case "play_music": {
+      const query = (args.query || "").trim();
+      const pickForMe = !!args.pick_for_me;
+
+      if (!query && !pickForMe) {
+        return { reply: `What do you want to hear, ${T}?`, action: "ASK_MUSIC", intent: "music" };
+      }
+
+      if (pickForMe) {
+        const song = await pickSongForMood(ctx.moodContext || query);
+        if (!song) {
+          return { reply: `My music library's empty, ${T} — add a song or two to data/music-library.json and I'll start picking for you.`, action: "ASK_MUSIC", intent: "music" };
+        }
+        return { reply: `Playing "${song.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: song.url, title: song.title } };
+      }
+
+      const hit = lookupMusicByKeyword(query);
+      if (hit.found) {
+        return { reply: `Playing "${hit.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: hit.url, title: hit.title } };
+      }
+      return {
+        reply: `That's not in my library yet, ${T} — pulling it up on YouTube.`,
+        action: "PLAY_MUSIC_SEARCH",
+        intent: "music",
+        meta: { playUrl: youtubeSearchUrl(query) },
+      };
+    }
+
+    case "trigger_break": {
+      return {
+        reply: `Take a break, ${T}.`,
+        action: "OPEN_BREAK_TABS",
+        intent: "break",
+        meta: { urls: ["https://www.youtube.com", "https://www.instagram.com"] },
+      };
+    }
+
+    case "open_research": {
+      const topic = (args.topic || "").trim();
+      if (!topic) return { reply: `What do you want me to look into, ${T}?`, action: "ASK_RESEARCH", intent: "research" };
+      let url = `https://www.google.com/search?q=${encodeURIComponent(topic)}`;
+      let spoken = `Pulling up some resources on ${topic}, ${T}.`;
+      try {
+        const r = await Research.research(topic, T);
+        if (r && r.reply) {
+          spoken = r.reply;
+          if (r.sources?.wikiUrl) url = r.sources.wikiUrl;
+        }
+      } catch (e) { /* fall back to the plain search link above */ }
+      return { reply: spoken, action: "OPEN_RESEARCH", intent: "research", meta: { url, topic } };
+    }
 
     case "control_home": {
       try {
@@ -1215,7 +1323,7 @@ app.post("/api/chat", async (req, res) => {
         context:             moodContext,
         conversationHistory: getSessionHistory(sessionId),
         tz:                  userTimezone,
-        executeTool: (name, args) => executeAssistantTool(name, args, { T, userTimezone, userName }),
+        executeTool: (name, args) => executeAssistantTool(name, args, { T, userTimezone, userName, moodContext }),
       });
 
       if (toolResult.reply) {
