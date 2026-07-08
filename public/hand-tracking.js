@@ -14,6 +14,16 @@
 //       two-arm "open up the workspace" gesture from the reference
 //       footage.
 // Example: window.addEventListener("jarvis:swipe", e => { ... });
+//
+// PINCH-DRAG — no event, no spoken command. Pinch thumb + index over any
+// element marked with the attribute `data-hand-drag="true"` and it moves
+// with your hand until you release the pinch. It works by dispatching
+// real PointerEvents at the pinch point, so it just rides whatever
+// pointer-drag handling that widget already has for mouse/touch — there's
+// no separate "move mode" to trigger, the widget just follows your hand
+// the moment you grab it, the same way it'd follow a mouse drag.
+// To make a new widget hand-draggable, add `dataset.handDrag = "true"`
+// to its root element (see music-widget.js for the pattern).
 // ═══════════════════════════════════════════════════════════════
 
 const HandTracking = (() => {
@@ -38,6 +48,18 @@ const HandTracking = (() => {
   let dwellTarget       = null;
   let dwellStart        = 0;
   let dwellRingEl       = null;
+
+  // ── PINCH-DRAG STATE (direct manipulation — no spoken command needed) ──
+  // Pinching thumb + index over anything marked [data-hand-drag] grabs it;
+  // moving the hand while pinched moves it; releasing the pinch drops it.
+  // This works by dispatching real PointerEvents at the pinch point, so it
+  // rides on whatever pointer-based drag handling the widget already has
+  // (the same one mouse/touch dragging uses) — no per-widget gesture code.
+  const PINCH_ON  = 0.055; // normalized thumb-index distance to start a pinch
+  const PINCH_OFF = 0.075; // must open past this to release (hysteresis avoids flicker)
+  const DRAG_POINTER_ID = 9101;
+  let pinching     = false;
+  let pinchDragTarget = null;
   let typingTargetInput = null; // input element virtual keyboard types into
   let scriptsLoaded     = false;
 
@@ -180,7 +202,6 @@ const HandTracking = (() => {
   async function loadScripts() {
     if (scriptsLoaded) return;
     const urls = [
-      `https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@${MEDIAPIPE_CAMERA_UTILS_VERSION}/camera_utils.js`,
       `https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@${MEDIAPIPE_DRAWING_UTILS_VERSION}/drawing_utils.js`,
       `https://cdn.jsdelivr.net/npm/@mediapipe/hands@${MEDIAPIPE_HANDS_VERSION}/hands.js`,
     ];
@@ -196,6 +217,9 @@ const HandTracking = (() => {
       document.head.appendChild(s);
     });
   }
+
+  let rafId = null;
+  let waitForFeedTimer = null;
 
   async function start() {
     if (active) return;
@@ -224,43 +248,82 @@ const HandTracking = (() => {
     });
     hands.onResults(onResults);
 
+    // ── Reuse whatever stream is already playing in #camera-feed instead of
+    //    requesting our own via MediaPipe's Camera helper. The main HUD's
+    //    face-recognition code (requestCameraAccess in jarvis.js) claims this
+    //    same <video> element for its own getUserMedia stream at almost the
+    //    same moment hand tracking starts (right after login) — a second,
+    //    independent getUserMedia() call here would fight it for ownership
+    //    of the element and silently break tracking a few frames in. Reading
+    //    frames directly off the existing element sidesteps that entirely.
+    //    (Build Mode doesn't have this problem because it owns a private,
+    //    dedicated camera-feed video with nothing else attached to it.)
+    active = true; // set first so waitForFeed()/frameLoop() don't bail immediately
+    waitForFeed(video);
+  }
+
+  function waitForFeed(video, attempt = 0) {
+    if (!active) return;
+    const ready = video.srcObject && video.readyState >= 2 && video.videoWidth > 0;
+    if (ready) {
+      setStatus("HAND TRACKING — ACTIVE");
+      startFrameLoop(video);
+      return;
+    }
+    if (attempt === 0) setStatus("HAND TRACKING — WAITING FOR CAMERA…");
+    if (attempt > 40) { // ~20s of retrying (40 * 500ms)
+      setStatus("HAND TRACKING — NO CAMERA FEED");
+      active = false;
+      return;
+    }
+    waitForFeedTimer = setTimeout(() => waitForFeed(video, attempt + 1), 500);
+  }
+
+  function startFrameLoop(video) {
     // Circuit breaker: if hands.send() fails repeatedly in a row (e.g. the
     // CDN model assets are unreachable), stop retrying instead of hammering
     // the network on every animation frame indefinitely.
     let consecutiveFailures = 0;
-    const MAX_CONSECUTIVE_FAILURES = 5;
+    const MAX_CONSECUTIVE_FAILURES = 8;
+    let sending = false;
 
-    camera = new Camera(video, {
-      onFrame: async () => {
-        if (!active) return;
-        try {
-          await hands.send({ image: video });
-          consecutiveFailures = 0;
-        } catch (e) {
-          consecutiveFailures++;
-          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-            console.warn("[HandTracking] hands.send() failed repeatedly, stopping to avoid a retry loop.", e);
-            setStatus("HAND TRACKING — UNAVAILABLE");
-            stop();
-          }
+    async function frameLoop() {
+      if (!active) return;
+      rafId = requestAnimationFrame(frameLoop);
+      if (sending) return; // don't overlap sends if one is still processing
+      if (video.readyState < 2 || !video.srcObject) return; // feed dropped — skip this frame, keep looping
+      sending = true;
+      try {
+        await hands.send({ image: video });
+        consecutiveFailures = 0;
+      } catch (e) {
+        consecutiveFailures++;
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          console.warn("[HandTracking] hands.send() failed repeatedly, stopping to avoid a retry loop.", e);
+          stop("HAND TRACKING — UNAVAILABLE");
         }
-      },
-      width: 640,
-      height: 480,
-    });
-    camera.start();
-
-    active = true;
-    setStatus("HAND TRACKING — ACTIVE");
+      } finally {
+        sending = false;
+      }
+    }
+    rafId = requestAnimationFrame(frameLoop);
   }
 
-  function stop() {
+  function stop(reason) {
     active = false;
+    clearTimeout(waitForFeedTimer);
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
     if (camera) { try { camera.stop(); } catch (e) {} camera = null; }
     if (overlayCtx) overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     if (cursorEl) cursorEl.style.opacity = "0";
+    endPinchDrag();
     hideKeyboard();
-    setStatus("HAND TRACKING — STOPPED");
+    // Only stamp over the status with a generic "STOPPED" if the caller
+    // didn't already leave a more specific reason (e.g. "UNAVAILABLE" from
+    // the circuit breaker above) — otherwise that reason gets silently
+    // clobbered right after it's set, which is exactly what made hand
+    // tracking failures look like a clean, deliberate stop.
+    setStatus(reason || "HAND TRACKING — STOPPED");
   }
 
   // ── RESULTS / CURSOR / DWELL / GESTURE ──
@@ -270,6 +333,7 @@ const HandTracking = (() => {
     if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
       cursorEl.style.opacity = "0.15";
       clearDwell();
+      endPinchDrag(); // don't leave a widget stuck mid-drag if the hand drops out of frame
       posHistory = []; distHistory = []; // no hands → gesture state can't carry over
       return;
     }
@@ -321,8 +385,63 @@ const HandTracking = (() => {
       if (keyboardOpen) showKeyboard(); else hideKeyboard();
     }
 
-    // ── Dwell click ──
-    handleDwell(smoothX, smoothY);
+    // ── Pinch-drag ──
+    handlePinchDrag(landmarks, smoothX, smoothY);
+
+    // ── Dwell click (suppressed mid-pinch so grabbing a widget doesn't
+    //    also fire a dwell-click on whatever's underneath it) ──
+    if (!pinching) handleDwell(smoothX, smoothY);
+  }
+
+  // ── PINCH-DRAG — grabs whatever [data-hand-drag] widget is under the
+  // cursor when you pinch, moves it with your hand, drops it on release.
+  // No gesture-to-command mapping: what happens is just whatever the
+  // widget under your fingers already does with a pointer. ──
+  function handlePinchDrag(landmarks, x, y) {
+    const thumb = landmarks[4], index = landmarks[8];
+    const pinchDist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+    const wasPinching = pinching;
+    pinching = wasPinching ? pinchDist < PINCH_OFF : pinchDist < PINCH_ON;
+
+    if (pinching && !wasPinching) {
+      // Pinch just started — is there something grabbable under the cursor?
+      cursorEl.style.pointerEvents = "none";
+      const el = document.elementFromPoint(x, y);
+      cursorEl.style.pointerEvents = "";
+      const target = el ? el.closest("[data-hand-drag]") : null;
+      if (target) {
+        pinchDragTarget = target;
+        cursorEl.classList.add("ht-cursor-grabbing");
+        dispatchPointer(target, "pointerdown", x, y);
+      }
+    } else if (pinching && pinchDragTarget) {
+      dispatchPointer(pinchDragTarget, "pointermove", x, y);
+    } else if (!pinching && wasPinching && pinchDragTarget) {
+      dispatchPointer(pinchDragTarget, "pointerup", x, y);
+      pinchDragTarget = null;
+      cursorEl.classList.remove("ht-cursor-grabbing");
+    }
+  }
+
+  function dispatchPointer(el, type, x, y) {
+    const ev = new PointerEvent(type, {
+      bubbles: true, cancelable: true, composed: true,
+      pointerId: DRAG_POINTER_ID, pointerType: "touch", isPrimary: true,
+      clientX: x, clientY: y, button: 0, buttons: type === "pointerup" ? 0 : 1,
+    });
+    el.dispatchEvent(ev);
+  }
+
+  // Release any in-progress pinch-drag cleanly (e.g. when tracking stops
+  // mid-grab) so the widget doesn't get stuck following a hand that's no
+  // longer being tracked.
+  function endPinchDrag() {
+    if (pinchDragTarget) {
+      dispatchPointer(pinchDragTarget, "pointerup", smoothX || 0, smoothY || 0);
+    }
+    pinching = false;
+    pinchDragTarget = null;
+    if (cursorEl) cursorEl.classList.remove("ht-cursor-grabbing");
   }
 
   // ── SWIPE — one hand, fast horizontal motion → "jarvis:swipe" ──
