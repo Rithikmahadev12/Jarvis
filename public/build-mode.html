@@ -36,6 +36,12 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Sh
 .top-right{display:flex;align-items:center;gap:14px;font-size:0.5rem;letter-spacing:0.18em;color:var(--dim-text)}
 #exit-btn{background:rgba(255,51,51,0.08);border:1px solid rgba(255,51,51,0.35);color:#ff8a8a;font-family:var(--hud);font-size:0.4rem;letter-spacing:0.2em;padding:7px 14px;cursor:pointer;border-radius:2px}
 #exit-btn:hover{background:rgba(255,51,51,0.2)}
+.render-btn{background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.4);color:var(--green);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.2em;padding:7px 14px;cursor:pointer;border-radius:2px}
+.render-btn:hover{background:rgba(0,255,136,0.2)}
+.render-btn.active{background:rgba(0,255,136,0.25);box-shadow:0 0 10px rgba(0,255,136,0.35)}
+.led-swatch-row{display:flex;gap:6px;margin-top:6px}
+.led-swatch{width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,0.15);cursor:pointer;flex-shrink:0}
+.led-swatch.active{border-color:#fff;box-shadow:0 0 8px rgba(255,255,255,0.6)}
 
 #sidebar{position:fixed;top:52px;left:0;bottom:0;width:220px;background:rgba(0,3,10,0.94);border-right:1px solid rgba(0,200,255,0.1);z-index:20;display:flex;flex-direction:column;padding:12px 0;overflow-y:auto;scrollbar-width:none}
 #sidebar::-webkit-scrollbar{display:none}
@@ -99,6 +105,7 @@ input[type=range]{width:100%;accent-color:var(--amber);margin-top:2px}
   <div class="top-right">
     <span id="part-count">0 PIECES</span>
     <span id="assembly-status">—</span>
+    <button id="render-btn" class="render-btn" onclick="toggleRenderAll()">▶ RENDER</button>
     <button id="exit-btn" onclick="exitBuild()">✕ EXIT</button>
   </div>
 </div>
@@ -108,6 +115,7 @@ input[type=range]{width:100%;accent-color:var(--amber);margin-top:2px}
   <div class="tool-grid">
     <button class="tool-btn" onclick="spawnBar()">＋ BAR</button>
     <button class="tool-btn" onclick="spawnServo()">＋ SERVO</button>
+    <button class="tool-btn" onclick="spawnLED()">＋ LED</button>
   </div>
 
   <div class="sb-label">⬡ TOOLS</div>
@@ -122,6 +130,12 @@ input[type=range]{width:100%;accent-color:var(--amber);margin-top:2px}
   <div class="tool-grid">
     <button class="tool-btn" onclick="zoomBy(0.82)">🔍+ IN</button>
     <button class="tool-btn" onclick="zoomBy(1.22)">🔍− OUT</button>
+  </div>
+
+  <div class="sb-label">⬡ SCALE BUILD</div>
+  <div class="tool-grid">
+    <button class="tool-btn" onclick="scaleBuild(1.25)">⤢ BIGGER</button>
+    <button class="tool-btn" onclick="scaleBuild(0.8)">⤡ SMALLER</button>
   </div>
 
   <div class="sb-label" style="margin-top:6px">WORKSHOP — CLICK TO SELECT</div>
@@ -149,6 +163,21 @@ input[type=range]{width:100%;accent-color:var(--amber);margin-top:2px}
       <div class="rp-title" style="margin-top:10px">SPEED <span class="slider-val" id="speed-val"></span></div>
       <input type="range" id="speed-slider" min="10" max="360" value="90" oninput="onSpeedSlider(this.value)"/>
       <button class="rp-btn green" id="servo-run-btn" onclick="toggleServoRun()">▶ RUN</button>
+    </div>
+
+    <div id="led-controls" style="display:none">
+      <div class="rp-title" style="margin-top:10px">COLOR</div>
+      <div class="led-swatch-row">
+        <button class="led-swatch active" id="led-color-white" style="background:#ffffff" onclick="setLEDColor('white')"></button>
+        <button class="led-swatch" id="led-color-red" style="background:#ff3333" onclick="setLEDColor('red')"></button>
+        <button class="led-swatch" id="led-color-green" style="background:#00ff88" onclick="setLEDColor('green')"></button>
+        <button class="led-swatch" id="led-color-blue" style="background:#00c8ff" onclick="setLEDColor('blue')"></button>
+        <button class="led-swatch" id="led-color-amber" style="background:#ffaa00" onclick="setLEDColor('amber')"></button>
+      </div>
+      <div class="rot-row" style="margin-top:10px">
+        <button class="rp-btn green" id="led-on-btn" onclick="toggleLEDOn()">○ OFF</button>
+        <button class="rp-btn amber" id="led-blink-btn" onclick="toggleLEDBlink()">✦ BLINK</button>
+      </div>
     </div>
 
     <button class="rp-btn" style="border-color:rgba(255,51,51,0.4);color:#ff8a8a" onclick="deleteSelected()">🗑 DELETE PIECE</button>
@@ -230,11 +259,19 @@ function resize() {
 window.addEventListener("resize", resize);
 resize();
 
-// Drag contexts declared before animate() runs, so they're never in the
-// temporal dead zone when the render loop reads them on the first frame.
+// Drag contexts + entity model declared before animate() runs, so they're
+// never in the temporal dead zone when the render loop reads them on the
+// first frame (animate() is invoked synchronously below, immediately).
 let bendCtx = null;   // {pieceId, jointIndex}
 let moveCtx = null;   // {entityId, plane, offset}
 const clock = new THREE.Clock();
+
+let entities = new Map();             // id -> entity
+let entityAssemblyOf = new Map();     // entityId -> assemblyId
+let entityAssemblyMembers = new Map();// assemblyId -> Set(entityId)
+let weldBeads = [];                   // [{mesh, getPos, entityIds}]
+let selectedId = null;
+let spawnIndex = 0, barCount = 0, servoCount = 0, ledCount = 0;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -242,6 +279,7 @@ function animate() {
   controls.update();
   const dt = Math.min(clock.getDelta(), 0.05);
   stepAllServos(dt);
+  stepAllLEDs(dt);
   weldBeads.forEach((w) => w.mesh.position.copy(w.getPos()));
   renderer.render(scene, camera);
 }
@@ -259,14 +297,8 @@ function showToast(msg, ms = 3200) {
 
 // ═══════════════════════════════════════════════════════════════
 // ── ENTITY MODEL: bars (bendable chains) + servos ──
+// (variables declared earlier, above animate(), to avoid TDZ errors)
 // ═══════════════════════════════════════════════════════════════
-let entities = new Map();             // id -> entity
-let entityAssemblyOf = new Map();     // entityId -> assemblyId
-let entityAssemblyMembers = new Map();// assemblyId -> Set(entityId)
-let weldBeads = [];                   // [{mesh, getPos, entityIds}]
-let selectedId = null;
-let spawnIndex = 0, barCount = 0, servoCount = 0;
-
 function uid() { return "e" + Math.random().toString(36).slice(2, 10); }
 
 function nextSpawnPosition() {
@@ -323,6 +355,78 @@ function entityAnchorPoint(id) {
   return e.base.clone();
 }
 
+// Single dispatch point for "redraw this entity's meshes from its data" —
+// every entity kind (servo, LED, whatever comes next) just needs one of
+// these instead of translate/rotate having to special-case each kind.
+function updateEntityVisual(e) {
+  if (e.kind === "bar") updateBarMesh(e);
+  else if (e.kind === "servo") updateServoVisual(e);
+  else if (e.kind === "led") updateLEDVisual(e);
+}
+
+function translateAssemblyEntities(id, delta) {
+  for (const mid of assemblyMemberIds(id)) {
+    const e = entities.get(mid);
+    if (!e) continue;
+    if (e.kind === "bar") { e.joints.forEach((j) => j.add(delta)); updateBarMesh(e); }
+    else { e.base.add(delta); updateEntityVisual(e); }
+  }
+}
+function rotateAssemblyEntitiesAround(id, pivot, axis, radians) {
+  if (Math.abs(radians) < 1e-9) return;
+  const q = new THREE.Quaternion().setFromAxisAngle(axis, radians);
+  for (const mid of assemblyMemberIds(id)) {
+    const e = entities.get(mid);
+    if (!e) continue;
+    if (e.kind === "bar") {
+      e.joints.forEach((j) => { const rel = j.clone().sub(pivot); rel.applyQuaternion(q); j.copy(pivot).add(rel); });
+      updateBarMesh(e);
+    } else {
+      const rel = e.base.clone().sub(pivot); rel.applyQuaternion(q); e.base.copy(pivot).add(rel);
+      updateEntityVisual(e);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── SCALE: grow/shrink the whole build (helmets need room!) ──
+// Scales every entity's position away from the build's centroid, and
+// also grows wall-thickness / part size so things don't just spread out
+// thin and flimsy-looking — everything gets proportionally bigger.
+// ═══════════════════════════════════════════════════════════════
+let buildScale = 1;
+function computeBuildCentroid() {
+  const pts = [];
+  for (const e of entities.values()) {
+    if (e.kind === "bar") e.joints.forEach((j) => pts.push(j));
+    else pts.push(e.base);
+  }
+  if (!pts.length) return new THREE.Vector3(0, 0.5, 0);
+  const c = new THREE.Vector3();
+  pts.forEach((p) => c.add(p));
+  return c.divideScalar(pts.length);
+}
+function scaleBuild(factor) {
+  if (!entities.size) { showToast("Nothing to scale yet — place a piece first."); return; }
+  const pivot = computeBuildCentroid();
+  buildScale *= factor;
+  for (const e of entities.values()) {
+    e.sizeScale = (e.sizeScale || 1) * factor;
+    if (e.kind === "bar") {
+      e.joints.forEach((j) => { j.sub(pivot).multiplyScalar(factor).add(pivot); });
+      e.restLength *= factor;
+      updateBarMesh(e);
+    } else {
+      e.base.sub(pivot).multiplyScalar(factor).add(pivot);
+      if (e.kind === "servo") e.armLength *= factor;
+      updateEntityVisual(e);
+    }
+  }
+  // zoom the camera out to keep a growing build in frame
+  if (factor > 1) zoomBy(Math.min(factor, 1.4));
+  showToast(`Build scaled to ${Math.round(buildScale * 100)}%.`);
+}
+
 // ═══════════════════════════════════════════════════════════════
 // ── BARS (raw metal rods you bend by hand) ──
 // ═══════════════════════════════════════════════════════════════
@@ -373,24 +477,30 @@ function spawnBar() {
 
 function updateBarMesh(piece) {
   const { joints, segMeshes, capMeshes, restLength } = piece;
+  const t = piece.sizeScale || 1;
   for (let i = 0; i < segMeshes.length; i++) {
     const a = joints[i], b = joints[i + 1];
     const mid = a.clone().add(b).multiplyScalar(0.5);
     const dir = b.clone().sub(a);
     const len = dir.length() || 0.0001;
     segMeshes[i].position.copy(mid);
-    segMeshes[i].scale.set(1, len / restLength, 1);
+    segMeshes[i].scale.set(t, len / restLength, t);
     segMeshes[i].quaternion.setFromUnitVectors(YAXIS, dir.normalize());
   }
-  for (let i = 0; i < capMeshes.length; i++) capMeshes[i].position.copy(joints[i]);
+  for (let i = 0; i < capMeshes.length; i++) { capMeshes[i].position.copy(joints[i]); capMeshes[i].scale.setScalar(t); }
 }
 
 // Position-based-dynamics distance solve: the grabbed joint is pinned,
 // the rest of the chain relaxes to keep each segment's length — this is
 // what makes dragging a point *bend* the rod instead of stretching it.
+// Welded joints are ALSO pinned (not just excluded from being grabbed) —
+// otherwise bending the free end of an already-welded bar would drag the
+// welded end away from the servo it's attached to, which is exactly why
+// the bar and the servo used to visibly fly apart when the servo ran.
 function pbdRelax(piece, pinnedIndex, iterations = 14) {
-  const { joints, restLength: rest } = piece;
+  const { joints, restLength: rest, weldedJointIndices } = piece;
   const n = joints.length;
+  const isPinned = (i) => i === pinnedIndex || weldedJointIndices.has(i);
   for (let iter = 0; iter < iterations; iter++) {
     for (let i = 0; i < n - 1; i++) {
       const a = joints[i], b = joints[i + 1];
@@ -398,8 +508,8 @@ function pbdRelax(piece, pinnedIndex, iterations = 14) {
       const dist = delta.length() || 0.0001;
       const diff = (dist - rest) / dist;
       const correction = delta.multiplyScalar(diff * 0.5);
-      if (i !== pinnedIndex) a.add(correction);
-      if (i + 1 !== pinnedIndex) b.sub(correction);
+      if (!isPinned(i)) a.add(correction);
+      if (!isPinned(i + 1)) b.sub(correction);
     }
   }
 }
@@ -467,16 +577,20 @@ function servoTipWorld(servo) {
 }
 
 function updateServoVisual(servo) {
-  servo.bodyMesh.position.copy(servo.base).add(new THREE.Vector3(0, 0.11, 0));
+  const t = servo.sizeScale || 1;
+  servo.bodyMesh.position.copy(servo.base).add(new THREE.Vector3(0, 0.11 * t, 0));
+  servo.bodyMesh.scale.setScalar(t);
   servo.mountMesh.position.copy(servo.base);
+  servo.mountMesh.scale.setScalar(t);
   const tip = servoTipWorld(servo);
   const mid = servo.base.clone().add(tip).multiplyScalar(0.5);
   const dir = tip.clone().sub(servo.base);
   const len = dir.length() || 0.0001;
   servo.armMesh.position.copy(mid);
-  servo.armMesh.scale.set(1, len, 1);
+  servo.armMesh.scale.set(t, len, t);
   servo.armMesh.quaternion.setFromUnitVectors(YAXIS, dir.normalize());
   servo.tipMesh.position.copy(tip);
+  servo.tipMesh.scale.setScalar(t);
 }
 
 function stepServo(servo, dt) {
@@ -508,6 +622,43 @@ function stepAllServos(dt) {
     }
   }
 }
+
+// Runs (or stops) every servo in the build at once — this is what "RENDER"
+// and the "Jarvis, render it" voice command both trigger, so you can see
+// the whole mechanism move without selecting and running each servo by hand.
+function runAllServos(run = true) {
+  let count = 0;
+  for (const e of entities.values()) {
+    if (e.kind !== "servo") continue;
+    e.running = run;
+    count++;
+  }
+  if (selectedId) {
+    const sel = entities.get(selectedId);
+    if (sel && sel.kind === "servo") {
+      $("servo-run-btn").textContent = sel.running ? "⏸ STOP" : "▶ RUN";
+      $("servo-run-btn").classList.toggle("active", sel.running);
+    }
+  }
+  const rb = $("render-btn");
+  if (rb) { rb.textContent = run ? "⏸ STOP" : "▶ RENDER"; rb.classList.toggle("active", run); }
+  if (!count) { showToast("No servos in the build yet — add one to render motion."); return; }
+  showToast(run ? `Rendering — running all ${count} servo${count === 1 ? "" : "s"}.` : "Stopped.");
+}
+function toggleRenderAll() {
+  const anyRunning = Array.from(entities.values()).some((e) => e.kind === "servo" && e.running);
+  runAllServos(!anyRunning);
+}
+
+// Lets JARVIS drive Build Mode by voice from the main chat page — see
+// jarvis.js's "render it" / "make it bigger" command handling.
+window.addEventListener("message", (e) => {
+  const t = e.data?.type;
+  if (t === "BUILD_RUN") runAllServos(true);
+  else if (t === "BUILD_STOP") runAllServos(false);
+  else if (t === "BUILD_SCALE_UP") scaleBuild(1.35);
+  else if (t === "BUILD_SCALE_DOWN") scaleBuild(0.75);
+});
 
 function setServoMode(mode) {
   const e = entities.get(selectedId);
@@ -549,6 +700,92 @@ function toggleServoRun() {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ── LEDS (weldable lights — same single-anchor rules as a servo mount) ──
+// ═══════════════════════════════════════════════════════════════
+const LED_COLORS = { white: 0xffffff, red: 0xff3333, green: 0x00ff88, blue: 0x00c8ff, amber: 0xffaa00 };
+
+function spawnLED() {
+  const start = nextSpawnPosition();
+  const base = new THREE.Vector3(start.x, 0.5, start.z);
+  const id = uid();
+  const colorKey = "white";
+  const mat = new THREE.MeshStandardMaterial({
+    color: LED_COLORS[colorKey], emissive: LED_COLORS[colorKey], emissiveIntensity: 0.05,
+    metalness: 0.1, roughness: 0.25,
+  });
+  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.055, 14, 14), mat);
+  mesh.castShadow = true;
+  mesh.userData = { entityId: id, kind: "ledBulb" };
+  const light = new THREE.PointLight(LED_COLORS[colorKey], 0, 1.6);
+  const group = new THREE.Group();
+  group.add(mesh, light);
+  scene.add(group);
+
+  const led = {
+    id, kind: "led", name: `LED ${++ledCount}`,
+    base, mesh, mat, light, group,
+    colorKey, on: false, blinking: false, blinkOn: true, blinkTimer: 0,
+    sizeScale: 1,
+  };
+  entities.set(id, led);
+  entityAssemblyOf.set(id, id);
+  entityAssemblyMembers.set(id, new Set([id]));
+  updateLEDVisual(led);
+  refreshEntityList(); updateTopStatus(); selectEntity(id);
+  showToast(`Placed: ${led.name}`);
+  return led;
+}
+
+function updateLEDVisual(led) {
+  led.group.position.copy(led.base);
+  led.mesh.scale.setScalar(led.sizeScale || 1);
+  const lit = led.on && (!led.blinking || led.blinkOn);
+  led.mat.emissiveIntensity = lit ? 1.5 : 0.05;
+  led.light.intensity = lit ? 1.2 : 0;
+}
+function setLEDColor(colorKey) {
+  const e = entities.get(selectedId);
+  if (!e || e.kind !== "led" || !LED_COLORS[colorKey]) return;
+  e.colorKey = colorKey;
+  e.mat.color.setHex(LED_COLORS[colorKey]);
+  e.mat.emissive.setHex(LED_COLORS[colorKey]);
+  e.light.color.setHex(LED_COLORS[colorKey]);
+  updateLEDControls(e);
+}
+function toggleLEDOn() {
+  const e = entities.get(selectedId);
+  if (!e || e.kind !== "led") return;
+  e.on = !e.on;
+  updateLEDVisual(e);
+  updateLEDControls(e);
+}
+function toggleLEDBlink() {
+  const e = entities.get(selectedId);
+  if (!e || e.kind !== "led") return;
+  e.blinking = !e.blinking;
+  e.blinkOn = true; e.blinkTimer = 0;
+  updateLEDVisual(e);
+  updateLEDControls(e);
+}
+function updateLEDControls(e) {
+  Object.keys(LED_COLORS).forEach((k) => {
+    const btn = document.getElementById("led-color-" + k);
+    if (btn) btn.classList.toggle("active", e.colorKey === k);
+  });
+  const onBtn = $("led-on-btn");
+  if (onBtn) { onBtn.textContent = e.on ? "● ON" : "○ OFF"; onBtn.classList.toggle("active", e.on); }
+  const blinkBtn = $("led-blink-btn");
+  if (blinkBtn) blinkBtn.classList.toggle("active", e.blinking);
+}
+function stepAllLEDs(dt) {
+  for (const e of entities.values()) {
+    if (e.kind !== "led" || !e.blinking || !e.on) continue;
+    e.blinkTimer += dt;
+    if (e.blinkTimer >= 0.45) { e.blinkTimer = 0; e.blinkOn = !e.blinkOn; updateLEDVisual(e); }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ── SELECTION / LIST UI ──
 // ═══════════════════════════════════════════════════════════════
 function refreshEntityList() {
@@ -571,6 +808,7 @@ function selectEntity(id) {
   $("sel-name").textContent = e ? e.name : "— none —";
   $("bar-controls").style.display = e && e.kind === "bar" ? "block" : "none";
   $("servo-controls").style.display = e && e.kind === "servo" ? "block" : "none";
+  $("led-controls").style.display = e && e.kind === "led" ? "block" : "none";
   if (e && e.kind === "servo") {
     const ang = Math.round(THREE.MathUtils.radToDeg(e.targetAngle));
     const spd = Math.round(THREE.MathUtils.radToDeg(e.speed));
@@ -580,6 +818,7 @@ function selectEntity(id) {
     $("servo-run-btn").textContent = e.running ? "⏸ STOP" : "▶ RUN";
     $("servo-run-btn").classList.toggle("active", e.running);
   }
+  if (e && e.kind === "led") updateLEDControls(e);
   refreshEntityList();
   updateAssemblyDetail();
 }
@@ -605,6 +844,7 @@ function deleteEntity(id) {
   $("sel-name").textContent = "— none —";
   $("bar-controls").style.display = "none";
   $("servo-controls").style.display = "none";
+  $("led-controls").style.display = "none";
 }
 
 function updateTopStatus() {
@@ -648,7 +888,8 @@ function allPickableMeshes() {
   const arr = [];
   for (const e of entities.values()) {
     if (e.kind === "bar") arr.push(...e.segMeshes, ...e.capMeshes);
-    else arr.push(e.bodyMesh, e.mountMesh, e.armMesh, e.tipMesh);
+    else if (e.kind === "servo") arr.push(e.bodyMesh, e.mountMesh, e.armMesh, e.tipMesh);
+    else if (e.kind === "led") arr.push(e.mesh);
   }
   return arr;
 }
@@ -677,7 +918,8 @@ function pickWeldPoint() {
   const meshes = [];
   for (const e of entities.values()) {
     if (e.kind === "bar") meshes.push(...e.capMeshes);
-    else meshes.push(e.mountMesh, e.tipMesh);
+    else if (e.kind === "servo") meshes.push(e.mountMesh, e.tipMesh);
+    else if (e.kind === "led") meshes.push(e.mesh);
   }
   const hits = raycaster.intersectObjects(meshes, false);
   if (!hits.length) return null;
@@ -685,6 +927,7 @@ function pickWeldPoint() {
   if (ud.kind === "cap") return { entityId: ud.entityId, anchorKind: "joint", jointIndex: ud.jointIndex };
   if (ud.kind === "servoMount") return { entityId: ud.entityId, anchorKind: "mount" };
   if (ud.kind === "servoTip") return { entityId: ud.entityId, anchorKind: "tip" };
+  if (ud.kind === "ledBulb") return { entityId: ud.entityId, anchorKind: "mount" };
   return null;
 }
 function anchorWorldPos(hit) {
