@@ -284,12 +284,15 @@ function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON
 // similar songs once the first one ends, so Jarvis never just stops.
 // Add more songs by editing data/music-library.json directly — no
 // code changes or restart needed, it's read fresh on every request.
+// Optional "artist" field is shown as the subtitle on the now-playing
+// widget in the UI — purely cosmetic, safe to omit.
 const MUSIC_FILE = path.join(DATA_DIR, "music-library.json");
 function ensureMusicFile() {
   if (!fs.existsSync(MUSIC_FILE)) {
     fs.writeFileSync(MUSIC_FILE, JSON.stringify({
       "self aware": {
         title: "Self Aware",
+        artist: "",
         url: "https://www.youtube.com/watch?v=pGsgAOmkS40&list=RDpGsgAOmkS40&start_radio=1",
         mood: "chill, introspective, late-night",
       },
@@ -310,6 +313,22 @@ function lookupMusicByKeyword(text) {
 }
 function youtubeSearchUrl(query) {
   return `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
+}
+// For songs that aren't in the library, we still want the widget to play
+// something specific rather than dumping a search-results page — so we
+// pull the top result's video ID straight off YouTube's search page (no
+// API key needed) and hand back a normal watch URL for that video.
+async function findYoutubeVideoId(query) {
+  try {
+    const res = await fetch(youtubeSearchUrl(query), {
+      signal: AbortSignal.timeout(6000),
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" },
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const match = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
+    return match ? match[1] : null;
+  } catch { return null; }
 }
 // Asks Groq to pick the best-fitting song from the library given the
 // current mood/context. Falls back to a random pick if Groq is
@@ -1228,18 +1247,27 @@ async function executeAssistantTool(name, args, ctx) {
         if (!song) {
           return { reply: `My music library's empty, ${T} — add a song or two to data/music-library.json and I'll start picking for you.`, action: "ASK_MUSIC", intent: "music" };
         }
-        return { reply: `Playing "${song.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: song.url, title: song.title } };
+        return { reply: `Playing "${song.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: song.url, title: song.title, artist: song.artist || "" } };
       }
 
       const hit = lookupMusicByKeyword(query);
       if (hit.found) {
-        return { reply: `Playing "${hit.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: hit.url, title: hit.title } };
+        return { reply: `Playing "${hit.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: hit.url, title: hit.title, artist: hit.artist || "" } };
+      }
+
+      const videoId = await findYoutubeVideoId(query);
+      if (videoId) {
+        return {
+          reply: `That's not in my library yet, ${T} — playing it now.`,
+          action: "PLAY_MUSIC_SEARCH",
+          intent: "music",
+          meta: { playUrl: `https://www.youtube.com/watch?v=${videoId}`, title: query, artist: "" },
+        };
       }
       return {
-        reply: `That's not in my library yet, ${T} — pulling it up on YouTube.`,
-        action: "PLAY_MUSIC_SEARCH",
+        reply: `I couldn't find that one, ${T}.`,
+        action: "ASK_MUSIC",
         intent: "music",
-        meta: { playUrl: youtubeSearchUrl(query) },
       };
     }
 
