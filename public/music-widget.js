@@ -43,6 +43,10 @@ window.MusicWidget = (function () {
     const wrap = document.createElement("div");
     wrap.id = "music-widget";
     wrap.className = "music-widget hidden";
+    // Lets hand-tracking's pinch gesture grab and drag this widget — it
+    // synthesizes real pointer events, so it just rides the same drag
+    // handling below that mouse/touch already use.
+    wrap.dataset.handDrag = "true";
     wrap.innerHTML = `
       <button class="mw-close" id="mw-close" aria-label="Close" title="Stop">&#10005;</button>
       <div class="mw-content" id="mw-content">
