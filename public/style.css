@@ -185,7 +185,9 @@ body::after {
 
 .orbital-dot {
   position: absolute;
+  top: 50%; left: 50%;
   width: 6px; height: 6px;
+  margin: -3px 0 0 -3px; /* center the dot itself before the orbit transform runs */
   border-radius: 50%;
   background: var(--blue);
   box-shadow: 0 0 8px var(--blue);
