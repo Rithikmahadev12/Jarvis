@@ -534,10 +534,26 @@ const HandTracking = (() => {
     setDwellRing(pct);
 
     if (pct >= 1) {
-      clickable.click();
+      fireClick(clickable);
       flashClick();
       clearDwell();
       dwellStart = performance.now() + 400; // small cooldown to avoid double-fire
+    }
+  }
+
+  // Works for both HTMLElement targets (which have a native .click()) and
+  // SVGElement targets (which don't — e.g. the mode-picker's <path> wedges).
+  // Wrapped defensively so a target that can't be clicked for any reason
+  // never takes down the whole dwell/tracking loop with it.
+  function fireClick(el) {
+    try {
+      if (typeof el.click === "function") {
+        el.click();
+      } else {
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+      }
+    } catch (e) {
+      console.warn("[HandTracking] fireClick failed", e);
     }
   }
 
