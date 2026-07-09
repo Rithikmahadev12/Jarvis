@@ -1,7 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    J.A.R.V.I.S — MODE PICKER
-   Swipe-right (hand) on the main screen → confirm dialog → radial
-   hand-driven mode picker. Fully additive.
+   Swipe-right (hand) on the main screen → confirm dialog → a
+   circular segmented wheel (proper pie wedges, not floating icons)
+   pops up dead-center for hand/mouse selection. Fully additive.
    ═══════════════════════════════════════════════════════════════ */
 
 /* ── SWIPE-RIGHT CONFIRM DIALOG ── */
@@ -79,13 +80,13 @@
 }
 .mp-confirm-btns .hud-btn { flex: 1; }
 
-/* ── RADIAL MODE PICKER ── */
+/* ── RADIAL WHEEL PICKER ── */
 #mp-picker {
   position: fixed;
   inset: 0;
   z-index: 616;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
   opacity: 0;
   pointer-events: none;
@@ -96,17 +97,17 @@
 .mp-backdrop {
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse at 50% 88%, rgba(0,60,90,0.28), rgba(1,8,14,0.86) 70%);
+  background: radial-gradient(circle at 50% 50%, rgba(0,60,90,0.22), rgba(1,8,14,0.9) 72%);
 }
 
 .mp-hint {
   position: absolute;
-  top: 22px;
+  top: 26px;
   left: 50%;
   transform: translateX(-50%);
   font-family: var(--hud, 'Orbitron', monospace);
   font-size: 0.5rem;
-  letter-spacing: 0.28em;
+  letter-spacing: 0.26em;
   color: var(--text-dim, #2e5a78);
   text-align: center;
   white-space: nowrap;
@@ -115,8 +116,8 @@
 
 .mp-close-btn {
   position: absolute;
-  top: 18px;
-  right: 22px;
+  top: 22px;
+  right: 26px;
   width: 34px; height: 34px;
   border-radius: 50%;
   background: rgba(2,14,26,0.85);
@@ -133,143 +134,133 @@
   box-shadow: 0 0 18px rgba(255,51,51,0.4);
 }
 
-.mp-arc-wrap {
+/* Wheel container — everything (svg wedges + hub) is centered inside this */
+.mp-wheel-wrap {
   position: relative;
-  width: min(680px, 96vw);
-  height: min(440px, 66vh);
-  margin-bottom: 6vh;
+  width: min(440px, 82vw);
+  aspect-ratio: 1 / 1;
 }
 
-/* decorative dashed arcs behind the nodes */
-.mp-deco-arc {
-  position: absolute;
-  left: 50%; bottom: 0;
-  border-radius: 50%;
-  border: 1px dashed rgba(0,200,255,0.16);
-  transform: translateX(-50%);
+.mp-wheel-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* decorative outer ring, purely cosmetic */
+.mp-deco-ring {
+  fill: none;
+  stroke: rgba(0,200,255,0.14);
+  stroke-width: 1;
+  stroke-dasharray: 2 10;
+}
+
+/* pie-wedge segments */
+.mp-segment {
+  fill: rgba(0,200,255,0.06);
+  stroke: rgba(0,200,255,0.22);
+  stroke-width: 1;
+  cursor: pointer;
+  transition: fill 0.18s ease, filter 0.18s ease, stroke 0.18s ease;
+}
+.mp-segment:hover,
+.mp-segment.ht-hover,
+.mp-segment.mp-active {
+  fill: rgba(0,200,255,0.24);
+  stroke: var(--blue, #00c8ff);
+  filter: drop-shadow(0 0 14px rgba(0,200,255,0.55));
+}
+.mp-segment.mp-node-close {
+  fill: rgba(255,51,51,0.05);
+  stroke: rgba(255,51,51,0.2);
+}
+.mp-segment.mp-node-close:hover,
+.mp-segment.mp-node-close.ht-hover {
+  fill: rgba(255,51,51,0.2);
+  stroke: var(--red, #ff3333);
+  filter: drop-shadow(0 0 14px rgba(255,51,51,0.5));
+}
+
+/* selection flash */
+@keyframes mpSelectFlash {
+  0%   { fill: rgba(0,200,255,0.24); }
+  50%  { fill: rgba(0,200,255,0.55); }
+  100% { fill: rgba(0,200,255,0.24); }
+}
+.mp-segment.mp-selecting { animation: mpSelectFlash 0.32s ease-out; }
+
+/* icon + label riding inside each wedge, ignores pointer events so the
+   path underneath is always the actual hit target */
+.mp-seg-label {
   pointer-events: none;
 }
-.mp-deco-arc.a1 { width: 380px; height: 380px; }
-.mp-deco-arc.a2 { width: 520px; height: 520px; border-color: rgba(0,200,255,0.09); }
+.mp-seg-icon {
+  color: var(--text-dim, #2e5a78);
+  transition: color 0.18s ease;
+}
+.mp-seg-text {
+  font-family: var(--hud, 'Orbitron', monospace);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  fill: var(--text-dim, #2e5a78);
+  text-anchor: middle;
+  transition: fill 0.18s ease;
+}
+.mp-segment:hover ~ .mp-seg-label .mp-seg-icon,
+.mp-segment.ht-hover ~ .mp-seg-label .mp-seg-icon,
+.mp-segment.mp-active ~ .mp-seg-label .mp-seg-icon { color: var(--blue, #00c8ff); }
+.mp-segment:hover ~ .mp-seg-label .mp-seg-text,
+.mp-segment.ht-hover ~ .mp-seg-label .mp-seg-text,
+.mp-segment.mp-active ~ .mp-seg-label .mp-seg-text { fill: var(--blue, #00c8ff); }
 
-/* central orb — the "grabbed" handle the arc hangs from */
-.mp-center {
-  position: absolute;
-  left: 50%; bottom: 0;
-  width: 68px; height: 68px;
-  margin-left: -34px;
-  border-radius: 50%;
-  z-index: 3;
-}
-.mp-center-ring {
-  position: absolute; inset: 0;
-  border-radius: 50%;
-  border: 1px solid rgba(0,200,255,0.45);
-  animation: mpSpin 10s linear infinite;
-}
-.mp-center-ring::before {
-  content: '';
-  position: absolute; inset: -8px;
-  border-radius: 50%;
-  border: 1px dashed rgba(0,200,255,0.25);
-}
-@keyframes mpSpin { to { transform: rotate(360deg); } }
-.mp-center-core {
-  position: absolute;
-  inset: 18px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(0,200,255,0.55), rgba(0,200,255,0.05) 70%);
-  box-shadow: 0 0 22px rgba(0,200,255,0.5);
-}
+.mp-segment.mp-node-close ~ .mp-seg-label .mp-seg-icon { color: rgba(255,80,80,0.7); }
+.mp-segment.mp-node-close:hover ~ .mp-seg-label .mp-seg-icon,
+.mp-segment.mp-node-close.ht-hover ~ .mp-seg-label .mp-seg-icon { color: var(--red, #ff3333); }
+.mp-segment.mp-node-close ~ .mp-seg-label .mp-seg-text { fill: rgba(255,80,80,0.7); }
+.mp-segment.mp-node-close:hover ~ .mp-seg-label .mp-seg-text,
+.mp-segment.mp-node-close.ht-hover ~ .mp-seg-label .mp-seg-text { fill: var(--red, #ff3333); }
 
-/* connecting line + node */
-.mp-node {
+/* center hub — sits on top of the wheel's empty middle */
+.mp-hub {
   position: absolute;
-  left: var(--nx);
-  top: var(--ny);
-  width: 0; height: 0;
+  top: 50%; left: 50%;
+  width: 34%; height: 34%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, #050d18 55%, rgba(0,200,255,0.14) 100%);
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 0 24px rgba(0,200,255,0.28), inset 0 0 18px rgba(0,200,255,0.16);
   display: flex;
   flex-direction: column;
   align-items: center;
-  cursor: pointer;
-  z-index: 2;
-}
-.mp-node-line {
-  position: absolute;
-  left: 0; top: 0;
-  width: var(--llen);
-  height: 1px;
-  background: linear-gradient(90deg, rgba(0,200,255,0.05), rgba(0,200,255,0.4));
-  transform-origin: 0 0;
-  transform: rotate(var(--lrot));
+  justify-content: center;
   pointer-events: none;
 }
-.mp-node-dot {
-  position: relative;
-  width: 52px; height: 52px;
-  border-radius: 50%;
-  background: rgba(2,14,26,0.9);
-  border: 1px solid rgba(0,200,255,0.35);
-  display: flex; align-items: center; justify-content: center;
-  color: var(--text, #a8dff5);
-  transform: translate(-50%, -50%);
-  transition: all 0.18s ease;
-  box-shadow: 0 0 0 rgba(0,200,255,0);
-}
-.mp-node-dot svg { width: 22px; height: 22px; }
-.mp-node-label {
+.mp-hub::before {
+  content: '';
   position: absolute;
-  top: calc(-50% + 32px);
-  left: 0;
-  transform: translate(-50%, 0);
+  inset: 12%;
+  border-radius: 50%;
+  border: 1px dashed rgba(0,200,255,0.35);
+  animation: mpHubSpin 14s linear infinite;
+}
+@keyframes mpHubSpin { to { transform: rotate(360deg); } }
+.mp-hub-text {
   font-family: var(--hud, 'Orbitron', monospace);
-  font-size: 0.42rem;
-  letter-spacing: 0.2em;
-  color: var(--text-dim, #2e5a78);
-  white-space: nowrap;
-  transition: color 0.18s ease;
+  font-size: clamp(0.6rem, 2.6vw, 0.78rem);
+  letter-spacing: 0.24em;
+  color: var(--text-bright, #d8f4ff);
 }
-
-.mp-node:hover .mp-node-dot,
-.mp-node.ht-hover .mp-node-dot,
-.mp-node.mp-active .mp-node-dot {
-  border-color: var(--blue, #00c8ff);
+.mp-hub-sub {
+  font-family: var(--mono, 'Share Tech Mono', monospace);
+  font-size: clamp(0.36rem, 1.4vw, 0.44rem);
+  letter-spacing: 0.18em;
   color: var(--blue, #00c8ff);
-  box-shadow: 0 0 22px rgba(0,200,255,0.45);
-  transform: translate(-50%, -50%) scale(1.12);
-}
-.mp-node:hover .mp-node-label,
-.mp-node.ht-hover .mp-node-label,
-.mp-node.mp-active .mp-node-label {
-  color: var(--blue, #00c8ff);
-}
-.mp-node:hover .mp-node-line,
-.mp-node.ht-hover .mp-node-line,
-.mp-node.mp-active .mp-node-line {
-  background: linear-gradient(90deg, rgba(0,200,255,0.1), rgba(0,200,255,0.85));
+  margin-top: 5px;
+  text-transform: uppercase;
 }
 
-.mp-node.mp-node-close .mp-node-dot {
-  border-color: rgba(255,51,51,0.35);
-  color: var(--red, #ff3333);
-}
-.mp-node.mp-node-close:hover .mp-node-dot,
-.mp-node.mp-node-close.ht-hover .mp-node-dot {
-  border-color: var(--red, #ff3333);
-  box-shadow: 0 0 22px rgba(255,51,51,0.45);
-}
-.mp-node.mp-node-close:hover .mp-node-label,
-.mp-node.mp-node-close.ht-hover .mp-node-label { color: var(--red, #ff3333); }
-
-/* selection flash on click/dwell-complete */
-@keyframes mpSelectPulse {
-  0%   { box-shadow: 0 0 22px rgba(0,200,255,0.45); }
-  50%  { box-shadow: 0 0 42px rgba(0,200,255,0.9); }
-  100% { box-shadow: 0 0 22px rgba(0,200,255,0.45); }
-}
-.mp-node.mp-selecting .mp-node-dot { animation: mpSelectPulse 0.35s ease-out; }
-
-@media (max-width: 720px) {
-  .mp-arc-wrap { transform: scale(0.72); margin-bottom: 4vh; }
-  .mp-hint { font-size: 0.42rem; letter-spacing: 0.18em; }
+@media (max-width: 480px) {
+  .mp-hint { font-size: 0.4rem; letter-spacing: 0.16em; top: 18px; }
 }
