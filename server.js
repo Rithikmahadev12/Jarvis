@@ -1750,7 +1750,8 @@ app.post("/api/tts", async (req, res) => {
   if (outputMode === "home") {
     const Cast = require("./cast");
     try {
-      let audio = TTS.isReady() ? await TTS.synthesize(text) : null;
+      const result = TTS.isReady() ? await TTS.synthesize(text) : null;
+      let audio = result ? result.buffer : null;
       if (!audio) audio = await fetchGoogleTTS(text);
 
       if (!audio) {
@@ -1773,13 +1774,13 @@ app.post("/api/tts", async (req, res) => {
   if (!TTS.isReady()) {
     return res.status(503).json({ error: "Voice model loading", fallback: true });
   }
-  const audio = await TTS.synthesize(text);
-  if (!audio) return res.status(500).json({ error: "Synthesis failed", fallback: true });
+  const result = await TTS.synthesize(text);
+  if (!result) return res.status(500).json({ error: "Synthesis failed", fallback: true });
 
-  res.setHeader("Content-Type",  "audio/wav");
-  res.setHeader("Content-Length", audio.length);
+  res.setHeader("Content-Type",  result.mimeType);
+  res.setHeader("Content-Length", result.buffer.length);
   res.setHeader("Cache-Control",  "no-cache");
-  res.send(audio);
+  res.send(result.buffer);
 });
 
 // ── Google Translate TTS — pure Node.js, no Python, no API key ───────────────
