@@ -362,10 +362,10 @@ async function speak(text, onEnd) {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ text }),
-      // A cold Hugging Face Space can take a while to wake up; give it
-      // a generous window before giving up and falling back to the
-      // browser voice rather than leaving the user waiting forever.
-      signal:  AbortSignal.timeout(25000),
+      // Server gives up on the voice-clone Space after ~12s and falls
+      // back on its own, so this just needs a little headroom above
+      // that — no reason to make the user wait any longer than that.
+      signal:  AbortSignal.timeout(15000),
     });
 
 
