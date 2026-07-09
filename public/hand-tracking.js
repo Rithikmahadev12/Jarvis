@@ -13,6 +13,12 @@
 //       together = "in" (focus back on one monitor). Mirrors the
 //       two-arm "open up the workspace" gesture from the reference
 //       footage.
+//   "jarvis:snap"   detail: {}                            — one hand,
+//       thumb + middle finger close then fly apart FAST (an actual
+//       finger-snap motion). Used to "arm" gesture actions that
+//       shouldn't fire from ordinary hand movement alone — e.g. the
+//       mode picker requires a snap right before a swipe-right so it
+//       doesn't pop open every time you just move your hand.
 // Example: window.addEventListener("jarvis:swipe", e => { ... });
 //
 // PINCH-DRAG — no event, no spoken command. Pinch thumb + index over any
@@ -90,6 +96,18 @@ const HandTracking = (() => {
   const ZOOM_WINDOW_MS   = 380;
   const ZOOM_MIN_DELTA   = 0.22;
   const ZOOM_COOLDOWN_MS = 900;
+
+  // ── SNAP DETECTION STATE ──
+  // Approximates a finger-snap using only hand landmarks (no audio):
+  // thumb tip and middle-fingertip come together (closed) then fly apart
+  // FAST (open) — a slow separation doesn't count, only a quick flick.
+  let snapClosed   = false;
+  let snapCloseAt  = 0;
+  let lastSnapAt   = 0;
+  const SNAP_CLOSE_DIST   = 0.07;  // normalized thumb–middle distance counted as "touching"
+  const SNAP_OPEN_DIST    = 0.14;  // must fly apart past this to count as the "release"
+  const SNAP_MAX_MS       = 250;   // close→open must happen within this window (fast flick)
+  const SNAP_COOLDOWN_MS  = 500;   // minimum time between snaps
 
   // ── BUILD DOM ──
   function buildDom() {
@@ -371,6 +389,7 @@ const HandTracking = (() => {
     // motions aren't damped out by the cursor's smoothing filter.
     detectSwipe(rawX, rawY);
     detectZoom(results.multiHandLandmarks);
+    detectSnap(landmarks);
 
     // Broadcast raw landmark data so other pages can do custom gesture detection
     // (e.g. monitor-wall.html uses this for raise-both-wrists → overview toggle)
@@ -496,6 +515,29 @@ const HandTracking = (() => {
 
   function fireGesture(type, detail) {
     window.dispatchEvent(new CustomEvent("jarvis:" + type, { detail }));
+  }
+
+  // ── SNAP — thumb + middle finger close then fly apart FAST → "jarvis:snap" ──
+  // Used to "arm" gesture actions that shouldn't fire from an ordinary hand
+  // swipe alone (see mode-picker.js: it requires a snap immediately before
+  // a swipe-right, so just moving your hand around never accidentally
+  // opens anything).
+  function detectSnap(landmarks) {
+    const thumb  = landmarks[4];
+    const middle = landmarks[12];
+    const dist = Math.hypot(thumb.x - middle.x, thumb.y - middle.y);
+    const now = performance.now();
+
+    if (!snapClosed && dist < SNAP_CLOSE_DIST) {
+      snapClosed = true;
+      snapCloseAt = now;
+    } else if (snapClosed && dist > SNAP_OPEN_DIST) {
+      snapClosed = false;
+      if (now - snapCloseAt < SNAP_MAX_MS && now - lastSnapAt > SNAP_COOLDOWN_MS) {
+        lastSnapAt = now;
+        fireGesture("snap", {});
+      }
+    }
   }
 
   function drawSkeleton(landmarks) {
