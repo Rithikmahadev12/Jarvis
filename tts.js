@@ -36,19 +36,31 @@ const WARMUP_INTERVAL_MS     = Number(process.env.VOICE_CLONE_WARMUP_MS || 4 * 6
 // from key #1 on a calendar schedule (the 8th of every month, starting
 // Aug 8, 2026) instead of on server restart, since deploys don't line up
 // with your monthly credit reset.
+//
+// Each key can have its own voice: CAMB_API_KEY uses CAMB_VOICE_ID,
+// CAMB_API_KEY2 uses CAMB_VOICE_ID2, and so on. If a numbered voice ID is
+// missing for a given key, that key just falls back to the base
+// CAMB_VOICE_ID (or the hardcoded default if that's missing too).
 function loadCambKeys() {
+  const DEFAULT_VOICE_ID = 20303;
+  const baseVoiceId = Number(process.env.CAMB_VOICE_ID || DEFAULT_VOICE_ID);
+
   const keys = [];
-  if (process.env.CAMB_API_KEY) keys.push(process.env.CAMB_API_KEY);
+  if (process.env.CAMB_API_KEY) {
+    keys.push({ key: process.env.CAMB_API_KEY, voiceId: baseVoiceId });
+  }
   let i = 2;
   while (process.env[`CAMB_API_KEY${i}`]) {
-    keys.push(process.env[`CAMB_API_KEY${i}`]);
+    const voiceId = process.env[`CAMB_VOICE_ID${i}`]
+      ? Number(process.env[`CAMB_VOICE_ID${i}`])
+      : baseVoiceId;
+    keys.push({ key: process.env[`CAMB_API_KEY${i}`], voiceId });
     i++;
   }
   return keys;
 }
 
 const CAMB_KEYS       = loadCambKeys();
-const CAMB_VOICE_ID   = Number(process.env.CAMB_VOICE_ID || 20303);
 const CAMB_LANGUAGE   = process.env.CAMB_LANGUAGE || "en-us";
 const CAMB_MODEL      = process.env.CAMB_SPEECH_MODEL || "mars-8.1-flash-beta";
 const CAMB_TIMEOUT_MS = Number(process.env.CAMB_TIMEOUT_MS || 15000);
@@ -114,7 +126,7 @@ async function synthesizeWithCamb(clean) {
   // THIS request once it fails again.
   for (let attempt = 0; attempt < CAMB_KEYS.length; attempt++) {
     const idx = (_cambKeyIndex + attempt) % CAMB_KEYS.length;
-    const key = CAMB_KEYS[idx];
+    const { key, voiceId } = CAMB_KEYS[idx];
 
     try {
       const res = await fetch(CAMB_URL, {
@@ -125,7 +137,7 @@ async function synthesizeWithCamb(clean) {
         },
         body: JSON.stringify({
           text: clean,
-          voice_id: CAMB_VOICE_ID,
+          voice_id: voiceId,
           language: CAMB_LANGUAGE,
           speech_model: CAMB_MODEL,
         }),
