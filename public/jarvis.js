@@ -290,11 +290,10 @@ function pickVoice() {
 }
 window.speechSynthesis.onvoiceschanged = () => {};
 
-// ── PIPER STATE ───────────────────────────────────────────────
-// Disabled: the assistant no longer polls the server for a "Jarvis voice"
-// or tries to fetch /api/tts. It always speaks with the fixed browser
-// voice above. (Re-enable by restoring checkTTSReady() below and the
-// Piper branch in speak() if the server voice becomes reliable again.)
+// ── SERVER VOICE STATE ──────────────────────────────────────────
+// Polls /api/tts/status so speak() knows when the cloned voice backend
+// (Hugging Face Space, with an ElevenLabs fallback) is actually ready.
+// Until then, everything speaks with the fixed browser voice above.
 let _currentAudio = null;
 let _ttsReady     = false;
 
@@ -334,10 +333,11 @@ async function syncHomeTalkBadge() {
 syncHomeTalkBadge();
 
 // ── MAIN SPEAK FUNCTION ───────────────────────────────────────
-// Always speaks locally with the fixed browser voice (English - Australia
-// - William). The Piper server round-trip (and the voice-switching that
-// came with it) is disabled — see the commented-out branch below if you
-// want to bring back server TTS / Home Talk casting later.
+// Uses the real Jarvis voice (your cloned voice, served from /api/tts)
+// whenever the server has reported it's ready. Falls back to the fixed
+// browser voice (English - Australia - William) if the voice backend
+// isn't ready yet, or if the round-trip fails/times out — so a slow or
+// sleeping voice-clone Space can never leave Jarvis silent.
 async function speak(text, onEnd) {
   if (!text) { if (onEnd) onEnd(); return; }
 
@@ -347,21 +347,27 @@ async function speak(text, onEnd) {
 
   setOrb("speaking");
 
-  // ── Not doing Home Talk? Skip the server/Piper round-trip entirely and
-  //    just speak locally with the browser voice. Piper is only worth the
-  //    trip when we actually need to cast audio to a Google Home speaker —
-  //    hitting it on every phone reply is what was causing the lag. ──
-  if (state.outputMode !== "home") {
+  // Home Talk always needs the round-trip (it casts to the speaker).
+  // Phone/browser mode also uses it now, but only once /api/tts/status
+  // has confirmed a voice backend is actually up — otherwise skip
+  // straight to the browser voice instead of waiting on a request that's
+  // going to fail anyway.
+  if (state.outputMode !== "home" && !_ttsReady) {
     return _speakBrowser(text, onEnd);
   }
 
-  // ── Piper TTS / Home Talk round-trip ────────────────────────
+  // ── Cloned-voice TTS / Home Talk round-trip ─────────────────
   try {
     const res = await fetch("/api/tts", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ text }),
+      // A cold Hugging Face Space can take a while to wake up; give it
+      // a generous window before giving up and falling back to the
+      // browser voice rather than leaving the user waiting forever.
+      signal:  AbortSignal.timeout(25000),
     });
+
 
     // 503 = Piper model not loaded. If we're in Home Talk mode the server
     // will handle TTS via gTTS — only fall back to browser on phone mode.
