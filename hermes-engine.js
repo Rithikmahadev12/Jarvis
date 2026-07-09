@@ -305,6 +305,27 @@ const TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "check_email",
+      description: "Check the user's real Gmail inbox — how many unread emails, who they're from, subjects. Call this whenever the user asks about their email/inbox/messages, e.g. 'check my email', 'read my emails', 'do I have any new mail', 'what's in my inbox'. This is a REAL, direct connection to their actual Gmail account (via the Google sign-in they've already completed) — never say you don't have access to their email; call this tool instead of answering from general knowledge.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_calendar",
+      description: "Check the user's real Google Calendar for upcoming events. Call this whenever the user asks about their calendar/schedule/agenda/meetings, e.g. 'what's on my calendar today', 'do I have any meetings tomorrow', 'what's my schedule this week'. This is a REAL, direct connection to their actual Google Calendar (via the Google sign-in they've already completed) — never say you don't have access; call this tool instead.",
+      parameters: {
+        type: "object",
+        properties: {
+          period: { type: "string", enum: ["today", "tomorrow", "this_week", "next_week"], description: "Which range to check. Defaults to today if not specified." },
+        },
+      },
+    },
+  },
 ];
 
 // ── TOOL-CALLING CHAT ──────────────────────────────────────────
@@ -322,7 +343,7 @@ async function chatWithTools({ message, userTitle = "Sir", memories = [], contex
 
   const systemPrompt = getSystemPrompt(T, memories, context, []) + `
 
-You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, and noticing when the user needs a break. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. If nothing calls for a tool, just answer normally in plain text.
+You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, checking their real Google Calendar, and noticing when the user needs a break. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. If nothing calls for a tool, just answer normally in plain text.
 
 Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use this to compute datetime_iso for reminders.`;
 
