@@ -22,6 +22,7 @@ const Brain       = require("./brain");
 const Reminders   = require("./reminders");
 const Briefing    = require("./briefing");
 const TTS = require("./tts");
+const Persistence = require("./persistence");
 
 const app        = express();
 
@@ -1732,11 +1733,21 @@ app.post("/api/chat", async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 const PORT = process.env.PORT || 3000;
 
-bootstrapOwnerAccount();
-Improve.ensureDirs();
+// Memory must be restored from Upstash BEFORE anything below touches
+// data/ (bootstrapOwnerAccount() reads profiles.json immediately).
+// Everything that used to run inline here now runs inside boot().
+async function boot() {
+  await Persistence.pullAll();
 
-Improve.startImprovementLoop(5 * 60 * 1000);
-Trainer.startTrainingLoop(15 * 60 * 1000);
+  bootstrapOwnerAccount();
+  Improve.ensureDirs();
+
+  Improve.startImprovementLoop(5 * 60 * 1000);
+  Trainer.startTrainingLoop(15 * 60 * 1000);
+  Persistence.startAutoSync();
+
+  startServer();
+}
 // ═══════════════════════════════════════════════════════════════
 // ── PIPER TTS ROUTE
 // ═══════════════════════════════════════════════════════════════
@@ -1837,15 +1848,20 @@ app.get("/api/home-talk/status", (req, res) => {
   res.json({ outputMode, device: Cast.deviceName(), configured: Cast.isConfigured() });
 });
 
-httpServer.listen(PORT, "0.0.0.0", () => {
-  console.log(`\nJ.A.R.V.I.S online → http://localhost:${PORT}`);
-  console.log(`  Comms panel    → http://localhost:${PORT}/comms`);
-  console.log(`  Drafting table → http://localhost:${PORT}/blueprint`);
-  console.log(`  Groq AI:       ${Groq.isConfigured() ? "✓ configured — primary brain active" : "✗ not configured (add GROQ_API_KEY to .env)"}`);
-  console.log(`  Spotify:       ${Spotify.isConfigured() ? "✓ configured" : "✗ add SPOTIFY_CLIENT_ID to .env"}`);
-  console.log(`  Google:        ✓ per-user credentials (users add their own in settings)`);
-  console.log(`  Weather:       ${process.env.OPENWEATHER_API_KEY ? "✓ configured" : "✗ add OPENWEATHER_API_KEY to .env"}`);
-  console.log(`  GitHub deploy: ${process.env.GITHUB_TOKEN ? "✓ configured" : "✗ add GITHUB_TOKEN + GITHUB_REPO to .env"}`);
-  console.log(`  Training data: /data/training_data.json`);
-  console.log(`  Learned:       /data/learned/\n`);
-});
+function startServer() {
+  httpServer.listen(PORT, "0.0.0.0", () => {
+    console.log(`\nJ.A.R.V.I.S online → http://localhost:${PORT}`);
+    console.log(`  Comms panel    → http://localhost:${PORT}/comms`);
+    console.log(`  Drafting table → http://localhost:${PORT}/blueprint`);
+    console.log(`  Groq AI:       ${Groq.isConfigured() ? "✓ configured — primary brain active" : "✗ not configured (add GROQ_API_KEY to .env)"}`);
+    console.log(`  Spotify:       ${Spotify.isConfigured() ? "✓ configured" : "✗ add SPOTIFY_CLIENT_ID to .env"}`);
+    console.log(`  Google:        ✓ per-user credentials (users add their own in settings)`);
+    console.log(`  Weather:       ${process.env.OPENWEATHER_API_KEY ? "✓ configured" : "✗ add OPENWEATHER_API_KEY to .env"}`);
+    console.log(`  GitHub deploy: ${process.env.GITHUB_TOKEN ? "✓ configured" : "✗ add GITHUB_TOKEN + GITHUB_REPO to .env"}`);
+    console.log(`  Training data: /data/training_data.json`);
+    console.log(`  Learned:       /data/learned/`);
+    console.log(`  Memory sync:   ${Persistence.isConfigured() ? "✓ Supabase — memory survives restarts" : "✗ local-only — memory LOST on restart (set SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET)"}\n`);
+  });
+}
+
+boot();
