@@ -1057,6 +1057,34 @@ function launchMain() {
   setInterval(syncExtensionStatus, 3000);
   setInterval(pollReminders, 5000);
   setInterval(pollSchedule, 20000);
+
+  setTimeout(() => checkInboxBriefing(), 2500);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── PROACTIVE INBOX TRIAGE ──
+// ═══════════════════════════════════════════════════════════════
+// Fires on its own every time the app opens — JARVIS never waits to be
+// asked "check my email". If Google is connected and there's a fresh
+// (or freshly-generated) summary for today that hasn't been announced
+// yet, it's spoken and posted to chat immediately, unprompted.
+async function checkInboxBriefing() {
+  if (!state.user) return;
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const res  = await fetch(`/api/inbox-briefing/${encodeURIComponent(state.user)}?tz=${encodeURIComponent(tz)}`);
+    const data = await res.json();
+    if (!data.available || !data.entry) return;
+
+    const shownKey = `jarvis_inbox_shown_${state.user.toLowerCase()}_${data.entry.date}`;
+    if (localStorage.getItem(shownKey)) return; // already announced today
+    localStorage.setItem(shownKey, "1");
+
+    const lines = (data.entry.summary || []).map(s => `• ${s}`).join("\n");
+    const msg = lines ? `${data.entry.headline}\n${lines}` : data.entry.headline;
+    addMsg("jarvis", msg);
+    speak(data.entry.headline); // speak just the headline; full detail stays in chat
+  } catch { /* silent — this is a bonus, not a critical path */ }
 }
 
 // ── WORK-SESSION BREAK NUDGE ──
