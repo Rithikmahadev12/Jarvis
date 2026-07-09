@@ -1493,6 +1493,14 @@ async function executeAssistantTool(name, args, ctx) {
       }
     }
 
+    case "check_email":
+      return await handleGmailFetch("check inbox", T, userName);
+
+    case "get_calendar": {
+      const periodPhrase = { today: "today", tomorrow: "tomorrow", this_week: "this week", next_week: "next week" }[args.period] || "today";
+      return await handleCalendarFetch(periodPhrase, T, userName);
+    }
+
     default:
       return { reply: `I don't have a tool for that yet, ${T}.` };
   }
