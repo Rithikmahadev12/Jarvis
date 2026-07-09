@@ -40,6 +40,40 @@
   let pickerOpen = false;
   let uiAudio = null;
 
+  // ── SNAP-TO-ARM ──
+  // A swipe alone no longer opens the mode picker (too easy to trigger by
+  // accident just moving your hand around). You have to snap first — that
+  // "arms" a short window during which the next swipe-right will open it.
+  // Moving without snapping does nothing.
+  let snapArmed = false;
+  let snapArmTimer = null;
+  const SNAP_ARM_WINDOW_MS = 1500;
+  let snapHintEl = null;
+
+  function armFromSnap() {
+    snapArmed = true;
+    clearTimeout(snapArmTimer);
+    snapArmTimer = setTimeout(disarmSnap, SNAP_ARM_WINDOW_MS);
+    showSnapHint();
+  }
+  function disarmSnap() {
+    snapArmed = false;
+    clearTimeout(snapArmTimer);
+    hideSnapHint();
+  }
+  function showSnapHint() {
+    if (!snapHintEl) {
+      snapHintEl = document.createElement("div");
+      snapHintEl.id = "mp-snap-hint";
+      snapHintEl.textContent = "SWIPE RIGHT TO OPEN MODE PICKER";
+      document.body.appendChild(snapHintEl);
+    }
+    snapHintEl.classList.add("mp-snap-hint-visible");
+  }
+  function hideSnapHint() {
+    if (snapHintEl) snapHintEl.classList.remove("mp-snap-hint-visible");
+  }
+
   // ── geometry helpers ──
   function polar(cx, cy, r, angleDeg) {
     const rad = angleDeg * Math.PI / 180;
@@ -216,9 +250,16 @@
     return !!(el && el.classList.contains("active"));
   }
 
-  // ── SWIPE-RIGHT → open confirm dialog ──
+  // ── SNAP → arm; SWIPE-RIGHT (while armed) → open confirm dialog ──
+  window.addEventListener("jarvis:snap", () => {
+    if (!mainScreenActive() || confirmOpen || pickerOpen) return;
+    armFromSnap();
+  });
+
   window.addEventListener("jarvis:swipe", e => {
     if (e.detail && e.detail.dir === "right") {
+      if (!snapArmed) return; // plain swipe with no snap first — ignore
+      disarmSnap();
       openConfirm();
     } else if (e.detail && e.detail.dir === "left") {
       if (pickerOpen) closePicker();
