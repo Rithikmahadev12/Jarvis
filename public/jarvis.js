@@ -333,11 +333,11 @@ async function syncHomeTalkBadge() {
 syncHomeTalkBadge();
 
 // ── MAIN SPEAK FUNCTION ───────────────────────────────────────
-// Uses the real Jarvis voice (your cloned voice, served from /api/tts)
-// whenever the server has reported it's ready. Falls back to the fixed
-// browser voice (English - Australia - William) if the voice backend
-// isn't ready yet, or if the round-trip fails/times out — so a slow or
-// sleeping voice-clone Space can never leave Jarvis silent.
+// Phone/browser mode always uses the instant built-in browser voice —
+// the cloned voice on free CPU hardware is too slow (10-40s+ per reply)
+// to be usable for normal back-and-forth conversation. Only Home Talk
+// (casting to a Google Home/Nest speaker) still uses the server voice,
+// since that's the only place it was ever actually needed.
 async function speak(text, onEnd) {
   if (!text) { if (onEnd) onEnd(); return; }
 
@@ -347,12 +347,7 @@ async function speak(text, onEnd) {
 
   setOrb("speaking");
 
-  // Home Talk always needs the round-trip (it casts to the speaker).
-  // Phone/browser mode also uses it now, but only once /api/tts/status
-  // has confirmed a voice backend is actually up — otherwise skip
-  // straight to the browser voice instead of waiting on a request that's
-  // going to fail anyway.
-  if (state.outputMode !== "home" && !_ttsReady) {
+  if (state.outputMode !== "home") {
     return _speakBrowser(text, onEnd);
   }
 
@@ -362,10 +357,10 @@ async function speak(text, onEnd) {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ text }),
-      // Server gives up on the voice-clone Space after ~12s and falls
-      // back on its own, so this just needs a little headroom above
-      // that — no reason to make the user wait any longer than that.
-      signal:  AbortSignal.timeout(15000),
+      // Chatterbox on free CPU hardware genuinely takes a while to
+      // generate speech (not just a cold-start issue) — give it real
+      // room to finish rather than bailing to the browser voice early.
+      signal:  AbortSignal.timeout(60000),
     });
 
 
