@@ -624,8 +624,9 @@ app.get("/api/profile/:name", (req, res) => {
   const profiles = loadProfiles();
   const profile  = profiles[req.params.name.toLowerCase().trim()];
   if (!profile) return res.json({ found: false });
-  // Never expose faceDescriptor, clientSecret, or raw tokens
-  const { faceDescriptor, googleClientSecret, googleTokens, ...safe } = profile;
+  // Never expose faceDescriptor or raw tokens; expose a simple connected flag instead
+  const { faceDescriptor, googleTokens, ...safe } = profile;
+  safe.googleConnected = !!googleTokens?.access;
   res.json({ found: true, profile: safe });
 });
 // Face sign-in: client captures a descriptor from the camera and posts it
@@ -759,40 +760,26 @@ app.post("/api/spotify", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
-// ── GOOGLE (per-user credentials)
+// ── GOOGLE (single "Sign in with Google" — one app-wide OAuth app)
 // ═══════════════════════════════════════════════════════════════
+// The deployer sets GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET once in .env
+// (one Google Cloud OAuth app for the whole deployment). Every user just
+// clicks "Sign in with Google" and grants access — no console.cloud.google.com,
+// no pasting in a client ID/secret.
 
-// Save a user's Google credentials into their profile
-app.post("/api/google/credentials", (req, res) => {
-  const { userName, clientId, clientSecret } = req.body;
-  if (!userName || !clientId || !clientSecret)
-    return res.status(400).json({ error: "Missing userName, clientId or clientSecret" });
-  const profiles = loadProfiles();
-  const key = userName.toLowerCase().trim();
-  if (!profiles[key]) return res.status(404).json({ error: "User not found" });
-  profiles[key].googleClientId     = clientId.trim();
-  profiles[key].googleClientSecret = clientSecret.trim();
-  // Wipe old tokens — new credentials need fresh auth
-  delete profiles[key].googleTokens;
-  saveProfiles(profiles);
-  res.json({ success: true, authUrl: `/api/google/auth?user=${encodeURIComponent(key)}` });
-});
-
-// Start OAuth flow for a specific user
+// Start OAuth flow for a specific (already logged-in) Jarvis user
 app.get("/api/google/auth", (req, res) => {
+  if (!Google.isConfigured())
+    return res.status(400).send("<h2>Google sign-in isn't configured yet. The app owner needs to add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to .env.</h2>");
   const userKey = (req.query.user || "").toLowerCase().trim();
   if (!userKey) return res.status(400).send("<h2>Missing ?user= parameter</h2>");
-  const profiles = loadProfiles();
-  const profile  = profiles[userKey];
-  if (!profile?.googleClientId)
-    return res.status(400).send("<h2>No Google credentials saved for this user. Add them in Settings first.</h2>");
   const reqHost = req.headers.host;
-  const url = Google.getAuthUrl(userKey, profile.googleClientId, reqHost);
+  const url = Google.getAuthUrl(userKey, reqHost);
   if (!url) return res.status(400).send("<h2>Could not build auth URL</h2>");
   res.redirect(url);
 });
 
-// OAuth callback — state param tells us which user
+// OAuth callback — state param tells us which Jarvis user to attach tokens to
 app.get("/api/google/callback", async (req, res) => {
   const { code, error, state: userKey } = req.query;
   if (error)    return res.send(`<h2>Google auth failed: ${error}</h2>`);
@@ -801,11 +788,10 @@ app.get("/api/google/callback", async (req, res) => {
 
   const profiles = loadProfiles();
   const profile  = profiles[userKey];
-  if (!profile?.googleClientId)
-    return res.send("<h2>No credentials on file for this user.</h2>");
+  if (!profile) return res.send("<h2>Unknown user. Try connecting again.</h2>");
 
   const reqHost = req.headers.host;
-  const result = await Google.exchangeCode(code, userKey, profile.googleClientId, profile.googleClientSecret, reqHost);
+  const result = await Google.exchangeCode(code, userKey, reqHost);
   if (result.error) return res.send(`<h2>Token exchange failed: ${result.error}</h2>`);
 
   // Persist tokens in the user's profile
@@ -818,19 +804,29 @@ app.get("/api/google/callback", async (req, res) => {
   </body></html>`);
 });
 
+// Disconnect Google for a user — just wipes their stored tokens
+app.post("/api/google/disconnect", (req, res) => {
+  const userKey = (req.body.userName || "").toLowerCase().trim();
+  const profiles = loadProfiles();
+  if (!profiles[userKey]) return res.status(404).json({ error: "User not found" });
+  delete profiles[userKey].googleTokens;
+  saveProfiles(profiles);
+  res.json({ success: true });
+});
+
 // Gmail — requires userName in body
 app.post("/api/gmail", async (req, res) => {
   const userKey = (req.body.userName || "").toLowerCase().trim();
   const profiles = loadProfiles();
   const profile  = profiles[userKey];
-  if (!Google.isConfiguredForUser(profile))
-    return res.json({ error: "Not configured", needsAuth: true, authUrl: `/api/google/auth?user=${userKey}` });
+  if (!Google.isConfigured())
+    return res.json({ error: "Not configured", needsAuth: false });
   // Warm the token cache from saved profile tokens if needed
-  if (profile.googleTokens && !Google.hasTokenForUser(userKey))
+  if (profile?.googleTokens && !Google.hasTokenForUser(userKey))
     Google.hydrateTokens(userKey, profile.googleTokens);
   if (!Google.hasTokenForUser(userKey))
     return res.json({ needsAuth: true, authUrl: `/api/google/auth?user=${userKey}` });
-  try { res.json(await Google.handleGmailCommand(req.body.message || "check inbox", userKey, profile.googleClientId, profile.googleClientSecret)); }
+  try { res.json(await Google.handleGmailCommand(req.body.message || "check inbox", userKey)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -839,13 +835,13 @@ app.post("/api/calendar", async (req, res) => {
   const userKey = (req.body.userName || "").toLowerCase().trim();
   const profiles = loadProfiles();
   const profile  = profiles[userKey];
-  if (!Google.isConfiguredForUser(profile))
-    return res.json({ error: "Not configured", needsAuth: true, authUrl: `/api/google/auth?user=${userKey}` });
-  if (profile.googleTokens && !Google.hasTokenForUser(userKey))
+  if (!Google.isConfigured())
+    return res.json({ error: "Not configured", needsAuth: false });
+  if (profile?.googleTokens && !Google.hasTokenForUser(userKey))
     Google.hydrateTokens(userKey, profile.googleTokens);
   if (!Google.hasTokenForUser(userKey))
     return res.json({ needsAuth: true, authUrl: `/api/google/auth?user=${userKey}` });
-  try { res.json(await Google.handleCalendarCommand(req.body.message || "today", userKey, profile.googleClientId, profile.googleClientSecret)); }
+  try { res.json(await Google.handleCalendarCommand(req.body.message || "today", userKey)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1081,14 +1077,14 @@ async function handleGmailFetch(message, T, userName) {
   const userKey = (userName || "").toLowerCase().trim();
   const profiles = loadProfiles();
   const profile  = profiles[userKey];
-  if (!Google.isConfiguredForUser(profile))
-    return { reply: `Gmail isn't configured for your account, ${T}. Say "open settings" to add your Google credentials.`, action: "GMAIL", intent: "gmail" };
-  if (profile.googleTokens && !Google.hasTokenForUser(userKey))
+  if (!Google.isConfigured())
+    return { reply: `Gmail sign-in isn't set up yet, ${T}. The app owner needs to add Google credentials to the server.`, action: "GMAIL", intent: "gmail" };
+  if (profile?.googleTokens && !Google.hasTokenForUser(userKey))
     Google.hydrateTokens(userKey, profile.googleTokens);
   if (!Google.hasTokenForUser(userKey))
-    return { reply: `Gmail needs authorisation, ${T}. Visit /api/google/auth?user=${userKey} to connect.`, action: "GMAIL", intent: "gmail" };
+    return { reply: `Gmail needs authorisation, ${T}. Visit /api/google/auth?user=${userKey} to sign in with Google.`, action: "GMAIL", intent: "gmail" };
   try {
-    const gd = await Google.handleGmailCommand(message, userKey, profile.googleClientId, profile.googleClientSecret);
+    const gd = await Google.handleGmailCommand(message, userKey);
     if (gd.needsAuth) return { reply: `Gmail needs re-authorisation, ${T}. Visit /api/google/auth?user=${userKey}.`, action: "GMAIL", intent: "gmail" };
     const gr = gd.unread === 0 ? `Inbox clear, ${T}. No unread messages.` : `You have ${gd.unread} unread email${gd.unread > 1 ? "s" : ""}, ${T}.`;
     return { reply: gr, action: "GMAIL", intent: "gmail", meta: { gmailData: gd } };
@@ -1101,14 +1097,14 @@ async function handleCalendarFetch(message, T, userName) {
   const userKey = (userName || "").toLowerCase().trim();
   const profiles = loadProfiles();
   const profile  = profiles[userKey];
-  if (!Google.isConfiguredForUser(profile))
-    return { reply: `Google Calendar isn't configured for your account, ${T}. Say "open settings" to add your Google credentials.`, action: "CALENDAR", intent: "calendar" };
-  if (profile.googleTokens && !Google.hasTokenForUser(userKey))
+  if (!Google.isConfigured())
+    return { reply: `Google Calendar sign-in isn't set up yet, ${T}. The app owner needs to add Google credentials to the server.`, action: "CALENDAR", intent: "calendar" };
+  if (profile?.googleTokens && !Google.hasTokenForUser(userKey))
     Google.hydrateTokens(userKey, profile.googleTokens);
   if (!Google.hasTokenForUser(userKey))
-    return { reply: `Calendar needs authorisation, ${T}. Visit /api/google/auth?user=${userKey} to connect.`, action: "CALENDAR", intent: "calendar" };
+    return { reply: `Calendar needs authorisation, ${T}. Visit /api/google/auth?user=${userKey} to sign in with Google.`, action: "CALENDAR", intent: "calendar" };
   try {
-    const cd = await Google.handleCalendarCommand(message, userKey, profile.googleClientId, profile.googleClientSecret);
+    const cd = await Google.handleCalendarCommand(message, userKey);
     if (cd.needsAuth) return { reply: `Calendar needs re-authorisation, ${T}. Visit /api/google/auth?user=${userKey}.`, action: "CALENDAR", intent: "calendar" };
     const cr = !cd.events?.length
       ? `Nothing on the calendar ${cd.period || "today"}, ${T}.`
@@ -1855,7 +1851,7 @@ function startServer() {
     console.log(`  Drafting table → http://localhost:${PORT}/blueprint`);
     console.log(`  Groq AI:       ${Groq.isConfigured() ? "✓ configured — primary brain active" : "✗ not configured (add GROQ_API_KEY to .env)"}`);
     console.log(`  Spotify:       ${Spotify.isConfigured() ? "✓ configured" : "✗ add SPOTIFY_CLIENT_ID to .env"}`);
-    console.log(`  Google:        ✓ per-user credentials (users add their own in settings)`);
+    console.log(`  Google:        ${Google.isConfigured() ? "✓ configured — users can Sign in with Google" : "✗ add GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET to .env"}`);
     console.log(`  Weather:       ${process.env.OPENWEATHER_API_KEY ? "✓ configured" : "✗ add OPENWEATHER_API_KEY to .env"}`);
     console.log(`  GitHub deploy: ${process.env.GITHUB_TOKEN ? "✓ configured" : "✗ add GITHUB_TOKEN + GITHUB_REPO to .env"}`);
     console.log(`  Training data: /data/training_data.json`);
