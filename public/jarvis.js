@@ -404,6 +404,8 @@ async function speak(text, onEnd) {
     const audio = new Audio(url);
     _currentAudio = audio;
 
+    let started = false; // set once real playback begins
+
     const cleanup = () => {
       URL.revokeObjectURL(url);
       _currentAudio = null;
@@ -411,13 +413,25 @@ async function speak(text, onEnd) {
       if (onEnd) onEnd();
     };
 
+    audio.onplaying = () => { started = true; };
     audio.onended = cleanup;
-    audio.onerror = () => { cleanup(); _speakBrowser(text, onEnd); };
+    // Some browsers fire a spurious "error" event mid-playback even
+    // though audio is already sounding — only fall back to the browser
+    // voice if playback never actually started, otherwise we'd get both
+    // voices talking over each other.
+    audio.onerror = () => {
+      cleanup();
+      if (!started) _speakBrowser(text, onEnd);
+    };
     await audio.play();
+    started = true; // play() resolved — treat as started even if the
+                     // "playing" event hasn't fired yet
 
   } catch (e) {
-    // Server unreachable or TTS not configured — fall back to browser voice
-    console.warn("[JARVIS] Piper TTS failed, using browser voice:", e.message);
+    // Server unreachable or TTS not configured — fall back to browser voice.
+    // (This only runs if we never even got to audio.play(), so there's no
+    // risk of double voices here.)
+    console.warn("[JARVIS] Camb TTS failed, using browser voice:", e.message);
     _speakBrowser(text, onEnd);
   }
 }
