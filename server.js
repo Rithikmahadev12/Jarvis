@@ -21,6 +21,7 @@ const Trainer     = require("./trainer");
 const Brain       = require("./brain");
 const Reminders   = require("./reminders");
 const Briefing    = require("./briefing");
+const InboxTriage = require("./inbox-triage");
 const TTS = require("./tts");
 const Persistence = require("./persistence");
 
@@ -844,6 +845,37 @@ app.post("/api/calendar", async (req, res) => {
   try { res.json(await Google.handleCalendarCommand(req.body.message || "today", userKey)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ═══════════════════════════════════════════════════════════════
+// ── PROACTIVE INBOX TRIAGE (the "does it while you're away" feature)
+// ═══════════════════════════════════════════════════════════════
+// GET /api/inbox-briefing/:user?tz=America/New_York
+// Returns today's already-generated summary if one exists (e.g. the
+// background sweep already ran overnight). If none exists yet — for
+// instance the server was asleep overnight on a free-tier host — it
+// generates one right now, on the spot, so the user still gets an
+// unprompted summary the moment they open the app, without ever having
+// asked "check my email".
+app.get("/api/inbox-briefing/:user", async (req, res) => {
+  const userKey = (req.params.user || "").toLowerCase().trim();
+  if (!userKey) return res.status(400).json({ error: "Missing user" });
+  if (!Google.isConfigured()) return res.json({ available: false });
+
+  const profiles = loadProfiles();
+  const profile  = profiles[userKey];
+  if (!profile?.googleTokens?.access) return res.json({ available: false, connected: false });
+
+  if (!Google.hasTokenForUser(userKey)) Google.hydrateTokens(userKey, profile.googleTokens);
+
+  try {
+    const entry = await InboxTriage.getOrGenerateToday(userKey, profile.title, req.query.tz);
+    if (!entry) return res.json({ available: false });
+    res.json({ available: true, entry });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 // ═══════════════════════════════════════════════════════════════
 // ── NATIVE REMINDERS / TIMERS / CALENDAR
@@ -1857,6 +1889,21 @@ function startServer() {
     console.log(`  Training data: /data/training_data.json`);
     console.log(`  Learned:       /data/learned/`);
     console.log(`  Memory sync:   ${Persistence.isConfigured() ? "✓ Supabase — memory survives restarts" : "✗ local-only — memory LOST on restart (set SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET)"}\n`);
+
+    // ── PROACTIVE INBOX TRIAGE: background sweep ──────────────────
+    // Runs while the server is up. Each pass is a no-op for any user
+    // already triaged today, so it's cheap to run often — this just
+    // makes sure it happens as early as possible for whoever's connected,
+    // without them ever having to ask. (If the host spins the server down
+    // overnight, the on-demand fallback in GET /api/inbox-briefing/:user
+    // still covers it the moment the app is next opened.)
+    if (Google.isConfigured()) {
+      const runSweep = () => {
+        InboxTriage.runOvernightSweep().catch(e => console.error("[inbox-triage] sweep error:", e.message));
+      };
+      runSweep();                              // once shortly after boot
+      setInterval(runSweep, 15 * 60 * 1000);   // then every 15 minutes
+    }
   });
 }
 
