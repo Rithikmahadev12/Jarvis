@@ -518,7 +518,7 @@ const HandTracking = (() => {
     cursorEl.style.pointerEvents = "none";
     const el = document.elementFromPoint(x, y);
     cursorEl.style.pointerEvents = "";
-    const clickable = el ? el.closest("button, a, .q-btn, .hud-btn, .account-tile, .ht-key, input[type=checkbox], .mode-btn, .mp-node, .mp-close-btn") : null;
+    const clickable = el ? el.closest("button, a, .q-btn, .hud-btn, .account-tile, .ht-key, input[type=checkbox], .mode-btn, .mp-segment, .mp-close-btn") : null;
 
     if (!clickable) { clearDwell(); return; }
 
