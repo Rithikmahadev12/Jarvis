@@ -347,7 +347,12 @@ async function speak(text, onEnd) {
 
   setOrb("speaking");
 
-  if (state.outputMode !== "home") {
+  // Home Talk always goes through the server (gTTS fallback lives there).
+  // Phone/browser mode only goes through the server if a fast provider
+  // (Camb.ai, or a voice-clone Space) has already reported ready via
+  // /api/tts/status — otherwise skip straight to the instant browser
+  // voice instead of waiting on a slow/unconfigured backend.
+  if (state.outputMode !== "home" && !_ttsReady) {
     return _speakBrowser(text, onEnd);
   }
 
