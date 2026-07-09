@@ -8,6 +8,17 @@
 const REDIRECT_BASE = (process.env.GOOGLE_REDIRECT_BASE || "").replace(/\/$/, "");
 const CALLBACK_PATH = "/api/google/callback";
 
+// ── APP-WIDE CREDENTIALS ──────────────────────────────────────
+// One Google Cloud OAuth app for the whole deployment. Set these once in
+// .env; every user then just clicks "Sign in with Google" — nobody has to
+// create their own Google Cloud project or paste in a client ID/secret.
+const CLIENT_ID     = process.env.GOOGLE_CLIENT_ID     || "";
+const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || "";
+
+function isConfigured() {
+  return !!(CLIENT_ID && CLIENT_SECRET);
+}
+
 // Derive the redirect URI at request time so it always matches the actual host.
 // Priority: GOOGLE_REDIRECT_BASE env var → Host header → localhost fallback
 function getRedirectUri(reqHost) {
@@ -27,13 +38,14 @@ const SCOPES = [
 const _tokenCache = {};
 
 // ── AUTH URL ──────────────────────────────────────────────────
-// Pass the user's own clientId + a state param so the callback
-// knows which user to store the tokens under.
-function getAuthUrl(userKey, clientId, reqHost) {
-  if (!clientId) return null;
+// state param round-trips so the callback knows which user to store the
+// tokens under. Uses the single app-wide client ID — the user never
+// needs to supply their own.
+function getAuthUrl(userKey, reqHost) {
+  if (!isConfigured()) return null;
   const redirectUri = getRedirectUri(reqHost);
   const params = new URLSearchParams({
-    client_id:     clientId,
+    client_id:     CLIENT_ID,
     redirect_uri:  redirectUri,
     response_type: "code",
     scope:         SCOPES.join(" "),
@@ -45,8 +57,8 @@ function getAuthUrl(userKey, clientId, reqHost) {
 }
 
 // ── EXCHANGE CODE ─────────────────────────────────────────────
-async function exchangeCode(code, userKey, clientId, clientSecret, reqHost) {
-  if (!clientId || !clientSecret) return { error: "missing_credentials" };
+async function exchangeCode(code, userKey, reqHost) {
+  if (!isConfigured()) return { error: "missing_credentials" };
   const redirectUri = getRedirectUri(reqHost);
   try {
     const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -54,8 +66,8 @@ async function exchangeCode(code, userKey, clientId, clientSecret, reqHost) {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body:    new URLSearchParams({
         code,
-        client_id:     clientId,
-        client_secret: clientSecret,
+        client_id:     CLIENT_ID,
+        client_secret: CLIENT_SECRET,
         redirect_uri:  redirectUri,
         grant_type:    "authorization_code",
       }),
@@ -72,7 +84,7 @@ async function exchangeCode(code, userKey, clientId, clientSecret, reqHost) {
 }
 
 // ── REFRESH TOKEN ─────────────────────────────────────────────
-async function refreshToken(userKey, clientId, clientSecret) {
+async function refreshToken(userKey) {
   const cache = _tokenCache[userKey];
   if (!cache?.refresh) return false;
   try {
@@ -81,8 +93,8 @@ async function refreshToken(userKey, clientId, clientSecret) {
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body:    new URLSearchParams({
         refresh_token: cache.refresh,
-        client_id:     clientId,
-        client_secret: clientSecret,
+        client_id:     CLIENT_ID,
+        client_secret: CLIENT_SECRET,
         grant_type:    "refresh_token",
       }),
     });
@@ -97,11 +109,11 @@ async function refreshToken(userKey, clientId, clientSecret) {
 }
 
 // ── GET VALID TOKEN ───────────────────────────────────────────
-async function getToken(userKey, clientId, clientSecret) {
+async function getToken(userKey) {
   const cache = _tokenCache[userKey];
   if (!cache?.access) return null;
   if (Date.now() > cache.expiresAt) {
-    const ok = await refreshToken(userKey, clientId, clientSecret);
+    const ok = await refreshToken(userKey);
     if (!ok) { delete _tokenCache[userKey]; return null; }
   }
   return cache.access;
@@ -114,9 +126,9 @@ function hydrateTokens(userKey, savedTokens) {
 }
 
 // ── GOOGLE FETCH ──────────────────────────────────────────────
-async function googleFetch(url, userKey, clientId, clientSecret, options = {}) {
-  const token = await getToken(userKey, clientId, clientSecret);
-  if (!token) return { needsAuth: true, authUrl: getAuthUrl(userKey, clientId) };
+async function googleFetch(url, userKey, options = {}) {
+  const token = await getToken(userKey);
+  if (!token) return { needsAuth: true, authUrl: getAuthUrl(userKey) };
   try {
     const res = await fetch(url, {
       ...options,
@@ -124,17 +136,17 @@ async function googleFetch(url, userKey, clientId, clientSecret, options = {}) {
     });
     if (res.status === 401) {
       delete _tokenCache[userKey];
-      return { needsAuth: true, authUrl: getAuthUrl(userKey, clientId) };
+      return { needsAuth: true, authUrl: getAuthUrl(userKey) };
     }
     return await res.json();
   } catch (e) { return { error: e.message }; }
 }
 
 // ── GMAIL ─────────────────────────────────────────────────────
-async function getInbox(userKey, clientId, clientSecret, maxResults = 10) {
+async function getInbox(userKey, maxResults = 10) {
   const listData = await googleFetch(
     `https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=INBOX&q=is:unread&maxResults=${maxResults}`,
-    userKey, clientId, clientSecret
+    userKey
   );
   if (listData.needsAuth || listData.error) return listData;
   const unread = listData.resultSizeEstimate || 0;
@@ -144,7 +156,7 @@ async function getInbox(userKey, clientId, clientSecret, maxResults = 10) {
     listData.messages.slice(0, 3).map(async (msg) => {
       const detail = await googleFetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
-        userKey, clientId, clientSecret
+        userKey
       );
       if (detail.error || detail.needsAuth) return null;
       const headers = detail.payload?.headers || [];
@@ -160,8 +172,8 @@ async function getInbox(userKey, clientId, clientSecret, maxResults = 10) {
   return { unread, messages: detailed.filter(Boolean) };
 }
 
-async function handleGmailCommand(message, userKey, clientId, clientSecret) {
-  return await getInbox(userKey, clientId, clientSecret, 10);
+async function handleGmailCommand(message, userKey) {
+  return await getInbox(userKey, 10);
 }
 
 // ── GOOGLE CALENDAR ───────────────────────────────────────────
@@ -188,7 +200,7 @@ function parseDateRange(message) {
   return { start, end, label: "today" };
 }
 
-async function getCalendarEvents(message, userKey, clientId, clientSecret) {
+async function getCalendarEvents(message, userKey) {
   const range = parseDateRange(message);
   const params = new URLSearchParams({
     timeMin: range.start.toISOString(), timeMax: range.end.toISOString(),
@@ -196,7 +208,7 @@ async function getCalendarEvents(message, userKey, clientId, clientSecret) {
   });
   const data = await googleFetch(
     `https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`,
-    userKey, clientId, clientSecret
+    userKey
   );
   if (data.needsAuth || data.error) return data;
   const events = (data.items || []).map(event => {
@@ -209,14 +221,11 @@ async function getCalendarEvents(message, userKey, clientId, clientSecret) {
   return { events, period: range.label };
 }
 
-async function handleCalendarCommand(message, userKey, clientId, clientSecret) {
-  return await getCalendarEvents(message, userKey, clientId, clientSecret);
+async function handleCalendarCommand(message, userKey) {
+  return await getCalendarEvents(message, userKey);
 }
 
-// ── USER CREDENTIAL HELPERS ───────────────────────────────────
-function isConfiguredForUser(profile) {
-  return !!(profile?.googleClientId && profile?.googleClientSecret);
-}
+// ── USER TOKEN HELPERS ────────────────────────────────────────
 function hasTokenForUser(userKey) {
   return !!_tokenCache[userKey]?.access;
 }
@@ -225,12 +234,12 @@ function getTokensForUser(userKey) {
 }
 
 module.exports = {
+  isConfigured,
   getAuthUrl,
   exchangeCode,
   hydrateTokens,
   handleGmailCommand,
   handleCalendarCommand,
-  isConfiguredForUser,
   hasTokenForUser,
   getTokensForUser,
 };
