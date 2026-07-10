@@ -1528,6 +1528,22 @@ function handleChatCommand(text) {
     return;
   }
 
+  // ── Bring up a holographic widget, right on the main screen ──
+  // Fires on explicit "hologram" mentions, or on a "show/explain/what does X
+  // look like" phrasing paired with something the projector can actually
+  // render (atom, DNA, molecule, brain, crystal, engine, satellite, drone,
+  // the suit, arc reactor). Spawns a small draggable 3D card the person can
+  // grab and move around, or drag off either edge of the screen to dismiss.
+  const holoTopic = /\b(atom|atoms|dna|helix|molecule|molecules|caffeine|brain|neural network|crystal|turbine|jet engine|satellite|drone|iron man|the suit|arc reactor)\b/.test(cleanedLower);
+  const holoVerb   = /\b(show|explain|teach|understand|what does|what is|bring up|pull up|visualize|visualise|display)\b/.test(cleanedLower);
+  if ((/\bhologram\b/.test(cleanedLower) || (holoTopic && holoVerb)) && window.HologramWidget) {
+    const key = window.HologramWidget.guessKey(cleanedLower) || "arc_reactor";
+    window.HologramWidget.show(key);
+    const r = `Here's the hologram, ${state.userTitle}. Drag it wherever you like — push it off either edge to dismiss it.`;
+    addMsg("jarvis", r); speak(r);
+    return;
+  }
+
   sendToAI(cleaned);
 }
 
