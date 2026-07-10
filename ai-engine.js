@@ -132,7 +132,20 @@ const CODE_PATTERNS = {
   csharp:     /\b(c#|csharp|dotnet|\.net|unity|using |namespace |public class)\b/i,
 };
 
-const CODE_INTENT = /\b(?:write|create|build|make|generate|code|script|program|function|class|implement|develop|give me|show me|debug|fix|refactor|optimise|optimize|explain|review|improve)\b.*\b(?:code|script|function|snippet|example|module|component|program)\b/i;
+const CODE_INTENT = /\b(?:write|create|build|make|generate|code|script|program|function|class|implement|develop|give me|show me|debug|fix|refactor|refactoring|optimise|optimize|explain|review|improve|convert)\b.*\b(?:code|script|function|snippet|example|module|component|program|class|api|endpoint|algorithm|regex|query|bug|error|test|unit test|repo|repository|codebase)\b/i;
+
+// Catches requests that don't fit the verb+noun pattern above but are
+// still unmistakably code work: pasted stack traces/tracebacks, fenced
+// code blocks, or "how do I X in <language>" phrasing.
+const CODE_SIGNALS = [
+  /```[\s\S]*```/,                                             // a pasted code block
+  /\bTraceback \(most recent call last\)/i,                     // Python traceback
+  /\b[\w./-]+\.(?:js|ts|jsx|tsx|py|java|rb|go|rs|cpp|c|cs|php|swift|kt):\d+/, // file:line ref
+  /\b(?:NullPointerException|TypeError|ReferenceError|SyntaxError|IndexError|KeyError|undefined is not a function|ModuleNotFoundError|ImportError|Segmentation fault)\b/i,
+  /\bhow (?:do|would|can|should) i\b.*\b(?:in|with|using)\b\s*(?:python|javascript|typescript|java|c\+\+|c#|go|rust|ruby|php|sql|swift|kotlin|node|react|css|html|vue|angular)\b/i,
+  /\bhow (?:do|would|can|should) i\b.*\b(?:center|align|flexbox|grid layout|z-index|media quer|responsive|css selector)\b/i,
+  /\b(?:pip|npm|yarn|cargo|go get|composer|gem|maven|gradle)\b.*\b(?:install|error|fail)/i,
+];
 
 // ── TERMINAL COMMAND PATTERNS ─────────────────────────────────
 const TERMINAL_INTENT = /\b(terminal|command|cmd|bash|shell|run|execute|how do i|what command|linux command|windows command|powershell)\b/i;
@@ -268,7 +281,17 @@ function findTerminalCommand(message) {
 
 // ── CODE-REQUEST DETECTION ──────────────────────────────────────
 function detectCodeRequest(message) {
-  if (!CODE_INTENT.test(message)) return null;
+  const matchesIntent  = CODE_INTENT.test(message);
+  const matchesSignal  = CODE_SIGNALS.some(re => re.test(message));
+  if (!matchesIntent && !matchesSignal) return null;
+
+  // Prefer the language tag on a pasted fenced code block if there is one
+  // (```python etc.) — it's a much stronger signal than keyword sniffing.
+  const fenceLang = message.match(/```(\w+)/);
+  if (fenceLang && CODE_PATTERNS[fenceLang[1].toLowerCase()]) {
+    return { lang: fenceLang[1].toLowerCase() };
+  }
+
   let lang = "javascript";
   for (const [name, re] of Object.entries(CODE_PATTERNS)) {
     if (re.test(message)) { lang = name; break; }
