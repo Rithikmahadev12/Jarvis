@@ -25,6 +25,11 @@ const MODELS = {
   fast:  process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b",
   smart: process.env.GROQ_MODEL      || "openai/gpt-oss-120b",
   mix:   process.env.GROQ_MODEL      || "openai/gpt-oss-120b",
+  // CODE — dedicated model for coding tasks. Qwen3.6 27B currently tops
+  // Groq's own intelligence benchmarks (ahead of gpt-oss-120b) and is a
+  // strong reasoning/coding model, so it's the default here. Override
+  // with GROQ_MODEL_CODE if you'd rather pin something else.
+  code:  process.env.GROQ_MODEL_CODE || "qwen/qwen3.6-27b",
 };
 
 // ── LEARNED INTENTS STORE ──────────────────────────────────────
@@ -110,17 +115,21 @@ async function groqFetch(messages, model = MODELS.smart, temperature = 0.75, max
 // calling.
 async function groqFetchRaw(messages, options = {}) {
   const {
-    model       = MODELS.smart,
-    temperature = 0.75,
-    maxTokens   = 1024,
-    tools       = null,
-    tool_choice = "auto",
+    model            = MODELS.smart,
+    temperature      = 0.75,
+    maxTokens        = 1024,
+    tools            = null,
+    tool_choice      = "auto",
+    reasoning_effort = null,   // "low" | "medium" | "high" — reasoning models only (gpt-oss, qwen3.x)
+    reasoning_format = null,   // "parsed" | "raw" | "hidden"
   } = options;
 
   if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY not set in .env");
 
   const body = { model, messages, temperature, max_tokens: maxTokens, stream: false };
   if (tools && tools.length) { body.tools = tools; body.tool_choice = tool_choice; }
+  if (reasoning_effort) body.reasoning_effort = reasoning_effort;
+  if (reasoning_format) body.reasoning_format = reasoning_format;
 
   let res;
   try {
@@ -515,6 +524,73 @@ async function chat(message, options = {}) {
   return result;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ── ELITE CODING ENGINE ────────────────────────────────────────
+// Dedicated path for anything code-related. Separate from chat()
+// on purpose: code needs a different model (MODELS.code), a much
+// larger token budget, low temperature (correctness over flavour),
+// reasoning turned up, and a system prompt that actually pushes for
+// senior-engineer-quality output instead of the terse Jarvis voice.
+// ═══════════════════════════════════════════════════════════════
+function getCodeSystemPrompt(userTitle, memories, context) {
+  const T = userTitle || "Sir";
+  return `You are J.A.R.V.I.S acting as a principal-level software engineer for "${T}". When the conversation touches code — writing it, debugging it, reviewing it, explaining it, or designing a system — this is the mode you're in. Coding quality is what you're judged on here, so hold yourself to a senior/staff-engineer bar:
+
+- Write correct, complete, runnable code — no placeholders like "// rest of implementation" unless the user explicitly asked for a sketch/outline.
+- Think through edge cases, error handling, input validation, and concurrency/resource issues before you write the happy path. Handle them, don't just mention them.
+- Prefer clear, idiomatic code in the target language/framework over clever one-liners. Match the style and conventions of any existing code the user shows you.
+- Call out security issues (injection, unsafe deserialization, secrets in code, auth bypasses, etc.) whenever they're relevant — proactively, not just when asked.
+- For non-trivial code, briefly note the key design decision or trade-off (why this approach, what it costs) in a sentence or two — not a lecture.
+- When debugging: identify the actual root cause before proposing a fix, don't just paper over the symptom.
+- When reviewing code: be direct about real problems (correctness, security, performance, maintainability); don't pad the review with trivial style nitpicks unless asked.
+- If a request is genuinely ambiguous in a way that would change the implementation (language, framework, scale, constraints), ask ONE crisp clarifying question instead of guessing — but if a reasonable default exists, state the assumption and proceed instead of stalling.
+- Use fenced code blocks with the correct language tag for every snippet. Keep prose around the code tight; let the code do the talking.
+- Still sound like Jarvis — precise, dry, no filler like "Great question!" — just skip the personality quirks that would get in the way of a working answer.
+
+${memories && memories.length > 0 ? `User facts on file: ${memories.join(", ")}` : ""}
+${context ? `Context: ${context}` : ""}`;
+}
+
+async function codeChat(message, options = {}) {
+  const {
+    userTitle           = "Sir",
+    memories             = [],
+    context              = "",
+    conversationHistory  = [],
+    lang                 = null,
+  } = options;
+
+  const systemPrompt = getCodeSystemPrompt(userTitle, memories, lang ? `Likely language/stack: ${lang}` : context);
+  const messages = [
+    { role: "system", content: systemPrompt },
+    ...conversationHistory.slice(-8),
+    { role: "user", content: message },
+  ];
+
+  const fetchOpts = {
+    model: MODELS.code,
+    temperature: 0.2,
+    maxTokens: 4096,
+    reasoning_effort: "high",
+    reasoning_format: "hidden", // we want the final answer, not the model's scratch thinking
+  };
+
+  try {
+    const msg = await groqFetchRaw(messages, fetchOpts);
+    const reply = (msg.content || "").trim();
+    if (!reply) throw new Error("Empty response from code model");
+    return { reply, model: MODELS.code, source: "groq_code" };
+  } catch (e) {
+    // Coding model unavailable/renamed/rate-limited — fall back to the
+    // general smart model rather than failing the whole request.
+    console.error("[HERMES] Code model failed, falling back to smart model:", e.message);
+    const msg = await groqFetchRaw(messages, { ...fetchOpts, model: MODELS.smart, reasoning_effort: null });
+    const reply = (msg.content || "").trim();
+    if (!reply) throw new Error("Empty response from fallback model");
+    return { reply, model: MODELS.smart, source: "groq_code_fallback" };
+  }
+}
+
 // ── CODE GENERATION ───────────────────────────────────────────
 async function generateCode(prompt, context = "") {
   const messages = [
@@ -651,6 +727,7 @@ function isConfigured() { return !!GROQ_API_KEY; }
 module.exports = {
   chat,
   chatWithTools,
+  codeChat,
   groqFetchRaw,
   summarizeNewsSarcastically,
   TOOLS,
