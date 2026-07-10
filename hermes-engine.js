@@ -309,8 +309,22 @@ const TOOLS = [
     type: "function",
     function: {
       name: "check_email",
-      description: "Check the user's real Gmail inbox — how many unread emails, who they're from, subjects. Call this whenever the user asks about their email/inbox/messages, e.g. 'check my email', 'read my emails', 'do I have any new mail', 'what's in my inbox'. This is a REAL, direct connection to their actual Gmail account (via the Google sign-in they've already completed) — never say you don't have access to their email; call this tool instead of answering from general knowledge.",
+      description: "Check the user's real Gmail inbox and list unread emails — who they're from (flagging whether each is from an actual person vs a company/automated sender), and the subjects. Call this whenever the user asks about their email/inbox/messages, e.g. 'check my email', 'read my emails', 'do I have any new mail', 'what's in my inbox'. This lists the unread emails and asks which one the user wants read in full — it does NOT read message bodies itself; use read_email for that once the user picks one. This is a REAL, direct connection to their actual Gmail account (via the Google sign-in they've already completed) — never say you don't have access to their email; call this tool instead of answering from general knowledge.",
       parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_email",
+      description: "Read the full body of ONE specific email from the list check_email just showed, e.g. 'read the first one', 'read #2', 'read the one from Sarah', 'open that email from Acme'. Only call this after check_email has been called earlier in the conversation and produced a numbered list — use the list to figure out which index or sender the user means.",
+      parameters: {
+        type: "object",
+        properties: {
+          index:  { type: "number", description: "1-based position in the list check_email just showed, if the user referred to it by position ('the first one', 'number 3')." },
+          sender: { type: "string", description: "Name or email fragment of the sender, if the user referred to it by who it's from instead of position." },
+        },
+      },
     },
   },
   {
@@ -343,7 +357,7 @@ async function chatWithTools({ message, userTitle = "Sir", memories = [], contex
 
   const systemPrompt = getSystemPrompt(T, memories, context, []) + `
 
-You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, checking their real Google Calendar, and noticing when the user needs a break. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. If nothing calls for a tool, just answer normally in plain text.
+You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, reading a specific email in full once they pick one, checking their real Google Calendar, and noticing when the user needs a break. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. After check_email lists unread emails and the user replies with something like "read the first one" or "the one from Sarah", call read_email with the right index or sender. If nothing calls for a tool, just answer normally in plain text.
 
 Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use this to compute datetime_iso for reminders.`;
 
