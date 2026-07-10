@@ -765,6 +765,17 @@ function stopLockClock() {
   if (_lockClockTimer) { clearInterval(_lockClockTimer); _lockClockTimer = null; }
 }
 
+// Rotating dot-sphere behind the video feed — same particle-globe
+// factory the Daily Briefing screen's globe is built from, just a
+// slightly different tint so the lock screen reads as its own state.
+let _lockGlobe = null;
+function startLockGlobe() {
+  if (!window.createParticleGlobe) return;
+  if (!_lockGlobe) _lockGlobe = window.createParticleGlobe("lock-globe-canvas", { count: 170, speed: 0.0026, color: "0,200,255" });
+  _lockGlobe.start();
+}
+function stopLockGlobe() { _lockGlobe?.stop(); }
+
 function setLockStatus(main, sub) {
   const s = $("lock-status"), sb = $("lock-substatus");
   if (s && main !== undefined) s.textContent = main;
@@ -773,6 +784,7 @@ function setLockStatus(main, sub) {
 
 function exitLockScreen() {
   stopLockClock();
+  stopLockGlobe();
   $("lock-screen")?.classList.remove("active");
   $("lock-face-video")?.classList.remove("scanning");
   $("lock-scan-sweep")?.classList.remove("active");
@@ -786,6 +798,7 @@ async function runLockScreen() {
   $("main-screen")?.classList.remove("active");
   lock.classList.add("active");
   startLockClock();
+  startLockGlobe();
   setLockStatus("CHECKING FOR ACCOUNT…", "");
 
   const profiles = await loadServerProfiles();
@@ -846,6 +859,7 @@ async function runLockScreen() {
           sweep?.classList.remove("active");
           stopAuthCameraStream();
           stopLockClock();
+          stopLockGlobe();
           localStorage.setItem("jarvis_name_hint", data.profile.name.toLowerCase());
           saveProfileLocal(data.profile);
           state.user      = data.profile.name;
