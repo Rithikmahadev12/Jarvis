@@ -194,9 +194,15 @@ const YES_RE = /^\s*(y|yes|yeah|yep|yup|sure|ok(ay)?|please|go for it|do it|soun
 const NO_RE  = /^\s*(n|no|nah|nope|not now|later|i'?m (good|fine)|maybe later)\s*[.!]?\s*$/i;
 
 // ── WORK-SESSION NUDGE (polled every ~20-30s from the client) ───
-// Asks — never opens anything on its own. Resets automatically
-// whenever the healthy-schedule says you're currently in a
-// break/meal/free/sleep block, since you're clearly not "at it" then.
+// Autonomous: once you've been "at it" for over an hour, JARVIS picks
+// a break suggestion itself and reports it — it doesn't ask permission
+// and wait. Nothing forces a popup open on its own (background timers
+// can't do that reliably past browser popup blockers anyway); instead
+// the client renders the links as clickable text in the message, so
+// the action is real ("I picked this for you") without fighting the
+// browser. Resets automatically whenever the healthy-schedule says
+// you're currently in a break/meal/free/sleep block, since you're
+// clearly not "at it" then.
 const WORK_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour
 
 function checkWorkNudge(tz) {
@@ -211,13 +217,16 @@ function checkWorkNudge(tz) {
     return null;
   }
 
-  if (state.nudgeSent) return null; // already asked, waiting on an answer
+  if (state.nudgeSent) return null; // already reported for this stretch
 
   if (Date.now() - state.workStartedAt >= WORK_THRESHOLD_MS) {
     state.nudgeSent = true;
+    state.workStartedAt = Date.now(); // start the clock fresh for the next stretch
     save(state);
+    const links = randomBreakLinks();
     return {
-      text: `Sir — you've been at it for over an hour. Want to take a break?`,
+      text: `You've been heads-down for over an hour, so I lined up a quick reset for you.`,
+      links,
     };
   }
   return null;
