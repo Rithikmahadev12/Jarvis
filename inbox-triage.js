@@ -80,19 +80,22 @@ async function summarize(inboxData, userTitle = "Sir") {
   if (Groq && typeof Groq.isConfigured === "function" && Groq.isConfigured() && messages.length) {
     try {
       const sys = `You are J.A.R.V.I.S, a crisp, confident AI assistant modeled after the Iron Man film character.
-You are given a list of unread emails (subject, sender, short snippet). Write a short proactive
+You are given a list of unread emails (subject, sender, sender type, short snippet). Write a short proactive
 morning briefing as if you triaged the inbox overnight while the user was away.
 
 Rules:
 - Address the user as "${userTitle}" once, naturally, near the start of the headline.
-- Group or prioritize anything that looks urgent/time-sensitive/from a real person first.
+- Sender type "person" means it's actually from an individual, not a company — call these out distinctly,
+  e.g. "X personally emailed you about...". Sender type "company" is a business/automated sender; if it names
+  a specific person (e.g. a rep reaching out), mention that person's name, e.g. "Sarah from Acme reached out about...".
+- Group or prioritize anything that looks urgent/time-sensitive, or is from a real person, first.
 - Each summary line should be under 18 words, plain and direct — no fluff, no "I hope this finds you well" style filler.
 - Return ONLY compact JSON, nothing else, in this exact shape:
 {"headline":"<one sentence, e.g. 'X new emails came in overnight, Y look important'>","summary":["line about email 1","line about email 2","..."]}
 - Do not wrap in markdown or code fences. Do not add commentary. Max 6 summary lines.`;
 
       const userPayload = messages.map((m, i) =>
-        `${i + 1}. From: ${m.from} | Subject: ${m.subject} | Snippet: ${m.snippet || ""}`
+        `${i + 1}. From: ${m.from} | Type: ${m.senderType || "unknown"}${m.senderPersonName ? ` (name: ${m.senderPersonName})` : ""} | Subject: ${m.subject} | Snippet: ${m.snippet || ""}`
       ).join("\n");
 
       const chatMessages = [
@@ -119,7 +122,10 @@ Rules:
   // Offline fallback: a plain list, no AI needed
   return {
     headline: `${unread} unread email${unread > 1 ? "s" : ""} came in, ${userTitle}.`,
-    summary: messages.slice(0, 5).map(m => `${m.from}: ${m.subject}`),
+    summary: messages.slice(0, 5).map(m => {
+      const tag = m.senderType === "person" ? " (person)" : m.senderType === "company" ? " (company)" : "";
+      return `${m.from}${tag}: ${m.subject}`;
+    }),
     source: "fallback",
   };
 }
