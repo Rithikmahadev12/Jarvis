@@ -1537,7 +1537,7 @@ function handleChatCommand(text) {
   const holoTopic = /\b(atom|atoms|dna|helix|molecule|molecules|caffeine|brain|neural network|crystal|turbine|jet engine|satellite|drone|iron man|the suit|arc reactor)\b/.test(cleanedLower);
   const holoVerb   = /\b(show|explain|teach|understand|what does|what is|bring up|pull up|visualize|visualise|display)\b/.test(cleanedLower);
   if ((/\bhologram\b/.test(cleanedLower) || (holoTopic && holoVerb)) && window.HologramWidget) {
-    const key = window.HologramWidget.guessKey(cleanedLower) || "arc_reactor";
+    const key = window.HologramWidget.guessKey(cleanedLower) || "earth";
     window.HologramWidget.show(key);
     const r = `Here's the hologram, ${state.userTitle}. Drag it wherever you like — push it off either edge to dismiss it.`;
     addMsg("jarvis", r); speak(r);
