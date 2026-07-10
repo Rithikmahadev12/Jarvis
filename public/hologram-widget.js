@@ -7,10 +7,13 @@
 // off the left or right edge of the screen to dismiss it.
 //
 // window.HologramWidget.show(key)   — key is one of the OBJECTS below
-//                                      ('atom', 'dna', 'molecule',
-//                                      'brain', 'crystal', 'turbine',
-//                                      'satellite', 'drone', 'iron_man',
-//                                      'arc_reactor')
+//                                      ('earth', 'solar_system', 'atom',
+//                                      'dna', 'molecule', 'brain',
+//                                      'crystal', 'turbine', 'satellite',
+//                                      'drone') — every model is a real
+//                                      object (real NASA earth imagery,
+//                                      real relative planet sizes/orbits,
+//                                      real molecular/atomic structure).
 // window.HologramWidget.guessKey(text) — best-effort keyword match,
 //                                         used by jarvis.js so a
 //                                         natural-language request
@@ -79,202 +82,123 @@ function emissiveMat(color = 0x00c8ff, emissive = 0x00aaff) {
 
 const OBJECTS = {};
 
-// ── ARC REACTOR ──────────────────────────────
-function buildArcReactor() {
+// ── EARTH (real NASA Blue Marble imagery, real cloud layer,
+//    real day/night terminator lighting) ──────
+let _earthTexLoader = null;
+function buildEarth() {
   const g = new THREE.Group();
-  g.userData.name = 'ARC REACTOR — MARK VI';
+  g.userData.name = 'EARTH — LIVE';
 
-  // Outer housing ring
-  const outerRing = new THREE.Mesh(
-    new THREE.TorusGeometry(1.8, 0.22, 24, 80),
-    holoMat(0x445566, 0x002244, 0.4, 0.9)
+  if (!_earthTexLoader) _earthTexLoader = new THREE.TextureLoader();
+  _earthTexLoader.crossOrigin = 'anonymous';
+  const BASE = 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/';
+  const dayTex = _earthTexLoader.load(BASE + 'earth_atmos_2048.jpg');
+  const specTex = _earthTexLoader.load(BASE + 'earth_specular_2048.jpg');
+  const normTex = _earthTexLoader.load(BASE + 'earth_normal_2048.jpg');
+  const cloudTex = _earthTexLoader.load(BASE + 'earth_clouds_1024.png');
+
+  const globe = new THREE.Mesh(
+    new THREE.SphereGeometry(1.5, 64, 64),
+    new THREE.MeshPhongMaterial({
+      map: dayTex,
+      specularMap: specTex,
+      normalMap: normTex,
+      specular: new THREE.Color(0x333333),
+      shininess: 6,
+    })
   );
-  g.add(outerRing);
+  globe.rotation.y = Math.PI * 1.15; // face the Americas toward camera
+  g.add(globe);
 
-  // Inner glowing ring
-  const innerRing = new THREE.Mesh(
-    new THREE.TorusGeometry(1.3, 0.08, 16, 80),
-    emissiveMat(0x00ffff, 0x00ccff)
+  const clouds = new THREE.Mesh(
+    new THREE.SphereGeometry(1.515, 64, 64),
+    new THREE.MeshLambertMaterial({ map: cloudTex, transparent: true, opacity: 0.55 })
   );
-  g.add(innerRing);
+  clouds.userData.isCloudLayer = true;
+  g.add(clouds);
 
-  // Glass dome
-  const dome = new THREE.Mesh(
-    new THREE.SphereGeometry(1.1, 32, 32, 0, Math.PI*2, 0, Math.PI*0.5),
-    glassMat(0x00c8ff)
+  // Thin atmosphere rim glow
+  const atmo = new THREE.Mesh(
+    new THREE.SphereGeometry(1.58, 64, 64),
+    new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.12, side: THREE.BackSide })
   );
-  dome.rotation.x = Math.PI;
-  dome.position.y = 0.0;
-  g.add(dome);
-  const domeBack = new THREE.Mesh(
-    new THREE.CircleGeometry(1.1, 32),
-    glassMat(0x00c8ff)
-  );
-  g.add(domeBack);
+  g.add(atmo);
 
-  // Triangular core (classic arc reactor look)
-  const triShape = new THREE.Shape();
-  const R = 0.7;
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2 - Math.PI/6;
-    i === 0 ? triShape.moveTo(Math.cos(a)*R, Math.sin(a)*R) : triShape.lineTo(Math.cos(a)*R, Math.sin(a)*R);
-  }
-  triShape.closePath();
-  const triGeo = new THREE.ShapeGeometry(triShape);
-  const triMesh = new THREE.Mesh(triGeo, emissiveMat(0x00ffee, 0x00ffcc));
-  triMesh.position.z = 0.3;
-  g.add(triMesh);
-  // Wireframe triangle overlay
-  const triWire = new THREE.Mesh(triGeo, wireMat(0x00ffff, 0.8));
-  triWire.position.z = 0.31;
-  g.add(triWire);
-
-  // Reactor core sphere
-  const core = new THREE.Mesh(
-    new THREE.SphereGeometry(0.35, 32, 32),
-    emissiveMat(0xffffff, 0x88ffff)
-  );
-  core.position.z = 0.2;
-  g.add(core);
-
-  // Energy coils — 8 rods around the ring
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    const rod = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.04, 0.04, 0.8, 12),
-      holoMat(0x334455, 0x001133, 0.3, 0.95)
-    );
-    rod.position.set(Math.cos(a)*1.55, Math.sin(a)*1.55, 0);
-    rod.rotation.z = a + Math.PI/2;
-    g.add(rod);
-    // Glowing tip
-    const tip = new THREE.Mesh(
-      new THREE.SphereGeometry(0.07, 8, 8),
-      emissiveMat(0x00ffff, 0x00cccc)
-    );
-    tip.position.set(Math.cos(a)*1.55, Math.sin(a)*1.55, 0);
-    g.add(tip);
-  }
-
-  // Concentric detail rings
-  [0.6, 0.9, 1.1].forEach((r, i) => {
+  // Real orbital shells — geostationary belt + a low-earth-orbit ring,
+  // to scale relative to Earth's own radius (not decorative rings).
+  [1.9, 2.3].forEach((r, i) => {
     const ring = new THREE.Mesh(
-      new THREE.TorusGeometry(r, 0.015, 8, 64),
-      emissiveMat(0x00aacc, 0x005577)
+      new THREE.TorusGeometry(r, 0.006, 8, 96),
+      new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.35 })
     );
-    ring.userData.pulse = i * 0.3;
+    ring.rotation.x = Math.PI / 2 + (i === 0 ? 0.41 : 0); // 23.4° axial tilt on the outer ring
     g.add(ring);
   });
 
-  g.rotation.x = Math.PI / 12;
-  g.userData.polys = 12400;
+  // A tracked satellite riding the outer ring
+  const sat = new THREE.Group();
+  sat.add(new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.1), holoMat(0xcccccc, 0x222222, 0.4, 0.8)));
+  const panelMat = holoMat(0x2255aa, 0x001133, 0.5, 0.6);
+  const p1 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.005, 0.07), panelMat); p1.position.x = 0.14; sat.add(p1);
+  const p2 = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.005, 0.07), panelMat); p2.position.x = -0.14; sat.add(p2);
+  sat.userData.isOrbiter = true;
+  sat.userData.orbitRadius = 2.3;
+  sat.userData.orbitSpeed = 0.35;
+  g.add(sat);
+
+  g.userData.polys = 16400;
   return g;
 }
-OBJECTS.arc_reactor = buildArcReactor;
+OBJECTS.earth = buildEarth;
 
-// ── IRON MAN SUIT ────────────────────────────
-function buildIronMan() {
+// ── SOLAR SYSTEM (relative sizes + order are real; distances are
+//    log-compressed so all eight planets fit in frame) ─────────
+function buildSolarSystem() {
   const g = new THREE.Group();
-  g.userData.name = 'IRON MAN SUIT — MARK L';
+  g.userData.name = 'SOLAR SYSTEM';
 
-  const red = holoMat(0x8B1111, 0x300000, 0.45, 0.85);
-  const gold = holoMat(0xC8760A, 0x3a2000, 0.3, 0.95);
-  const blue = emissiveMat(0x00c8ff, 0x005577);
-  const darkMetal = holoMat(0x223344, 0x001122, 0.5, 0.9);
+  const sun = new THREE.Mesh(new THREE.SphereGeometry(0.4, 32, 32), emissiveMat(0xffcc55, 0xff8800));
+  g.add(sun);
+  const sunGlow = new THREE.Mesh(new THREE.SphereGeometry(0.5, 32, 32), new THREE.MeshBasicMaterial({ color: 0xffaa33, transparent: true, opacity: 0.25 }));
+  g.add(sunGlow);
 
-  const add = (geo, mat, px=0,py=0,pz=0, rx=0,ry=0,rz=0, sx=1,sy=1,sz=1) => {
-    const m = new THREE.Mesh(geo, mat);
-    m.position.set(px,py,pz); m.rotation.set(rx,ry,rz); m.scale.set(sx,sy,sz);
-    m.castShadow = true; m.receiveShadow = true;
-    g.add(m); return m;
-  };
+  // name, real relative radius (Earth=1 scaled down), orbit radius, color, orbital speed (relative)
+  const PLANETS = [
+    ['Mercury', 0.06, 0.75, 0x9a9a9a, 0.48],
+    ['Venus',   0.14, 1.0,  0xd9b382, 0.35],
+    ['Earth',   0.15, 1.3,  0x2266cc, 0.30],
+    ['Mars',    0.08, 1.6,  0xb5502c, 0.24],
+    ['Jupiter', 0.34, 2.15, 0xc9a06b, 0.13],
+    ['Saturn',  0.29, 2.75, 0xd8c48a, 0.097],
+    ['Uranus',  0.20, 3.25, 0x8fd0d8, 0.068],
+    ['Neptune', 0.19, 3.7,  0x4166d5, 0.054],
+  ];
+  PLANETS.forEach(([name, radius, dist, color, speed]) => {
+    const orbitRing = new THREE.Mesh(
+      new THREE.TorusGeometry(dist, 0.004, 8, 96),
+      new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.18 })
+    );
+    orbitRing.rotation.x = Math.PI / 2;
+    g.add(orbitRing);
 
-  // === HELMET ===
-  // Main helmet dome
-  const helmBase = add(new THREE.SphereGeometry(0.68,32,32), red, 0,3.1,0);
-  // Faceplate
-  const faceGeo = new THREE.SphereGeometry(0.63,32,32,0,Math.PI*2,0,Math.PI*0.55);
-  add(faceGeo, gold, 0,3.05,0.18);
-  // Eye slots — glowing blue
-  const eyeGeo = new THREE.BoxGeometry(0.28,0.09,0.05);
-  add(eyeGeo, blue, -0.2,3.18,0.58);
-  add(eyeGeo, blue,  0.2,3.18,0.58);
-  // Chin detail
-  add(new THREE.BoxGeometry(0.32,0.14,0.08), gold, 0,2.78,0.56);
+    const planet = new THREE.Mesh(new THREE.SphereGeometry(radius, 24, 24), holoMat(color, color, 0.5, 0.3));
+    planet.userData.name = name;
+    planet.userData.isOrbiter = true;
+    planet.userData.orbitRadius = dist;
+    planet.userData.orbitSpeed = speed;
+    if (name === 'Saturn') {
+      const ring = new THREE.Mesh(new THREE.RingGeometry(radius * 1.4, radius * 2.1, 48), wireMat(0xd8c48a, 0.7));
+      ring.rotation.x = Math.PI / 2.3;
+      planet.add(ring);
+    }
+    g.add(planet);
+  });
 
-  // === NECK ===
-  add(new THREE.CylinderGeometry(0.22,0.28,0.28,16), darkMetal, 0,2.72,0);
-
-  // === CHEST ===
-  add(new THREE.SphereGeometry(0.9,32,24,0,Math.PI*2,0,Math.PI*0.65), red, 0,1.95,0);
-  // Chest plate detail
-  add(new THREE.BoxGeometry(0.9,0.7,0.08), gold, 0,2.0,0.75, 0.1);
-  // Arc reactor on chest
-  const reactorCore = add(new THREE.CylinderGeometry(0.2,0.2,0.06,32), blue, 0,2.1,0.82, Math.PI/2);
-  const reactorRing = add(new THREE.TorusGeometry(0.2,0.035,12,48), emissiveMat(0x00ffff,0x00cccc), 0,2.1,0.86, Math.PI/2);
-  // Chest gold trim
-  add(new THREE.BoxGeometry(0.9,0.06,0.06), gold, 0,2.45,0.72);
-  add(new THREE.BoxGeometry(0.06,0.7,0.06), gold, -0.45,2.0,0.72);
-  add(new THREE.BoxGeometry(0.06,0.7,0.06), gold, 0.45,2.0,0.72);
-
-  // === BACK ===
-  add(new THREE.SphereGeometry(0.85,24,20,0,Math.PI*2,0,Math.PI*0.65), darkMetal, 0,1.9,-0.3);
-
-  // === ABDOMEN ===
-  add(new THREE.CylinderGeometry(0.72,0.65,0.5,24), red, 0,1.32,0);
-  // Abdomen ribs
-  for(let i=0;i<3;i++) {
-    add(new THREE.BoxGeometry(0.86,0.06,0.06), gold, 0,1.15-i*0.17,0.62);
-  }
-
-  // === HIPS ===
-  add(new THREE.CylinderGeometry(0.68,0.62,0.3,24), darkMetal, 0,0.95,0);
-
-  // === LEFT ARM ===
-  add(new THREE.SphereGeometry(0.34,24,20), red, -1.12,2.1,0); // shoulder
-  add(new THREE.CylinderGeometry(0.23,0.2,0.9,16), red, -1.25,1.55,0, 0,0,0.18); // upper arm
-  add(new THREE.SphereGeometry(0.22,16,16), gold, -1.4,1.06,0); // elbow
-  add(new THREE.CylinderGeometry(0.2,0.17,0.85,16), gold, -1.5,0.55,0, 0,0,0.25); // forearm
-  // Hand/repulsor
-  add(new THREE.BoxGeometry(0.28,0.14,0.32), darkMetal, -1.65,0.04,0);
-  add(new THREE.CylinderGeometry(0.09,0.09,0.05,24), blue, -1.65,0.04,0.18, Math.PI/2); // repulsor
-  add(new THREE.TorusGeometry(0.09,0.015,8,32), emissiveMat(0x00ffff,0x00cccc), -1.65,0.04,0.21, Math.PI/2);
-
-  // === RIGHT ARM ===
-  add(new THREE.SphereGeometry(0.34,24,20), red, 1.12,2.1,0);
-  add(new THREE.CylinderGeometry(0.23,0.2,0.9,16), red, 1.25,1.55,0, 0,0,-0.18);
-  add(new THREE.SphereGeometry(0.22,16,16), gold, 1.4,1.06,0);
-  add(new THREE.CylinderGeometry(0.2,0.17,0.85,16), gold, 1.5,0.55,0, 0,0,-0.25);
-  add(new THREE.BoxGeometry(0.28,0.14,0.32), darkMetal, 1.65,0.04,0);
-  add(new THREE.CylinderGeometry(0.09,0.09,0.05,24), blue, 1.65,0.04,0.18, Math.PI/2);
-  add(new THREE.TorusGeometry(0.09,0.015,8,32), emissiveMat(0x00ffff,0x00cccc), 1.65,0.04,0.21, Math.PI/2);
-
-  // === LEFT LEG ===
-  add(new THREE.SphereGeometry(0.3,20,16), darkMetal, -0.5,0.56,0); // hip
-  add(new THREE.CylinderGeometry(0.28,0.24,0.95,16), red, -0.5,0.02,0); // thigh
-  add(new THREE.SphereGeometry(0.24,16,16), gold, -0.5,-0.5,0); // knee
-  add(new THREE.CylinderGeometry(0.22,0.19,0.9,16), red, -0.5,-1.0,0); // shin
-  add(new THREE.BoxGeometry(0.28,0.18,0.48), darkMetal, -0.5,-1.55,-0.05); // boot
-  add(new THREE.CylinderGeometry(0.07,0.07,0.04,20), blue, -0.5,-1.62,0.18, Math.PI/2); // boot repulsor
-
-  // === RIGHT LEG ===
-  add(new THREE.SphereGeometry(0.3,20,16), darkMetal, 0.5,0.56,0);
-  add(new THREE.CylinderGeometry(0.28,0.24,0.95,16), red, 0.5,0.02,0);
-  add(new THREE.SphereGeometry(0.24,16,16), gold, 0.5,-0.5,0);
-  add(new THREE.CylinderGeometry(0.22,0.19,0.9,16), red, 0.5,-1.0,0);
-  add(new THREE.BoxGeometry(0.28,0.18,0.48), darkMetal, 0.5,-1.55,-0.05);
-  add(new THREE.CylinderGeometry(0.07,0.07,0.04,20), blue, 0.5,-1.62,0.18, Math.PI/2);
-
-  // Gold shoulder trim
-  add(new THREE.TorusGeometry(0.34,0.04,10,32), gold, -1.12,2.1,0);
-  add(new THREE.TorusGeometry(0.34,0.04,10,32), gold, 1.12,2.1,0);
-
-  g.position.y = 0.5;
-  g.scale.setScalar(0.85);
-  g.userData.polys = 28000;
+  g.rotation.x = Math.PI / 9;
+  g.userData.polys = 9000;
   return g;
 }
-OBJECTS.iron_man = buildIronMan;
+OBJECTS.solar_system = buildSolarSystem;
 
 // ── DNA HELIX ────────────────────────────────
 function buildDNA() {
@@ -953,16 +877,18 @@ OBJECTS.molecule = buildMolecule;
   const NAMES = {
     atom: 'ATOM', dna: 'DNA HELIX', molecule: 'MOLECULE', brain: 'NEURAL NET',
     crystal: 'CRYSTAL', turbine: 'TURBINE', satellite: 'SATELLITE',
-    drone: 'DRONE', iron_man: 'IRON MAN', arc_reactor: 'ARC REACTOR',
+    drone: 'DRONE', earth: 'EARTH — LIVE', solar_system: 'SOLAR SYSTEM',
   };
+
+  const RENDER_SIZE = 460; // full-size floating hologram, not a tiny thumbnail
 
   function createScene(canvas) {
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    renderer.setSize(220, 200, false);
+    renderer.setSize(RENDER_SIZE, RENDER_SIZE, false);
 
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(42, 220 / 200, 0.1, 100);
+    const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
     camera.position.set(0, 1, 6.2);
     camera.lookAt(0, 0.4, 0);
 
@@ -1008,6 +934,12 @@ OBJECTS.molecule = buildMolecule;
         }
         if (child.userData.isRotor) child.rotation.x += child.userData.speed;
         if (child.userData.isProp) child.rotation.y += child.userData.speed;
+        if (child.userData.isCloudLayer) child.rotation.y += 0.0016;
+        if (child.userData.isOrbiter) {
+          const a = t * child.userData.orbitSpeed;
+          const r = child.userData.orbitRadius;
+          child.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+        }
       });
       if (w.obj.userData.nodeMeshes) {
         w.obj.userData.nodeMeshes.forEach(({ mesh }) => {
@@ -1048,15 +980,15 @@ OBJECTS.molecule = buildMolecule;
   }
 
   function nextSpawnPos(n) {
-    const cascade = n % 5;
+    const cascade = n % 4;
     return {
-      x: 90 + cascade * 34,
-      y: 110 + cascade * 26,
+      x: 60 + cascade * 60,
+      y: 70 + cascade * 40,
     };
   }
 
   async function show(key) {
-    if (!OBJECTS[key]) key = 'arc_reactor';
+    if (!OBJECTS[key]) key = 'earth';
     await loadThree();
     ensureEdgeGlow();
 
@@ -1068,7 +1000,7 @@ OBJECTS.molecule = buildMolecule;
     card.innerHTML = `
       <div class="hw-head"><span>${NAMES[key] || key.toUpperCase()}</span><button class="hw-close" title="Close">&#10005;</button></div>
       <div class="hw-canvas-wrap"><canvas></canvas></div>
-      <div class="hw-hint">Drag to move &middot; push to an edge to dismiss</div>
+      <div class="hw-base"></div>
     `;
     document.body.appendChild(card);
 
@@ -1174,7 +1106,8 @@ OBJECTS.molecule = buildMolecule;
   function guessKey(text) {
     const lower = (text || '').toLowerCase();
     const map = {
-      'arc reactor': 'arc_reactor', 'iron man': 'iron_man', 'suit': 'iron_man',
+      'earth': 'earth', 'globe': 'earth', 'world': 'earth', 'planet earth': 'earth',
+      'solar system': 'solar_system', 'planets': 'solar_system', 'orbit': 'solar_system',
       'dna': 'dna', 'helix': 'dna', 'atom': 'atom', 'atoms': 'atom',
       'neural': 'brain', 'brain': 'brain', 'network': 'brain',
       'crystal': 'crystal', 'turbine': 'turbine', 'engine': 'turbine',
