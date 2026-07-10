@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="home-ui.css"/>
   <link rel="stylesheet" href="music-widget.css"/>
   <link rel="stylesheet" href="mode-picker.css"/>
+  <link rel="stylesheet" href="ball-game.css"/>
 
   <!-- PWA: lets this be "Added to Home Screen" as an app on a phone -->
   <link rel="manifest" href="manifest.json"/>
@@ -670,12 +671,17 @@
   <script src="pip-widgets.js"></script>
   <script src="hand-tracking.js"></script>
   <script src="mode-picker.js"></script>
+  <script src="ball-game.js"></script>
   <script>
     // Start hand tracking once the main screen goes active (after login)
     const _htObserver = new MutationObserver(() => {
       const mainActive = document.getElementById("main-screen")?.classList.contains("active");
       if (mainActive && !HandTracking.active) HandTracking.start();
       if (!mainActive && HandTracking.active) HandTracking.stop();
+      // Ball game watches the camera on its own and spawns/despawns
+      // a throwable target automatically as you walk in and out of frame.
+      if (mainActive) BallGame.start();
+      if (!mainActive) BallGame.stop();
     });
     _htObserver.observe(document.getElementById("main-screen"), { attributes: true, attributeFilter: ["class"] });
   </script>
