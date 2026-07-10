@@ -22,6 +22,8 @@ const Brain       = require("./brain");
 const Reminders   = require("./reminders");
 const Briefing    = require("./briefing");
 const InboxTriage = require("./inbox-triage");
+const Schedule    = require("./schedule");
+const Proactive   = require("./proactive");
 const TTS = require("./tts");
 const Persistence = require("./persistence");
 
@@ -888,6 +890,40 @@ app.get("/api/reminders", (req, res) => {
   res.json({ items: Reminders.listUpcoming(20) });
 });
 
+// ── WORK-SESSION NUDGE — polled every ~20s. Autonomous: if you've
+//    been at it over an hour, JARVIS has already picked a break
+//    suggestion by the time this responds; it never waits for a
+//    separate "yes" round-trip. ──
+app.get("/api/schedule/due", (req, res) => {
+  res.json({ nudge: Schedule.checkWorkNudge(req.query.tz) });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── PROACTIVE MORNING BRIEFING ──
+// Weather + top headline + today's calendar + inbox headline,
+// combined into one unprompted "here's where things stand" message.
+// Same lazy-generate-once-per-day pattern as inbox-briefing above —
+// works even if the server was asleep overnight on a free host tier.
+// ═══════════════════════════════════════════════════════════════
+app.get("/api/proactive/briefing/:user", async (req, res) => {
+  const userKey = (req.params.user || "").toLowerCase().trim();
+  if (!userKey) return res.status(400).json({ error: "Missing user" });
+
+  const profiles = loadProfiles();
+  const profile  = profiles[userKey];
+  if (profile?.googleTokens?.access && !Google.hasTokenForUser(userKey)) {
+    Google.hydrateTokens(userKey, profile.googleTokens);
+  }
+
+  try {
+    const entry = await Proactive.getOrGenerateToday(userKey, profile?.title, req.query.tz);
+    if (!entry) return res.json({ available: false });
+    res.json({ available: true, entry });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // ── PERSONALITY
 // ═══════════════════════════════════════════════════════════════
@@ -1640,6 +1676,12 @@ app.post("/api/chat", async (req, res) => {
   const reminderResult = Reminders.route(message, T, userTimezone, sessionId);
   if (reminderResult) {
     return res.json(reminderResult);
+  }
+
+  // ── 2.6 Daily schedule / healthy routine / agenda / mood-based opens ──
+  const scheduleResult = Schedule.route(message, T, userTimezone, sessionId);
+  if (scheduleResult) {
+    return res.json(scheduleResult);
   }
 
   // ── 3. Hard commands ──
