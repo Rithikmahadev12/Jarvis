@@ -30,6 +30,31 @@
 // the moment you grab it, the same way it'd follow a mouse drag.
 // To make a new widget hand-draggable, add `dataset.handDrag = "true"`
 // to its root element (see music-widget.js for the pattern).
+//
+// INTENT ENGINE — distinguishes a deliberate, controlled motion (reaching
+// to interact) from loose/incidental motion (stretching, resting, just
+// moving your arm) using ONLY the motion itself — no target awareness.
+// Runs every frame on a rolling window of the tracked hand's motion and
+// fuses four signals into a single 0–1 "intentScore":
+//   • path straightness   — deliberate reaches move fairly directly;
+//                            loose motion wanders.
+//   • speed               — fast broad sweeps score low; controlled,
+//                            moderate/slow motion scores high.
+//   • steadiness           — low recent jitter (settling/aiming) scores
+//                            high; a hand still drifting scores low.
+//   • hand pose            — index finger clearly extended past the
+//                            others (a pointing/interacting shape) scores
+//                            higher than a loose, relaxed hand.
+// The smoothed score is broadcast every frame as "jarvis:intent" —
+// { detail: { score, engaged } } — for any page/widget to consult. It also
+// gates dwell-click accumulation, pinch-drag grabs, and the raise-hand
+// keyboard toggle in this module, so ordinary/incidental hand movement
+// (stretching, resting your arm up, etc.) can pass through the frame
+// without triggering anything, while a controlled, engaged motion can.
+// This is a real-time on-device signal-fusion engine, not a remote model
+// call — inferring intent from a network round-trip per frame isn't
+// workable at 30–60fps, so this is the practical version of "let the AI
+// see what you're trying to do."
 // ═══════════════════════════════════════════════════════════════
 
 const HandTracking = (() => {
@@ -39,6 +64,15 @@ const HandTracking = (() => {
   const REARM_THRESHOLD   = 0.65;   // wrist must drop below this before a new raise can trigger again
   const SMOOTHING         = 0.35;   // cursor smoothing factor (0=instant,1=frozen)
   const TOGGLE_COOLDOWN_MS = 600;   // minimum time between toggles
+
+  // ── INTENT ENGINE TUNING ──
+  const INTENT_WINDOW_MS     = 500;  // rolling window used for straightness/speed
+  const INTENT_RECENT_MS     = 160;  // shorter window used for the "settling" jitter check
+  const INTENT_SMOOTHING     = 0.80; // EMA smoothing on the final score (0=instant,1=frozen)
+  const INTENT_ENGAGE_THRESHOLD = 0.5; // score above this = "deliberate", gates dwell/pinch/raise
+  const INTENT_MAX_SPEED_PX_S   = 2200; // speed at/above this is treated as a broad sweep (score→0)
+  const INTENT_JITTER_REF_PX    = 26;   // recent-window stddev at/above this is treated as "not settled"
+  const INTENT_W_STRAIGHT = 0.30, INTENT_W_SPEED = 0.20, INTENT_W_STEADY = 0.25, INTENT_W_POSE = 0.25;
 
   let hands            = null;
   let camera            = null;
@@ -96,6 +130,11 @@ const HandTracking = (() => {
   const ZOOM_WINDOW_MS   = 380;
   const ZOOM_MIN_DELTA   = 0.22;
   const ZOOM_COOLDOWN_MS = 900;
+
+  // ── INTENT ENGINE STATE ──
+  let intentHistory = [];  // {x,y,t,pose} screen-space cursor samples + hand-pose score
+  let intentScore    = 0;  // smoothed 0..1 "this looks deliberate" score
+  let intentEngaged  = false;
 
   // ── SNAP DETECTION STATE ──
   // Approximates a finger-snap using only hand landmarks (no audio):
@@ -371,6 +410,7 @@ const HandTracking = (() => {
       clearDwell();
       endPinchDrag(); // don't leave a widget stuck mid-drag if the hand drops out of frame
       posHistory = []; distHistory = []; // no hands → gesture state can't carry over
+      resetIntent();
       return;
     }
 
@@ -390,6 +430,9 @@ const HandTracking = (() => {
     detectSwipe(rawX, rawY);
     detectZoom(results.multiHandLandmarks);
     detectSnap(landmarks);
+
+    recordIntentSample(rawX, rawY, performance.now(), computePointingScore(landmarks));
+    updateIntent();
 
     // Broadcast raw landmark data so other pages can do custom gesture detection
     // (e.g. monitor-wall.html uses this for raise-both-wrists → overview toggle)
@@ -415,7 +458,7 @@ const HandTracking = (() => {
     if (wristY > REARM_THRESHOLD) {
       armed = true;
     }
-    if (armed && wristY < RAISE_THRESHOLD && (now - lastToggleAt) > TOGGLE_COOLDOWN_MS) {
+    if (armed && intentEngaged && wristY < RAISE_THRESHOLD && (now - lastToggleAt) > TOGGLE_COOLDOWN_MS) {
       armed = false;
       lastToggleAt = now;
       keyboardOpen = !keyboardOpen;
@@ -440,8 +483,11 @@ const HandTracking = (() => {
     const wasPinching = pinching;
     pinching = wasPinching ? pinchDist < PINCH_OFF : pinchDist < PINCH_ON;
 
-    if (pinching && !wasPinching) {
-      // Pinch just started — is there something grabbable under the cursor?
+    if (pinching && !wasPinching && intentEngaged) {
+      // Pinch just started, and the recent motion reads as deliberate —
+      // is there something grabbable under the cursor? (A reflexive pinch
+      // shape during an idle/stretching motion won't have intentEngaged
+      // true, so it won't grab anything.)
       cursorEl.style.pointerEvents = "none";
       const el = document.elementFromPoint(x, y);
       cursorEl.style.pointerEvents = "";
@@ -540,6 +586,89 @@ const HandTracking = (() => {
     }
   }
 
+  // ── INTENT ENGINE ──
+  // Hand-pose signal: how much more extended the index finger is than the
+  // other three fingers. A clear "pointing" shape (index out, others curled)
+  // reads as an interacting hand; a loose, similarly-extended-or-curled hand
+  // (typical of a relaxed stretch) doesn't. Returns 0..1.
+  function computePointingScore(landmarks) {
+    const center = { // average of the four finger MCP knuckles, a stable palm-center proxy
+      x: (landmarks[5].x + landmarks[9].x + landmarks[13].x + landmarks[17].x) / 4,
+      y: (landmarks[5].y + landmarks[9].y + landmarks[13].y + landmarks[17].y) / 4,
+    };
+    const ext = (tipIdx, pipIdx) => {
+      const tip = landmarks[tipIdx], pip = landmarks[pipIdx];
+      return Math.hypot(tip.x - center.x, tip.y - center.y) - Math.hypot(pip.x - center.x, pip.y - center.y);
+    };
+    const indexExt  = ext(8, 6);
+    const middleExt = ext(12, 10);
+    const ringExt   = ext(16, 14);
+    const pinkyExt  = ext(20, 18);
+    const othersAvg = (middleExt + ringExt + pinkyExt) / 3;
+    // Normalize by hand size (wrist-to-middle-MCP distance) so it works at any distance from camera.
+    const handSize = Math.hypot(landmarks[0].x - landmarks[9].x, landmarks[0].y - landmarks[9].y) || 0.001;
+    const diff = (indexExt - othersAvg) / handSize;
+    return Math.max(0, Math.min(1, diff * 1.6)); // scale + clamp into 0..1
+  }
+
+  // Feeds one frame's data into the rolling window used by updateIntent().
+  function recordIntentSample(x, y, t, pose) {
+    intentHistory.push({ x, y, t, pose });
+    while (intentHistory.length && t - intentHistory[0].t > INTENT_WINDOW_MS) intentHistory.shift();
+  }
+
+  // Fuses straightness + speed + steadiness + hand-pose into one smoothed
+  // 0..1 score, updates intentScore/intentEngaged, and broadcasts it.
+  function updateIntent() {
+    if (intentHistory.length < 2) return;
+
+    const first = intentHistory[0], last = intentHistory[intentHistory.length - 1];
+    const dt = Math.max(1, last.t - first.t);
+
+    // Straightness: net displacement vs total path length. Near-zero motion
+    // counts as "settled/aiming" (straightness = 1), not as noise.
+    let pathLen = 0;
+    for (let i = 1; i < intentHistory.length; i++) {
+      pathLen += Math.hypot(intentHistory[i].x - intentHistory[i - 1].x, intentHistory[i].y - intentHistory[i - 1].y);
+    }
+    const netDisp = Math.hypot(last.x - first.x, last.y - first.y);
+    const straightness = pathLen < 4 ? 1 : Math.max(0, Math.min(1, netDisp / pathLen));
+
+    // Speed: fast broad sweeps (arm stretches) score low.
+    const speedPxPerSec = (pathLen / dt) * 1000;
+    const speedScore = Math.max(0, Math.min(1, 1 - speedPxPerSec / INTENT_MAX_SPEED_PX_S));
+
+    // Steadiness: stddev of position over just the recent slice — low = settled/aiming.
+    const recent = intentHistory.filter(s => last.t - s.t <= INTENT_RECENT_MS);
+    let steadyScore = 1;
+    if (recent.length >= 2) {
+      const mx = recent.reduce((s, p) => s + p.x, 0) / recent.length;
+      const my = recent.reduce((s, p) => s + p.y, 0) / recent.length;
+      const variance = recent.reduce((s, p) => s + Math.hypot(p.x - mx, p.y - my) ** 2, 0) / recent.length;
+      const stddev = Math.sqrt(variance);
+      steadyScore = Math.max(0, Math.min(1, 1 - stddev / INTENT_JITTER_REF_PX));
+    }
+
+    // Hand pose: average pointing-shape score across the window.
+    const poseScore = intentHistory.reduce((s, p) => s + p.pose, 0) / intentHistory.length;
+
+    const raw = INTENT_W_STRAIGHT * straightness + INTENT_W_SPEED * speedScore +
+                INTENT_W_STEADY * steadyScore + INTENT_W_POSE * poseScore;
+
+    intentScore = intentScore + (raw - intentScore) * (1 - INTENT_SMOOTHING);
+    intentEngaged = intentScore >= INTENT_ENGAGE_THRESHOLD;
+
+    if (cursorEl) cursorEl.classList.toggle("ht-cursor-engaged", intentEngaged);
+    window.dispatchEvent(new CustomEvent("jarvis:intent", { detail: { score: intentScore, engaged: intentEngaged } }));
+  }
+
+  function resetIntent() {
+    intentHistory = [];
+    intentScore = 0;
+    intentEngaged = false;
+    if (cursorEl) cursorEl.classList.remove("ht-cursor-engaged");
+  }
+
   function drawSkeleton(landmarks) {
     if (!window.drawConnectors || !window.HAND_CONNECTIONS) return;
     overlayCtx.save();
@@ -569,6 +698,17 @@ const HandTracking = (() => {
       dwellStart = performance.now();
       clickable.classList.add("ht-hover");
       playHoverSound(); // hand just moved onto a new selectable option
+    }
+
+    // Only let dwell time accumulate while the intent engine reads this as
+    // deliberate motion — resting near a button mid-stretch keeps the hover
+    // highlight (so it's clear what you're near) but won't click it. As soon
+    // as the motion settles into "engaged" (the point of dwelling in the
+    // first place), the ring starts filling from wherever dwellStart is.
+    if (!intentEngaged) {
+      dwellStart = performance.now(); // keep resetting so time isn't "banked" while idle
+      setDwellRing(0);
+      return;
     }
 
     const elapsed = performance.now() - dwellStart;
