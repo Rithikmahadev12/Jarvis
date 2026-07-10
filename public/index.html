@@ -157,31 +157,21 @@
   <!-- LOCK SCREEN — plays first, before the login/create screen ever
        shows. Auto-checks for an existing account, then scans your
        face: a match signs you straight in, no account routes you to
-       Create Account, no match falls back to manual sign-in. Same
-       orb style as the boot screen, tinted differently to tell them
-       apart. -->
+       Create Account, no match falls back to manual sign-in. Orb is
+       a rotating particle sphere (dots), matching the reference —
+       tinted differently from the boot screen so they read as two
+       distinct states. -->
   <div id="lock-screen">
     <div class="intro-grid"></div>
     <div class="intro-vignette"></div>
 
-    <div class="boot-badge-wrap lock-badge">
-      <div class="jr-orb lock-orb">
-        <div class="jr-core-glow"></div>
-        <div class="jr-inner-ring">
-          <video id="lock-face-video" autoplay muted playsinline></video>
-          <div id="lock-scan-sweep" class="lock-scan-sweep"></div>
-          <div class="jr-title">JARVIS</div>
-        </div>
-        <div class="jr-outer-ring-1"></div>
-        <div class="jr-outer-ring-2"></div>
-        <svg class="jr-hud-svg" viewBox="0 0 400 400">
-          <circle class="jr-svg-rotate-ccw" cx="200" cy="200" r="115"
-                  fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-dasharray="2 25"/>
-          <g class="jr-svg-rotate-cw">
-            <circle cx="200" cy="200" r="135" fill="none" stroke="rgba(255,255,255,0.25)" stroke-width="4" stroke-dasharray="1 12"/>
-            <circle cx="200" cy="200" r="155" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="4" stroke-dasharray="4 77.7"/>
-          </g>
-        </svg>
+    <div class="lock-orb-wrap">
+      <div class="lock-orb">
+        <video id="lock-face-video" autoplay muted playsinline></video>
+        <canvas id="lock-globe-canvas"></canvas>
+        <div id="lock-scan-sweep" class="lock-scan-sweep"></div>
+        <div class="lock-ring"></div>
+        <div class="lock-orb-title">JARVIS</div>
       </div>
     </div>
 
@@ -672,6 +662,7 @@
   <script src="camera-observer.js"></script>
   <script src="visuals.js"></script>
   <script src="music-widget.js"></script>
+  <script src="hud-globe.js"></script>
   <script src="jarvis.js"></script>
   <script src="intro.js"></script>
   <script src="home-ui.js"></script>
