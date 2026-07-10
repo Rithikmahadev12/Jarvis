@@ -1,0 +1,88 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — FLOATING HOLOGRAM WIDGET
+   Small draggable 3D cards that live right on the main screen.
+   Grab and move them anywhere; drag one off the left or right edge
+   of the screen to dismiss it.
+   ═══════════════════════════════════════════════════════════════ */
+
+.holo-widget {
+  position: fixed;
+  width: 236px;
+  z-index: 850;
+  background: rgba(0, 4, 12, 0.82);
+  border: 1px solid rgba(0, 200, 255, 0.28);
+  border-radius: 10px;
+  box-shadow: 0 0 30px rgba(0, 200, 255, 0.12), inset 0 0 24px rgba(0, 200, 255, 0.04);
+  backdrop-filter: blur(6px);
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.35s ease, transform 0.35s ease, border-color 0.15s, box-shadow 0.15s;
+}
+.holo-widget.in { opacity: 1; transform: scale(1); }
+.holo-widget.dragging { cursor: grabbing; transition: border-color 0.15s, box-shadow 0.15s; }
+.holo-widget.edge-armed {
+  border-color: rgba(255, 80, 80, 0.65);
+  box-shadow: 0 0 34px rgba(255, 60, 60, 0.28), inset 0 0 24px rgba(255, 60, 60, 0.06);
+}
+.holo-widget.dismissing {
+  opacity: 0;
+  transform: scale(0.4);
+  transition: opacity 0.28s ease, transform 0.28s ease;
+}
+
+.hw-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 6px;
+  font-family: var(--hud, 'Orbitron', monospace);
+  font-size: 0.42rem;
+  letter-spacing: 0.18em;
+  color: var(--blue, #00c8ff);
+  text-shadow: 0 0 10px rgba(0, 200, 255, 0.4);
+}
+.hw-close {
+  background: transparent;
+  border: none;
+  color: rgba(0, 200, 255, 0.45);
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  transition: color 0.15s;
+}
+.hw-close:hover { color: #ff5555; }
+
+.hw-canvas-wrap {
+  width: 100%;
+  height: 200px;
+  position: relative;
+  overflow: hidden;
+}
+.hw-canvas-wrap canvas { display: block; width: 100% !important; height: 100% !important; }
+
+.hw-hint {
+  padding: 6px 10px 9px;
+  font-size: 0.48rem;
+  letter-spacing: 0.05em;
+  color: rgba(160, 220, 245, 0.45);
+  text-align: center;
+  font-family: 'Share Tech Mono', monospace;
+}
+
+.hw-edge-glow {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 90px;
+  z-index: 840;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.hw-edge-glow.left  { left: 0;  background: linear-gradient(90deg, rgba(255,60,60,0.22), transparent); }
+.hw-edge-glow.right { right: 0; background: linear-gradient(270deg, rgba(255,60,60,0.22), transparent); }
+.hw-edge-glow.show { opacity: 1; }
