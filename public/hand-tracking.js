@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
 // J.A.R.V.I.S — HAND TRACKING MODULE
-// MediaPipe Hands skeleton overlay + dwell-click cursor + gesture
-// virtual keyboard. Fully additive — does not touch existing IDs
+// MediaPipe Hands skeleton overlay + dwell-click cursor + gestures
+// (swipe/zoom/snap) + pinch-drag. Fully additive — does not touch existing IDs
 // used by jarvis.js. Runs on the main screen only, reusing the
 // existing camera-feed <video> element as input.
 //
@@ -47,8 +47,8 @@
 //                            higher than a loose, relaxed hand.
 // The smoothed score is broadcast every frame as "jarvis:intent" —
 // { detail: { score, engaged } } — for any page/widget to consult. It also
-// gates dwell-click accumulation, pinch-drag grabs, and the raise-hand
-// keyboard toggle in this module, so ordinary/incidental hand movement
+// gates dwell-click accumulation and pinch-drag grabs in this module,
+// so ordinary/incidental hand movement
 // (stretching, resting your arm up, etc.) can pass through the frame
 // without triggering anything, while a controlled, engaged motion can.
 // This is a real-time on-device signal-fusion engine, not a remote model
@@ -60,10 +60,7 @@
 const HandTracking = (() => {
 
   const DWELL_MS          = 1000;   // hold time to "click"
-  const RAISE_THRESHOLD   = 0.40;   // wrist y (0=top,1=bottom) above which hand counts as "raised"
-  const REARM_THRESHOLD   = 0.65;   // wrist must drop below this before a new raise can trigger again
   const SMOOTHING         = 0.35;   // cursor smoothing factor (0=instant,1=frozen)
-  const TOGGLE_COOLDOWN_MS = 600;   // minimum time between toggles
 
   // ── INTENT ENGINE TUNING ──
   const INTENT_WINDOW_MS     = 500;  // rolling window used for straightness/speed
@@ -79,11 +76,7 @@ const HandTracking = (() => {
   let overlayCanvas     = null;
   let overlayCtx        = null;
   let cursorEl          = null;
-  let keyboardEl        = null;
   let active            = false;
-  let armed             = true;   // true = wrist has dropped low enough that a new raise can trigger a toggle
-  let keyboardOpen      = false;
-  let lastToggleAt      = 0;
   let smoothX = null, smoothY = null;
   let dwellTarget       = null;
   let dwellStart        = 0;
@@ -115,7 +108,6 @@ const HandTracking = (() => {
   const DRAG_POINTER_ID = 9101;
   let pinching     = false;
   let pinchDragTarget = null;
-  let typingTargetInput = null; // input element virtual keyboard types into
   let scriptsLoaded     = false;
 
   // ── GESTURE DETECTION STATE (swipe + two-hand zoom) ──
@@ -171,8 +163,6 @@ const HandTracking = (() => {
     badge.innerHTML = `<span class="ht-status-dot"></span><span id="ht-status-text">HAND TRACKING — INITIALISING</span>`;
     document.body.appendChild(badge);
 
-    buildKeyboard();
-
     hoverAudio = new Audio("/soundeffects/UI-soundeffect.mp3");
     hoverAudio.preload = "auto";
 
@@ -189,77 +179,6 @@ const HandTracking = (() => {
   function setStatus(text) {
     const el = $id("ht-status-text");
     if (el) el.textContent = text;
-  }
-
-  // ── VIRTUAL KEYBOARD ──
-  const KEY_ROWS = [
-    ["1","2","3","4","5","6","7","8","9","0","⌫"],
-    ["q","w","e","r","t","y","u","i","o","p"],
-    ["a","s","d","f","g","h","j","k","l"],
-    ["z","x","c","v","b","n","m",",","."],
-    ["SPACE","ENTER"],
-  ];
-
-  function buildKeyboard() {
-    keyboardEl = document.createElement("div");
-    keyboardEl.id = "ht-keyboard";
-    keyboardEl.className = "ht-keyboard hidden";
-
-    const header = document.createElement("div");
-    header.className = "ht-kb-header";
-    header.innerHTML = `<span>VIRTUAL KEYBOARD — RAISE HAND TO SUMMON, LOWER TO DISMISS</span>`;
-    keyboardEl.appendChild(header);
-
-    KEY_ROWS.forEach(row => {
-      const rowEl = document.createElement("div");
-      rowEl.className = "ht-kb-row";
-      row.forEach(k => {
-        const keyEl = document.createElement("button");
-        keyEl.className = "ht-key" + (k === "SPACE" ? " ht-key-space" : k === "ENTER" ? " ht-key-enter" : "");
-        keyEl.textContent = k === "SPACE" ? "SPACE" : k === "ENTER" ? "ENTER ⏎" : k;
-        keyEl.dataset.key = k;
-        keyEl.addEventListener("click", () => pressKey(k));
-        rowEl.appendChild(keyEl);
-      });
-      keyboardEl.appendChild(rowEl);
-    });
-
-    document.body.appendChild(keyboardEl);
-  }
-
-  function pressKey(k) {
-    const target = typingTargetInput || document.getElementById("type-input");
-    if (!target) return;
-    if (k === "⌫") {
-      target.value = target.value.slice(0, -1);
-    } else if (k === "SPACE") {
-      target.value += " ";
-    } else if (k === "ENTER") {
-      target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-      const sendBtn = document.getElementById("type-send");
-      if (sendBtn) sendBtn.click();
-    } else {
-      target.value += k;
-    }
-    target.dispatchEvent(new Event("input", { bubbles: true }));
-    flashKey(k);
-  }
-
-  function flashKey(k) {
-    const el = keyboardEl.querySelector(`.ht-key[data-key="${CSS.escape(k)}"]`);
-    if (!el) return;
-    el.classList.add("ht-key-flash");
-    setTimeout(() => el.classList.remove("ht-key-flash"), 180);
-  }
-
-  function showKeyboard() {
-    keyboardEl.classList.remove("hidden");
-    keyboardEl.classList.add("ht-kb-in");
-    typingTargetInput = document.getElementById("type-input");
-  }
-  function hideKeyboard() {
-    keyboardEl.classList.add("hidden");
-    keyboardEl.classList.remove("ht-kb-in");
   }
 
   // ── MEDIAPIPE SETUP ──
@@ -392,7 +311,6 @@ const HandTracking = (() => {
     if (overlayCtx) overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     if (cursorEl) cursorEl.style.opacity = "0";
     endPinchDrag();
-    hideKeyboard();
     // Only stamp over the status with a generic "STOPPED" if the caller
     // didn't already leave a more specific reason (e.g. "UNAVAILABLE" from
     // the circuit breaker above) — otherwise that reason gets silently
@@ -446,24 +364,6 @@ const HandTracking = (() => {
     cursorEl.style.opacity = "1";
     cursorEl.style.left = `${smoothX}px`;
     cursorEl.style.top  = `${smoothY}px`;
-
-    // ── Raised-hand gesture → toggles virtual keyboard ──
-    // Raising the hand once OPENS the keyboard. It stays open no matter where
-    // your hand goes next (so reaching down to "type" on it doesn't close it).
-    // You have to lower your hand below REARM_THRESHOLD and raise it again to
-    // toggle it closed — or dwell-click the close button on the keyboard itself.
-    const wristY = landmarks[0].y; // 0 = top of frame
-    const now = performance.now();
-
-    if (wristY > REARM_THRESHOLD) {
-      armed = true;
-    }
-    if (armed && intentEngaged && wristY < RAISE_THRESHOLD && (now - lastToggleAt) > TOGGLE_COOLDOWN_MS) {
-      armed = false;
-      lastToggleAt = now;
-      keyboardOpen = !keyboardOpen;
-      if (keyboardOpen) showKeyboard(); else hideKeyboard();
-    }
 
     // ── Pinch-drag ──
     handlePinchDrag(landmarks, smoothX, smoothY);
