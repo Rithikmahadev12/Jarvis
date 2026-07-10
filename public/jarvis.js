@@ -1058,40 +1058,40 @@ function launchMain() {
   setInterval(pollReminders, 5000);
   setInterval(pollSchedule, 20000);
 
-  setTimeout(() => checkInboxBriefing(), 2500);
+  setTimeout(() => checkMorningBriefing(), 2500);
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── PROACTIVE INBOX TRIAGE ──
+// ── PROACTIVE MORNING BRIEFING ──
 // ═══════════════════════════════════════════════════════════════
 // Fires on its own every time the app opens — JARVIS never waits to be
-// asked "check my email". If Google is connected and there's a fresh
-// (or freshly-generated) summary for today that hasn't been announced
-// yet, it's spoken and posted to chat immediately, unprompted.
-async function checkInboxBriefing() {
+// asked "what's the weather / any news / check my email / what's on
+// today". Whatever sources are actually configured (weather, news,
+// Google calendar + inbox) get checked server-side and combined into
+// one message, shown and spoken once per day, unprompted.
+async function checkMorningBriefing() {
   if (!state.user) return;
   try {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-    const res  = await fetch(`/api/inbox-briefing/${encodeURIComponent(state.user)}?tz=${encodeURIComponent(tz)}`);
+    const res  = await fetch(`/api/proactive/briefing/${encodeURIComponent(state.user)}?tz=${encodeURIComponent(tz)}`);
     const data = await res.json();
     if (!data.available || !data.entry) return;
 
-    const shownKey = `jarvis_inbox_shown_${state.user.toLowerCase()}_${data.entry.date}`;
+    const shownKey = `jarvis_briefing_shown_${state.user.toLowerCase()}_${data.entry.date}`;
     if (localStorage.getItem(shownKey)) return; // already announced today
     localStorage.setItem(shownKey, "1");
 
-    const lines = (data.entry.summary || []).map(s => `• ${s}`).join("\n");
-    const msg = lines ? `${data.entry.headline}\n${lines}` : data.entry.headline;
-    addMsg("jarvis", msg);
-    speak(data.entry.headline); // speak just the headline; full detail stays in chat
+    addMsg("jarvis", data.entry.headline);
+    speak(data.entry.headline);
   } catch { /* silent — this is a bonus, not a critical path */ }
 }
 
 // ── WORK-SESSION BREAK NUDGE ──
-// Checks in every 20s. If you've been at it over an hour, JARVIS asks
-// whether you want a break — it never opens anything on its own here.
-// Say "yes" and that reply goes through the normal chat pipeline,
-// which is what actually opens the links (see OPEN_LINKS below).
+// Checks in every 20s. Autonomous: if you've been at it over an hour,
+// JARVIS has already picked a break suggestion by the time this
+// responds — it reports what it did rather than asking permission.
+// Links are rendered as clickable text (not force-opened) since a
+// background timer has no user gesture to open a tab with anyway.
 let _scheduleBusy = false;
 async function pollSchedule() {
   if (_scheduleBusy) return;
@@ -1102,7 +1102,10 @@ async function pollSchedule() {
     const data = await res.json();
     const nudge = data?.nudge;
     if (nudge) {
-      addMsg("jarvis", nudge.text);
+      const linkHtml = (nudge.links || [])
+        .map(l => `<a href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`)
+        .join(" &nbsp;·&nbsp; ");
+      addMsg("jarvis", linkHtml ? `${nudge.text}<br>${linkHtml}` : nudge.text);
       mic.suspend();
       speak(nudge.text, () => mic.resume());
     }
