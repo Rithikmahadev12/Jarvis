@@ -736,6 +736,140 @@ function renderSavedAccounts(profiles) {
   });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ── LOCK SCREEN — auto identity check, before login/create shows ──
+// Boots straight into an orb-style lock screen (no buttons yet).
+// It checks whether ANY account exists on the server:
+//   • no accounts        → hands off to the normal screen in
+//                           "create account" mode
+//   • accounts exist      → opens the camera immediately and scans
+//                           for a face. A match signs the person
+//                           straight in (skips the login screen
+//                           entirely). No match after a short
+//                           window falls back to the normal login
+//                           screen so they can rescan or pick a
+//                           saved profile manually.
+// ═══════════════════════════════════════════════════════════════
+let _lockClockTimer = null;
+function startLockClock() {
+  const el = $("lock-clock");
+  if (!el) return;
+  stopLockClock();
+  const tick = () => {
+    el.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
+  };
+  tick();
+  _lockClockTimer = setInterval(tick, 1000);
+}
+function stopLockClock() {
+  if (_lockClockTimer) { clearInterval(_lockClockTimer); _lockClockTimer = null; }
+}
+
+function setLockStatus(main, sub) {
+  const s = $("lock-status"), sb = $("lock-substatus");
+  if (s && main !== undefined) s.textContent = main;
+  if (sb && sub !== undefined) sb.textContent = sub;
+}
+
+function exitLockScreen() {
+  stopLockClock();
+  $("lock-screen")?.classList.remove("active");
+  $("lock-face-video")?.classList.remove("scanning");
+  $("lock-scan-sweep")?.classList.remove("active");
+}
+
+async function runLockScreen() {
+  const lock = $("lock-screen");
+  if (!lock) { showAuthScreen(); return; } // fallback if markup is missing
+
+  $("auth-screen")?.classList.remove("active");
+  $("main-screen")?.classList.remove("active");
+  lock.classList.add("active");
+  startLockClock();
+  setLockStatus("CHECKING FOR ACCOUNT…", "");
+
+  const profiles = await loadServerProfiles();
+  await delay(700);
+
+  if (!profiles.length) {
+    setLockStatus("NO ACCOUNT FOUND", "Setting up a new profile…");
+    await delay(900);
+    exitLockScreen();
+    showAuthScreen(); // defaults to "create" mode when there are no profiles
+    return;
+  }
+
+  setLockStatus("SCANNING FACE…", "Look at the camera to sign in");
+  const video = $("lock-face-video");
+  const sweep = $("lock-scan-sweep");
+  video?.classList.add("scanning");
+  sweep?.classList.add("active");
+
+  let ok;
+  try {
+    await getAuthCameraStream(video);
+    ok = await ensureFaceApiLoaded();
+  } catch (e) {
+    setLockStatus("CAMERA UNAVAILABLE", "Opening manual sign-in…");
+    await delay(900);
+    exitLockScreen();
+    showAuthScreen();
+    return;
+  }
+  if (!ok) {
+    setLockStatus("FACE ENGINE UNAVAILABLE", "Opening manual sign-in…");
+    await delay(900);
+    exitLockScreen();
+    showAuthScreen();
+    return;
+  }
+
+  const MAX_ATTEMPTS = 20; // ~14s scanning window before falling back
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (!video || video.readyState < 2) { await delay(500); continue; }
+
+    try {
+      const detection = await faceapi
+        .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+
+      if (detection && detection.descriptor) {
+        const descriptor = Array.from(detection.descriptor);
+        const res  = await fetch("/api/verify-face", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ descriptor }),
+        });
+        const data = await res.json();
+        if (data.authorized) {
+          setLockStatus("FACE RECOGNIZED ✓", `Welcome back, ${data.profile.name}`);
+          sweep?.classList.remove("active");
+          stopAuthCameraStream();
+          stopLockClock();
+          localStorage.setItem("jarvis_name_hint", data.profile.name.toLowerCase());
+          saveProfileLocal(data.profile);
+          state.user      = data.profile.name;
+          state.userTitle = data.profile.title;
+          await delay(500);
+          lock.classList.remove("active");
+          speak(`Welcome back, ${data.profile.title}.`, launchMain);
+          return;
+        }
+      }
+    } catch (e) { /* keep scanning */ }
+
+    setLockStatus(`SCANNING FACE… (${attempt + 1}/${MAX_ATTEMPTS})`);
+    await delay(700);
+  }
+
+  setLockStatus("FACE NOT RECOGNIZED", "Opening manual sign-in…");
+  sweep?.classList.remove("active");
+  stopAuthCameraStream();
+  await delay(1000);
+  exitLockScreen();
+  showAuthScreen();
+}
+
 // ── SHOW AUTH SCREEN ──
 async function showAuthScreen() {
   $("auth-screen")?.classList.add("active");
@@ -2558,13 +2692,9 @@ function handleLogout() {
     _selectedUser = null; _voiceSamples = []; _voiceSamplesDone = 0;
     $("transcript").innerHTML = "";
     $("main-screen").classList.remove("active");
-    $("auth-screen").classList.add("active");
     setOrb("idle"); stopScreenRecord();
 
-    const profiles = await loadServerProfiles();
-    renderSavedAccounts(profiles);
-    switchAuthMode(profiles.length > 0 ? "login" : "create");
-    startAuthListening();
+    runLockScreen();
   });
 }
 
@@ -2602,5 +2732,5 @@ window.addEventListener("load", async () => {
     w.volume = 0; speechSynthesis.speak(w); speechSynthesis.getVoices();
   }, 500);
 
-  showAuthScreen();
+  runLockScreen();
 });
