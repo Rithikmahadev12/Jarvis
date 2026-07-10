@@ -111,6 +111,26 @@ function appendToSession(sessionId, role, content) {
   }, SESSION_TTL_MS));
 }
 // ────────────────────────────────────────────────────────────────────────────
+
+// ── PENDING EMAIL LIST (for "read the one from John" / "read #2") ──────────
+// After JARVIS lists unread emails, it remembers that list per-session so a
+// follow-up like "read the second one" or "read the one from Sarah" can be
+// resolved to an actual message id without re-fetching from Gmail.
+const PENDING_EMAIL_LISTS = new Map(); // sessionId -> { entries, userKey, expiresAt }
+const EMAIL_LIST_TTL_MS = 15 * 60 * 1000;
+
+function setPendingEmailList(sessionId, entries, userKey) {
+  if (!sessionId) return;
+  PENDING_EMAIL_LISTS.set(sessionId, { entries, userKey, expiresAt: Date.now() + EMAIL_LIST_TTL_MS });
+}
+function getPendingEmailList(sessionId) {
+  if (!sessionId) return null;
+  const rec = PENDING_EMAIL_LISTS.get(sessionId);
+  if (!rec) return null;
+  if (Date.now() > rec.expiresAt) { PENDING_EMAIL_LISTS.delete(sessionId); return null; }
+  return rec;
+}
+
 const httpServer = http.createServer(app);
 
 // "phone"  → TTS audio is sent back to whichever client asked for it (default)
@@ -1141,7 +1161,7 @@ async function handleSpotifyFetch(message, T) {
   }
 }
 
-async function handleGmailFetch(message, T, userName) {
+async function handleGmailFetch(message, T, userName, sessionId) {
   const userKey = (userName || "").toLowerCase().trim();
   const profiles = loadProfiles();
   const profile  = profiles[userKey];
@@ -1154,10 +1174,70 @@ async function handleGmailFetch(message, T, userName) {
   try {
     const gd = await Google.handleGmailCommand(message, userKey);
     if (gd.needsAuth) return { reply: `Gmail needs re-authorisation, ${T}. Visit /api/google/auth?user=${userKey}.`, action: "GMAIL", intent: "gmail" };
-    const gr = gd.unread === 0 ? `Inbox clear, ${T}. No unread messages.` : `You have ${gd.unread} unread email${gd.unread > 1 ? "s" : ""}, ${T}.`;
-    return { reply: gr, action: "GMAIL", intent: "gmail", meta: { gmailData: gd } };
+    if (gd.error) return { reply: `Couldn't reach Gmail just now, ${T} — ${gd.error}`, action: "GMAIL", intent: "gmail" };
+
+    const unread = gd.unread || 0;
+    if (unread === 0 || !gd.messages?.length) {
+      return { reply: `Inbox clear, ${T}. No unread messages.`, action: "GMAIL", intent: "gmail", meta: { gmailData: gd } };
+    }
+
+    setPendingEmailList(sessionId, gd.messages, userKey);
+
+    const lines = gd.messages.map((m, i) => {
+      const tag = m.senderType === "person"
+        ? " — from a person"
+        : m.senderType === "company"
+          ? (m.senderPersonName ? ` — company, ${m.senderPersonName} reaching out` : " — company/automated")
+          : "";
+      return `${i + 1}. ${m.from}${tag}: "${m.subject}"`;
+    }).join("\n");
+
+    const reply = `You have ${unread} unread email${unread > 1 ? "s" : ""}, ${T}:\n${lines}\nWhich one do you want me to read?`;
+    return { reply, action: "GMAIL", intent: "gmail", meta: { gmailData: gd } };
   } catch (e) {
-    return { reply: `Gmail fetch failed, ${T}.`, action: "GMAIL", intent: "gmail" };
+    return { reply: `Gmail fetch failed, ${T}: ${e.message}`, action: "GMAIL", intent: "gmail" };
+  }
+}
+
+// Resolves "read the second one" / "read the one from Sarah" against the
+// list JARVIS just showed for this session, fetches the full message body,
+// and reads it back. Read-only — never replies or sends anything.
+async function handleReadEmail(args, T, sessionId) {
+  const pending = getPendingEmailList(sessionId);
+  if (!pending || !pending.entries?.length) {
+    return { reply: `I haven't pulled up your inbox yet this session, ${T} — ask me to check your email first.`, action: "GMAIL", intent: "read_email" };
+  }
+
+  const { entries, userKey } = pending;
+  let target = null;
+
+  if (Number.isFinite(args?.index) && args.index >= 1 && args.index <= entries.length) {
+    target = entries[args.index - 1];
+  } else if (args?.sender) {
+    const q = String(args.sender).toLowerCase();
+    target = entries.find(m => m.from.toLowerCase().includes(q) || (m.fromEmail || "").toLowerCase().includes(q));
+  } else if (entries.length === 1) {
+    target = entries[0];
+  }
+
+  if (!target) {
+    const lines = entries.map((m, i) => `${i + 1}. ${m.from}: "${m.subject}"`).join("\n");
+    return { reply: `Not sure which one you mean, ${T}. Here's the list again:\n${lines}`, action: "GMAIL", intent: "read_email" };
+  }
+
+  try {
+    const full = await Google.getMessageBody(userKey, target.id);
+    if (full.needsAuth) return { reply: `Gmail needs re-authorisation, ${T}. Visit /api/google/auth?user=${userKey}.`, action: "GMAIL", intent: "read_email" };
+    if (full.error) return { reply: `Couldn't open that email, ${T} — ${full.error}`, action: "GMAIL", intent: "read_email" };
+    const body = full.body.length > 1200 ? full.body.slice(0, 1200).trim() + "…" : full.body;
+    return {
+      reply: `From ${full.from}, subject "${full.subject}":\n${body}`,
+      action: "GMAIL",
+      intent: "read_email",
+      meta: { email: full },
+    };
+  } catch (e) {
+    return { reply: `Couldn't open that email, ${T}: ${e.message}`, action: "GMAIL", intent: "read_email" };
   }
 }
 
@@ -1378,7 +1458,7 @@ async function handleFeatureShip(T) {
 // to maintain.
 // ═══════════════════════════════════════════════════════════════
 async function executeAssistantTool(name, args, ctx) {
-  const { T, userTimezone, userName } = ctx;
+  const { T, userTimezone, userName, sessionId } = ctx;
 
   switch (name) {
     case "set_timer": {
@@ -1530,7 +1610,12 @@ async function executeAssistantTool(name, args, ctx) {
     }
 
     case "check_email":
-      return await handleGmailFetch("check inbox", T, userName);
+      return await handleGmailFetch("check inbox", T, userName, sessionId);
+
+    case "read_email": {
+      const idx = Number(args?.index);
+      return await handleReadEmail({ index: Number.isFinite(idx) ? idx : undefined, sender: args?.sender }, T, sessionId);
+    }
 
     case "get_calendar": {
       const periodPhrase = { today: "today", tomorrow: "tomorrow", this_week: "this week", next_week: "next week" }[args.period] || "today";
@@ -1647,7 +1732,7 @@ app.post("/api/chat", async (req, res) => {
         context:             moodContext,
         conversationHistory: getSessionHistory(sessionId),
         tz:                  userTimezone,
-        executeTool: (name, args) => executeAssistantTool(name, args, { T, userTimezone, userName, moodContext }),
+        executeTool: (name, args) => executeAssistantTool(name, args, { T, userTimezone, userName, moodContext, sessionId }),
       });
 
       if (toolResult.reply) {
@@ -1723,7 +1808,7 @@ app.post("/api/chat", async (req, res) => {
       switch (fetchType) {
         case "weather":  return res.json(await handleWeatherFetch(message, T));
         case "spotify":  return res.json(await handleSpotifyFetch(message, T));
-        case "gmail":    return res.json(await handleGmailFetch(message, T, userName));
+        case "gmail":    return res.json(await handleGmailFetch(message, T, userName, sessionId));
         case "calendar": return res.json(await handleCalendarFetch(message, T, userName));
         case "person":   return res.json(await handlePersonFetch(message, meta, T));
         case "diy":      return res.json(await handleDIYFetch(message, userTitle));
@@ -1784,7 +1869,7 @@ app.post("/api/chat", async (req, res) => {
     switch (result.fetchType) {
       case "weather":  return res.json(await handleWeatherFetch(message, T));
       case "spotify":  return res.json(await handleSpotifyFetch(message, T));
-      case "gmail":    return res.json(await handleGmailFetch(message, T, userName));
+      case "gmail":    return res.json(await handleGmailFetch(message, T, userName, sessionId));
       case "calendar": return res.json(await handleCalendarFetch(message, T, userName));
       case "person":   return res.json(await handlePersonFetch(message, result.meta, T));
       case "diy":      return res.json(await handleDIYFetch(message, userTitle));
