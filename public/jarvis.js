@@ -338,6 +338,28 @@ syncHomeTalkBadge();
 // to be usable for normal back-and-forth conversation. Only Home Talk
 // (casting to a Google Home/Nest speaker) still uses the server voice,
 // since that's the only place it was ever actually needed.
+// ── VOLUME BOOST for the cloned TTS voice ──────────────────────
+// A plain <audio> element is capped at its natural recording volume
+// (1.0 is already "as loud as the file"), so if the cloned voice
+// still sounds a little quiet at that cap, a Web Audio gain node lets
+// us push it genuinely louder rather than just maxing out volume=1.
+let _ttsAudioCtx = null;
+const TTS_VOLUME_BOOST = 1.6; // >1 = louder than the source recording. Raise/lower to taste.
+function playBoostedAudio(audioEl) {
+  try {
+    if (!_ttsAudioCtx) _ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_ttsAudioCtx.state === "suspended") _ttsAudioCtx.resume();
+    const source = _ttsAudioCtx.createMediaElementSource(audioEl);
+    const gain   = _ttsAudioCtx.createGain();
+    gain.gain.value = TTS_VOLUME_BOOST;
+    source.connect(gain).connect(_ttsAudioCtx.destination);
+  } catch (e) {
+    // Web Audio unavailable/blocked for some reason — the element still
+    // plays at its normal (uncapped-by-us) volume either way.
+    console.warn("[JARVIS] TTS volume boost unavailable, playing at normal volume:", e);
+  }
+}
+
 async function speak(text, onEnd) {
   if (!text) { if (onEnd) onEnd(); return; }
 
@@ -402,7 +424,9 @@ async function speak(text, onEnd) {
     const blob  = await res.blob();
     const url   = URL.createObjectURL(blob);
     const audio = new Audio(url);
+    audio.volume = 1;
     _currentAudio = audio;
+    playBoostedAudio(audio);
 
     let started = false; // set once real playback begins
 
