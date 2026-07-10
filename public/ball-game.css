@@ -1,0 +1,187 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — BALL GAME
+   Hologram energy ball + targeting reticle, styled to match the
+   existing cyan/amber HUD language (see style.css --blue/--amber).
+   ═══════════════════════════════════════════════════════════════ */
+
+#bg-ball {
+  position: fixed;
+  width: 64px;
+  height: 64px;
+  margin-left: -32px;
+  margin-top: -32px;
+  z-index: 9000;
+  cursor: grab;
+  touch-action: none;
+  pointer-events: auto;
+}
+#bg-ball.bg-ball-grabbed { cursor: grabbing; }
+
+.bg-ball-core {
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #eaffff 0%, #6be8ff 28%, #00c8ff 55%, #0077aa 100%);
+  box-shadow:
+    0 0 18px 4px rgba(0, 200, 255, 0.75),
+    0 0 40px 10px rgba(0, 200, 255, 0.35),
+    inset 0 0 12px rgba(255, 255, 255, 0.55);
+  animation: bg-ball-pulse 1.6s ease-in-out infinite;
+}
+
+.bg-ball-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 200, 255, 0.55);
+  box-shadow: 0 0 10px rgba(0, 200, 255, 0.4);
+  animation: bg-ball-spin 3.2s linear infinite;
+}
+.bg-ball-ring::before,
+.bg-ball-ring::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 170, 0, 0.5);
+}
+.bg-ball-ring::before { inset: -6px; }
+.bg-ball-ring::after  { inset: 6px; animation: bg-ball-spin 2s linear infinite reverse; }
+
+@keyframes bg-ball-pulse {
+  0%, 100% { filter: brightness(1); }
+  50%      { filter: brightness(1.25); }
+}
+@keyframes bg-ball-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.bg-ball-spawn {
+  animation: bg-ball-spawn-in 0.42s cubic-bezier(.2,1.4,.4,1);
+}
+@keyframes bg-ball-spawn-in {
+  0%   { transform: scale(0); opacity: 0; filter: blur(6px); }
+  60%  { transform: scale(1.25); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; filter: blur(0); }
+}
+
+.bg-ball-flying .bg-ball-core { animation: bg-ball-pulse 0.4s ease-in-out infinite; }
+
+.bg-ball-fade-out {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  opacity: 0;
+  transform: scale(0.6);
+}
+.bg-ball-scored-out {
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  opacity: 0;
+  transform: scale(1.8);
+}
+
+/* ── TARGET RETICLE ── */
+#bg-goal {
+  position: fixed;
+  width: 92px;
+  height: 92px;
+  margin-left: -46px;
+  margin-top: -46px;
+  z-index: 8990;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.7);
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+#bg-goal.bg-goal-in { opacity: 1; transform: scale(1); }
+#bg-goal.hidden { opacity: 0; pointer-events: none; }
+
+.bg-goal-svg { width: 100%; height: 100%; overflow: visible; }
+
+.bg-goal-ring {
+  fill: none;
+  stroke: rgba(255, 170, 0, 0.75);
+  stroke-width: 1.4;
+}
+.bg-goal-ring-outer { animation: bg-goal-rotate 6s linear infinite; stroke-dasharray: 6 5; }
+.bg-goal-ring-mid   { animation: bg-goal-rotate 4s linear infinite reverse; stroke-dasharray: 4 4; stroke: rgba(0,200,255,0.65); }
+.bg-goal-core       { fill: rgba(255, 170, 0, 0.9); filter: drop-shadow(0 0 6px rgba(255,170,0,0.8)); }
+.bg-goal-tick        { stroke: rgba(0, 200, 255, 0.55); stroke-width: 1.5; }
+
+@keyframes bg-goal-rotate {
+  from { transform: rotate(0deg); transform-origin: 60px 60px; }
+  to   { transform: rotate(360deg); transform-origin: 60px 60px; }
+}
+
+.bg-goal-label {
+  text-align: center;
+  margin-top: 2px;
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: rgba(255, 170, 0, 0.85);
+  text-shadow: 0 0 6px rgba(255, 170, 0, 0.6);
+  font-family: inherit;
+}
+
+#bg-goal.bg-goal-score .bg-goal-core {
+  animation: bg-goal-flash 0.5s ease;
+}
+@keyframes bg-goal-flash {
+  0%   { transform: scale(1); filter: drop-shadow(0 0 6px rgba(255,170,0,0.8)); }
+  40%  { transform: scale(3.2); filter: drop-shadow(0 0 24px rgba(0,255,136,0.95)); fill: #00ff88; }
+  100% { transform: scale(1); }
+}
+
+/* Radial particle burst on goal */
+.bg-burst {
+  position: fixed;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  margin-top: -5px;
+  border-radius: 50%;
+  z-index: 8995;
+  pointer-events: none;
+  background: radial-gradient(circle, #eaffff 0%, #00ff88 40%, transparent 70%);
+  box-shadow: 0 0 0 0 rgba(0,255,136,0.6);
+  animation: bg-burst-expand 0.65s ease-out forwards;
+}
+@keyframes bg-burst-expand {
+  0%   { transform: scale(0.5); opacity: 1; }
+  100% { transform: scale(14); opacity: 0; }
+}
+
+/* ── SCORE BADGE ── */
+.bg-score {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8980;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: 20px;
+  background: rgba(2, 21, 38, 0.55);
+  border: 1px solid rgba(0, 200, 255, 0.35);
+  box-shadow: 0 0 16px rgba(0, 200, 255, 0.15);
+  backdrop-filter: blur(6px);
+  font-family: inherit;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.bg-score.hidden { opacity: 0; transform: translateX(-50%) translateY(-10px); pointer-events: none; }
+.bg-score-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: rgba(168, 223, 245, 0.7);
+}
+#bg-score-num {
+  font-size: 16px;
+  font-weight: 600;
+  color: #d8f4ff;
+  text-shadow: 0 0 8px rgba(0, 200, 255, 0.6);
+}
+
+@media (max-width: 720px) {
+  #bg-ball { width: 52px; height: 52px; margin-left: -26px; margin-top: -26px; }
+  #bg-goal { width: 74px; height: 74px; margin-left: -37px; margin-top: -37px; }
+}
