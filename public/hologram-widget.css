@@ -1,76 +1,87 @@
 /* ═══════════════════════════════════════════════════════════════
    J.A.R.V.I.S — FLOATING HOLOGRAM WIDGET
-   Small draggable 3D cards that live right on the main screen.
-   Grab and move them anywhere; drag one off the left or right edge
-   of the screen to dismiss it.
+   Real, borderless 3D projections that float directly over the
+   page — no card, no background box. Grab the hologram itself and
+   move it anywhere; drag it off the left or right edge of the
+   screen to dismiss it (it fades out like a projection powering
+   down, not a window closing).
    ═══════════════════════════════════════════════════════════════ */
 
 .holo-widget {
   position: fixed;
-  width: 236px;
+  width: 340px;
   z-index: 850;
-  background: rgba(0, 4, 12, 0.82);
-  border: 1px solid rgba(0, 200, 255, 0.28);
-  border-radius: 10px;
-  box-shadow: 0 0 30px rgba(0, 200, 255, 0.12), inset 0 0 24px rgba(0, 200, 255, 0.04);
-  backdrop-filter: blur(6px);
+  background: transparent;
+  border: none;
+  box-shadow: none;
   touch-action: none;
   cursor: grab;
   user-select: none;
   opacity: 0;
   transform: scale(0.85);
-  transition: opacity 0.35s ease, transform 0.35s ease, border-color 0.15s, box-shadow 0.15s;
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  filter: drop-shadow(0 0 26px rgba(0, 200, 255, 0.25));
 }
 .holo-widget.in { opacity: 1; transform: scale(1); }
-.holo-widget.dragging { cursor: grabbing; transition: border-color 0.15s, box-shadow 0.15s; }
+.holo-widget.dragging { cursor: grabbing; }
 .holo-widget.edge-armed {
-  border-color: rgba(255, 80, 80, 0.65);
-  box-shadow: 0 0 34px rgba(255, 60, 60, 0.28), inset 0 0 24px rgba(255, 60, 60, 0.06);
+  filter: drop-shadow(0 0 30px rgba(255, 70, 70, 0.35));
 }
 .holo-widget.dismissing {
   opacity: 0;
-  transform: scale(0.4);
-  transition: opacity 0.28s ease, transform 0.28s ease;
+  transform: scale(0.5);
+  filter: drop-shadow(0 0 4px rgba(0, 200, 255, 0));
+  transition: opacity 0.32s ease, transform 0.32s ease, filter 0.32s ease;
 }
 
 .hw-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px 6px;
+  padding: 0 6px 4px;
   font-family: var(--hud, 'Orbitron', monospace);
-  font-size: 0.42rem;
-  letter-spacing: 0.18em;
+  font-size: 0.5rem;
+  letter-spacing: 0.22em;
   color: var(--blue, #00c8ff);
-  text-shadow: 0 0 10px rgba(0, 200, 255, 0.4);
+  text-shadow: 0 0 12px rgba(0, 200, 255, 0.7), 0 0 2px rgba(0, 200, 255, 0.9);
+  pointer-events: none; /* grab the hologram body, not the label */
 }
 .hw-close {
   background: transparent;
   border: none;
-  color: rgba(0, 200, 255, 0.45);
-  font-size: 0.75rem;
+  color: rgba(0, 200, 255, 0.55);
+  font-size: 0.85rem;
   line-height: 1;
   cursor: pointer;
   padding: 2px 4px;
-  transition: color 0.15s;
+  transition: color 0.15s, text-shadow 0.15s;
+  text-shadow: 0 0 8px rgba(0, 200, 255, 0.5);
+  pointer-events: auto;
 }
-.hw-close:hover { color: #ff5555; }
+.hw-close:hover { color: #ff5555; text-shadow: 0 0 10px rgba(255, 80, 80, 0.7); }
 
 .hw-canvas-wrap {
   width: 100%;
-  height: 200px;
+  height: 340px;
   position: relative;
-  overflow: hidden;
+  overflow: visible; /* let the glow bleed past the canvas — no clipping box */
 }
 .hw-canvas-wrap canvas { display: block; width: 100% !important; height: 100% !important; }
 
-.hw-hint {
-  padding: 6px 10px 9px;
-  font-size: 0.48rem;
-  letter-spacing: 0.05em;
-  color: rgba(160, 220, 245, 0.45);
-  text-align: center;
-  font-family: 'Share Tech Mono', monospace;
+/* Projector base — a thin ellipse of light under the object, like a
+   real volumetric projection standing on a beam rather than sitting
+   in a UI card. */
+.hw-base {
+  position: absolute;
+  left: 50%;
+  bottom: -6px;
+  width: 62%;
+  height: 14px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 200, 255, 0.55), rgba(0, 200, 255, 0.08) 60%, transparent 75%);
+  filter: blur(1px);
+  pointer-events: none;
 }
 
 .hw-edge-glow {
