@@ -445,3 +445,102 @@ input[type="text"], input[type="password"], select, textarea,
   transition: all 0.2s;
 }
 .intro-skip-btn:hover { color: var(--blue); border-color: var(--blue); }
+
+/* ═══════════════════════════════════════════════════════════════
+   LOCK SCREEN — auto face-check on load, before login/create shows
+   ═══════════════════════════════════════════════════════════════ */
+#lock-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 600;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+  background: #05070c;
+}
+#lock-screen.active { display: flex; }
+
+/* Same orb as the boot screen, shifted from blue to violet so the
+   two states read as visually distinct at a glance. */
+.lock-orb { filter: hue-rotate(95deg) saturate(1.3); }
+
+.lock-badge .jr-title { position: relative; z-index: 3; }
+
+#lock-face-video {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 152px; height: 152px;
+  transform: translate(-50%, -50%) scaleX(-1);
+  border-radius: 50%;
+  object-fit: cover;
+  opacity: 0;
+  z-index: 1;
+  transition: opacity 0.6s ease;
+  filter: saturate(1.25) brightness(0.85);
+}
+#lock-face-video.scanning { opacity: 0.5; }
+
+.lock-scan-sweep {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 156px; height: 156px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  overflow: hidden;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+.lock-scan-sweep.active { opacity: 1; }
+.lock-scan-sweep::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  height: 45%;
+  background: linear-gradient(to bottom, transparent, rgba(150,255,210,0.55), transparent);
+  animation: lockScanSweep 1.8s ease-in-out infinite;
+}
+@keyframes lockScanSweep {
+  0%   { top: -45%; }
+  100% { top: 100%; }
+}
+
+#lock-clock {
+  font-family: var(--mono);
+  font-size: 1.8rem;
+  letter-spacing: 0.12em;
+  color: var(--text-bright);
+  text-shadow: 0 0 14px rgba(150,255,210,0.35);
+  z-index: 2;
+}
+#lock-clock-sub {
+  font-family: var(--hud);
+  font-size: 0.4rem;
+  letter-spacing: 0.28em;
+  color: var(--text-dim);
+  margin-top: -8px;
+  z-index: 2;
+}
+#lock-status {
+  min-height: 18px;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+  color: rgba(150,255,210,0.9);
+  text-align: center;
+  z-index: 2;
+}
+#lock-substatus {
+  min-height: 16px;
+  font-family: var(--raj);
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  text-align: center;
+  max-width: 420px;
+  padding: 0 24px;
+  z-index: 2;
+}
