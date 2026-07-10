@@ -60,10 +60,10 @@ function buildJarvisResponse(context) {
     case "greeting": {
       const h = getHourInTZ(tz);
       if (h < 6)  return `You're up at ${h === 0 ? "midnight" : `${h} in the morning`}, ${T}. Either something's wrong or something's very right. Systems are online either way.`;
-      if (h < 9)  return `Good morning, ${T}. Early start — I respect it. Everything's running, ready when you are.`;
+      if (h < 9)  return `Good morning, ${T}. An early start — commendable. Everything's running, ready when you are.`;
       if (h < 12) return `Morning, ${T}. Cognitive engine is active, all systems nominal. What are we doing today?`;
       if (h < 17) return `Good afternoon, ${T}. Still plenty of day left. What do you need?`;
-      if (h < 20) return `Evening, ${T}. Systems online. I've been keeping things ticking — what can I do for you?`;
+      if (h < 20) return `Good evening, ${T}. Systems online, everything in order in your absence. What can I do for you?`;
       return `Late night session, ${T}. I don't sleep, so this works for me. What do you need?`;
     }
 
@@ -86,7 +86,7 @@ function buildJarvisResponse(context) {
     }
 
     case "capabilities": {
-      return `Quite a range, ${T}. Code in any language, terminal commands for Linux or Windows, OSINT person lookups across the open web, smart home control, screen reading via OCR, face recognition security, rolling clip buffer, Spotify and Gmail integration, timers, memory bank, and a hand-tracked Build Mode — a CAD engine that pulls real 3D parts and lets you grab, spin, and screw them together with your own hands. The list goes on. What are you actually trying to do?`;
+      return `A fair range of capabilities, ${T}: code in any language, terminal commands for Linux or Windows, OSINT person lookups across the open web, smart home control, screen reading via OCR, face recognition security, a rolling clip buffer, Spotify and Gmail integration, timers, a memory bank, and a hand-tracked Build Mode — a CAD engine that pulls real 3D parts and lets you grab, spin, and assemble them with your own hands. What are you actually trying to do?`;
     }
 
     case "unknown_face": {
