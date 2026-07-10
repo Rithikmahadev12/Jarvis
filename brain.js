@@ -90,8 +90,18 @@ async function respond({ message, sessionId, userName, userTitle, memories, mood
 
   // 2. Local brain came up empty. No tutor configured? Try a free
   //    knowledge lookup (Wikipedia/DDG) before giving the honest
-  //    "I don't know" answer.
+  //    "I don't know" answer. Coding requests get an honest, specific
+  //    message instead — a wiki lookup is never going to write code.
+  const isCodeRequest = local.action === "RESEARCH" && local.intent === "code_request";
+
   if (!Groq.isConfigured()) {
+    if (isCodeRequest) {
+      return {
+        reply: "I can write, debug, and review code for you, but I need a coding brain connected first — set GROQ_API_KEY in your .env and restart me.",
+        action: "RESEARCH", intent: "code_request", source: "local",
+        needsTutor: false, tutorUnavailable: true,
+      };
+    }
     if (Research.shouldResearch(message)) {
       try {
         const researched = await Research.research(message, userTitle);
@@ -107,30 +117,45 @@ async function respond({ message, sessionId, userName, userTitle, memories, mood
     return { ...local, source: "local", needsTutor: false, tutorUnavailable: true };
   }
 
-  // 3. Consult the tutor, live.
+  // 3. Consult the tutor, live. Code requests get the dedicated coding
+  //    pipeline (own model, own system prompt, much bigger token budget,
+  //    low temperature) instead of the general chat path.
   stats.tutorCalls++;
   try {
     const memoryFacts = (memories || []).slice(0, 8).map(m => (typeof m === "string" ? m : m.fact));
-    const taught = await Groq.chat(message, {
-      userTitle,
-      memories: memoryFacts,
-      context: `mood: ${moodContext || "neutral"}`,
-      conversationHistory,   // ← pass full turn history so JARVIS remembers what it asked
-      autoLearn: false, // we distill + store the lesson ourselves, below
-    });
+
+    const taught = isCodeRequest
+      ? await Groq.codeChat(message, {
+          userTitle,
+          memories: memoryFacts,
+          conversationHistory,
+          lang: local.meta && local.meta.lang,
+        })
+      : await Groq.chat(message, {
+          userTitle,
+          memories: memoryFacts,
+          context: `mood: ${moodContext || "neutral"}`,
+          conversationHistory,   // ← pass full turn history so JARVIS remembers what it asked
+          autoLearn: false, // we distill + store the lesson ourselves, below
+        });
 
     // 4. Write the lesson into long-term memory so the tutor isn't
-    //    needed for this (or close variants) again.
-    const { keywords, topic } = distillLesson(message);
-    if (keywords.length >= 2 && taught.reply && taught.reply.length > 20) {
-      Groq.learnIntent(message, taught.reply, "TAUGHT", topic, keywords);
+    //    needed for this (or close variants) again. Skipped for code:
+    //    code answers are usually too specific to the exact request to
+    //    generalize safely via keyword matching, and they're large —
+    //    better to just ask the coding pipeline fresh each time.
+    if (!isCodeRequest) {
+      const { keywords, topic } = distillLesson(message);
+      if (keywords.length >= 2 && taught.reply && taught.reply.length > 20) {
+        Groq.learnIntent(message, taught.reply, "TAUGHT", topic, keywords);
+      }
     }
 
     return {
       reply: taught.reply,
       action: "TUTORED",   // answered just now via the tutor; it's learned for next time
-      intent: "tutored",
-      source: "tutor",
+      intent: isCodeRequest ? "code_request" : "tutored",
+      source: isCodeRequest ? "tutor_code" : "tutor",
       needsTutor: true,
       meta: { model: taught.model },
     };
