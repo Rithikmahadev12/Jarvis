@@ -12,6 +12,7 @@
   <link rel="stylesheet" href="glass-ui.css"/>
   <link rel="stylesheet" href="home-ui.css"/>
   <link rel="stylesheet" href="music-widget.css"/>
+  <link rel="stylesheet" href="hologram-widget.css"/>
   <link rel="stylesheet" href="mode-picker.css"/>
   <link rel="stylesheet" href="ball-game.css"/>
 
@@ -655,6 +656,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.5h13a2 2 0 0 1 2 2V18a1.5 1.5 0 0 1-1.5 1.5H6A2 2 0 0 1 4 17.5V4.5Z"/><path d="M19 8h1.5A1.5 1.5 0 0 1 22 9.5v8a2 2 0 0 1-2 2"/><path d="M7 8h7M7 11.5h7M7 15h4"/></svg>
         </span><span class="tb-label">NEWS</span>
       </button>
+      <button class="taskbar-btn" id="tb-btn-holo" onclick="window.HologramWidget && window.HologramWidget.show('arc_reactor')" title="Holograms">
+        <span class="tb-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="9" ry="3.5"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>
+        </span><span class="tb-label">HOLO</span>
+      </button>
     </nav>
 
   </div><!-- /main-screen -->
@@ -672,6 +678,7 @@
   <script src="hand-tracking.js"></script>
   <script src="mode-picker.js"></script>
   <script src="ball-game.js"></script>
+  <script src="hologram-widget.js"></script>
   <script>
     // Start hand tracking once the main screen goes active (after login)
     const _htObserver = new MutationObserver(() => {
