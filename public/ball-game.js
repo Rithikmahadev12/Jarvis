@@ -1,13 +1,20 @@
 // ═══════════════════════════════════════════════════════════════
 // J.A.R.V.I.S — BALL GAME
 // Fully proactive: no command needed. Watches the camera feed for
-// a person arriving in frame ("walking by"), and when that happens
-// it spawns a holographic energy ball on its own plus a target
-// reticle. Grab the ball (mouse, touch, or a hand-tracking pinch —
-// it rides the same [data-hand-drag] pointer-event pipeline used
-// elsewhere in the app) and throw it at the reticle to score.
-// Walk away and the game clears itself; walk back and it starts
-// again — the person never has to ask for it.
+// whether a person is currently in frame. The ball is meant to be
+// there when you're NOT — it spawns a holographic energy ball plus
+// a target reticle only while no one is present, so it's waiting
+// for you if you walk by. The moment you (or anyone) show up on
+// camera, it clears itself out of the way automatically.
+//
+// You can still summon it on demand at any time — present or not —
+// by asking for it (see requestBall() below, wired up to a chat/
+// voice command in jarvis.js). A manually-requested ball stays up
+// until you finish playing, even while you're sitting right there.
+//
+// Grab the ball (mouse, touch, or a hand-tracking pinch — it rides
+// the same [data-hand-drag] pointer-event pipeline used elsewhere
+// in the app) and throw it at the reticle to score.
 // ═══════════════════════════════════════════════════════════════
 
 window.BallGame = (function () {
@@ -29,6 +36,7 @@ window.BallGame = (function () {
     presentCount:   0,
     absentCount:    0,
     personHere:     false,
+    manualActive:   false,  // true while a user-requested session is running
     ballEl:         null,
     goalEl:         null,
     scoreEl:        null,
@@ -97,18 +105,36 @@ window.BallGame = (function () {
   }
 
   // ── ARRIVE / LEAVE ─────────────────────────────────────────
+  // The ball belongs to the empty room: it appears while nobody is
+  // there and clears out the moment someone arrives — unless the
+  // person explicitly asked for it (manualActive), in which case we
+  // leave their game running.
   function onArrive() {
-    ensureDom();
-    showGoal();
-    spawnBall();
-  }
-
-  function onLeave() {
+    if (state.manualActive) return; // they asked for it — let them keep playing
     clearTimeout(state.respawnTimer);
     despawnBall(false);
     hideGoal();
     state.score = 0;
     updateScore();
+  }
+
+  function onLeave() {
+    state.manualActive = false; // back to fully automatic "empty room" behavior
+    ensureDom();
+    showGoal();
+    spawnBall();
+  }
+
+  // ── MANUAL REQUEST ("summon the ball") ─────────────────────
+  // Lets the person ask for the ball on demand, even while they're
+  // sitting right there in frame. Stays up until they finish playing
+  // (score/miss without a respawn queued) or they leave the room.
+  function requestBall() {
+    state.manualActive = true;
+    ensureDom();
+    showGoal();
+    spawnBall();
+    return true;
   }
 
   // ── DOM ──────────────────────────────────────────────────────
@@ -176,7 +202,8 @@ window.BallGame = (function () {
 
   // ── BALL SPAWN / DRAG / THROW ─────────────────────────────────
   function spawnBall() {
-    if (state.ballEl || !state.personHere) return;
+    if (state.ballEl) return;
+    if (state.personHere && !state.manualActive) return; // don't spawn while present unless asked for
 
     const ball = document.createElement("div");
     ball.id = "bg-ball";
@@ -301,9 +328,11 @@ window.BallGame = (function () {
   }
 
   function queueRespawn() {
-    if (!state.personHere) return;
+    if (state.personHere && !state.manualActive) return;
     clearTimeout(state.respawnTimer);
-    state.respawnTimer = setTimeout(() => { if (state.personHere) spawnBall(); }, RESPAWN_DELAY_MS);
+    state.respawnTimer = setTimeout(() => {
+      if (!state.personHere || state.manualActive) spawnBall();
+    }, RESPAWN_DELAY_MS);
   }
 
   function flashGoal() {
@@ -374,9 +403,10 @@ window.BallGame = (function () {
     despawnBall(false);
     hideGoal();
     state.personHere = false;
+    state.manualActive = false;
     state.presentCount = 0;
     state.absentCount = 0;
   }
 
-  return { start, stop };
+  return { start, stop, requestBall };
 })();
