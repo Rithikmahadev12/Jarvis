@@ -52,6 +52,25 @@
 .ht-cursor-click {
   animation: htClickPulse 0.22s ease-out;
 }
+
+/* Idle/loose motion (default) vs "engaged" — the intent engine has decided
+   the recent motion looks deliberate. Idle stays visible but quieter, so
+   it's clear the system sees your hand without treating every movement
+   as an attempt to interact. */
+.ht-cursor-dot {
+  transition: box-shadow 0.2s ease, transform 0.2s ease, background 0.2s ease;
+}
+.ht-cursor-ring-bg,
+.ht-cursor-ring-fill {
+  transition: stroke 0.2s ease, opacity 0.2s ease;
+}
+.ht-cursor:not(.ht-cursor-engaged) .ht-cursor-ring-fill {
+  opacity: 0.35; /* dwell can't progress while idle, so keep the fill ring subdued */
+}
+.ht-cursor-engaged .ht-cursor-dot {
+  box-shadow: 0 0 14px var(--amber-glow, rgba(255,170,0,0.85));
+  transform: translate(-50%, -50%) scale(1.15);
+}
 .ht-cursor-grabbing .ht-cursor-dot {
   background: var(--green, #00ff88);
   box-shadow: 0 0 12px rgba(0,255,136,0.75);
