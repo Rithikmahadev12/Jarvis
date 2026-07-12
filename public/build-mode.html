@@ -118,12 +118,29 @@ input[type=range]{width:100%;accent-color:var(--amber);margin-top:2px}
     <button class="tool-btn" onclick="spawnLED()">＋ LED</button>
   </div>
 
+  <div class="sb-label">⬡ SHAPES</div>
+  <div class="tool-grid">
+    <button class="tool-btn" onclick="spawnShape('box')">▢ BOX</button>
+    <button class="tool-btn" onclick="spawnShape('sphere')">◯ SPHERE</button>
+    <button class="tool-btn" onclick="spawnShape('cylinder')">⬤ CYLINDER</button>
+    <button class="tool-btn" onclick="spawnShape('cone')">▲ CONE</button>
+    <button class="tool-btn" onclick="spawnShape('torus')">◎ TORUS</button>
+    <button class="tool-btn" onclick="spawnShape('wedge')">◺ WEDGE</button>
+  </div>
+
   <div class="sb-label">⬡ TOOLS</div>
   <div class="tool-grid">
     <button class="tool-btn active" id="tool-bend" onclick="setTool('bend')">🖐 BEND</button>
     <button class="tool-btn" id="tool-move" onclick="setTool('move')">✋ MOVE</button>
     <button class="tool-btn weld" id="tool-weld" onclick="setTool('weld')">🔥 WELD</button>
     <button class="tool-btn" id="tool-delete" onclick="setTool('delete')">🗑 DELETE</button>
+    <button class="tool-btn" id="tool-boolean" onclick="setTool('boolean')">⊕ BOOLEAN</button>
+  </div>
+
+  <div class="sb-label">⬡ WORLD</div>
+  <div class="tool-grid">
+    <button class="tool-btn" id="snap-toggle" onclick="toggleSnap()">▦ SNAP: OFF</button>
+    <button class="tool-btn" id="physics-toggle" onclick="togglePhysics()">🌍 PHYSICS: OFF</button>
   </div>
 
   <div class="sb-label">⬡ VIEW</div>
@@ -186,7 +203,46 @@ input[type=range]{width:100%;accent-color:var(--amber);margin-top:2px}
       </div>
     </div>
 
+    <div id="shape-controls" style="display:none">
+      <div class="rp-title" style="margin-top:10px">SIZE <span class="slider-val" id="shape-size-val"></span></div>
+      <input type="range" id="shape-size-slider" min="30" max="300" value="100" oninput="onShapeSizeSlider(this.value)"/>
+      <div id="shape-extra-params"></div>
+      <div class="rp-title" style="margin-top:10px">ROTATE</div>
+      <div class="rot-row">
+        <button class="rp-btn" onclick="rotateSelectedShape('y',-45)">↺ Y</button>
+        <button class="rp-btn" onclick="rotateSelectedShape('y',45)">↻ Y</button>
+      </div>
+      <div class="rot-row">
+        <button class="rp-btn" onclick="rotateSelectedShape('x',-45)">↺ X</button>
+        <button class="rp-btn" onclick="rotateSelectedShape('x',45)">↻ X</button>
+      </div>
+      <div class="rp-title" style="margin-top:10px">MATERIAL</div>
+      <div class="led-swatch-row">
+        <button class="led-swatch" style="background:#9fb4c4" onclick="setShapeColor('#9fb4c4')"></button>
+        <button class="led-swatch" style="background:#ff3333" onclick="setShapeColor('#ff3333')"></button>
+        <button class="led-swatch" style="background:#00ff88" onclick="setShapeColor('#00ff88')"></button>
+        <button class="led-swatch" style="background:#00c8ff" onclick="setShapeColor('#00c8ff')"></button>
+        <button class="led-swatch" style="background:#ffaa00" onclick="setShapeColor('#ffaa00')"></button>
+      </div>
+      <div class="rp-title" style="margin-top:8px">METAL <span class="slider-val" id="shape-metal-val"></span></div>
+      <input type="range" id="shape-metal-slider" min="0" max="100" value="60" oninput="onShapeMetalSlider(this.value)"/>
+      <div class="rp-title" style="margin-top:8px">ROUGH <span class="slider-val" id="shape-rough-val"></span></div>
+      <input type="range" id="shape-rough-slider" min="0" max="100" value="35" oninput="onShapeRoughSlider(this.value)"/>
+      <div class="rot-row" style="margin-top:10px">
+        <button class="rp-btn amber" id="shape-physics-btn" onclick="toggleEntityPhysics()">🌍 PHYSICS: OFF</button>
+      </div>
+    </div>
+
     <button class="rp-btn" style="border-color:rgba(255,51,51,0.4);color:#ff8a8a" onclick="deleteSelected()">🗑 DELETE PIECE</button>
+  </div>
+
+  <div class="rp-section" id="boolean-controls" style="display:none">
+    <div class="rp-title">BOOLEAN</div>
+    <div class="rp-val" id="boolean-hint">Click a shape, then click a second shape to combine them.</div>
+    <div class="rot-row" style="margin-top:8px">
+      <button class="rp-btn green" onclick="setBooleanOp('union')" id="bool-union-btn">⊕ UNION</button>
+      <button class="rp-btn amber" onclick="setBooleanOp('subtract')" id="bool-subtract-btn">⊖ SUBTRACT</button>
+    </div>
   </div>
 
   <div class="rp-section">
@@ -288,6 +344,7 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   stepAllServos(dt);
   stepAllLEDs(dt);
+  stepPhysics(dt);
   weldBeads.forEach((w) => w.mesh.position.copy(w.getPos()));
   renderer.render(scene, camera);
 }
@@ -370,6 +427,7 @@ function updateEntityVisual(e) {
   if (e.kind === "bar") updateBarMesh(e);
   else if (e.kind === "servo") updateServoVisual(e);
   else if (e.kind === "led") updateLEDVisual(e);
+  else if (e.kind === "shape" || e.kind === "solid") updateShapeVisual(e);
 }
 
 function translateAssemblyEntities(id, delta) {
@@ -872,6 +930,461 @@ function stepAllLEDs(dt) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ── SHAPES (parametric primitives — box/sphere/cylinder/cone/torus/wedge)
+// Same "kind" pattern as bar/servo/led: base = world position, group
+// holds one mesh, updateShapeVisual() rebuilds geometry from params and
+// re-applies the group transform. Fits straight into the existing
+// translate/rotate/scale/pick machinery with no special-casing there.
+// ═══════════════════════════════════════════════════════════════
+let shapeCount = 0;
+const SHAPE_DEFAULTS = {
+  box:      { w: 0.5, h: 0.5, d: 0.5 },
+  sphere:   { r: 0.3 },
+  cylinder: { r: 0.25, h: 0.6 },
+  cone:     { r: 0.28, h: 0.6 },
+  torus:    { r: 0.28, tube: 0.09 },
+  wedge:    { w: 0.5, h: 0.5, d: 0.5 },
+};
+const SHAPE_LABELS = { box: "Box", sphere: "Sphere", cylinder: "Cylinder", cone: "Cone", torus: "Torus", wedge: "Wedge" };
+
+// Wedge has no built-in three.js geometry, so it's hand-built as a
+// triangular prism (a box with the top face collapsed to an edge).
+function buildWedgeGeometry(w, h, d) {
+  const hw = w / 2, hh = h / 2, hd = d / 2;
+  const geo = new THREE.BufferGeometry();
+  const v = [
+    [-hw, -hh, -hd], [hw, -hh, -hd], [hw, -hh, hd], [-hw, -hh, hd], // bottom
+    [-hw, hh, -hd], [-hw, hh, hd],                                   // top ridge
+  ];
+  const idx = [
+    0, 1, 2, 0, 2, 3,          // bottom
+    0, 4, 1, 1, 4, 5, 1, 5, 2, // back+right slope
+    2, 5, 3,                   // right slope tri
+    3, 5, 4, 3, 4, 0,          // left slope
+  ];
+  const positions = new Float32Array(idx.length * 3);
+  idx.forEach((vi, i) => { positions[i * 3] = v[vi][0]; positions[i * 3 + 1] = v[vi][1]; positions[i * 3 + 2] = v[vi][2]; });
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function buildShapeGeometry(shapeType, p) {
+  switch (shapeType) {
+    case "box":      return new THREE.BoxGeometry(p.w, p.h, p.d);
+    case "sphere":   return new THREE.SphereGeometry(p.r, 22, 16);
+    case "cylinder": return new THREE.CylinderGeometry(p.r, p.r, p.h, 22);
+    case "cone":     return new THREE.ConeGeometry(p.r, p.h, 22);
+    case "torus":    return new THREE.TorusGeometry(p.r, p.tube, 14, 28);
+    case "wedge":    return buildWedgeGeometry(p.w, p.h, p.d);
+    default:         return new THREE.BoxGeometry(0.4, 0.4, 0.4);
+  }
+}
+
+// Rough bounding radius per shape — used for physics collision, floor
+// contact, and centroid-relative scale/rotate pivots.
+function shapeBoundingRadius(e) {
+  const p = e.params, s = e.sizeScale || 1;
+  switch (e.shapeType) {
+    case "box": case "wedge": return Math.hypot(p.w, p.h, p.d) / 2 * s;
+    case "sphere":            return p.r * s;
+    case "cylinder": case "cone": return Math.max(p.r, p.h / 2) * s;
+    case "torus":              return (p.r + p.tube) * s;
+    default: return 0.3 * s;
+  }
+}
+
+function spawnShape(shapeType) {
+  const start = nextSpawnPosition();
+  const base = new THREE.Vector3(start.x, 0.6, start.z);
+  const params = { ...SHAPE_DEFAULTS[shapeType] };
+  const color = 0x9fb4c4;
+  const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.6, roughness: 0.35 });
+  const mesh = new THREE.Mesh(buildShapeGeometry(shapeType, params), mat);
+  mesh.castShadow = mesh.receiveShadow = true;
+  const id = uid();
+  mesh.userData = { entityId: id, kind: "shapeMesh" };
+  const group = new THREE.Group();
+  group.add(mesh);
+  scene.add(group);
+
+  const shape = {
+    id, kind: "shape", name: `${SHAPE_LABELS[shapeType]} ${++shapeCount}`,
+    shapeType, params, base, quaternion: new THREE.Quaternion(),
+    sizeScale: 1, mat, mesh, group,
+    physics: { enabled: false, velocity: new THREE.Vector3(), sleeping: false },
+  };
+  entities.set(id, shape);
+  entityAssemblyOf.set(id, id);
+  entityAssemblyMembers.set(id, new Set([id]));
+  updateShapeVisual(shape);
+  refreshEntityList(); updateTopStatus(); selectEntity(id);
+  showToast(`Placed: ${shape.name}`);
+  return shape;
+}
+
+function updateShapeVisual(e) {
+  // "solid" entities (boolean-op results) have a fixed baked geometry —
+  // only the group transform moves; nothing to rebuild from params.
+  if (e.kind === "shape") {
+    e.mesh.geometry.dispose();
+    e.mesh.geometry = buildShapeGeometry(e.shapeType, e.params);
+  }
+  e.group.position.copy(e.base);
+  e.group.quaternion.copy(e.quaternion);
+  e.group.scale.setScalar(e.sizeScale || 1);
+}
+
+function shapeParamFields(shapeType) {
+  switch (shapeType) {
+    case "box": case "wedge": return [["w", "WIDTH"], ["h", "HEIGHT"], ["d", "DEPTH"]];
+    case "sphere":            return [["r", "RADIUS"]];
+    case "cylinder": case "cone": return [["r", "RADIUS"], ["h", "HEIGHT"]];
+    case "torus":              return [["r", "RADIUS"], ["tube", "TUBE"]];
+    default: return [];
+  }
+}
+function refreshShapeParamUI(e) {
+  const wrap = $("shape-extra-params");
+  wrap.innerHTML = "";
+  if (e.kind !== "shape") return;
+  for (const [key, label] of shapeParamFields(e.shapeType)) {
+    const row = document.createElement("div");
+    const val = e.params[key];
+    row.innerHTML = `<div class="rp-title" style="margin-top:8px">${label} <span class="slider-val">${val.toFixed(2)}</span></div>
+      <input type="range" min="0.08" max="1.4" step="0.02" value="${val}"/>`;
+    const slider = row.querySelector("input");
+    const valSpan = row.querySelector(".slider-val");
+    slider.oninput = () => {
+      e.params[key] = parseFloat(slider.value);
+      valSpan.textContent = e.params[key].toFixed(2);
+      updateShapeVisual(e);
+    };
+    wrap.appendChild(row);
+  }
+}
+function onShapeSizeSlider(val) {
+  const e = entities.get(selectedId);
+  if (!e || (e.kind !== "shape" && e.kind !== "solid")) return;
+  e.sizeScale = val / 100;
+  $("shape-size-val").textContent = val + "%";
+  updateShapeVisual(e);
+}
+function rotateSelectedShape(axis, degrees) {
+  const e = entities.get(selectedId);
+  if (!e || (e.kind !== "shape" && e.kind !== "solid")) return;
+  const axisVec = axis === "x" ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  const q = new THREE.Quaternion().setFromAxisAngle(axisVec, THREE.MathUtils.degToRad(degrees));
+  e.quaternion.premultiply(q);
+  updateShapeVisual(e);
+}
+function setShapeColor(hex) {
+  const e = entities.get(selectedId);
+  if (!e || (e.kind !== "shape" && e.kind !== "solid")) return;
+  e.mat.color.set(hex);
+}
+function onShapeMetalSlider(val) {
+  const e = entities.get(selectedId);
+  if (!e || (e.kind !== "shape" && e.kind !== "solid")) return;
+  e.mat.metalness = val / 100;
+  $("shape-metal-val").textContent = val + "%";
+}
+function onShapeRoughSlider(val) {
+  const e = entities.get(selectedId);
+  if (!e || (e.kind !== "shape" && e.kind !== "solid")) return;
+  e.mat.roughness = val / 100;
+  $("shape-rough-val").textContent = val + "%";
+}
+function toggleEntityPhysics() {
+  const e = entities.get(selectedId);
+  if (!e || (e.kind !== "shape" && e.kind !== "solid")) return;
+  e.physics.enabled = !e.physics.enabled;
+  e.physics.sleeping = false;
+  e.physics.velocity.set(0, 0, 0);
+  $("shape-physics-btn").textContent = "🌍 PHYSICS: " + (e.physics.enabled ? "ON" : "OFF");
+  $("shape-physics-btn").classList.toggle("active", e.physics.enabled);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── SELF-CONTAINED CSG (BSP boolean) — no CDN dependency ──
+// Classic Evan Wallace CSG.js algorithm, ported onto three.js
+// BufferGeometry in/out so it survives being offline/CDN-flaky, same
+// reasoning that killed the old Tripo3D hologram pipeline.
+// ═══════════════════════════════════════════════════════════════
+const CSG = (() => {
+  class CVertex {
+    constructor(pos, normal) { this.pos = pos; this.normal = normal; }
+    clone() { return new CVertex(this.pos.clone(), this.normal.clone()); }
+    flip() { this.normal.negate(); }
+    interpolate(other, t) {
+      return new CVertex(this.pos.clone().lerp(other.pos, t), this.normal.clone().lerp(other.normal, t).normalize());
+    }
+  }
+  class CPlane {
+    constructor(normal, w) { this.normal = normal; this.w = w; }
+    static fromPoints(a, b, c) {
+      const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
+      return new CPlane(n, n.dot(a));
+    }
+    flip() { this.normal.negate(); this.w = -this.w; }
+    splitPolygon(poly, coplanarFront, coplanarBack, front, back) {
+      const EPS = 1e-5, COPLANAR = 0, FRONT = 1, BACK = 2, SPANNING = 3;
+      let polyType = 0; const types = [];
+      for (const v of poly.vertices) {
+        const t = this.normal.dot(v.pos) - this.w;
+        const type = t < -EPS ? BACK : t > EPS ? FRONT : COPLANAR;
+        polyType |= type; types.push(type);
+      }
+      switch (polyType) {
+        case COPLANAR: (this.normal.dot(poly.plane.normal) > 0 ? coplanarFront : coplanarBack).push(poly); break;
+        case FRONT: front.push(poly); break;
+        case BACK: back.push(poly); break;
+        case SPANNING: {
+          const f = [], b = [];
+          for (let i = 0; i < poly.vertices.length; i++) {
+            const j = (i + 1) % poly.vertices.length;
+            const ti = types[i], tj = types[j];
+            const vi = poly.vertices[i], vj = poly.vertices[j];
+            if (ti !== BACK) f.push(vi);
+            if (ti !== FRONT) b.push(ti !== BACK ? vi.clone() : vi);
+            if ((ti | tj) === SPANNING) {
+              const t = (this.w - this.normal.dot(vi.pos)) / this.normal.dot(new THREE.Vector3().subVectors(vj.pos, vi.pos));
+              const v = vi.interpolate(vj, t);
+              f.push(v); b.push(v.clone());
+            }
+          }
+          if (f.length >= 3) front.push({ vertices: f, plane: poly.plane });
+          if (b.length >= 3) back.push({ vertices: b, plane: poly.plane });
+          break;
+        }
+      }
+    }
+  }
+  class CNode {
+    constructor(polygons) { this.plane = null; this.front = null; this.back = null; this.polygons = []; if (polygons) this.build(polygons); }
+    clone() {
+      const n = new CNode();
+      n.plane = this.plane; n.front = this.front && this.front.clone(); n.back = this.back && this.back.clone();
+      n.polygons = this.polygons.map((p) => ({ vertices: p.vertices.map((v) => v.clone()), plane: p.plane }));
+      return n;
+    }
+    invert() {
+      for (const p of this.polygons) { p.vertices.reverse(); p.vertices.forEach((v) => v.flip()); p.plane.flip(); }
+      this.plane && this.plane.flip();
+      this.front && this.front.invert(); this.back && this.back.invert();
+      const t = this.front; this.front = this.back; this.back = t;
+    }
+    clipPolygons(polygons) {
+      if (!this.plane) return polygons.slice();
+      let front = [], back = [];
+      for (const p of polygons) this.plane.splitPolygon(p, front, back, front, back);
+      if (this.front) front = this.front.clipPolygons(front);
+      back = this.back ? this.back.clipPolygons(back) : [];
+      return front.concat(back);
+    }
+    clipTo(node) { this.polygons = node.clipPolygons(this.polygons); if (this.front) this.front.clipTo(node); if (this.back) this.back.clipTo(node); }
+    allPolygons() { let p = this.polygons.slice(); if (this.front) p = p.concat(this.front.allPolygons()); if (this.back) p = p.concat(this.back.allPolygons()); return p; }
+    build(polygons) {
+      if (!polygons.length) return;
+      if (!this.plane) this.plane = new CPlane(polygons[0].plane.normal.clone(), polygons[0].plane.w);
+      const front = [], back = [];
+      for (const p of polygons) this.plane.splitPolygon(p, this.polygons, this.polygons, front, back);
+      if (front.length) { if (!this.front) this.front = new CNode(); this.front.build(front); }
+      if (back.length) { if (!this.back) this.back = new CNode(); this.back.build(back); }
+    }
+  }
+  function toPolygons(mesh) {
+    const geo = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
+    const pos = geo.attributes.position;
+    geo.computeVertexNormals();
+    const norm = geo.attributes.normal;
+    const m = mesh.matrixWorld;
+    const nm = new THREE.Matrix3().getNormalMatrix(m);
+    const polys = [];
+    for (let i = 0; i < pos.count; i += 3) {
+      const verts = [];
+      for (let k = 0; k < 3; k++) {
+        const j = i + k;
+        const p = new THREE.Vector3(pos.getX(j), pos.getY(j), pos.getZ(j)).applyMatrix4(m);
+        const n = new THREE.Vector3(norm.getX(j), norm.getY(j), norm.getZ(j)).applyMatrix3(nm).normalize();
+        verts.push(new CVertex(p, n));
+      }
+      polys.push({ vertices: verts, plane: CPlane.fromPoints(verts[0].pos, verts[1].pos, verts[2].pos) });
+    }
+    return polys;
+  }
+  function polygonsToGeometry(polygons) {
+    const positions = [], normals = [];
+    for (const poly of polygons) {
+      for (let i = 2; i < poly.vertices.length; i++) {
+        [poly.vertices[0], poly.vertices[i - 1], poly.vertices[i]].forEach((v) => {
+          positions.push(v.pos.x, v.pos.y, v.pos.z);
+          normals.push(v.normal.x, v.normal.y, v.normal.z);
+        });
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+    return geo;
+  }
+  function op(meshA, meshB, kind) {
+    meshA.updateMatrixWorld(true); meshB.updateMatrixWorld(true);
+    let a = new CNode(toPolygons(meshA));
+    let b = new CNode(toPolygons(meshB));
+    let resultPolys;
+    if (kind === "union") {
+      a.clipTo(b); b.clipTo(a); b.invert(); b.clipTo(a); b.invert();
+      resultPolys = a.allPolygons().concat(b.allPolygons());
+      const merged = new CNode(); merged.build(resultPolys); resultPolys = merged.allPolygons();
+    } else { // subtract: a - b
+      a.invert(); a.clipTo(b); b.clipTo(a); b.invert(); b.clipTo(a); b.invert(); a.build(b.allPolygons()); a.invert();
+      resultPolys = a.allPolygons();
+    }
+    return polygonsToGeometry(resultPolys);
+  }
+  return { union: (a, b) => op(a, b, "union"), subtract: (a, b) => op(a, b, "subtract") };
+})();
+
+// ── Boolean tool: pick two shape/solid entities, fuse or cut them ──
+let booleanOp = "union";
+let booleanFirstId = null;
+function setBooleanOp(op) {
+  booleanOp = op;
+  $("bool-union-btn").classList.toggle("active", op === "union");
+  $("bool-subtract-btn").classList.toggle("active", op === "subtract");
+}
+function clearBooleanPending() {
+  if (booleanFirstId && entities.has(booleanFirstId)) {
+    const prev = entities.get(booleanFirstId);
+    if (prev.mat.emissive) prev.mat.emissive.setHex(0x000000);
+  }
+  booleanFirstId = null;
+}
+function pickBooleanTarget() {
+  const hits = raycaster.intersectObjects(allPickableMeshes(), false);
+  for (const h of hits) {
+    const e = entities.get(h.object.userData.entityId);
+    if (e && (e.kind === "shape" || e.kind === "solid")) return e;
+  }
+  return null;
+}
+function handleBooleanPick() {
+  const e = pickBooleanTarget();
+  if (!e) return;
+  if (!booleanFirstId) {
+    booleanFirstId = e.id;
+    if (e.mat.emissive) e.mat.emissive.setHex(0x223322);
+    showToast(`${e.name} selected — pick a second shape to ${booleanOp}.`);
+    return;
+  }
+  if (e.id === booleanFirstId) { clearBooleanPending(); return; }
+  const a = entities.get(booleanFirstId);
+  if (a.mat.emissive) a.mat.emissive.setHex(0x000000);
+  const b = e;
+  try {
+    const resultGeo = booleanOp === "union" ? CSG.union(a.mesh, b.mesh) : CSG.subtract(a.mesh, b.mesh);
+    // Result comes out in world space, so the new entity sits at the
+    // origin with an identity transform and bakes the position in.
+    const mat = a.mat.clone();
+    const mesh = new THREE.Mesh(resultGeo, mat);
+    mesh.castShadow = mesh.receiveShadow = true;
+    const id = uid();
+    mesh.userData = { entityId: id, kind: "shapeMesh" };
+    const group = new THREE.Group();
+    group.add(mesh);
+    scene.add(group);
+    const solid = {
+      id, kind: "solid", name: `${booleanOp === "union" ? "Union" : "Cut"} ${++shapeCount}`,
+      base: new THREE.Vector3(0, 0, 0), quaternion: new THREE.Quaternion(),
+      sizeScale: 1, mat, mesh, group,
+      physics: { enabled: false, velocity: new THREE.Vector3(), sleeping: false },
+    };
+    deleteEntity(a.id); deleteEntity(b.id);
+    entities.set(id, solid);
+    entityAssemblyOf.set(id, id);
+    entityAssemblyMembers.set(id, new Set([id]));
+    updateShapeVisual(solid);
+    refreshEntityList(); updateTopStatus(); selectEntity(id);
+    showToast(`${solid.name} created.`);
+  } catch (err) {
+    showToast("Boolean failed — try shapes that overlap more.");
+  }
+  booleanFirstId = null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── LIGHTWEIGHT PHYSICS — gravity + floor + shape/shape collisions ──
+// Deliberately simple (explicit-Euler + sphere-approximated collision)
+// rather than a full rigid-body engine: it's self-contained (no CDN),
+// fast with a handful of parts, and plenty convincing for "things can
+// fall and knock into each other" in a build workshop.
+// ═══════════════════════════════════════════════════════════════
+let physicsOn = false;
+const GRAVITY = -9.8;
+function togglePhysics() {
+  physicsOn = !physicsOn;
+  $("physics-toggle").textContent = "🌍 PHYSICS: " + (physicsOn ? "ON" : "OFF");
+  $("physics-toggle").classList.toggle("active", physicsOn);
+  showToast(physicsOn ? "Physics on — enable it per-piece in SELECTED to drop things." : "Physics off.");
+}
+function stepPhysics(dt) {
+  if (!physicsOn) return;
+  const bodies = [];
+  for (const e of entities.values()) {
+    if ((e.kind !== "shape" && e.kind !== "solid") || !e.physics.enabled) continue;
+    bodies.push(e);
+  }
+  for (const e of bodies) {
+    const r = shapeBoundingRadius(e);
+    e.physics.velocity.y += GRAVITY * dt;
+    e.base.addScaledVector(e.physics.velocity, dt);
+    // floor contact
+    if (e.base.y - r < 0) {
+      e.base.y = r;
+      e.physics.velocity.y = Math.abs(e.physics.velocity.y) * -0.35;
+      e.physics.velocity.x *= 0.9; e.physics.velocity.z *= 0.9;
+      if (Math.abs(e.physics.velocity.y) < 0.05) e.physics.velocity.y = 0;
+    }
+  }
+  // sphere-approximated pairwise collision resolution
+  for (let i = 0; i < bodies.length; i++) {
+    for (let j = i + 1; j < bodies.length; j++) {
+      const a = bodies[i], b = bodies[j];
+      const ra = shapeBoundingRadius(a), rb = shapeBoundingRadius(b);
+      const delta = new THREE.Vector3().subVectors(b.base, a.base);
+      const dist = delta.length() || 0.0001;
+      const minDist = ra + rb;
+      if (dist < minDist) {
+        const push = delta.multiplyScalar((minDist - dist) / dist / 2);
+        a.base.sub(push); b.base.add(push);
+        const rel = new THREE.Vector3().subVectors(b.physics.velocity, a.physics.velocity).dot(delta.clone().normalize());
+        if (rel < 0) {
+          const impulse = delta.clone().normalize().multiplyScalar(-rel * 0.5);
+          a.physics.velocity.sub(impulse); b.physics.velocity.add(impulse);
+        }
+      }
+    }
+  }
+  for (const e of bodies) updateShapeVisual(e);
+}
+
+// ── SNAP TO GRID — quantizes MOVE-tool dragging ──
+let snapOn = false;
+const GRID_SIZE = 0.25;
+function toggleSnap() {
+  snapOn = !snapOn;
+  $("snap-toggle").textContent = "▦ SNAP: " + (snapOn ? "ON" : "OFF");
+  $("snap-toggle").classList.toggle("active", snapOn);
+}
+function snapVec(v) {
+  if (!snapOn) return v;
+  v.x = Math.round(v.x / GRID_SIZE) * GRID_SIZE;
+  v.z = Math.round(v.z / GRID_SIZE) * GRID_SIZE;
+  return v;
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ── SELECTION / LIST UI ──
 // ═══════════════════════════════════════════════════════════════
 function refreshEntityList() {
@@ -895,6 +1408,7 @@ function selectEntity(id) {
   $("bar-controls").style.display = e && e.kind === "bar" ? "block" : "none";
   $("servo-controls").style.display = e && e.kind === "servo" ? "block" : "none";
   $("led-controls").style.display = e && e.kind === "led" ? "block" : "none";
+  $("shape-controls").style.display = e && (e.kind === "shape" || e.kind === "solid") ? "block" : "none";
   if (e && e.kind === "servo") {
     const ang = Math.round(THREE.MathUtils.radToDeg(e.targetAngle));
     const spd = Math.round(THREE.MathUtils.radToDeg(e.speed));
@@ -905,6 +1419,17 @@ function selectEntity(id) {
     $("servo-run-btn").classList.toggle("active", e.running);
   }
   if (e && e.kind === "led") updateLEDControls(e);
+  if (e && (e.kind === "shape" || e.kind === "solid")) {
+    const pct = Math.round((e.sizeScale || 1) * 100);
+    $("shape-size-slider").value = pct; $("shape-size-val").textContent = pct + "%";
+    const metalPct = Math.round((e.mat.metalness || 0) * 100);
+    const roughPct = Math.round((e.mat.roughness || 0) * 100);
+    $("shape-metal-slider").value = metalPct; $("shape-metal-val").textContent = metalPct + "%";
+    $("shape-rough-slider").value = roughPct; $("shape-rough-val").textContent = roughPct + "%";
+    $("shape-physics-btn").textContent = "🌍 PHYSICS: " + (e.physics.enabled ? "ON" : "OFF");
+    $("shape-physics-btn").classList.toggle("active", e.physics.enabled);
+    refreshShapeParamUI(e);
+  }
   refreshEntityList();
   updateAssemblyDetail();
 }
@@ -926,12 +1451,14 @@ function deleteEntity(id) {
   });
   barWeldLinks = barWeldLinks.filter((w) => w.aId !== id && w.bId !== id);
   if (weldPending && weldPending.entityId === id) clearWeldPending();
+  if (booleanFirstId === id) booleanFirstId = null;
   if (selectedId === id) selectedId = null;
   refreshEntityList(); updateTopStatus(); updateAssemblyDetail();
   $("sel-name").textContent = "— none —";
   $("bar-controls").style.display = "none";
   $("servo-controls").style.display = "none";
   $("led-controls").style.display = "none";
+  $("shape-controls").style.display = "none";
 }
 
 function updateTopStatus() {
@@ -955,13 +1482,16 @@ const TOOL_HINTS = {
   move: "Grab a piece and drag it around the floor. Welded pieces move together.",
   weld: "Touch a point on one piece, then touch a point on another to fuse them with the torch.",
   delete: "Click a piece to scrap it.",
+  boolean: "Click a shape, then click a second shape to union or subtract them.",
 };
 function setTool(name) {
   activeTool = name;
   clearWeldPending();
-  ["bend", "move", "weld", "delete"].forEach((t) => $("tool-" + t).classList.toggle("active", t === name));
+  clearBooleanPending();
+  ["bend", "move", "weld", "delete", "boolean"].forEach((t) => $("tool-" + t).classList.toggle("active", t === name));
   $("ticker").textContent = TOOL_HINTS[name];
   $("gesture-hint").textContent = "Pinch thumb + index to " + name + " with your hand. Spread both hands apart / together to zoom.";
+  $("boolean-controls").style.display = name === "boolean" ? "block" : "none";
 }
 
 function ndcFromScreen(sp) {
@@ -977,6 +1507,7 @@ function allPickableMeshes() {
     if (e.kind === "bar") arr.push(...e.segMeshes, ...e.capMeshes);
     else if (e.kind === "servo") arr.push(e.bodyMesh, e.mountMesh, e.armMesh, e.tipMesh);
     else if (e.kind === "led") arr.push(e.mesh);
+    else if (e.kind === "shape" || e.kind === "solid") arr.push(e.mesh);
   }
   return arr;
 }
@@ -1155,6 +1686,8 @@ function toolPointerDown(sp) {
   } else if (activeTool === "delete") {
     const hit = pickAnyEntity();
     if (hit) deleteEntity(hit.entityId);
+  } else if (activeTool === "boolean") {
+    handleBooleanPick();
   }
 }
 function toolPointerMove(sp) {
@@ -1175,7 +1708,7 @@ function toolPointerMove(sp) {
   } else if (moveCtx) {
     const hitPoint = new THREE.Vector3();
     if (raycaster.ray.intersectPlane(moveCtx.plane, hitPoint)) {
-      const target = hitPoint.add(moveCtx.offset);
+      const target = snapVec(hitPoint.add(moveCtx.offset));
       const anchor = entityAnchorPoint(moveCtx.entityId);
       translateAssemblyEntities(moveCtx.entityId, target.clone().sub(anchor));
     }
@@ -1195,6 +1728,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "2") setTool("move");
   if (e.key === "3") setTool("weld");
   if (e.key === "4") setTool("delete");
+  if (e.key === "5") setTool("boolean");
   if ((e.key === "Delete" || e.key === "Backspace") && selectedId) deleteSelected();
 });
 
