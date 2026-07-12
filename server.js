@@ -30,6 +30,23 @@ const Persistence = require("./persistence");
 
 const app        = express();
 
+// ── CRASH GUARD ───────────────────────────────────────────────────
+// A bug surfaced where @gradio/client (used by mesh-generator.js)
+// rejected a promise in a way that bypassed the calling code's own
+// try/catch entirely, which crashed the ENTIRE Jarvis process
+// (exit 1) over one bad API call — taking down TTS, comms, memory
+// sync, everything, not just the hologram feature that failed.
+// These two handlers are the actual fix for that: whatever
+// eventually throws something uncaught, log it and keep the server
+// alive instead of dying. A single feature misbehaving should never
+// take the whole assistant offline.
+process.on("unhandledRejection", (reason) => {
+  console.error("[CRASH GUARD] Unhandled promise rejection (server staying up):", reason);
+});
+process.on("uncaughtException", (err) => {
+  console.error("[CRASH GUARD] Uncaught exception (server staying up):", err);
+});
+
 // ── VOICE MISHEARING CORRECTION ─────────────────────────────────────────────
 // Speech-to-text sometimes hears a close-but-wrong word for the handful of
 // words that actually trigger something (e.g. "tired" -> "tarot"/"tyred").
