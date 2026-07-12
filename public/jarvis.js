@@ -27,6 +27,7 @@ const state = window.state = {
   sessionId: crypto.randomUUID(),
   lastJarvisQuestion: null,   // tracks what JARVIS last asked so "yes/no" replies have context
   pendingBuildConfirm: false, // true while Build Mode is waiting on a "connect these parts?" answer
+  pendingBriefingOffer: false, // true while waiting on a "want the daily briefing?" yes/no reply
   synth: window.speechSynthesis,
   isListening: false,
   micActive: false,
@@ -360,8 +361,19 @@ function playBoostedAudio(audioEl) {
   }
 }
 
+// Generation token: every speak() call bumps this. Any older, still
+// in-flight speak() request (its fetch hasn't resolved yet, etc.)
+// checks this before actually producing sound. If a newer request has
+// since come in, the stale one silently drops itself instead of
+// playing over — this is what stops two voices ever overlapping and
+// guarantees the *latest* thing said is always what's heard.
+let _speakGen = 0;
+
 async function speak(text, onEnd) {
   if (!text) { if (onEnd) onEnd(); return; }
+
+  const myGen = ++_speakGen;
+  const isCurrent = () => myGen === _speakGen;
 
   // Stop anything currently playing
   state.synth.cancel();
@@ -375,7 +387,7 @@ async function speak(text, onEnd) {
   // /api/tts/status — otherwise skip straight to the instant browser
   // voice instead of waiting on a slow/unconfigured backend.
   if (state.outputMode !== "home" && !_ttsReady) {
-    return _speakBrowser(text, onEnd);
+    return _speakBrowser(text, onEnd, myGen);
   }
 
   // ── Cloned-voice TTS / Home Talk round-trip ─────────────────
@@ -390,6 +402,10 @@ async function speak(text, onEnd) {
       signal:  AbortSignal.timeout(60000),
     });
 
+    // A newer speak() call arrived while we were waiting on the network —
+    // this request is stale, so let it die quietly instead of talking
+    // over whatever is now playing.
+    if (!isCurrent()) { if (onEnd) onEnd(); return; }
 
     // 503 = Piper model not loaded. If we're in Home Talk mode the server
     // will handle TTS via gTTS — only fall back to browser on phone mode.
@@ -397,8 +413,9 @@ async function speak(text, onEnd) {
       const data = await res.json().catch(() => ({}));
       // If castTo is set the server already handled it via Home Talk
       if (data.castTo) return;
+      if (!isCurrent()) { if (onEnd) onEnd(); return; }
       _ttsReady = false;
-      return _speakBrowser(text, onEnd);
+      return _speakBrowser(text, onEnd, myGen);
     }
 
     if (!res.ok) throw new Error(`TTS ${res.status}`);
@@ -409,11 +426,12 @@ async function speak(text, onEnd) {
     //    not here, so there's nothing to play locally. ──
     if (contentType.includes("application/json")) {
       const data = await res.json();
+      if (!isCurrent()) { if (onEnd) onEnd(); return; }
       if (data.ok) {
         setOrb("speaking");
         showHomeTalkBadge(data.castTo);
         const estimatedMs = Math.max(1500, text.length * 65);
-        setTimeout(() => { setOrb("idle"); if (onEnd) onEnd(); }, estimatedMs);
+        setTimeout(() => { if (isCurrent()) setOrb("idle"); if (onEnd) onEnd(); }, estimatedMs);
       } else {
         setOrb("idle");
         if (onEnd) onEnd();
@@ -421,7 +439,11 @@ async function speak(text, onEnd) {
       return;
     }
 
-    const blob  = await res.blob();
+    const blob = await res.blob();
+
+    // Check again — decoding/downloading the blob takes time too.
+    if (!isCurrent()) { if (onEnd) onEnd(); return; }
+
     const url   = URL.createObjectURL(blob);
     const audio = new Audio(url);
     audio.volume = 1;
@@ -432,8 +454,8 @@ async function speak(text, onEnd) {
 
     const cleanup = () => {
       URL.revokeObjectURL(url);
-      _currentAudio = null;
-      setOrb("idle");
+      if (_currentAudio === audio) _currentAudio = null;
+      if (isCurrent()) setOrb("idle");
       if (onEnd) onEnd();
     };
 
@@ -445,8 +467,10 @@ async function speak(text, onEnd) {
     // voices talking over each other.
     audio.onerror = () => {
       cleanup();
-      if (!started) _speakBrowser(text, onEnd);
+      if (!started && isCurrent()) _speakBrowser(text, onEnd, myGen);
     };
+
+    if (!isCurrent()) { URL.revokeObjectURL(url); if (onEnd) onEnd(); return; }
     await audio.play();
     started = true; // play() resolved — treat as started even if the
                      // "playing" event hasn't fired yet
@@ -455,13 +479,18 @@ async function speak(text, onEnd) {
     // Server unreachable or TTS not configured — fall back to browser voice.
     // (This only runs if we never even got to audio.play(), so there's no
     // risk of double voices here.)
+    if (!isCurrent()) { if (onEnd) onEnd(); return; }
     console.warn("[JARVIS] Camb TTS failed, using browser voice:", e.message);
-    _speakBrowser(text, onEnd);
+    _speakBrowser(text, onEnd, myGen);
   }
 }
 
 // ── BROWSER FALLBACK ──────────────────────────────────────────
-function _speakBrowser(text, onEnd) {
+function _speakBrowser(text, onEnd, myGen) {
+  // If a generation was supplied and a newer speak() has since started,
+  // don't speak at all — this is what makes "latest wins" hold.
+  if (typeof myGen === "number" && myGen !== _speakGen) { if (onEnd) onEnd(); return; }
+
   const utter  = new SpeechSynthesisUtterance(text);
   utter.rate   = 0.93;
   utter.pitch  = (state.userTitle === "Sir") ? 0.75 : 0.8;
@@ -473,7 +502,12 @@ function _speakBrowser(text, onEnd) {
   let finished = false;
   const safetyTimer = setTimeout(() => { if (!finished) { finished = true; setOrb("idle"); if (onEnd) onEnd(); } }, safetyMs);
   const done = () => { if (finished) return; finished = true; clearTimeout(safetyTimer); setOrb("idle"); if (onEnd) onEnd(); };
-  utter.onstart = () => setOrb("speaking");
+  utter.onstart = () => {
+    // Belt-and-braces: if something newer started speaking between
+    // queueing this utterance and it actually starting, cut it off.
+    if (typeof myGen === "number" && myGen !== _speakGen) { state.synth.cancel(); return; }
+    setOrb("speaking");
+  };
   utter.onend   = done;
   utter.onerror = done;
   state.synth.speak(utter);
@@ -1381,6 +1415,18 @@ function handleChatCommand(text) {
   // ── Context injection: if user says "yes/no/sure/ok" after JARVIS asked a question,
   //    automatically inject the question context so the AI understands the reply ──
   const isShortAffirmOrNeg = /^(yes|yeah|yep|sure|ok|okay|no|nope|nah|please|go ahead|do it|confirm|cancel|skip)\.?$/i.test(cleaned.trim());
+  if (isShortAffirmOrNeg && state.pendingBriefingOffer) {
+    const isYes = /^(yes|yeah|yep|sure|ok|okay|please|go ahead|do it|confirm)\.?$/i.test(cleaned.trim());
+    state.pendingBriefingOffer = false;
+    state.lastJarvisQuestion = null;
+    if (isYes) {
+      runDailyBriefing();
+    } else {
+      const r = `Understood, ${state.userTitle}. Just say "daily briefing" any time you'd like it.`;
+      addMsg("jarvis", r); speak(r);
+    }
+    return;
+  }
   if (isShortAffirmOrNeg && state.pendingBuildConfirm) {
     const isYes = /^(yes|yeah|yep|sure|ok|okay|please|go ahead|do it|confirm)\.?$/i.test(cleaned.trim());
     const iframe = $("build-iframe");
@@ -1399,6 +1445,12 @@ function handleChatCommand(text) {
   }
 
   const cleanedLower = cleaned.toLowerCase();
+
+  // ── Daily briefing on request ──
+  if (/\b(daily briefing|today'?s briefing|morning briefing)\b/.test(cleanedLower)) {
+    runDailyBriefing();
+    return;
+  }
 
   // ── Mode switching: "Jarvis switch to map/chat/3d/build" ──
   const switchMatch = cleanedLower.match(/\bswitch(?:\s+(?:to|into))?\s+(map|chat|3d|hologram|holo|build|blueprint|cad)\s*(?:mode)?\b/);
@@ -2488,7 +2540,7 @@ async function enrollUserFace() {
         success = true;
         hideEnrollBadge();
         addMsg("system", `✓ Your face has been enrolled, ${state.userTitle}. Intruder detection is now active.`);
-        speak(`Face enrolled, ${state.userTitle}. I'll alert you if anyone else appears on camera.`);
+        speak(`Face enrolled, ${state.userTitle}. I'll alert you if anyone else appears on camera.`, offerDailyBriefing);
         startFaceWatch();
         break;
       } else {
@@ -2506,6 +2558,29 @@ async function enrollUserFace() {
     hideEnrollBadge();
     addMsg("system", "Face enrollment failed — couldn't detect a face. Intruder detection disabled. Say 're-enroll face' to try again.");
   }
+}
+
+// ── Daily briefing: ask, don't assume ──────────────────────────
+// JARVIS no longer plays the daily briefing on its own on login. It
+// offers it once, right after face enrollment finishes, and otherwise
+// only shows it if you explicitly ask ("daily briefing").
+function offerDailyBriefing() {
+  if (state.pendingBriefingOffer) return; // already asked, awaiting a reply
+  state.pendingBriefingOffer = true;
+  const q = `Would you like the daily briefing, ${state.userTitle}?`;
+  state.lastJarvisQuestion = q;
+  addMsg("jarvis", q);
+  speak(q);
+}
+
+function runDailyBriefing() {
+  state.pendingBriefingOffer = false;
+  if (window.JarvisBriefing && typeof window.JarvisBriefing.run === "function") {
+    try { window.JarvisBriefing.run({ user: state.user, userTitle: state.userTitle }, () => {}); return; }
+    catch (e) { console.warn("[JARVIS] Daily briefing failed to launch:", e); }
+  }
+  const r = "The daily briefing screen isn't available right now.";
+  addMsg("jarvis", r); speak(r);
 }
 
 function showEnrollBadge(text) {
