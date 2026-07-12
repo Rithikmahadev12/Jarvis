@@ -37,6 +37,28 @@ window.HologramWidget = (function () {
     return threePromise;
   }
 
+  // GLTFLoader for generated meshes (mesh-generator.js). cdnjs (used
+  // for core three.js above) doesn't host the examples/addons folder
+  // at all, so GLTFLoader has to come from jsdelivr instead — that
+  // part's unavoidable. What actually caused the old "GLTFLoader is
+  // not a constructor" crash wasn't the CDN differing, it was the
+  // VERSION differing between the two files. So this pins jsdelivr to
+  // the exact same 0.128.0 build as the cdnjs r128 core above — same
+  // pairing build-mode.html already uses successfully for OrbitControls.
+  let gltfLoaderPromise = null;
+  function loadGLTFLoader() {
+    if (window.THREE && window.THREE.GLTFLoader) return Promise.resolve();
+    if (gltfLoaderPromise) return gltfLoaderPromise;
+    gltfLoaderPromise = loadThree().then(() => new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js';
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    }));
+    return gltfLoaderPromise;
+  }
+
   // ═══════════════════════════════════════════════
   // OBJECT BUILDERS — ported from hologram-viewer.html, real
   // geometry, not toys. Each factory returns a THREE.Group.
@@ -1082,6 +1104,122 @@ OBJECTS.molecule = buildMolecule;
     card.addEventListener('pointercancel', endDrag);
   }
 
+  // ═══════════════════════════════════════════════
+  // GENERATED MESHES — "Jarvis, render me a helmet with X"
+  // Real generated geometry from mesh-generator.js (free text->image
+  // ->3D pipeline), not a preset from OBJECTS above. Re-skins whatever
+  // mesh comes back with the same cyan wireframe hologram look as
+  // everything else, so it fits the app's visual language regardless
+  // of what was generated.
+  // ═══════════════════════════════════════════════
+
+  // Center + scale any loaded mesh to roughly fill the same footprint
+  // the hand-built OBJECTS occupy, so generated stuff isn't tiny/huge.
+  function normalizeScale(root) {
+    const box = new THREE.Box3().setFromObject(root);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+    const scale = 2.4 / maxDim;
+    root.scale.setScalar(scale);
+
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    root.position.sub(center.multiplyScalar(scale));
+  }
+
+  // Re-skins a loaded GLTF scene with the same wireframe/hologram
+  // materials the hand-built objects use, so a generated helmet looks
+  // like it belongs next to the earth/DNA/atom widgets, not like a
+  // random textured import.
+  function applyHologramSkin(root, color = 0x00c8ff) {
+    root.traverse((child) => {
+      if (!child.isMesh) return;
+      const solid = holoMat(color, 0x001a33, 0.4, 0.7);
+      const wire = wireMat(color, 0.35);
+      child.material = solid;
+      const wireMesh = new THREE.Mesh(child.geometry, wire);
+      child.add(wireMesh);
+    });
+  }
+
+  async function generate(prompt) {
+    await loadThree();
+    ensureEdgeGlow();
+
+    const id = 'hw-' + (idCounter++);
+    const card = document.createElement('div');
+    card.id = id;
+    card.className = 'holo-widget hw-generating';
+    card.dataset.handDrag = 'true';
+    card.innerHTML = `
+      <div class="hw-head"><span>GENERATING…</span><button class="hw-close" title="Close">&#10005;</button></div>
+      <div class="hw-canvas-wrap"><div class="hw-gen-status">Sending "${(prompt || '').slice(0, 60)}" to the free mesh generator — this can take a minute or two on shared free GPU queues.</div></div>
+      <div class="hw-base"></div>
+    `;
+    document.body.appendChild(card);
+    const pos = nextSpawnPos(widgets.size);
+    card.style.left = pos.x + 'px';
+    card.style.top = pos.y + 'px';
+    requestAnimationFrame(() => card.classList.add('in'));
+    card.querySelector('.hw-close').addEventListener('click', (e) => {
+      e.stopPropagation();
+      card.classList.add('dismissing');
+      setTimeout(() => card.remove(), 300);
+    });
+
+    let data;
+    try {
+      const res = await fetch('/api/hologram/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      data = await res.json();
+    } catch (e) {
+      data = { kind: 'error', error: e.message };
+    }
+
+    if (!card.isConnected) return null; // user closed it while we waited
+
+    if (data.kind !== 'gltf') {
+      card.querySelector('.hw-head span').textContent = 'GENERATION FAILED';
+      card.querySelector('.hw-gen-status').textContent =
+        (data.error || 'Unknown error') + ' — the free mesh-generation Spaces are community infra, not a guaranteed-uptime service, so this can happen.';
+      card.classList.add('hw-error');
+      return id;
+    }
+
+    try {
+      await loadGLTFLoader();
+      const loader = new THREE.GLTFLoader();
+      const gltf = await new Promise((resolve, reject) => loader.load(data.url, resolve, undefined, reject));
+
+      card.classList.remove('hw-generating');
+      card.querySelector('.hw-head span').textContent = (prompt || 'GENERATED').slice(0, 28).toUpperCase();
+      const wrap = card.querySelector('.hw-canvas-wrap');
+      wrap.innerHTML = '<canvas></canvas>';
+      const canvas = wrap.querySelector('canvas');
+
+      const { renderer, scene, camera, key: keyLight, rim } = createScene(canvas);
+      const obj = gltf.scene;
+      normalizeScale(obj);
+      applyHologramSkin(obj);
+      scene.add(obj);
+
+      const w = { id, card, renderer, scene, camera, obj, key: keyLight, rim };
+      widgets.set(id, w);
+      ensureLoop();
+      initDrag(w);
+      return id;
+    } catch (e) {
+      card.querySelector('.hw-head span').textContent = 'LOAD FAILED';
+      card.querySelector('.hw-gen-status').textContent = 'Mesh generated but failed to load in-browser: ' + e.message;
+      card.classList.add('hw-error');
+      return id;
+    }
+  }
+
   function dismiss(id, thrown) {
     const w = widgets.get(id);
     if (!w) return;
@@ -1120,5 +1258,5 @@ OBJECTS.molecule = buildMolecule;
     return null;
   }
 
-  return { show, dismiss, guessKey };
+  return { show, dismiss, guessKey, generate };
 })();
