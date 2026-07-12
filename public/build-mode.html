@@ -355,6 +355,8 @@ let spawnIndex = 0, barCount = 0, servoCount = 0, ledCount = 0;
 let physicsOn = false;   // read by stepPhysics(), called from animate() below —
                          // must exist before animate() runs or it's a TDZ error
 const GRAVITY = -9.8;
+let effectSystems = []; // read by stepEffects(), same reason as physicsOn above —
+                         // [{ entityId, points, velocities, ages, spec, spawnAcc }]
 
 function animate() {
   requestAnimationFrame(animate);
@@ -1397,8 +1399,6 @@ function stepPhysics(dt) {
 // to its entity's group, so it moves/rotates/scales with the part for
 // free — no per-frame world-transform bookkeeping needed here.
 // ═══════════════════════════════════════════════════════════════
-let effectSystems = []; // [{ entityId, points, velocities, ages, spec, spawnAcc }]
-
 const EFFECT_DEFAULTS = {
   flame: { count: 60, blending: THREE.AdditiveBlending },
   sparks: { count: 40, blending: THREE.AdditiveBlending },
