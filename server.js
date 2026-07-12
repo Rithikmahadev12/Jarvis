@@ -14,6 +14,7 @@ const Spotify     = require("./spotify");
 const Google      = require("./google");
 const DIY         = require("./diy-builder");
 const Build       = require("./build-engine");
+const MeshGen      = require("./mesh-generator");
 const Home        = require("./home");
 const Groq        = require("./hermes-engine");
 const Improve     = require("./self-improve");
@@ -208,7 +209,23 @@ app.get("/api/build/model/:uid", async (req, res) => {
   }
 });
 
-// Static cache of unpacked glTF models pulled from Sketchfab
+// ── Free mesh generation — "Jarvis, render me a helmet with X" ──
+// Real generated geometry (text -> image -> 3D mesh via free public
+// Hugging Face Spaces), not a primitive/box composer. See
+// mesh-generator.js for how + the honest tradeoffs of the free path.
+app.post("/api/hologram/generate", async (req, res) => {
+  const prompt = (req.body?.prompt || "").trim();
+  if (!prompt) return res.status(400).json({ kind: "error", error: "missing prompt" });
+  try {
+    const data = await MeshGen.generateMesh(prompt);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ kind: "error", error: e.message });
+  }
+});
+
+// Static cache of unpacked glTF models pulled from Sketchfab, plus
+// freshly generated meshes from mesh-generator.js
 app.use("/build-cache", express.static(Build.CACHE_DIR));
 
 // ── LINKS BANK ────────────────────────────────────────────────
