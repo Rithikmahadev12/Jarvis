@@ -1452,6 +1452,23 @@ function handleChatCommand(text) {
     return;
   }
 
+  // ── Hologram mesh generation: "Jarvis render me a helmet with X",
+  //    "generate a hologram of X", "show me a hologram of X" — real
+  //    generated geometry (see mesh-generator.js), not a fixed preset.
+  //    Checked before guessKey()'s preset list so a described object
+  //    ("a helmet with glowing blue eyes") goes to real generation
+  //    instead of accidentally matching a keyword like "engine". ──
+  const genMatch =
+    cleanedLower.match(/\brender\s+me\s+(?:a|an)\s+(.+)/) ||
+    cleanedLower.match(/\b(?:generate|create|make|build|show\s+me)\s+(?:a\s+|an\s+)?hologram\s+of\s+(.+)/);
+  if (genMatch && genMatch[1] && genMatch[1].trim().length > 2 && window.HologramWidget?.generate) {
+    const desc = cleaned.match(/(?:render\s+me\s+(?:a|an)|(?:generate|create|make|build|show\s+me)\s+(?:a\s+|an\s+)?hologram\s+of)\s+(.+)/i)?.[1]?.trim().replace(/[?.!]+$/, "") || cleaned;
+    const r = `Generating that now, ${state.userTitle} — this uses a free public mesh generator, so it can take a minute or two.`;
+    addMsg("jarvis", r); speak(r);
+    window.HologramWidget.generate(desc);
+    return;
+  }
+
   // ── Mode switching: "Jarvis switch to map/chat/3d/build" ──
   const switchMatch = cleanedLower.match(/\bswitch(?:\s+(?:to|into))?\s+(map|chat|3d|hologram|holo|build|blueprint|cad)\s*(?:mode)?\b/);
   if (switchMatch) {
