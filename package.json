@@ -9,6 +9,7 @@
     "voice:start": "uvicorn voice-server.server:app --host 0.0.0.0 --port 5050"
   },
   "dependencies": {
+    "@gradio/client": "^1.6.0",
     "@supabase/supabase-js": "^2.45.4",
     "express": "^4.18.2",
     "cors": "^2.8.5",
