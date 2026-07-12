@@ -25,6 +25,13 @@
 // with a clear { kind: "error" } if the key is missing, invalid, or
 // out of credits, same contract as before.
 //
+// Optional fallback accounts: set TRIPO_API_KEY2 (and TRIPO_API_KEY3,
+// TRIPO_API_KEY4, ...) to additional Tripo3D API keys and startJob()
+// will automatically retry the whole generation with the next key if
+// an earlier one fails (bad/expired key, out of credits, API error,
+// timeout, etc). Keys are tried strictly in order; the first one that
+// succeeds wins.
+//
 // Tripo3D's download URLs are short-lived (expire within a couple
 // hours), so we download the .glb to local disk immediately once the
 // task succeeds rather than ever handing the remote URL back to the
@@ -38,7 +45,18 @@ const crypto = require("crypto");
 const CACHE_DIR = path.join(__dirname, "data", "build-cache", "generated");
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-const TRIPO_API_KEY = process.env.TRIPO_API_KEY || null;
+// Support one or more Tripo API keys. TRIPO_API_KEY is primary;
+// TRIPO_API_KEY2 (and, if present, TRIPO_API_KEY3, TRIPO_API_KEY4, ...)
+// are fallbacks tried in order if an earlier key fails or is out of
+// credits. This lets you spread usage across multiple free-tier
+// accounts without any code changes beyond adding env vars.
+const TRIPO_API_KEYS = [
+  process.env.TRIPO_API_KEY,
+  process.env.TRIPO_API_KEY2,
+  process.env.TRIPO_API_KEY3,
+  process.env.TRIPO_API_KEY4,
+].filter(Boolean);
+
 const TRIPO_BASE = "https://api.tripo3d.ai/v2/openapi";
 
 // How often to poll the task status endpoint while a generation is
@@ -47,8 +65,8 @@ const TRIPO_BASE = "https://api.tripo3d.ai/v2/openapi";
 const POLL_INTERVAL_MS = 2500;
 const GEN_TIMEOUT_MS = 3 * 60 * 1000; // generous — covers queueing time
 
-console.log(TRIPO_API_KEY
-  ? "[mesh-generator] TRIPO_API_KEY detected — using Tripo3D API for mesh generation"
+console.log(TRIPO_API_KEYS.length
+  ? `[mesh-generator] ${TRIPO_API_KEYS.length} Tripo API key(s) detected — using Tripo3D API for mesh generation`
   : "[mesh-generator] No TRIPO_API_KEY set — mesh generation will fail until you set it in .env (get a key at https://platform.tripo3d.ai)");
 
 function withTimeout(promise, ms, label) {
@@ -76,12 +94,12 @@ function downloadTo(url, destPath) {
 }
 
 // ── STEP 1: create a text_to_model task ──────────────────────────
-async function createTask(prompt) {
+async function createTask(prompt, apiKey) {
   const res = await fetch(`${TRIPO_BASE}/task`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${TRIPO_API_KEY}`,
+      "Authorization": `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
       type: "text_to_model",
@@ -103,10 +121,10 @@ async function createTask(prompt) {
 // ── STEP 2: poll until the task finishes ─────────────────────────
 const TERMINAL_FAIL_STATUSES = new Set(["failed", "cancelled", "banned", "expired"]);
 
-async function pollTask(taskId, onProgress) {
+async function pollTask(taskId, apiKey, onProgress) {
   while (true) {
     const res = await fetch(`${TRIPO_BASE}/task/${taskId}`, {
-      headers: { "Authorization": `Bearer ${TRIPO_API_KEY}` },
+      headers: { "Authorization": `Bearer ${apiKey}` },
     });
     let json;
     try { json = await res.json(); } catch { throw new Error(`Tripo3D status check returned a non-JSON response (HTTP ${res.status})`); }
@@ -151,7 +169,7 @@ function startJob(prompt) {
     jobs.set(jobId, { status: "done", kind: "error", error: "empty prompt" });
     return jobId;
   }
-  if (!TRIPO_API_KEY) {
+  if (!TRIPO_API_KEYS.length) {
     jobs.set(jobId, {
       status: "done", kind: "error",
       error: "TRIPO_API_KEY is not set — add it to .env (get a free key at https://platform.tripo3d.ai)",
@@ -169,34 +187,54 @@ function startJob(prompt) {
   jobs.set(jobId, { status: "pending", stage: "queued", startedAt: Date.now() });
 
   (async () => {
-    try {
-      jobs.set(jobId, { status: "pending", stage: "submitting to Tripo3D", startedAt: jobs.get(jobId).startedAt });
-      const taskId = await withTimeout(createTask(clean), GEN_TIMEOUT_MS, "task creation");
+    const startedAt = jobs.get(jobId).startedAt;
+    let lastErr = null;
 
-      jobs.set(jobId, { status: "pending", stage: "generating (0%)", startedAt: jobs.get(jobId).startedAt });
-      const meshUrl = await withTimeout(
-        pollTask(taskId, (data) => {
-          const prev = jobs.get(jobId) || {};
-          jobs.set(jobId, { ...prev, stage: `generating (${data.progress ?? 0}%)` });
-        }),
-        GEN_TIMEOUT_MS,
-        "generation"
-      );
+    for (let i = 0; i < TRIPO_API_KEYS.length; i++) {
+      const apiKey = TRIPO_API_KEYS[i];
+      const keyLabel = i === 0 ? "primary key" : `fallback key #${i + 1}`;
+      try {
+        jobs.set(jobId, { status: "pending", stage: `submitting to Tripo3D (${keyLabel})`, startedAt });
+        const taskId = await withTimeout(createTask(clean, apiKey), GEN_TIMEOUT_MS, "task creation");
 
-      jobs.set(jobId, { status: "pending", stage: "downloading mesh", startedAt: jobs.get(jobId).startedAt });
-      await downloadTo(meshUrl, destPath);
+        jobs.set(jobId, { status: "pending", stage: `generating (0%, ${keyLabel})`, startedAt });
+        const meshUrl = await withTimeout(
+          pollTask(taskId, apiKey, (data) => {
+            const prev = jobs.get(jobId) || {};
+            jobs.set(jobId, { ...prev, stage: `generating (${data.progress ?? 0}%, ${keyLabel})` });
+          }),
+          GEN_TIMEOUT_MS,
+          "generation"
+        );
 
-      jobs.set(jobId, { status: "done", kind: "gltf", url: `/build-cache/generated/${hash}.glb` });
-    } catch (e) {
-      const failedStage = (jobs.get(jobId) || {}).stage || "unknown stage";
-      console.error(`[mesh-generator] job ${jobId} failed at "${failedStage}":`, e);
-      jobs.set(jobId, {
-        status: "done", kind: "error",
-        error: e?.message || String(e) || "unknown error",
-        stage: failedStage,
-        note: "Check your Tripo3D account for remaining monthly credits if this keeps happening.",
-      });
+        jobs.set(jobId, { status: "pending", stage: "downloading mesh", startedAt });
+        await downloadTo(meshUrl, destPath);
+
+        jobs.set(jobId, { status: "done", kind: "gltf", url: `/build-cache/generated/${hash}.glb` });
+        return; // success — stop trying further keys
+      } catch (e) {
+        const failedStage = (jobs.get(jobId) || {}).stage || "unknown stage";
+        lastErr = e;
+        console.error(`[mesh-generator] job ${jobId} failed at "${failedStage}" using ${keyLabel}:`, e);
+
+        const hasMoreKeys = i < TRIPO_API_KEYS.length - 1;
+        if (hasMoreKeys) {
+          console.log(`[mesh-generator] job ${jobId} — retrying with next Tripo API key`);
+          continue; // fall through to next key
+        }
+      }
     }
+
+    // exhausted every key — report the last failure
+    const failedStage = (jobs.get(jobId) || {}).stage || "unknown stage";
+    jobs.set(jobId, {
+      status: "done", kind: "error",
+      error: lastErr?.message || String(lastErr) || "unknown error",
+      stage: failedStage,
+      note: TRIPO_API_KEYS.length > 1
+        ? "All configured Tripo API keys failed. Check each Tripo3D account for remaining monthly credits."
+        : "Check your Tripo3D account for remaining monthly credits if this keeps happening. Add TRIPO_API_KEY2 in .env for an automatic fallback account.",
+    });
   })();
 
   return jobId;
