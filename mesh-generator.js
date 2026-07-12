@@ -121,39 +121,80 @@ async function imageToMesh(imageUrl) {
   return url;
 }
 
-// ── PUBLIC: prompt -> cached local .glb ──────────────────────────
-// Returns the same shape build-engine.js's getLoadableModel uses,
-// so the client-side loading code doesn't need to know which
-// pipeline produced the model.
-async function generateMesh(prompt) {
-  const clean = (prompt || "").trim();
-  if (!clean) return { kind: "error", error: "empty prompt" };
+// ── PUBLIC: background job system ────────────────────────────────
+// The old version awaited the whole text->image->mesh pipeline
+// inside a single HTTP request. That's 30s-3min+ on free shared GPU
+// queues, and Render's free-tier proxy (like most free-tier proxies)
+// kills long-idle requests before that finishes — which is what
+// produced the "Unexpected end of JSON input" error: the connection
+// got cut mid-response, so the client received a truncated/empty
+// body. Fix: return immediately with a jobId, run the pipeline in
+// the background, and let the client poll for status instead of
+// holding one request open.
+const jobs = new Map(); // jobId -> { status, kind, url, error, note, startedAt }
+let jobCounter = 0;
 
+function startJob(prompt) {
+  const clean = (prompt || "").trim();
+  const jobId = "gen-" + (++jobCounter) + "-" + Date.now();
+
+  if (!clean) {
+    jobs.set(jobId, { status: "done", kind: "error", error: "empty prompt" });
+    return jobId;
+  }
   if (!GradioClient) {
-    return {
-      kind: "error",
+    jobs.set(jobId, {
+      status: "done", kind: "error",
       error: "@gradio/client is not installed — run: npm install @gradio/client",
-    };
+    });
+    return jobId;
   }
 
   const hash = crypto.createHash("sha1").update(clean).digest("hex").slice(0, 16);
   const destPath = path.join(CACHE_DIR, `${hash}.glb`);
   if (fs.existsSync(destPath)) {
-    return { kind: "gltf", url: `/build-cache/generated/${hash}.glb`, cached: true };
+    jobs.set(jobId, { status: "done", kind: "gltf", url: `/build-cache/generated/${hash}.glb`, cached: true });
+    return jobId;
   }
 
-  try {
-    const imageUrl = await withTimeout(textToImage(clean), GEN_TIMEOUT_MS, "text-to-image step");
-    const meshUrl  = await withTimeout(imageToMesh(imageUrl), GEN_TIMEOUT_MS, "image-to-mesh step");
-    await downloadTo(meshUrl, destPath);
-    return { kind: "gltf", url: `/build-cache/generated/${hash}.glb` };
-  } catch (e) {
-    return {
-      kind: "error",
-      error: e.message,
-      note: "Free generation Spaces can be slow, queued, or temporarily down — this isn't a paid API with an uptime guarantee.",
-    };
-  }
+  jobs.set(jobId, { status: "pending", stage: "queued", startedAt: Date.now() });
+
+  (async () => {
+    try {
+      jobs.set(jobId, { status: "pending", stage: "generating image", startedAt: jobs.get(jobId).startedAt });
+      const imageUrl = await withTimeout(textToImage(clean), GEN_TIMEOUT_MS, "text-to-image step");
+
+      jobs.set(jobId, { status: "pending", stage: "generating mesh", startedAt: jobs.get(jobId).startedAt });
+      const meshUrl = await withTimeout(imageToMesh(imageUrl), GEN_TIMEOUT_MS, "image-to-mesh step");
+
+      jobs.set(jobId, { status: "pending", stage: "downloading mesh", startedAt: jobs.get(jobId).startedAt });
+      await downloadTo(meshUrl, destPath);
+
+      jobs.set(jobId, { status: "done", kind: "gltf", url: `/build-cache/generated/${hash}.glb` });
+    } catch (e) {
+      jobs.set(jobId, {
+        status: "done", kind: "error", error: e.message,
+        note: "Free generation Spaces can be slow, queued, or temporarily down — this isn't a paid API with an uptime guarantee.",
+      });
+    }
+  })();
+
+  return jobId;
 }
 
-module.exports = { generateMesh, CACHE_DIR };
+function getJob(jobId) {
+  const job = jobs.get(jobId);
+  if (!job) return { status: "done", kind: "error", error: "unknown job id (server may have restarted — free-tier services can restart at any time)" };
+  return job;
+}
+
+// Sweep finished/abandoned jobs after 10 minutes so `jobs` doesn't
+// grow forever on a long-running process.
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [id, job] of jobs) {
+    if (job.status === "done" && (job.startedAt || 0) < cutoff) jobs.delete(id);
+  }
+}, 5 * 60 * 1000).unref();
+
+module.exports = { startJob, getJob, CACHE_DIR };
