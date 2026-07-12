@@ -1,107 +1,62 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — FREE MESH GENERATOR
+// J.A.R.V.I.S — MESH GENERATOR (Tripo3D API)
 //
 // Turns a text prompt ("a futuristic robotic helmet with glowing
-// blue eyes") into an actual downloadable 3D mesh (.glb) — no API
-// key, no payment, no local GPU required. Not a primitive/box
-// composer: this calls real generative models hosted as free public
-// Hugging Face Spaces and downloads their real output.
+// blue eyes") into an actual downloadable 3D mesh (.glb) using the
+// Tripo3D generation API (https://platform.tripo3d.ai).
 //
-// Pipeline (two hops, because there's no free *text*-to-3D model
-// that's currently both live and good — see chat notes):
-//   1. text  -> image   (black-forest-labs/FLUX.1-schnell, official
-//                         Space, ZeroGPU, ~seconds)
-//   2. image -> 3D mesh (VAST-AI/TripoSG, official Space, ZeroGPU,
-//                         textured GLB output)
+// This replaced an earlier two-hop free-Space pipeline (FLUX ->
+// TripoSG over ZeroGPU Hugging Face Spaces). That approach worked
+// but ZeroGPU's shared anonymous/free quota got exhausted constantly
+// under any real usage, with no reliable way to know in advance how
+// much headroom was left. Tripo3D's own API has a real (if small)
+// monthly credit allowance tied to your account instead of a shared
+// public pool, so quota exhaustion is predictable and self-inflicted
+// rather than random.
 //
-// Both Spaces are run by their model's own org (Black Forest Labs,
-// VAST-AI/Tripo), not random community mirrors — much less likely
-// to randomly disappear than the individual duplicate Spaces we
-// tried earlier. Still: they're free community infra, not an SLA'd
-// product. If either is down/paused/rate-limited, this fails soft
-// and the caller gets a clear { kind: "error" } with a placeholder
-// fallback, same contract as build-engine.js's getLoadableModel.
+// Pipeline (one hop — Tripo3D generates directly from text):
+//   text -> 3D mesh   (POST /task {type: "text_to_model"}, then
+//                       poll GET /task/:id until status "success")
 //
-// NOTE: the exact Gradio api_name for each Space's queue endpoint
-// can change when the Space owner updates their code. This was
-// written from Hugging Face's documented Gradio-client conventions
-// without live network access to confirm the endpoint names against
-// the running Spaces — GENERATE_ENDPOINTS below is the first place
-// to check (open the Space, click "Use via API" at the bottom of
-// the page) if generation starts failing.
+// Requires TRIPO_API_KEY in the environment (.env). Get one at
+// https://platform.tripo3d.ai -> API keys. Free tier credits refresh
+// monthly; this is NOT unlimited — startJob() below still fails soft
+// with a clear { kind: "error" } if the key is missing, invalid, or
+// out of credits, same contract as before.
+//
+// Tripo3D's download URLs are short-lived (expire within a couple
+// hours), so we download the .glb to local disk immediately once the
+// task succeeds rather than ever handing the remote URL back to the
+// client.
 // ═══════════════════════════════════════════════════════════════
 
 const fs   = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 
-let GradioClient = null;
-try { GradioClient = require("@gradio/client").Client; }
-catch { /* optional dep — see package.json; falls back to error below */ }
-
 const CACHE_DIR = path.join(__dirname, "data", "build-cache", "generated");
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-// Space ids to call. NOT hardcoding api_name anymore — a wrong guess
-// there is exactly what crashed the server last time. Instead,
-// resolveEndpoint() below asks the Space itself (via view_api(), the
-// same introspection the "Use via API" page uses) what its real
-// endpoint is named, at connect time.
-const IMAGE_SPACE = "black-forest-labs/FLUX.1-schnell";
-const MESH_SPACE  = "VAST-AI/TripoSG";
+const TRIPO_API_KEY = process.env.TRIPO_API_KEY || null;
+const TRIPO_BASE = "https://api.tripo3d.ai/v2/openapi";
 
-const GEN_TIMEOUT_MS = 3 * 60 * 1000; // free shared GPU queue — generous timeout
+// How often to poll the task status endpoint while a generation is
+// running. Tripo tasks are usually done in well under a minute, but
+// the free tier can queue behind other users.
+const POLL_INTERVAL_MS = 2500;
+const GEN_TIMEOUT_MS = 3 * 60 * 1000; // generous — covers queueing time
 
-// Free Hugging Face account token (Settings -> Access Tokens, "Read" scope
-// is enough). Not required, but ZeroGPU Spaces ration anonymous callers
-// much harder than logged-in-free callers — set HF_TOKEN in the env to get
-// a bigger free quota instead of sharing the anonymous-IP pool.
-const HF_TOKEN = process.env.HF_TOKEN || null;
-
-function connectOpts() {
-  return HF_TOKEN ? { hf_token: HF_TOKEN } : {};
-}
-
-console.log(HF_TOKEN
-  ? "[mesh-generator] HF_TOKEN detected — using logged-in free quota for ZeroGPU Spaces"
-  : "[mesh-generator] No HF_TOKEN set — using anonymous free quota (much smaller, hits limits fast). Set HF_TOKEN in env to fix.");
-
-// Asks the Space what its real named endpoint is instead of guessing.
-// `hint` is just a preference if there are multiple named endpoints
-// (e.g. prefer one with "infer" in the name) — falls back to the
-// first named endpoint either way.
-async function resolveEndpoint(client, hint) {
-  const info = await client.view_api();
-  const names = Object.keys(info?.named_endpoints || {});
-  if (!names.length) throw new Error("Space has no named API endpoints — its 'Use via API' page needs checking by hand");
-  return names.find((n) => n.toLowerCase().includes(hint)) || names[0];
-}
+console.log(TRIPO_API_KEY
+  ? "[mesh-generator] TRIPO_API_KEY detected — using Tripo3D API for mesh generation"
+  : "[mesh-generator] No TRIPO_API_KEY set — mesh generation will fail until you set it in .env (get a key at https://platform.tripo3d.ai)");
 
 function withTimeout(promise, ms, label) {
   let t;
   const timeout = new Promise((_, reject) => {
-    t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms (free GPU queue was probably busy)`)), ms);
+    t = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(t));
-}
-
-// Pulls the first file-like result (url or blob) out of a Gradio
-// predict() result — different Spaces wrap their output slightly
-// differently (straight url string vs {url}/{path} object), so this
-// checks the common shapes rather than assuming one.
-function extractFileUrl(result) {
-  const data = result?.data;
-  if (!data || !data.length) return null;
-  for (const item of data) {
-    if (!item) continue;
-    if (typeof item === "string" && /^https?:\/\//.test(item)) return item;
-    if (typeof item === "object") {
-      if (item.url) return item.url;
-      if (item.path && item.orig_name) return item.url || item.path;
-    }
-  }
-  return null;
 }
 
 function downloadTo(url, destPath) {
@@ -111,54 +66,80 @@ function downloadTo(url, destPath) {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         return downloadTo(res.headers.location, destPath).then(resolve, reject);
       }
-      if (res.statusCode !== 200) return reject(new Error(`download failed (${res.statusCode}) for ${url}`));
+      if (res.statusCode !== 200) return reject(new Error(`download failed (${res.statusCode}) for mesh asset`));
       const file = fs.createWriteStream(destPath);
       res.pipe(file);
       file.on("finish", () => file.close(resolve));
+      file.on("error", reject);
     }).on("error", reject);
   });
 }
 
-// ── STEP 1: text -> image ────────────────────────────────────────
-async function textToImage(prompt) {
-  const client = await GradioClient.connect(IMAGE_SPACE, connectOpts());
-  const apiName = await resolveEndpoint(client, "infer");
-  const result = await client.predict(apiName, {
-    prompt,
-    seed: Math.floor(Math.random() * 1e9),
-    randomize_seed: true,
-    width: 768,
-    height: 768,
-    num_inference_steps: 4,
+// ── STEP 1: create a text_to_model task ──────────────────────────
+async function createTask(prompt) {
+  const res = await fetch(`${TRIPO_BASE}/task`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${TRIPO_API_KEY}`,
+    },
+    body: JSON.stringify({
+      type: "text_to_model",
+      prompt,
+      texture: true,
+      pbr: true,
+    }),
   });
-  const url = extractFileUrl(result);
-  if (!url) throw new Error("FLUX.1-schnell returned no image — Space output shape may have changed");
-  return url;
+  let json;
+  try { json = await res.json(); } catch { throw new Error(`Tripo3D task creation returned a non-JSON response (HTTP ${res.status})`); }
+
+  if (!res.ok || json.code !== 0 || !json.data?.task_id) {
+    const reason = json?.message || json?.error || `HTTP ${res.status}`;
+    throw new Error(`Tripo3D task creation failed: ${reason}`);
+  }
+  return json.data.task_id;
 }
 
-// ── STEP 2: image -> 3D mesh ─────────────────────────────────────
-async function imageToMesh(imageUrl) {
-  const { handle_file } = require("@gradio/client");
-  const client = await GradioClient.connect(MESH_SPACE, connectOpts());
-  const apiName = await resolveEndpoint(client, "infer");
-  const result = await client.predict(apiName, {
-    image: handle_file(imageUrl),
-  });
-  const url = extractFileUrl(result);
-  if (!url) throw new Error("TripoSG returned no mesh — Space output shape may have changed");
-  return url;
+// ── STEP 2: poll until the task finishes ─────────────────────────
+const TERMINAL_FAIL_STATUSES = new Set(["failed", "cancelled", "banned", "expired"]);
+
+async function pollTask(taskId, onProgress) {
+  while (true) {
+    const res = await fetch(`${TRIPO_BASE}/task/${taskId}`, {
+      headers: { "Authorization": `Bearer ${TRIPO_API_KEY}` },
+    });
+    let json;
+    try { json = await res.json(); } catch { throw new Error(`Tripo3D status check returned a non-JSON response (HTTP ${res.status})`); }
+
+    if (!res.ok || json.code !== 0) {
+      const reason = json?.message || json?.error || `HTTP ${res.status}`;
+      throw new Error(`Tripo3D status check failed: ${reason}`);
+    }
+
+    const data = json.data;
+    if (onProgress) onProgress(data);
+
+    if (data.status === "success") {
+      const output = data.output || {};
+      const url = output.pbr_model || output.model || output.base_model;
+      if (!url) throw new Error("Tripo3D task succeeded but returned no model URL — output shape may have changed");
+      return url;
+    }
+
+    if (TERMINAL_FAIL_STATUSES.has(data.status)) {
+      throw new Error(`Tripo3D generation ${data.status}${data.error_msg ? `: ${data.error_msg}` : ""}`);
+    }
+
+    // still queued/running — wait and check again
+    await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+  }
 }
 
 // ── PUBLIC: background job system ────────────────────────────────
-// The old version awaited the whole text->image->mesh pipeline
-// inside a single HTTP request. That's 30s-3min+ on free shared GPU
-// queues, and Render's free-tier proxy (like most free-tier proxies)
-// kills long-idle requests before that finishes — which is what
-// produced the "Unexpected end of JSON input" error: the connection
-// got cut mid-response, so the client received a truncated/empty
-// body. Fix: return immediately with a jobId, run the pipeline in
-// the background, and let the client poll for status instead of
-// holding one request open.
+// Same contract as before: return immediately with a jobId, run the
+// pipeline in the background, let the client poll for status. Free/
+// slow-tier proxies (Render free plan included) will kill a request
+// held open for a 30s-3min generation, so this avoids that entirely.
 const jobs = new Map(); // jobId -> { status, kind, url, error, note, startedAt }
 let jobCounter = 0;
 
@@ -170,10 +151,10 @@ function startJob(prompt) {
     jobs.set(jobId, { status: "done", kind: "error", error: "empty prompt" });
     return jobId;
   }
-  if (!GradioClient) {
+  if (!TRIPO_API_KEY) {
     jobs.set(jobId, {
       status: "done", kind: "error",
-      error: "@gradio/client is not installed — run: npm install @gradio/client",
+      error: "TRIPO_API_KEY is not set — add it to .env (get a free key at https://platform.tripo3d.ai)",
     });
     return jobId;
   }
@@ -189,11 +170,18 @@ function startJob(prompt) {
 
   (async () => {
     try {
-      jobs.set(jobId, { status: "pending", stage: "generating image", startedAt: jobs.get(jobId).startedAt });
-      const imageUrl = await withTimeout(textToImage(clean), GEN_TIMEOUT_MS, "text-to-image step");
+      jobs.set(jobId, { status: "pending", stage: "submitting to Tripo3D", startedAt: jobs.get(jobId).startedAt });
+      const taskId = await withTimeout(createTask(clean), GEN_TIMEOUT_MS, "task creation");
 
-      jobs.set(jobId, { status: "pending", stage: "generating mesh", startedAt: jobs.get(jobId).startedAt });
-      const meshUrl = await withTimeout(imageToMesh(imageUrl), GEN_TIMEOUT_MS, "image-to-mesh step");
+      jobs.set(jobId, { status: "pending", stage: "generating (0%)", startedAt: jobs.get(jobId).startedAt });
+      const meshUrl = await withTimeout(
+        pollTask(taskId, (data) => {
+          const prev = jobs.get(jobId) || {};
+          jobs.set(jobId, { ...prev, stage: `generating (${data.progress ?? 0}%)` });
+        }),
+        GEN_TIMEOUT_MS,
+        "generation"
+      );
 
       jobs.set(jobId, { status: "pending", stage: "downloading mesh", startedAt: jobs.get(jobId).startedAt });
       await downloadTo(meshUrl, destPath);
@@ -201,20 +189,12 @@ function startJob(prompt) {
       jobs.set(jobId, { status: "done", kind: "gltf", url: `/build-cache/generated/${hash}.glb` });
     } catch (e) {
       const failedStage = (jobs.get(jobId) || {}).stage || "unknown stage";
-      // @gradio/client doesn't always reject with a real Error — SSE-based
-      // error events often come back as a plain {message, type, ...} object,
-      // which has no .stack and stringifies to the useless "[object Object]".
-      // Passing `e` as its own console.error arg (not string-interpolated)
-      // lets Node's util.inspect show its actual properties.
-      let readable;
-      try { readable = JSON.stringify(e, Object.getOwnPropertyNames(e), 2); } catch { readable = String(e); }
       console.error(`[mesh-generator] job ${jobId} failed at "${failedStage}":`, e);
-      console.error(`[mesh-generator] job ${jobId} raw error dump:`, readable);
       jobs.set(jobId, {
         status: "done", kind: "error",
-        error: e?.message || readable || "unknown error shape from gradio client",
+        error: e?.message || String(e) || "unknown error",
         stage: failedStage,
-        note: "Free generation Spaces can be slow, queued, or temporarily down — this isn't a paid API with an uptime guarantee.",
+        note: "Check your Tripo3D account for remaining monthly credits if this keeps happening.",
       });
     }
   })();
