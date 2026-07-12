@@ -585,11 +585,54 @@ const HandTracking = (() => {
     overlayCtx.restore();
   }
 
+  // ── CLICKABLE-TARGET DETECTION ──
+  // The curated selector list below covers this app's known widgets and
+  // is checked first (fast, and lets us be picky about exactly which
+  // sub-element of a compound widget should catch the dwell). But hand
+  // tracking shouldn't be limited to only ever clicking things someone
+  // remembered to add to this list — GENERIC_CLICKABLE_SELECTOR plus
+  // isLikelyInteractive() below catch any native interactive element,
+  // ARIA control, element with a click handler, or anything simply
+  // styled to look clickable (cursor: pointer), so a button added
+  // anywhere in the app later — or any one-off custom control — is
+  // clickable by hand without this file needing to know about it.
+  const KNOWN_CLICKABLE_SELECTOR = "button, a, .q-btn, .hud-btn, .account-tile, .ht-key, input[type=checkbox], .mode-btn, .mp-segment, .mp-close-btn";
+  const GENERIC_CLICKABLE_SELECTOR = 'a[href], button, input, select, textarea, summary, label, ' +
+    '[role="button"], [role="link"], [role="tab"], [role="menuitem"], [role="checkbox"], [role="switch"], ' +
+    '[tabindex]:not([tabindex="-1"]), [onclick]';
+  const CLICKABLE_SEARCH_DEPTH = 6; // how far up the DOM to walk from the exact hit point
+
+  function isLikelyInteractive(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el.disabled || el.getAttribute?.("aria-disabled") === "true") return false;
+    try {
+      if (el.matches(GENERIC_CLICKABLE_SELECTOR)) return true;
+      if (typeof el.onclick === "function") return true;
+      // A pointer cursor is the standard visual signal a page author uses
+      // to say "this is clickable" — trust it even without a specific tag/role.
+      if (window.getComputedStyle(el).cursor === "pointer") return true;
+    } catch (e) { /* cross-origin or detached node — just say no */ }
+    return false;
+  }
+
+  function findClickableAncestor(el) {
+    let node = el, depth = 0;
+    while (node && depth < CLICKABLE_SEARCH_DEPTH) {
+      if (node.nodeType === 1) {
+        try { if (node.matches(KNOWN_CLICKABLE_SELECTOR)) return node; } catch (e) {}
+        if (isLikelyInteractive(node)) return node;
+      }
+      node = node.parentElement;
+      depth++;
+    }
+    return null;
+  }
+
   function handleDwell(x, y) {
     cursorEl.style.pointerEvents = "none";
     const el = document.elementFromPoint(x, y);
     cursorEl.style.pointerEvents = "";
-    const clickable = el ? el.closest("button, a, .q-btn, .hud-btn, .account-tile, .ht-key, input[type=checkbox], .mode-btn, .mp-segment, .mp-close-btn") : null;
+    const clickable = findClickableAncestor(el);
 
     if (!clickable) { clearDwell(); return; }
 
