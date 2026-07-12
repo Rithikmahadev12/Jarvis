@@ -201,13 +201,19 @@ function startJob(prompt) {
       jobs.set(jobId, { status: "done", kind: "gltf", url: `/build-cache/generated/${hash}.glb` });
     } catch (e) {
       const failedStage = (jobs.get(jobId) || {}).stage || "unknown stage";
-      // The gradio client often collapses a Python-side traceback down to
-      // just the exception class name (e.g. bare "RuntimeError") — grab
-      // whatever extra detail is attached so it's not a dead end.
-      const detail = e.cause?.message || e.stack || String(e);
-      console.error(`[mesh-generator] job ${jobId} failed at "${failedStage}":`, detail);
+      // @gradio/client doesn't always reject with a real Error — SSE-based
+      // error events often come back as a plain {message, type, ...} object,
+      // which has no .stack and stringifies to the useless "[object Object]".
+      // Passing `e` as its own console.error arg (not string-interpolated)
+      // lets Node's util.inspect show its actual properties.
+      let readable;
+      try { readable = JSON.stringify(e, Object.getOwnPropertyNames(e), 2); } catch { readable = String(e); }
+      console.error(`[mesh-generator] job ${jobId} failed at "${failedStage}":`, e);
+      console.error(`[mesh-generator] job ${jobId} raw error dump:`, readable);
       jobs.set(jobId, {
-        status: "done", kind: "error", error: e.message, stage: failedStage,
+        status: "done", kind: "error",
+        error: e?.message || readable || "unknown error shape from gradio client",
+        stage: failedStage,
         note: "Free generation Spaces can be slow, queued, or temporarily down — this isn't a paid API with an uptime guarantee.",
       });
     }
