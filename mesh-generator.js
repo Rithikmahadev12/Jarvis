@@ -43,14 +43,26 @@ catch { /* optional dep — see package.json; falls back to error below */ }
 const CACHE_DIR = path.join(__dirname, "data", "build-cache", "generated");
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-// Space ids + the api_name each queue endpoint is expected to be
-// registered under. If generation starts failing with "endpoint not
-// found", open the Space's "Use via API" page and update the
-// apiName here — that's almost certainly all that broke.
-const IMAGE_SPACE = { id: "black-forest-labs/FLUX.1-schnell", apiName: "/infer" };
-const MESH_SPACE  = { id: "VAST-AI/TripoSG",                  apiName: "/infer" };
+// Space ids to call. NOT hardcoding api_name anymore — a wrong guess
+// there is exactly what crashed the server last time. Instead,
+// resolveEndpoint() below asks the Space itself (via view_api(), the
+// same introspection the "Use via API" page uses) what its real
+// endpoint is named, at connect time.
+const IMAGE_SPACE = "black-forest-labs/FLUX.1-schnell";
+const MESH_SPACE  = "VAST-AI/TripoSG";
 
 const GEN_TIMEOUT_MS = 3 * 60 * 1000; // free shared GPU queue — generous timeout
+
+// Asks the Space what its real named endpoint is instead of guessing.
+// `hint` is just a preference if there are multiple named endpoints
+// (e.g. prefer one with "infer" in the name) — falls back to the
+// first named endpoint either way.
+async function resolveEndpoint(client, hint) {
+  const info = await client.view_api();
+  const names = Object.keys(info?.named_endpoints || {});
+  if (!names.length) throw new Error("Space has no named API endpoints — its 'Use via API' page needs checking by hand");
+  return names.find((n) => n.toLowerCase().includes(hint)) || names[0];
+}
 
 function withTimeout(promise, ms, label) {
   let t;
@@ -95,8 +107,9 @@ function downloadTo(url, destPath) {
 
 // ── STEP 1: text -> image ────────────────────────────────────────
 async function textToImage(prompt) {
-  const client = await GradioClient.connect(IMAGE_SPACE.id);
-  const result = await client.predict(IMAGE_SPACE.apiName, {
+  const client = await GradioClient.connect(IMAGE_SPACE);
+  const apiName = await resolveEndpoint(client, "infer");
+  const result = await client.predict(apiName, {
     prompt,
     seed: Math.floor(Math.random() * 1e9),
     randomize_seed: true,
@@ -112,8 +125,9 @@ async function textToImage(prompt) {
 // ── STEP 2: image -> 3D mesh ─────────────────────────────────────
 async function imageToMesh(imageUrl) {
   const { handle_file } = require("@gradio/client");
-  const client = await GradioClient.connect(MESH_SPACE.id);
-  const result = await client.predict(MESH_SPACE.apiName, {
+  const client = await GradioClient.connect(MESH_SPACE);
+  const apiName = await resolveEndpoint(client, "infer");
+  const result = await client.predict(apiName, {
     image: handle_file(imageUrl),
   });
   const url = extractFileUrl(result);
