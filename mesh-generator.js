@@ -200,8 +200,14 @@ function startJob(prompt) {
 
       jobs.set(jobId, { status: "done", kind: "gltf", url: `/build-cache/generated/${hash}.glb` });
     } catch (e) {
+      const failedStage = (jobs.get(jobId) || {}).stage || "unknown stage";
+      // The gradio client often collapses a Python-side traceback down to
+      // just the exception class name (e.g. bare "RuntimeError") — grab
+      // whatever extra detail is attached so it's not a dead end.
+      const detail = e.cause?.message || e.stack || String(e);
+      console.error(`[mesh-generator] job ${jobId} failed at "${failedStage}":`, detail);
       jobs.set(jobId, {
-        status: "done", kind: "error", error: e.message,
+        status: "done", kind: "error", error: e.message, stage: failedStage,
         note: "Free generation Spaces can be slow, queued, or temporarily down — this isn't a paid API with an uptime guarantee.",
       });
     }
