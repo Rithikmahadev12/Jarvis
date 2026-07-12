@@ -14,7 +14,6 @@ const Spotify     = require("./spotify");
 const Google      = require("./google");
 const DIY         = require("./diy-builder");
 const Build       = require("./build-engine");
-const MeshGen      = require("./mesh-generator");
 const Home        = require("./home");
 const Groq        = require("./hermes-engine");
 const Improve     = require("./self-improve");
@@ -31,11 +30,11 @@ const Persistence = require("./persistence");
 const app        = express();
 
 // ── CRASH GUARD ───────────────────────────────────────────────────
-// A bug surfaced where @gradio/client (used by mesh-generator.js)
-// rejected a promise in a way that bypassed the calling code's own
-// try/catch entirely, which crashed the ENTIRE Jarvis process
-// (exit 1) over one bad API call — taking down TTS, comms, memory
-// sync, everything, not just the hologram feature that failed.
+// A bug once surfaced where a third-party client library rejected a
+// promise in a way that bypassed the calling code's own try/catch
+// entirely, which crashed the ENTIRE Jarvis process (exit 1) over
+// one bad API call — taking down TTS, comms, memory sync, everything,
+// not just the one feature that failed.
 // These two handlers are the actual fix for that: whatever
 // eventually throws something uncaught, log it and keep the server
 // alive instead of dying. A single feature misbehaving should never
@@ -195,11 +194,6 @@ app.get("/build", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "build-mode.html"));
 });
 
-// ── Holographic Workspace — AI-powered multi-object scene builder ──
-app.get("/workspace", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "hologram-workspace.html"));
-});
-
 // ── News Widget — standalone broadcast-style news dashboard.
 // Also embedded as a panel inside the main HUD ("jarvis, news widget"),
 // but reachable directly at /news (own tab, bookmark, TV cast, etc).
@@ -226,25 +220,7 @@ app.get("/api/build/model/:uid", async (req, res) => {
   }
 });
 
-// ── Free mesh generation — "Jarvis, render me a helmet with X" ──
-// Real generated geometry (text -> image -> 3D mesh via free public
-// Hugging Face Spaces), not a primitive/box composer. Runs as a
-// background job (see mesh-generator.js) instead of one long
-// blocking request, since free-tier proxies kill long-idle
-// connections well before a 30s-3min generation finishes.
-app.post("/api/hologram/generate", (req, res) => {
-  const prompt = (req.body?.prompt || "").trim();
-  if (!prompt) return res.status(400).json({ kind: "error", error: "missing prompt" });
-  const jobId = MeshGen.startJob(prompt);
-  res.json({ jobId });
-});
-
-app.get("/api/hologram/generate/:jobId", (req, res) => {
-  res.json(MeshGen.getJob(req.params.jobId));
-});
-
-// Static cache of unpacked glTF models pulled from Sketchfab, plus
-// freshly generated meshes from mesh-generator.js
+// Static cache of unpacked glTF models pulled from Sketchfab
 app.use("/build-cache", express.static(Build.CACHE_DIR));
 
 // ── LINKS BANK ────────────────────────────────────────────────
@@ -1132,7 +1108,6 @@ const HARD_COMMANDS = {
   links:        /\b(show (my |all )?links|open links|link bank|all my links)\b/i,
   openLink:     /\b(open|launch|pull up|go to)\b.{1,40}\b(infamous|petzah|fern|vapor)\b/i,
   hologram:     /\b(show me a (3d|hologram)|holographic|3d model|3d scan|build mode)\b/i,
-  workspace:    /\b(hologram(ic)? workspace|holo workspace|open workspace|scene builder|build a scene|3d workspace)\b/i,
   newsWidget:   /\bnews widget\b/i,
   newsPage:     /\b(world news|news dashboard|news wall|open (the )?news|pull up (the )?news|show (me )?(the )?news|what'?s happening in the world|what'?s going on in the world|catch me up on the news|latest headlines|top headlines)\b/i,
   lookup:       /\b(look up|lookup|background check|pull everything on|find info on|osint|intel on)\b/i,
@@ -1365,7 +1340,7 @@ async function handleNewsFetch(message, T, mode) {
   }
 }
 
-// ── BUILD MODE — open the 3D hologram/CAD workspace ─────────────
+// ── BUILD MODE — open the CAD workshop ───────────────────────────
 function handleHologramOpen(message, T) {
   const q = (message || "")
     .replace(/\b(jarvis|hey|show me a|3d model of|3d scan of|holographic view of|build mode|hologram|holographic|3d model|3d scan)\b/gi, "")
@@ -1721,24 +1696,9 @@ app.post("/api/chat", async (req, res) => {
       .catch(() => res.json({ reply: `Home command failed, ${T}.`, action: "HOME_COMMAND", intent: "home" }));
   }
 
-  // ── 1.1 Drafting table / blueprint mode ──
+  // ── 1.1 Drafting table / blueprint mode — routes into Build Mode ──
   if (/\b(blueprint|blue print|drafting table|design table|engineering bay|cad mode|let'?s design|sketch (out|something)|draft something|design something)\b/i.test(message)) {
-    return res.json({
-      reply: `Opening the drafting table, ${T}. Pull a reference off the web, sketch over it with your hand, and I'll project it straight into a hologram.`,
-      action: "SHOW_BLUEPRINT",
-      intent: "blueprint",
-      meta: { query: message },
-    });
-  }
-
-  // ── 1.2 Holographic Workspace — AI-powered scene builder ──
-  if (/\b(hologram(ic)? workspace|holo workspace|open workspace|scene builder|build a scene|3d workspace|workspace mode)\b/i.test(message)) {
-    return res.json({
-      reply: `Opening the holographic workspace, ${T}. Describe what you're imagining and I'll generate it — or drag objects in manually and build it yourself. The workspace is a living scene you can grab, move, and trash objects in.`,
-      action: "OPEN_WORKSPACE",
-      intent: "workspace",
-      meta: { url: "/workspace" },
-    });
+    return res.json(handleHologramOpen(message, T));
   }
 
   // ── 2. Personality shortcuts (no AI needed) ──
