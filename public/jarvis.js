@@ -1495,6 +1495,21 @@ function handleChatCommand(text) {
       addMsg("jarvis", r); speak(r);
       return;
     }
+
+    // ── AI-designed builds: "build a helmet", "make a hydrogen tank
+    //    with a repulsor that jets flame out the back", etc. Falls
+    //    through to here only once the specific render/stop/scale
+    //    commands above have already been ruled out. The description
+    //    is handed to Build Mode's /api/build/generate pipeline, which
+    //    designs and spawns the parts itself. ──
+    const genericBuildMatch = cleaned.match(/\b(?:build|make|construct|create|design)\s+(?:me\s+)?(?:a|an|the)?\s*(.+)/i);
+    if (genericBuildMatch && genericBuildMatch[1] && genericBuildMatch[1].trim().length > 1) {
+      const buildPrompt = genericBuildMatch[1].trim().replace(/[.?!]+$/, "");
+      postToBuild({ type: "BUILD_AI_REQUEST", prompt: buildPrompt });
+      const r = `On it, ${state.userTitle} — designing ${buildPrompt} now.`;
+      addMsg("jarvis", r); speak(r);
+      return;
+    }
   }
 
   // ── Map lookups: "show me a map of X" / "map of X" / "where is X" / "find X on the map" ──
