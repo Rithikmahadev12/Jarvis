@@ -83,6 +83,15 @@ input[type=range]{width:100%;accent-color:var(--amber);margin-top:2px}
 
 #ticker{position:fixed;bottom:0;left:220px;right:220px;height:24px;background:rgba(0,3,10,0.98);border-top:1px solid rgba(0,200,255,0.1);display:flex;align-items:center;padding:0 14px;z-index:25;font-size:0.55rem;color:var(--dim-text);letter-spacing:0.05em}
 
+#ai-build-wrap{padding:0 12px 10px}
+#ai-build-input{width:100%;background:rgba(0,200,255,0.05);border:1px solid rgba(0,200,255,0.25);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:0.62rem;padding:8px;border-radius:3px;resize:none;height:52px}
+#ai-build-input:focus{outline:none;border-color:var(--amber)}
+#ai-build-input::placeholder{color:var(--dim-text)}
+.ai-build-btn{width:100%;margin-top:6px;background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.4);color:var(--amber);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.14em;padding:9px 4px;cursor:pointer;border-radius:3px}
+.ai-build-btn:hover{background:rgba(255,170,0,0.2)}
+.ai-build-btn:disabled{opacity:0.45;cursor:wait}
+#ai-build-status{font-size:0.52rem;color:var(--dim-text);margin-top:5px;line-height:1.5;min-height:1.2em}
+
 /* generic status toast */
 #toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:40;background:rgba(0,6,16,0.95);border:1px solid rgba(0,200,255,0.35);color:var(--text);font-size:0.66rem;letter-spacing:0.03em;padding:9px 18px;border-radius:3px;opacity:0;pointer-events:none;transition:opacity .3s}
 #toast.show{opacity:1}
@@ -135,6 +144,13 @@ input[type=range]{width:100%;accent-color:var(--amber);margin-top:2px}
     <button class="tool-btn weld" id="tool-weld" onclick="setTool('weld')">🔥 WELD</button>
     <button class="tool-btn" id="tool-delete" onclick="setTool('delete')">🗑 DELETE</button>
     <button class="tool-btn" id="tool-boolean" onclick="setTool('boolean')">⊕ BOOLEAN</button>
+  </div>
+
+  <div class="sb-label">⬡ JARVIS AI</div>
+  <div id="ai-build-wrap">
+    <textarea id="ai-build-input" placeholder="e.g. a hydrogen tank with a repulsor jetting flame out the back"></textarea>
+    <button class="ai-build-btn" id="ai-build-btn" onclick="requestAIBuild($('ai-build-input').value)">🤖 BUILD IT</button>
+    <div id="ai-build-status"></div>
   </div>
 
   <div class="sb-label">⬡ WORLD</div>
@@ -336,6 +352,9 @@ let barWeldLinks = [];                // [{aId,aIdx,bId,bIdx}] bar-to-bar joint 
                                        // these are the only weld type bend ripples through
 let selectedId = null;
 let spawnIndex = 0, barCount = 0, servoCount = 0, ledCount = 0;
+let physicsOn = false;   // read by stepPhysics(), called from animate() below —
+                         // must exist before animate() runs or it's a TDZ error
+const GRAVITY = -9.8;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -345,6 +364,7 @@ function animate() {
   stepAllServos(dt);
   stepAllLEDs(dt);
   stepPhysics(dt);
+  stepEffects(dt);
   weldBeads.forEach((w) => w.mesh.position.copy(w.getPos()));
   renderer.render(scene, camera);
 }
@@ -802,6 +822,7 @@ window.addEventListener("message", (e) => {
   else if (t === "BUILD_STOP") runAllServos(false);
   else if (t === "BUILD_SCALE_UP") scaleBuild(1.35);
   else if (t === "BUILD_SCALE_DOWN") scaleBuild(0.75);
+  else if (t === "BUILD_AI_REQUEST" && e.data.prompt) requestAIBuild(e.data.prompt);
 });
 
 function setServoMode(mode) {
@@ -1320,8 +1341,6 @@ function handleBooleanPick() {
 // fast with a handful of parts, and plenty convincing for "things can
 // fall and knock into each other" in a build workshop.
 // ═══════════════════════════════════════════════════════════════
-let physicsOn = false;
-const GRAVITY = -9.8;
 function togglePhysics() {
   physicsOn = !physicsOn;
   $("physics-toggle").textContent = "🌍 PHYSICS: " + (physicsOn ? "ON" : "OFF");
@@ -1367,6 +1386,192 @@ function stepPhysics(dt) {
     }
   }
   for (const e of bodies) updateShapeVisual(e);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── EFFECT EMITTERS — flame / sparks / smoke / glow ──
+// Lightweight GPU-free particle system (a single THREE.Points per
+// emitter) so AI-designed builds (a thruster, a repulsor, an arc
+// reactor) can actually look like they're doing something, without
+// pulling in a real particle-effects library. Each emitter is parented
+// to its entity's group, so it moves/rotates/scales with the part for
+// free — no per-frame world-transform bookkeeping needed here.
+// ═══════════════════════════════════════════════════════════════
+let effectSystems = []; // [{ entityId, points, velocities, ages, spec, spawnAcc }]
+
+const EFFECT_DEFAULTS = {
+  flame: { count: 60, blending: THREE.AdditiveBlending },
+  sparks: { count: 40, blending: THREE.AdditiveBlending },
+  smoke: { count: 36, blending: THREE.NormalBlending },
+  glow: { count: 1, blending: THREE.AdditiveBlending },
+};
+
+function attachEffect(entityId, spec) {
+  const e = entities.get(entityId);
+  if (!e || !e.group) return null;
+  const def = EFFECT_DEFAULTS[spec.type] || EFFECT_DEFAULTS.flame;
+  const count = def.count;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+  const mat = new THREE.PointsMaterial({
+    color: new THREE.Color(spec.color || "#ff7b00"),
+    size: spec.size || 0.05,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+    blending: def.blending,
+  });
+  const points = new THREE.Points(geo, mat);
+  points.frustumCulled = false;
+  e.group.add(points); // parented → inherits the part's transform automatically
+  const sys = {
+    entityId,
+    points,
+    velocities: Array.from({ length: count }, () => new THREE.Vector3()),
+    ages: new Float32Array(count).fill(Infinity), // Infinity = dead/unspawned
+    spec: {
+      type: spec.type || "flame",
+      direction: new THREE.Vector3(spec.direction?.x ?? 0, spec.direction?.y ?? 0, spec.direction?.z ?? 1).normalize(),
+      speed: spec.speed ?? 1.6,
+      rate: spec.rate ?? 30,
+      lifetime: spec.lifetime ?? 0.6,
+      size: spec.size ?? 0.05,
+      glow: (spec.type || "flame") === "glow",
+    },
+    spawnAcc: 0,
+  };
+  if (sys.spec.glow) {
+    // "glow" is just a single steady point at the attach origin, no motion.
+    sys.ages[0] = 0;
+  }
+  effectSystems.push(sys);
+  return sys;
+}
+
+function removeEffectsForEntity(entityId) {
+  effectSystems = effectSystems.filter((s) => {
+    if (s.entityId !== entityId) return true;
+    s.points.geometry.dispose();
+    s.points.material.dispose();
+    return false;
+  });
+}
+
+function stepEffects(dt) {
+  if (!effectSystems.length) return;
+  for (const s of effectSystems) {
+    const pos = s.points.geometry.attributes.position.array;
+    const n = s.ages.length;
+
+    if (s.spec.glow) {
+      pos[0] = 0; pos[1] = 0; pos[2] = 0;
+      s.points.geometry.attributes.position.needsUpdate = true;
+      continue;
+    }
+
+    // Spawn new particles at the emitter's local origin, roughly along
+    // `direction`, with a little random spread so it reads as a jet/plume
+    // rather than a single laser-straight line.
+    s.spawnAcc += s.spec.rate * dt;
+    while (s.spawnAcc >= 1) {
+      s.spawnAcc -= 1;
+      let slot = -1;
+      for (let i = 0; i < n; i++) if (s.ages[i] === Infinity || s.ages[i] > s.spec.lifetime) { slot = i; break; }
+      if (slot === -1) break;
+      s.ages[slot] = 0;
+      pos[slot * 3] = 0; pos[slot * 3 + 1] = 0; pos[slot * 3 + 2] = 0;
+      const spread = 0.25;
+      s.velocities[slot].copy(s.spec.direction)
+        .multiplyScalar(s.spec.speed)
+        .add(new THREE.Vector3((Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread));
+    }
+
+    for (let i = 0; i < n; i++) {
+      if (s.ages[i] === Infinity || s.ages[i] > s.spec.lifetime) continue;
+      s.ages[i] += dt;
+      const t = s.ages[i] / s.spec.lifetime;
+      if (t > 1) { s.ages[i] = Infinity; pos[i * 3 + 1] = 9999; continue; } // park dead particles off-screen
+      pos[i * 3]     += s.velocities[i].x * dt;
+      pos[i * 3 + 1] += s.velocities[i].y * dt;
+      pos[i * 3 + 2] += s.velocities[i].z * dt;
+      if (s.spec.type === "smoke") s.velocities[i].y += 0.4 * dt; // smoke drifts upward as it ages
+    }
+    s.points.material.opacity = 0.9;
+    s.points.geometry.attributes.position.needsUpdate = true;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── AI BUILD — "Jarvis, build a helmet" ──
+// Sends a natural-language description to the server (build-ai.js →
+// Groq), gets back a JSON scene plan, and spawns it using the exact
+// same spawnShape/updateShapeVisual/unionEntities/attachEffect
+// primitives a human uses by hand — the AI is just driving the same
+// controls, not a separate rendering path.
+// ═══════════════════════════════════════════════════════════════
+async function requestAIBuild(promptText) {
+  const prompt = (promptText || "").trim();
+  const btn = $("ai-build-btn");
+  const status = $("ai-build-status");
+  if (!prompt) { if (status) status.textContent = "Describe something first."; return; }
+  if (btn) btn.disabled = true;
+  if (status) status.textContent = `Designing "${prompt}"…`;
+  showToast(`Jarvis is designing: ${prompt}`);
+  try {
+    const res = await fetch("/api/build/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error) throw new Error(data.error || `Server returned ${res.status}`);
+    applyBuildPlan(data.plan);
+    if (status) status.textContent = `Built "${data.plan.name}" — ${data.plan.parts.length} piece${data.plan.parts.length === 1 ? "" : "s"}.`;
+  } catch (err) {
+    showToast(`Build failed: ${err.message}`, 4500);
+    if (status) status.textContent = `Failed: ${err.message}`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function applyBuildPlan(plan) {
+  if (!plan || !Array.isArray(plan.parts) || !plan.parts.length) return;
+  const idMap = new Map(); // plan-local part id -> real entity id
+
+  for (const p of plan.parts) {
+    const shape = spawnShape(p.shapeType);
+    idMap.set(p.id, shape.id);
+
+    Object.assign(shape.params, p.params);
+    shape.base.set(p.position.x, p.position.y, p.position.z);
+    const axisVec = p.rotationDeg.axis === "x" ? new THREE.Vector3(1, 0, 0)
+                  : p.rotationDeg.axis === "z" ? new THREE.Vector3(0, 0, 1)
+                  : new THREE.Vector3(0, 1, 0);
+    shape.quaternion.setFromAxisAngle(axisVec, THREE.MathUtils.degToRad(p.rotationDeg.deg));
+    shape.sizeScale = p.sizeScale;
+    shape.mat.color.set(p.color);
+    shape.mat.metalness = p.metal;
+    shape.mat.roughness = p.rough;
+    shape.physics.enabled = !!p.physics;
+    shape.name = p.id;
+    updateShapeVisual(shape);
+  }
+
+  for (const [aPlanId, bPlanId] of plan.welds || []) {
+    const a = idMap.get(aPlanId), b = idMap.get(bPlanId);
+    if (a && b) unionEntities(a, b);
+  }
+
+  for (const fx of plan.effects || []) {
+    const realId = idMap.get(fx.attachTo);
+    if (realId) attachEffect(realId, fx);
+  }
+
+  refreshEntityList(); updateTopStatus(); updateAssemblyDetail();
+  const last = idMap.get(plan.parts[plan.parts.length - 1].id);
+  if (last) selectEntity(last);
+  showToast(`Assembled: ${plan.name} (${plan.parts.length} pieces)`);
 }
 
 // ── SNAP TO GRID — quantizes MOVE-tool dragging ──
@@ -1440,6 +1645,7 @@ function deleteEntity(id) {
   const e = entities.get(id);
   if (!e) return;
   scene.remove(e.kind === "bar" ? e.group : e.group);
+  removeEffectsForEntity(id);
   entities.delete(id);
   const asm = entityAssemblyOf.get(id);
   entityAssemblyMembers.get(asm)?.delete(id);
