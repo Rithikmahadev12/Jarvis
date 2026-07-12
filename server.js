@@ -14,6 +14,7 @@ const Spotify     = require("./spotify");
 const Google      = require("./google");
 const DIY         = require("./diy-builder");
 const Build       = require("./build-engine");
+const BuildAI     = require("./build-ai");
 const Home        = require("./home");
 const Groq        = require("./hermes-engine");
 const Improve     = require("./self-improve");
@@ -222,6 +223,21 @@ app.get("/api/build/model/:uid", async (req, res) => {
 
 // Static cache of unpacked glTF models pulled from Sketchfab
 app.use("/build-cache", express.static(Build.CACHE_DIR));
+
+// ── BUILD MODE AI — "Jarvis, build a helmet" ──────────────────
+// Turns a natural-language description into a structured JSON scene
+// plan (parts, welds, effects) that build-mode.html spawns using its
+// existing primitive/weld/physics machinery. See build-ai.js.
+app.post("/api/build/generate", async (req, res) => {
+  const prompt = (req.body?.prompt || "").trim();
+  if (!prompt) return res.status(400).json({ error: "Missing 'prompt'." });
+  try {
+    const plan = await BuildAI.generateBuildPlan(prompt);
+    res.json({ plan });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // ── LINKS BANK ────────────────────────────────────────────────
 const LINKS = {
