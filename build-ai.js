@@ -163,10 +163,56 @@ function extractJson(text) {
   const start = trimmed.indexOf("{");
   const end = trimmed.lastIndexOf("}");
   if (start === -1 || end === -1 || end <= start) throw new Error("Model did not return JSON");
-  return JSON.parse(trimmed.slice(start, end + 1));
+  return JSON.parse(stripTrailingCommas(trimmed.slice(start, end + 1)));
 }
 
 // ── MAIN ENTRY POINT ───────────────────────────────────────────
+// Strips trailing commas before ] or } — the single most common way
+// these models produce technically-invalid JSON ("...cone" ]}" with a
+// stray comma before the closing bracket).
+function stripTrailingCommas(text) {
+  return text.replace(/,(\s*[\]}])/g, "$1");
+}
+
+// If generation got cut off mid-array/object (hit max_tokens), the tail
+// of the string is a dangling partial element. Walk backward from the
+// end, dropping one trailing top-level-ish chunk at a time (back to the
+// last comma/opening bracket at each nesting depth) and re-closing all
+// open brackets, until something parses. This recovers a truncated but
+// otherwise well-formed plan instead of failing outright.
+function tryRepairTruncated(text) {
+  for (let cut = text.length; cut > 0; ) {
+    // find the last comma or opening bracket before `cut`
+    const lastComma = text.lastIndexOf(",", cut - 1);
+    const lastOpen = Math.max(text.lastIndexOf("{", cut - 1), text.lastIndexOf("[", cut - 1));
+    const splitAt = Math.max(lastComma, lastOpen);
+    if (splitAt <= 0) break;
+    let candidate = text.slice(0, splitAt);
+    // if we split right after an opening bracket, drop the bracket itself
+    // only if nothing was written inside it yet (would leave "{" dangling)
+    candidate = candidate.replace(/[,{[\s]*$/, (m) => (m.includes(",") ? "" : m.replace(/,/, "")));
+    // balance remaining open brackets
+    let depthCurly = 0, depthSquare = 0, inStr = false, esc = false;
+    for (const ch of candidate) {
+      if (esc) { esc = false; continue; }
+      if (ch === "\\") { esc = true; continue; }
+      if (ch === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (ch === "{") depthCurly++; else if (ch === "}") depthCurly--;
+      else if (ch === "[") depthSquare++; else if (ch === "]") depthSquare--;
+    }
+    let closers = "";
+    while (depthSquare-- > 0) closers += "]";
+    while (depthCurly-- > 0) closers += "}";
+    try {
+      return JSON.parse(stripTrailingCommas(candidate + closers));
+    } catch {
+      cut = splitAt; // try cutting further back
+    }
+  }
+  return null;
+}
+
 async function generateBuildPlan(prompt) {
   if (!Hermes || !Hermes.isConfigured()) {
     throw new Error("Build AI isn't configured — set GROQ_API_KEY in .env to let Jarvis design builds.");
@@ -175,12 +221,19 @@ async function generateBuildPlan(prompt) {
     { role: "system", content: SYSTEM_PROMPT },
     { role: "user", content: `Build this: ${prompt}` },
   ];
-  const raw = await Hermes.groqFetch(messages, Hermes.MODELS.smart, 0.6, 2000);
+  const raw = await Hermes.groqFetch(messages, Hermes.MODELS.smart, 0.6, 4000);
   let parsed;
   try {
     parsed = extractJson(raw);
-  } catch (e) {
-    throw new Error(`Couldn't parse a build plan from the model: ${e.message}`);
+  } catch (firstErr) {
+    // Fall back to truncation repair before giving up entirely.
+    const trimmed = (raw || "").trim().replace(/^```json\s*/i, "").replace(/^```\s*/, "");
+    const start = trimmed.indexOf("{");
+    const repaired = start !== -1 ? tryRepairTruncated(trimmed.slice(start)) : null;
+    if (!repaired) {
+      throw new Error(`Couldn't parse a build plan from the model: ${firstErr.message}`);
+    }
+    parsed = repaired;
   }
   const plan = sanitizePlan(parsed, prompt.slice(0, 40));
   if (!plan.parts.length) throw new Error("The model returned an empty build — try describing it differently.");
