@@ -84,6 +84,34 @@
   pointer-events: none;
 }
 
+/* Generating / error states for generate() (mesh-generator.js pipeline) */
+.hw-gen-status {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 18px;
+  box-sizing: border-box;
+  font-family: var(--hud, 'Orbitron', monospace);
+  font-size: 0.68rem;
+  line-height: 1.5;
+  letter-spacing: 0.03em;
+  color: rgba(0, 200, 255, 0.85);
+}
+.holo-widget.hw-generating .hw-gen-status {
+  animation: hw-pulse 1.6s ease-in-out infinite;
+}
+.holo-widget.hw-error .hw-gen-status {
+  color: rgba(255, 110, 110, 0.9);
+}
+.holo-widget.hw-error { filter: drop-shadow(0 0 20px rgba(255, 70, 70, 0.3)); }
+@keyframes hw-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
 .hw-edge-glow {
   position: fixed;
   top: 0;
