@@ -102,19 +102,10 @@
     if (skipBtn) skipBtn.onclick = finish;
 
     typeBootLines(() => {
-      // ── Hand off to the Daily Briefing screen ──────────────────
-      // Asks "what is going to be your task today?" the first time
-      // each day, then speaks/plays a numbered briefing. Falls back
-      // to the old plain greeting if daily-briefing.js isn't loaded.
-      if (window.JarvisBriefing && typeof window.JarvisBriefing.run === "function") {
-        try {
-          window.JarvisBriefing.run({ user: userName, userTitle: T }, finish);
-          return;
-        } catch (e) {
-          // fall through to legacy greeting below
-        }
-      }
-
+      // The Daily Briefing screen no longer runs automatically here —
+      // JARVIS now asks whether you want it (after face enrollment, or
+      // any time you say "daily briefing") instead of always showing it
+      // on login. See offerDailyBriefing() in jarvis.js.
       const greeting = `Online and fully operational${userName ? `, ${userName}` : ""}. I am J.A.R.V.I.S — Just A Rather Very Intelligent System. All systems are nominal and I'm ready when you are, ${T}.`;
       if (greetingEl) {
         greetingEl.textContent = greeting;
