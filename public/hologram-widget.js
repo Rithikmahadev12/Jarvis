@@ -1168,19 +1168,57 @@ OBJECTS.molecule = buildMolecule;
       setTimeout(() => card.remove(), 300);
     });
 
-    let data;
+    let startData;
     try {
       const res = await fetch('/api/hologram/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
       });
-      data = await res.json();
+      startData = await res.json();
     } catch (e) {
-      data = { kind: 'error', error: e.message };
+      startData = { kind: 'error', error: e.message };
     }
 
     if (!card.isConnected) return null; // user closed it while we waited
+
+    if (!startData.jobId) {
+      card.querySelector('.hw-head span').textContent = 'GENERATION FAILED';
+      card.querySelector('.hw-gen-status').textContent =
+        (startData.error || 'Could not start generation') + ' — the free mesh-generation Spaces are community infra, not a guaranteed-uptime service, so this can happen.';
+      card.classList.add('hw-error');
+      return id;
+    }
+
+    // Poll instead of holding one request open — free-tier proxies
+    // (Render included) kill long-idle HTTP requests well before a
+    // 30s-3min generation finishes, which is what caused the old
+    // "Unexpected end of JSON input" error (truncated response body).
+    const POLL_MS = 4000;
+    const MAX_POLLS = 90; // ~6 minutes ceiling
+    let data = null;
+    for (let i = 0; i < MAX_POLLS; i++) {
+      if (!card.isConnected) return null; // user closed it mid-generation
+      await new Promise(r => setTimeout(r, POLL_MS));
+      try {
+        const res = await fetch('/api/hologram/generate/' + encodeURIComponent(startData.jobId));
+        data = await res.json();
+      } catch (e) {
+        continue; // transient network hiccup — just try again next tick
+      }
+      if (data.stage) {
+        const statusEl = card.querySelector('.hw-gen-status');
+        if (statusEl) statusEl.textContent = 'Status: ' + data.stage + '…';
+      }
+      if (data.status === 'done') break;
+    }
+
+    if (!data || data.status !== 'done') {
+      card.querySelector('.hw-head span').textContent = 'GENERATION FAILED';
+      card.querySelector('.hw-gen-status').textContent = 'Timed out waiting for the free generator — the shared GPU queue was probably too busy right now. Try again in a bit.';
+      card.classList.add('hw-error');
+      return id;
+    }
 
     if (data.kind !== 'gltf') {
       card.querySelector('.hw-head span').textContent = 'GENERATION FAILED';
