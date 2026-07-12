@@ -1745,6 +1745,15 @@ function openBuild(query) {
   if (!panel || !iframe) return;
   panel.style.display = "block";
 
+  // Build Mode runs its OWN hand-tracking instance inside the iframe (its
+  // own camera feed, its own overlay canvas — see build-mode.html). The
+  // parent HUD's hand-tracking overlay covers the entire viewport and
+  // would otherwise keep drawing its own skeleton/cursor on top of Build
+  // Mode's, producing two independently-tracked, out-of-sync skeletons
+  // fighting each other on screen. Pause the parent's while Build Mode
+  // owns the screen; closeBuild() resumes it.
+  try { window.HandTracking?.stop(); } catch (e) {}
+
   // Load the iframe lazily — only the first time Build mode is actually
   // opened, so it doesn't boot in the background while the user is
   // still on the login/boot screen.
@@ -1768,6 +1777,15 @@ function closeBuild() {
   if (panel) panel.style.display = "none";
   if (state.phase === "chatting") mic.resume();
   _setTaskbarChatActive();
+  // Resume the parent HUD's hand tracking now that Build Mode's own
+  // instance (and its overlay) is no longer the only one that should be
+  // drawing — only if the main screen is actually still active (don't
+  // resurrect it during logout).
+  try {
+    if (document.getElementById("main-screen")?.classList.contains("active") && !window.HandTracking?.active) {
+      window.HandTracking?.start();
+    }
+  } catch (e) {}
 }
 
 // ═══════════════════════════════════════════════════════════════
