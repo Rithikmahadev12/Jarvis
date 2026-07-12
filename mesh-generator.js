@@ -53,6 +53,20 @@ const MESH_SPACE  = "VAST-AI/TripoSG";
 
 const GEN_TIMEOUT_MS = 3 * 60 * 1000; // free shared GPU queue — generous timeout
 
+// Free Hugging Face account token (Settings -> Access Tokens, "Read" scope
+// is enough). Not required, but ZeroGPU Spaces ration anonymous callers
+// much harder than logged-in-free callers — set HF_TOKEN in the env to get
+// a bigger free quota instead of sharing the anonymous-IP pool.
+const HF_TOKEN = process.env.HF_TOKEN || null;
+
+function connectOpts() {
+  return HF_TOKEN ? { hf_token: HF_TOKEN } : {};
+}
+
+console.log(HF_TOKEN
+  ? "[mesh-generator] HF_TOKEN detected — using logged-in free quota for ZeroGPU Spaces"
+  : "[mesh-generator] No HF_TOKEN set — using anonymous free quota (much smaller, hits limits fast). Set HF_TOKEN in env to fix.");
+
 // Asks the Space what its real named endpoint is instead of guessing.
 // `hint` is just a preference if there are multiple named endpoints
 // (e.g. prefer one with "infer" in the name) — falls back to the
@@ -107,7 +121,7 @@ function downloadTo(url, destPath) {
 
 // ── STEP 1: text -> image ────────────────────────────────────────
 async function textToImage(prompt) {
-  const client = await GradioClient.connect(IMAGE_SPACE);
+  const client = await GradioClient.connect(IMAGE_SPACE, connectOpts());
   const apiName = await resolveEndpoint(client, "infer");
   const result = await client.predict(apiName, {
     prompt,
@@ -125,7 +139,7 @@ async function textToImage(prompt) {
 // ── STEP 2: image -> 3D mesh ─────────────────────────────────────
 async function imageToMesh(imageUrl) {
   const { handle_file } = require("@gradio/client");
-  const client = await GradioClient.connect(MESH_SPACE);
+  const client = await GradioClient.connect(MESH_SPACE, connectOpts());
   const apiName = await resolveEndpoint(client, "infer");
   const result = await client.predict(apiName, {
     image: handle_file(imageUrl),
