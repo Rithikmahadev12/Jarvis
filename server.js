@@ -211,17 +211,19 @@ app.get("/api/build/model/:uid", async (req, res) => {
 
 // ── Free mesh generation — "Jarvis, render me a helmet with X" ──
 // Real generated geometry (text -> image -> 3D mesh via free public
-// Hugging Face Spaces), not a primitive/box composer. See
-// mesh-generator.js for how + the honest tradeoffs of the free path.
-app.post("/api/hologram/generate", async (req, res) => {
+// Hugging Face Spaces), not a primitive/box composer. Runs as a
+// background job (see mesh-generator.js) instead of one long
+// blocking request, since free-tier proxies kill long-idle
+// connections well before a 30s-3min generation finishes.
+app.post("/api/hologram/generate", (req, res) => {
   const prompt = (req.body?.prompt || "").trim();
   if (!prompt) return res.status(400).json({ kind: "error", error: "missing prompt" });
-  try {
-    const data = await MeshGen.generateMesh(prompt);
-    res.json(data);
-  } catch (e) {
-    res.status(500).json({ kind: "error", error: e.message });
-  }
+  const jobId = MeshGen.startJob(prompt);
+  res.json({ jobId });
+});
+
+app.get("/api/hologram/generate/:jobId", (req, res) => {
+  res.json(MeshGen.getJob(req.params.jobId));
 });
 
 // Static cache of unpacked glTF models pulled from Sketchfab, plus
