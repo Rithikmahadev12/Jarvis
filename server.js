@@ -1315,7 +1315,7 @@ async function handleRunComputerCommand(command, T, sessionId) {
 }
 
 // ── JARVIS AGENT: type text into the focused window (always confirm) ──
-async function handleTypeText(text, T, sessionId) {
+async function handleTypeText(text, T, sessionId, newFile = false) {
   if (!JarvisAgent.isEnabled()) {
     return {
       reply: `Can't type on this machine from here, ${T} — this instance is running in the cloud.`,
@@ -1326,12 +1326,13 @@ async function handleTypeText(text, T, sessionId) {
   const clean = (text || "").trim();
   if (!clean) return { reply: `What do you want me to type, ${T}?`, action: "TYPE_TEXT", intent: "type_text" };
 
-  JarvisAgent.proposeAction(sessionId, "type", { text: clean });
+  JarvisAgent.proposeAction(sessionId, "type", { text: clean, newFile });
+  const where = newFile ? "into a new file" : "into whatever's currently focused on your screen";
   return {
-    reply: `Want me to type "${clean}" into whatever's currently focused on your screen, ${T}? Say yes to confirm.`,
+    reply: `Want me to type that ${where}, ${T}? Say yes to confirm.`,
     action: "TYPE_TEXT_CONFIRM",
     intent: "type_text",
-    meta: { pendingText: clean },
+    meta: { pendingText: clean, newFile },
   };
 }
 
@@ -1368,7 +1369,9 @@ async function resolvePendingAgentAction(message, T, sessionId) {
 
   if (pending.kind === "type") {
     try {
-      await JarvisAgent.typeText(pending.payload.text);
+      // A small delay gives a just-opened app a moment to actually become
+      // the focused window before keystrokes start firing at it.
+      await JarvisAgent.typeText(pending.payload.text, { newFile: pending.payload.newFile, delayMs: 800 });
       return { reply: `Typed it, ${T}.`, action: "TYPE_TEXT", intent: "type_text" };
     } catch (e) {
       return { reply: `Couldn't type that, ${T}. ${e.message}`, action: "TYPE_TEXT", intent: "type_text" };
@@ -1963,6 +1966,20 @@ async function executeAssistantTool(name, args, ctx) {
       return await handleCalendarFetch(periodPhrase, T, userName);
     }
 
+    case "open_on_computer": {
+      if (!JarvisAgent.isEnabled()) {
+        return { reply: `Can't do that from here, ${T} — this instance is running in the cloud, not on your computer.`, action: "OPEN_ON_PC", intent: "open_on_pc" };
+      }
+      const target = (args.target || "").trim();
+      if (!target) return { reply: `What do you want opened, ${T}?`, action: "OPEN_ON_PC", intent: "open_on_pc" };
+      try {
+        const result = await JarvisAgent.openTarget(target);
+        return { reply: `Opening ${result.target}, ${T}.`, action: "OPEN_ON_PC", intent: "open_on_pc", meta: { opened: result.target } };
+      } catch (e) {
+        return { reply: `Couldn't open that, ${T}. ${e.message}`, action: "OPEN_ON_PC", intent: "open_on_pc" };
+      }
+    }
+
     case "check_disk_space":
       return await handleCheckDiskSpace(T);
 
@@ -1970,7 +1987,7 @@ async function executeAssistantTool(name, args, ctx) {
       return await handleRunComputerCommand(args.command, T, sessionId);
 
     case "type_text":
-      return await handleTypeText(args.text, T, sessionId);
+      return await handleTypeText(args.text, T, sessionId, !!args.new_file);
 
     default:
       return { reply: `I don't have a tool for that yet, ${T}.` };
@@ -2081,18 +2098,16 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ reply: smalltalkReply, action: "SMALLTALK", intent: "smalltalk" });
   }
 
-  // ── 2.4 Local PC control (Jarvis Agent, Groq-powered) ──
-  // Must run BEFORE Groq's tool-calling stage below. Groq's main chat
-  // brain has no "open an app on my computer" tool, so if this ran
-  // after that stage, it would just answer in generic text and return
-  // early — jarvis-agent.js would never actually get called. Checked
-  // here instead, ahead of the main brain, so local open/launch
-  // requests always reach the agent. jarvis-agent.js itself only ever
-  // executes when this Jarvis instance is running on your own machine
-  // (not Render) — see its isEnabled().
-  if (HARD_COMMANDS.openOnPC.test(message)) {
-    return res.json(await handleOpenOnPC(message, T));
-  }
+  // NOTE: local PC control ("open VS Code", "open notepad", etc.) used to
+  // be intercepted HERE via regex, before Groq ever saw the message. That
+  // broke compound requests like "open VS Code and type a flappy bird
+  // script" — the regex matched on "open VS Code" and returned immediately,
+  // so "...and type a flappy bird script" was silently dropped and never
+  // reached Groq at all. Now open_on_computer is a real Groq tool (see
+  // hermes-engine.js's TOOLS + executeAssistantTool below), so Groq can
+  // call it ALONGSIDE type_text in the same response and actually handle
+  // the whole request. The old regex path still exists as a fallback
+  // further down, for when Groq is unconfigured or its call throws.
 
   // ── 2.5 AI decides + acts — replaces regex command matching ──
   // Groq reads the message and either calls a real tool (reminder,
