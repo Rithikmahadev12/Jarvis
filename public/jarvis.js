@@ -1437,18 +1437,6 @@ function handleChatCommand(text) {
   // ── Context injection: if user says "yes/no/sure/ok" after JARVIS asked a question,
   //    automatically inject the question context so the AI understands the reply ──
   const isShortAffirmOrNeg = /^(yes|yeah|yep|sure|ok|okay|no|nope|nah|please|go ahead|do it|confirm|cancel|skip)\.?$/i.test(cleaned.trim());
-  if (isShortAffirmOrNeg && state.pendingBriefingOffer) {
-    const isYes = /^(yes|yeah|yep|sure|ok|okay|please|go ahead|do it|confirm)\.?$/i.test(cleaned.trim());
-    state.pendingBriefingOffer = false;
-    state.lastJarvisQuestion = null;
-    if (isYes) {
-      runDailyBriefing();
-    } else {
-      const r = `Understood, ${state.userTitle}. Just say "daily briefing" any time you'd like it.`;
-      addMsg("jarvis", r); speak(r);
-    }
-    return;
-  }
   if (isShortAffirmOrNeg && state.pendingBuildConfirm) {
     const isYes = /^(yes|yeah|yep|sure|ok|okay|please|go ahead|do it|confirm)\.?$/i.test(cleaned.trim());
     const iframe = $("build-iframe");
@@ -1468,11 +1456,13 @@ function handleChatCommand(text) {
 
   const cleanedLower = cleaned.toLowerCase();
 
-  // ── Daily briefing on request ──
-  if (/\b(daily briefing|today'?s briefing|morning briefing)\b/.test(cleanedLower)) {
-    runDailyBriefing();
-    return;
-  }
+  // NOTE: "daily briefing" / "brief me" etc. used to be intercepted HERE
+  // and launched the full-screen briefing.js experience directly, which
+  // is exactly the "big page every time" behavior that wasn't wanted.
+  // It's no longer special-cased client-side — it just falls through to
+  // sendToAI() below, and the server's routeDailyBriefing() handles the
+  // whole conversation (goal question, steps, or the general "here's
+  // what's going on" fallback) as plain chat replies.
 
   // ── Mode switching: "Jarvis switch to map/chat/3d/build" ──
   const switchMatch = cleanedLower.match(/\bswitch(?:\s+(?:to|into))?\s+(map|chat|3d|hologram|holo|build|blueprint|cad)\s*(?:mode)?\b/);
@@ -1605,6 +1595,7 @@ function handleChatCommand(text) {
       /\b(face|facial|me)\b/.test(cleanedLower)) {
     state.faceEnrolled = false;
     state.faceDescriptors = null;
+    clearSavedFaceDescriptor();
     const r = `Re-enrolling your face now, ${state.userTitle}. Please look at the camera.`;
     addMsg("jarvis", r); speak(r);
     enrollUserFace(); return;
@@ -2557,9 +2548,45 @@ async function ensureFaceApiLoaded() {
 async function loadFaceModels() {
   const ok = await ensureFaceApiLoaded();
   if (!ok) { addMsg("system", "Face recognition unavailable — intruder detection disabled."); return; }
+
+  // ── Reuse a previously-enrolled face instead of scanning again ──
+  // Enrollment used to run fresh every single login (state.faceDescriptors
+  // only ever lived in memory, so it was wiped on every page load) —
+  // that's why it felt like re-enrolling "the same face" every time you
+  // logged in, and why the daily-briefing offer that was chained after it
+  // kept popping up too. Now the descriptor is saved once and just loaded
+  // back silently on future logins.
+  const saved = loadSavedFaceDescriptor();
+  if (saved) {
+    state.faceDescriptors = saved;
+    state.faceEnrolled = true;
+    startFaceWatch();
+    return;
+  }
+
   addMsg("system", "Face recognition engine loaded. Enrolling your face — please look at the camera.");
   speak(`Face recognition active, ${state.userTitle}. Please look at the camera while I scan your face.`);
   await enrollUserFace();
+}
+
+// ── Persisted face descriptor (localStorage) ─────────────────────
+// Stored as a plain array (Float32Array isn't JSON-serializable as-is).
+const FACE_DESCRIPTOR_KEY = "jarvis_face_descriptor";
+function loadSavedFaceDescriptor() {
+  try {
+    const raw = localStorage.getItem(FACE_DESCRIPTOR_KEY);
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr) || !arr.length) return null;
+    return new Float32Array(arr);
+  } catch { return null; }
+}
+function saveFaceDescriptor(descriptor) {
+  try { localStorage.setItem(FACE_DESCRIPTOR_KEY, JSON.stringify(Array.from(descriptor))); }
+  catch (e) { console.warn("[JARVIS] Couldn't persist face descriptor:", e.message); }
+}
+function clearSavedFaceDescriptor() {
+  try { localStorage.removeItem(FACE_DESCRIPTOR_KEY); } catch {}
 }
 
 async function enrollUserFace() {
@@ -2593,10 +2620,11 @@ async function enrollUserFace() {
       if (detection && detection.descriptor) {
         state.faceDescriptors = detection.descriptor;
         state.faceEnrolled = true;
+        saveFaceDescriptor(detection.descriptor);
         success = true;
         hideEnrollBadge();
         addMsg("system", `✓ Your face has been enrolled, ${state.userTitle}. Intruder detection is now active.`);
-        speak(`Face enrolled, ${state.userTitle}. I'll alert you if anyone else appears on camera.`, offerDailyBriefing);
+        speak(`Face enrolled, ${state.userTitle}. I'll alert you if anyone else appears on camera.`);
         startFaceWatch();
         break;
       } else {
@@ -2616,21 +2644,13 @@ async function enrollUserFace() {
   }
 }
 
-// ── Daily briefing: ask, don't assume ──────────────────────────
-// JARVIS no longer plays the daily briefing on its own on login. It
-// offers it once, right after face enrollment finishes, and otherwise
-// only shows it if you explicitly ask ("daily briefing").
-function offerDailyBriefing() {
-  if (state.pendingBriefingOffer) return; // already asked, awaiting a reply
-  state.pendingBriefingOffer = true;
-  const q = `Would you like the daily briefing, ${state.userTitle}?`;
-  state.lastJarvisQuestion = q;
-  addMsg("jarvis", q);
-  speak(q);
-}
+// ── Daily briefing now lives entirely server-side as a plain chat
+// back-and-forth (see routeDailyBriefing in server.js) — it's never
+// launched proactively here, and never opens the old full-screen
+// experience. "daily briefing" / "brief me" etc. just fall through to
+// sendToAI() like any other message below.
 
 function runDailyBriefing() {
-  state.pendingBriefingOffer = false;
   if (window.JarvisBriefing && typeof window.JarvisBriefing.run === "function") {
     try { window.JarvisBriefing.run({ user: state.user, userTitle: state.userTitle }, () => {}); return; }
     catch (e) { console.warn("[JARVIS] Daily briefing failed to launch:", e); }
