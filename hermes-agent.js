@@ -141,7 +141,11 @@ async function askHermes(userMessage) {
         { role: "user", content: userMessage },
       ],
     }),
-    signal: AbortSignal.timeout(30000),
+    // 30s was too tight — a cold model load (first request after Ollama
+    // starts, or after it's been idle) can easily take 20-40s on CPU-only
+    // machines on top of generation time. 120s gives real headroom while
+    // still failing fast if Ollama is genuinely unreachable/hung.
+    signal: AbortSignal.timeout(120000),
   });
   if (!res.ok) throw new Error(`Ollama/Hermes request failed (${res.status})`);
   const data = await res.json();
