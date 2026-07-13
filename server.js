@@ -1245,6 +1245,139 @@ async function handleOpenOnPC(message, T) {
   }
 }
 
+// ── JARVIS AGENT: how much disk space do I have ─────────────────
+async function handleCheckDiskSpace(T) {
+  if (!JarvisAgent.isEnabled()) {
+    return {
+      reply: `Can't check that from here, ${T} — this instance is running in the cloud, not on your computer.`,
+      action: "DISK_SPACE",
+      intent: "disk_space",
+    };
+  }
+  try {
+    const drives = await JarvisAgent.getDiskSpace();
+    const main = drives[0];
+    const reply = main.percentUsed
+      ? `You've got ${main.freeGB}GB free out of ${main.totalGB}GB, ${T} — that's ${main.percentUsed} used.`
+      : `You've got ${main.freeGB}GB free (${main.usedGB}GB used), ${T}.`;
+    // Show the full breakdown on screen too, and pop the native storage
+    // viewer open as a bonus — both best-effort, never block the spoken answer.
+    JarvisAgent.showTextResult("disk-space", JSON.stringify(drives, null, 2)).catch(() => {});
+    JarvisAgent.openDiskSpaceViewer().catch(() => {});
+    return { reply, action: "DISK_SPACE", intent: "disk_space", meta: { drives } };
+  } catch (e) {
+    return { reply: `Couldn't check disk space, ${T}. ${e.message}`, action: "DISK_SPACE", intent: "disk_space" };
+  }
+}
+
+// ── JARVIS AGENT: run a shell command locally (tiered) ──────────
+async function handleRunComputerCommand(command, T, sessionId) {
+  if (!JarvisAgent.isEnabled()) {
+    return {
+      reply: `Can't run commands from here, ${T} — this instance is running in the cloud, not on your computer.`,
+      action: "RUN_COMMAND",
+      intent: "run_command",
+    };
+  }
+  const cmd = (command || "").trim();
+  if (!cmd) return { reply: `What command do you want me to run, ${T}?`, action: "RUN_COMMAND", intent: "run_command" };
+
+  const tier = JarvisAgent.classifyShellTier(cmd);
+
+  if (tier === "never") {
+    return {
+      reply: `I won't run that one, ${T} — it's the kind of command that can do irreversible damage, so it's blocked outright regardless of confirmation.`,
+      action: "RUN_COMMAND",
+      intent: "run_command",
+    };
+  }
+
+  if (tier === "confirm") {
+    JarvisAgent.proposeAction(sessionId, "shell", { command: cmd });
+    return {
+      reply: `Want me to run \`${cmd}\` on your computer, ${T}? Say yes to confirm.`,
+      action: "RUN_COMMAND_CONFIRM",
+      intent: "run_command",
+      meta: { pendingCommand: cmd },
+    };
+  }
+
+  // tier === "auto" — read-only/informational, safe to run immediately
+  try {
+    const result = await JarvisAgent.runShellCommand(cmd);
+    const output = (result.stdout || result.stderr || "(no output)").trim();
+    JarvisAgent.showTextResult("command-output", `$ ${cmd}\n\n${output}`).catch(() => {});
+    const spoken = output.length > 220 ? `${output.slice(0, 220)}... — full output is open on screen.` : output;
+    return { reply: `${spoken}, ${T}.`, action: "RUN_COMMAND", intent: "run_command", meta: { command: cmd, output } };
+  } catch (e) {
+    return { reply: `That command failed, ${T}. ${e.message}`, action: "RUN_COMMAND", intent: "run_command" };
+  }
+}
+
+// ── JARVIS AGENT: type text into the focused window (always confirm) ──
+async function handleTypeText(text, T, sessionId) {
+  if (!JarvisAgent.isEnabled()) {
+    return {
+      reply: `Can't type on this machine from here, ${T} — this instance is running in the cloud.`,
+      action: "TYPE_TEXT",
+      intent: "type_text",
+    };
+  }
+  const clean = (text || "").trim();
+  if (!clean) return { reply: `What do you want me to type, ${T}?`, action: "TYPE_TEXT", intent: "type_text" };
+
+  JarvisAgent.proposeAction(sessionId, "type", { text: clean });
+  return {
+    reply: `Want me to type "${clean}" into whatever's currently focused on your screen, ${T}? Say yes to confirm.`,
+    action: "TYPE_TEXT_CONFIRM",
+    intent: "type_text",
+    meta: { pendingText: clean },
+  };
+}
+
+// ── JARVIS AGENT: resolve a pending confirm-tier action (shell/type) ──
+// Called at the very top of /api/chat when the session has something
+// awaiting a yes/no. Returns null if there's nothing pending for this
+// session, so the caller falls through to normal routing.
+const AFFIRMATIVE_RE = /^\s*(yes|yeah|yep|yup|sure|do it|go ahead|confirm(ed)?|affirmative|please do|correct)\b/i;
+const NEGATIVE_RE    = /^\s*(no|nope|nah|cancel|don'?t|stop|never ?mind|negative)\b/i;
+
+async function resolvePendingAgentAction(message, T, sessionId) {
+  const pending = JarvisAgent.getPendingAction(sessionId);
+  if (!pending) return null;
+
+  if (NEGATIVE_RE.test(message)) {
+    JarvisAgent.clearPendingAction(sessionId);
+    return { reply: `Cancelled, ${T}.`, action: "AGENT_ACTION_CANCELLED", intent: "agent_confirm" };
+  }
+  if (!AFFIRMATIVE_RE.test(message)) return null; // not a yes/no reply — let normal routing handle it
+
+  JarvisAgent.clearPendingAction(sessionId);
+
+  if (pending.kind === "shell") {
+    try {
+      const result = await JarvisAgent.runShellCommand(pending.payload.command);
+      const output = (result.stdout || result.stderr || "(no output)").trim();
+      JarvisAgent.showTextResult("command-output", `$ ${pending.payload.command}\n\n${output}`).catch(() => {});
+      const spoken = output.length > 220 ? `${output.slice(0, 220)}... — full output is open on screen.` : output;
+      return { reply: `${spoken}, ${T}.`, action: "RUN_COMMAND", intent: "run_command", meta: { command: pending.payload.command, output } };
+    } catch (e) {
+      return { reply: `That command failed, ${T}. ${e.message}`, action: "RUN_COMMAND", intent: "run_command" };
+    }
+  }
+
+  if (pending.kind === "type") {
+    try {
+      await JarvisAgent.typeText(pending.payload.text);
+      return { reply: `Typed it, ${T}.`, action: "TYPE_TEXT", intent: "type_text" };
+    } catch (e) {
+      return { reply: `Couldn't type that, ${T}. ${e.message}`, action: "TYPE_TEXT", intent: "type_text" };
+    }
+  }
+
+  return null;
+}
+
 async function handleGmailFetch(message, T, userName, sessionId) {
   const userKey = (userName || "").toLowerCase().trim();
   const profiles = loadProfiles();
@@ -1830,6 +1963,15 @@ async function executeAssistantTool(name, args, ctx) {
       return await handleCalendarFetch(periodPhrase, T, userName);
     }
 
+    case "check_disk_space":
+      return await handleCheckDiskSpace(T);
+
+    case "run_computer_command":
+      return await handleRunComputerCommand(args.command, T, sessionId);
+
+    case "type_text":
+      return await handleTypeText(args.text, T, sessionId);
+
     default:
       return { reply: `I don't have a tool for that yet, ${T}.` };
   }
@@ -1852,6 +1994,13 @@ app.post("/api/chat", async (req, res) => {
   }
 
   const T = userTitle || "Sir";
+
+  // ── -1. Pending Jarvis Agent confirmation (shell command / typed text) ──
+  // If the last thing Jarvis said was "want me to run X, say yes to
+  // confirm", this message might be that yes/no — check it before
+  // anything else gets a chance to reinterpret "yes" as something else.
+  const pendingResolution = await resolvePendingAgentAction(message, T, sessionId);
+  if (pendingResolution) return res.json(pendingResolution);
 
   // ── 0. Home Talk toggle — checked first so it never collides with
   //      smart-home / smalltalk / AI routing below ──
