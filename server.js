@@ -17,6 +17,7 @@ const Build       = require("./build-engine");
 const BuildAI     = require("./build-ai");
 const Home        = require("./home");
 const Groq        = require("./hermes-engine");
+const HermesAgent = require("./hermes-agent");
 const Improve     = require("./self-improve");
 const Trainer     = require("./trainer");
 const Brain       = require("./brain");
@@ -1123,6 +1124,12 @@ const HARD_COMMANDS = {
   calendar:     /\b(calendar|schedule|events?|agenda|meetings?|appointments?|what('s| is) (on|planned)|my day|today'?s? (plan|event|meeting|schedule))\b/i,
   links:        /\b(show (my |all )?links|open links|link bank|all my links)\b/i,
   openLink:     /\b(open|launch|pull up|go to)\b.{1,40}\b(infamous|petzah|fern|vapor)\b/i,
+  // Local PC control (Hermes Agent) — "open notepad", "launch chrome",
+  // "open C:\notes.txt on my computer", etc. Checked after openLink so
+  // saved link names still win if they overlap. Actually disabled at
+  // runtime (not just skipped) when running on Render — see
+  // hermes-agent.js's isEnabled().
+  openOnPC:     /\b(open|launch|start|fire up|pull up)\b.{1,40}\b(on (my|the) (computer|pc|machine|desktop)|notepad|calculator|calc|file explorer|finder|paint|chrome|firefox|edge|safari|spotify app|word|excel|terminal|command prompt|cmd|vs\s?code|vscode|settings app)\b/i,
   hologram:     /\b(show me a (3d|hologram)|holographic|3d model|3d scan|build mode)\b/i,
   newsWidget:   /\bnews widget\b/i,
   newsPage:     /\b(world news|news dashboard|news wall|open (the )?news|pull up (the )?news|show (me )?(the )?news|what'?s happening in the world|what'?s going on in the world|catch me up on the news|latest headlines|top headlines)\b/i,
@@ -1185,6 +1192,23 @@ async function handleSpotifyFetch(message, T) {
     return { reply: sr, action: "SPOTIFY", intent: "spotify", meta: { spotifyData: sd } };
   } catch (e) {
     return { reply: `Spotify command failed, ${T}.`, action: "SPOTIFY", intent: "spotify" };
+  }
+}
+
+// ── HERMES AGENT: open something on the local computer ─────────
+async function handleOpenOnPC(message, T) {
+  if (!HermesAgent.isEnabled()) {
+    return {
+      reply: `Can't do that from here, ${T} — this instance is running in the cloud, not on your computer, so the Hermes agent is disabled.`,
+      action: "OPEN_ON_PC",
+      intent: "open_on_pc",
+    };
+  }
+  try {
+    const result = await HermesAgent.openOnComputer(message);
+    return { reply: `Opening ${result.target}, ${T}.`, action: "OPEN_ON_PC", intent: "open_on_pc", meta: { opened: result.target } };
+  } catch (e) {
+    return { reply: `Couldn't do that, ${T}. ${e.message}`, action: "OPEN_ON_PC", intent: "open_on_pc" };
   }
 }
 
@@ -1794,6 +1818,9 @@ app.post("/api/chat", async (req, res) => {
     }
     if (hardCommandType === "hologram") {
       return res.json(handleHologramOpen(message, T));
+    }
+    if (hardCommandType === "openOnPC") {
+      return res.json(await handleOpenOnPC(message, T));
     }
     if (hardCommandType === "newsWidget") {
       return res.json(await handleNewsFetch(message, T, "widget"));
