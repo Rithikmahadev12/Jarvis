@@ -1,0 +1,147 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — FLOATING BOARD WIDGET
+   A small holographic info card that floats directly over the page
+   (never a route, never a panel). Grab it with a mouse, a finger,
+   or a hand-tracking pinch and move it anywhere; swipe it and it
+   keeps spinning like a real object would; drag it off the left or
+   right edge to dismiss it from view (it stays saved — ask for it
+   again any time).
+   ═══════════════════════════════════════════════════════════════ */
+
+.jb-scene {
+  position: fixed;
+  z-index: 860;
+  width: 300px;
+  perspective: 1000px;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+  filter: drop-shadow(0 0 26px rgba(0, 200, 255, 0.22));
+}
+.jb-scene.in { opacity: 1; transform: scale(1); }
+.jb-scene.dragging { cursor: grabbing; }
+.jb-scene.edge-armed { filter: drop-shadow(0 0 30px rgba(255, 70, 70, 0.35)); }
+.jb-scene.dismissing {
+  opacity: 0;
+  transform: scale(0.5);
+  filter: drop-shadow(0 0 4px rgba(0, 200, 255, 0));
+  transition: opacity 0.32s ease, transform 0.32s ease, filter 0.32s ease;
+}
+
+/* The card itself carries the 3D rotation — kept separate from
+   .jb-scene (which only ever translates) so drag math never has to
+   fight the spin transform. */
+.jb-card {
+  position: relative;
+  width: 100%;
+  border-radius: 14px;
+  padding: 16px 18px 18px;
+  box-sizing: border-box;
+  background: linear-gradient(160deg, rgba(4, 24, 36, 0.55), rgba(2, 14, 22, 0.35));
+  border: 1px solid rgba(0, 200, 255, 0.35);
+  box-shadow: inset 0 0 30px rgba(0, 200, 255, 0.06), 0 0 0 1px rgba(0, 200, 255, 0.06);
+  backdrop-filter: blur(6px);
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.jb-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-family: var(--hud, 'Orbitron', monospace);
+  font-size: 0.56rem;
+  letter-spacing: 0.16em;
+  color: var(--blue, #00c8ff);
+  text-shadow: 0 0 12px rgba(0, 200, 255, 0.7), 0 0 2px rgba(0, 200, 255, 0.9);
+}
+.jb-head span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.jb-close {
+  flex: 0 0 auto;
+  background: transparent;
+  border: none;
+  color: rgba(0, 200, 255, 0.55);
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 4px;
+  transition: color 0.15s, text-shadow 0.15s;
+  text-shadow: 0 0 8px rgba(0, 200, 255, 0.5);
+}
+.jb-close:hover { color: #ff5555; text-shadow: 0 0 10px rgba(255, 80, 80, 0.7); }
+
+.jb-body {
+  font-family: var(--body, 'Rajdhani', 'Segoe UI', sans-serif);
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: rgba(200, 240, 255, 0.92);
+  white-space: pre-line;
+}
+.jb-body div { margin: 0 0 6px; }
+.jb-body div:last-child { margin-bottom: 0; }
+.jb-body div::before {
+  content: '»';
+  color: rgba(0, 200, 255, 0.6);
+  margin-right: 7px;
+}
+
+/* Thin scan-line + corner-bracket dressing so it reads as a
+   projection, not a plain card. */
+.jb-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 14px;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(0, 200, 255, 0.025) 0px,
+    rgba(0, 200, 255, 0.025) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+.jb-corner {
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid rgba(0, 200, 255, 0.75);
+  pointer-events: none;
+}
+.jb-corner.tl { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.jb-corner.tr { top: -1px; right: -1px; border-left: none; border-bottom: none; }
+.jb-corner.bl { bottom: -1px; left: -1px; border-right: none; border-top: none; }
+.jb-corner.br { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+/* Projector base — a thin ellipse of light under the board */
+.jb-base {
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  width: 70%;
+  height: 12px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(0, 200, 255, 0.5), rgba(0, 200, 255, 0.06) 60%, transparent 75%);
+  filter: blur(1px);
+  pointer-events: none;
+}
+
+.jb-edge-glow {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 90px;
+  z-index: 840;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.jb-edge-glow.left  { left: 0;  background: linear-gradient(90deg, rgba(255,60,60,0.22), transparent); }
+.jb-edge-glow.right { right: 0; background: linear-gradient(270deg, rgba(255,60,60,0.22), transparent); }
+.jb-edge-glow.show { opacity: 1; }
