@@ -339,6 +339,49 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "make_board",
+      description: "Create a small floating on-screen info board about a topic and display it right on the main screen (not a page or panel). Call this for things like 'make a board on how you work', 'make me a board about the solar system', 'jarvis, board on X'. The board is written by you and saved so it can be pulled back up later, even after the page is refreshed.",
+      parameters: {
+        type: "object",
+        properties: { topic: { type: "string", description: "What the board should be about, e.g. 'how you work', 'the solar system', 'my morning routine'." } },
+        required: ["topic"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "show_board",
+      description: "Pull up a board that was already made earlier, by topic — e.g. 'pull up the board we made on how you work', 'show me that board again', 'bring back the solar system board'. Do NOT use this to make a new board; use make_board for that.",
+      parameters: {
+        type: "object",
+        properties: { topic: { type: "string", description: "The topic/title of the board to pull up. Leave empty if the user just says 'that board' / 'the board' with no topic — this will bring back the most recent one." } },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_boards",
+      description: "List all the boards currently saved — 'what boards do I have', 'what boards have we made'.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "forget_board",
+      description: "Permanently delete a saved board by topic — 'delete the board on X', 'forget that board', 'get rid of the board about X'. Note: dragging a board off the edge of the screen only hides it on screen; use this tool when the user wants it actually deleted from storage.",
+      parameters: {
+        type: "object",
+        properties: { topic: { type: "string", description: "The topic/title of the board to delete." } },
+        required: ["topic"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_calendar",
       description: "Check the user's real Google Calendar for upcoming events. Call this whenever the user asks about their calendar/schedule/agenda/meetings, e.g. 'what's on my calendar today', 'do I have any meetings tomorrow', 'what's my schedule this week'. This is a REAL, direct connection to their actual Google Calendar (via the Google sign-in they've already completed) — never say you don't have access; call this tool instead.",
       parameters: {
