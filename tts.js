@@ -1,25 +1,17 @@
 "use strict";
 
-// ── JARVIS VOICE — cloned voice (Hugging Face Space), then Camb.ai ────
+// ── JARVIS VOICE — Camb.ai (MARS TTS) ───────────────────────────────
 //
-// synthesize() tries, in order:
-//   1. Your voice-clone Space (Chatterbox TTS, cloned from your reference
-//      clip) — if VOICE_CLONE_URL is set.
-//   2. Camb.ai's MARS TTS API — if at least CAMB_API_KEY is set (more
-//      keys can be added as CAMB_API_KEY2, CAMB_API_KEY3, ... for
-//      automatic rotation once one runs out of credits).
-// If neither is configured or every attempt fails, it returns null and
-// the frontend falls back to the plain browser voice.
+// synthesize() sends text to Camb.ai's MARS TTS API, if at least
+// CAMB_API_KEY is set (more keys can be added as CAMB_API_KEY2,
+// CAMB_API_KEY3, ... for automatic rotation once one runs out of
+// credits). If Camb isn't configured or every attempt fails, it
+// returns null and the frontend falls back to the plain browser voice.
 //
-// Free HF Spaces sleep after inactivity, so a cold one can take 30-60s+
-// to wake up. Rather than making every reply wait that long before
-// falling back, we use a short per-request timeout and separately ping
-// the Space in the background to keep it (or wake it) up, so most real
-// requests land on an already-warm Space.
-const VOICE_CLONE_URL     = (process.env.VOICE_CLONE_URL || "").replace(/\/+$/, "");
-const VOICE_CLONE_API_KEY = process.env.VOICE_CLONE_API_KEY || "";
-const VOICE_CLONE_TIMEOUT_MS = Number(process.env.VOICE_CLONE_TIMEOUT_MS || 12000);
-const WARMUP_INTERVAL_MS     = Number(process.env.VOICE_CLONE_WARMUP_MS || 4 * 60 * 1000);
+// NOTE: this used to also try a self-hosted voice-clone Hugging Face
+// Space (Chatterbox TTS) before falling back to Camb.ai. That's been
+// removed — Camb.ai is the only provider now, so there's no more
+// "Space" to keep warm, ping, or wait 30-60s for on a cold boot.
 
 // ── Camb.ai (MARS TTS) ─────────────────────────────────────────────
 // Docs: https://docs.camb.ai/api-reference/endpoint/create-tts-stream
@@ -104,7 +96,7 @@ function resetCambCycleIfNeeded() {
 }
 
 function isReady() {
-  return !!VOICE_CLONE_URL || cambIsReady();
+  return cambIsReady();
 }
 
 function cambIsReady() {
@@ -181,69 +173,16 @@ function cleanText(text) {
     .slice(0, 500);
 }
 
-// ── Background keep-warm ────────────────────────────────────────────
-// Fire-and-forget GET /health on a timer. Never blocks a real request —
-// its only job is to stop the Space from falling asleep (or to nudge it
-// awake) between actual TTS calls.
-let _warming = false;
-async function pingSpace() {
-  if (!VOICE_CLONE_URL || _warming) return;
-  _warming = true;
-  try {
-    await fetch(`${VOICE_CLONE_URL}/health`, { signal: AbortSignal.timeout(60000) });
-  } catch (e) {
-    // Expected while the Space is cold-booting — nothing to log here.
-  } finally {
-    _warming = false;
-  }
-}
-function startWarmup() {
-  if (!VOICE_CLONE_URL) return;
-  pingSpace(); // kick one off immediately at boot
-  setInterval(pingSpace, WARMUP_INTERVAL_MS);
-}
-startWarmup();
-
 async function synthesize(text) {
   const clean = cleanText(text);
   if (!clean || clean.length < 2) return null;
 
-  if (!VOICE_CLONE_URL) {
-    if (cambIsReady()) return synthesizeWithCamb(clean);
-    console.warn("[TTS] No TTS provider configured — using browser voice");
+  if (!cambIsReady()) {
+    console.warn("[TTS] No TTS provider configured (CAMB_API_KEY missing) — using browser voice");
     return null;
   }
 
-  try {
-    const headers = { "Content-Type": "application/json" };
-    if (VOICE_CLONE_API_KEY) headers["x-api-key"] = VOICE_CLONE_API_KEY;
-
-    const res = await fetch(`${VOICE_CLONE_URL}/synthesize`, {
-      method:  "POST",
-      headers,
-      body:    JSON.stringify({ text: clean }),
-      signal:  AbortSignal.timeout(VOICE_CLONE_TIMEOUT_MS),
-    });
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      console.error(`[TTS] Voice-clone Space returned ${res.status}: ${body.slice(0, 300)}`);
-      pingSpace(); // it's awake-but-erroring or still booting — nudge it
-      return cambIsReady() ? synthesizeWithCamb(clean) : null;
-    }
-
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (!buf.length) return cambIsReady() ? synthesizeWithCamb(clean) : null;
-    return { buffer: buf, mimeType: "audio/wav" };
-  } catch (e) {
-    // Most common cause: the Space was asleep and didn't wake up within
-    // our short timeout. Kick a background ping so it's ready sooner —
-    // this call doesn't wait for it, so the user gets the browser voice
-    // right away instead of hanging.
-    console.error("[TTS] Voice-clone Space error:", e.message);
-    pingSpace();
-    return cambIsReady() ? synthesizeWithCamb(clean) : null; // else browser voice
-  }
+  return synthesizeWithCamb(clean);
 }
 
 module.exports = { synthesize, isReady, cambIsReady, cleanText };
