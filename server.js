@@ -1343,6 +1343,66 @@ async function handleTypeText(text, T, sessionId, newFile = false) {
 const AFFIRMATIVE_RE = /^\s*(yes|yeah|yep|yup|sure|do it|go ahead|confirm(ed)?|affirmative|please do|correct)\b/i;
 const NEGATIVE_RE    = /^\s*(no|nope|nah|cancel|don'?t|stop|never ?mind|negative)\b/i;
 
+// ── DAILY BRIEFING (conversational, no big screen) ──────────────
+// Trigger phrases the user actually has to say — this never fires on
+// its own (not on login, not after face enrollment, nothing proactive).
+const DAILY_BRIEFING_RE = /\b(daily brief(?:ing)?|my brief(?:ing)?|brief me|today'?s brief(?:ing)?|morning brief(?:ing)?)\b/i;
+
+function formatTaskBriefingReply(entry, T) {
+  const ORD = ["First", "Second", "Third", "Fourth", "Fifth", "Sixth"];
+  const stepsText = (entry.steps || [])
+    .map((s, i) => `${ORD[i] || `Step ${i + 1}`}, ${s}.`)
+    .join(" ");
+  return `${entry.headline}, ${T}. ${stepsText}`.trim();
+}
+
+async function routeDailyBriefing(message, T, sessionId, userName, userTimezone) {
+  const pending = Briefing.getPendingGoalQuestion(sessionId);
+
+  if (pending) {
+    if (NEGATIVE_RE.test(message)) {
+      Briefing.clearPendingGoalQuestion(sessionId);
+      // No goal — just deliver the general stuff (weather/calendar/news/inbox),
+      // no task-based steps to insist on.
+      const entry = await Proactive.getOrGenerateToday(userName, T, userTimezone);
+      const reply = entry ? entry.headline : `Nothing configured to check yet, ${T} — weather, calendar, and inbox all need to be set up first.`;
+      return { reply, action: "DAILY_BRIEFING", intent: "daily_briefing" };
+    }
+
+    if (pending.phase === "awaiting_yes_no") {
+      if (AFFIRMATIVE_RE.test(message)) {
+        Briefing.setGoalQuestionPhase(sessionId, "awaiting_goal_text");
+        return { reply: `What's the goal, ${T}?`, action: "DAILY_BRIEFING", intent: "daily_briefing" };
+      }
+      // Not a recognizable yes/no — drop the pending question and let
+      // normal routing take the message instead of getting stuck.
+      Briefing.clearPendingGoalQuestion(sessionId);
+      return null;
+    }
+
+    if (pending.phase === "awaiting_goal_text") {
+      Briefing.clearPendingGoalQuestion(sessionId);
+      const entry = await Briefing.setToday(userName, message, T);
+      return { reply: formatTaskBriefingReply(entry, T), action: "DAILY_BRIEFING", intent: "daily_briefing", meta: { briefing: entry } };
+    }
+
+    Briefing.clearPendingGoalQuestion(sessionId);
+    return null;
+  }
+
+  if (!DAILY_BRIEFING_RE.test(message)) return null;
+
+  // Already have today's task-based briefing set — just replay it,
+  // don't ask again.
+  const existing = Briefing.getToday(userName);
+  if (existing) {
+    return { reply: formatTaskBriefingReply(existing, T), action: "DAILY_BRIEFING", intent: "daily_briefing", meta: { briefing: existing } };
+  }
+
+  Briefing.proposeGoalQuestion(sessionId);
+  return { reply: `Do you have a goal for today, ${T}?`, action: "DAILY_BRIEFING", intent: "daily_briefing" };
+}
+
 async function resolvePendingAgentAction(message, T, sessionId) {
   const pending = JarvisAgent.getPendingAction(sessionId);
   if (!pending) return null;
@@ -2018,6 +2078,12 @@ app.post("/api/chat", async (req, res) => {
   // anything else gets a chance to reinterpret "yes" as something else.
   const pendingResolution = await resolvePendingAgentAction(message, T, sessionId);
   if (pendingResolution) return res.json(pendingResolution);
+
+  // ── -0.5. Daily briefing (ask about a goal only if asked; never launches
+  //      the old full-screen experience) ──
+  const briefingResolution = await routeDailyBriefing(message, T, sessionId, userName, userTimezone);
+  if (briefingResolution) return res.json(briefingResolution);
+
 
   // ── 0. Home Talk toggle — checked first so it never collides with
   //      smart-home / smalltalk / AI routing below ──
