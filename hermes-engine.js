@@ -131,19 +131,46 @@ async function groqFetchRaw(messages, options = {}) {
   if (reasoning_effort) body.reasoning_effort = reasoning_effort;
   if (reasoning_format) body.reasoning_format = reasoning_format;
 
+  const doFetch = () => fetch(GROQ_API_URL, {
+    method:  "POST",
+    headers: {
+      "Authorization": `Bearer ${GROQ_API_KEY}`,
+      "Content-Type":  "application/json",
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30000),
+  });
+
   let res;
   try {
-    res = await fetch(GROQ_API_URL, {
-      method:  "POST",
-      headers: {
-        "Authorization": `Bearer ${GROQ_API_KEY}`,
-        "Content-Type":  "application/json",
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30000),
-    });
+    res = await doFetch();
   } catch (e) {
     throw new Error(`Could not reach Groq API: ${e.message}`);
+  }
+
+  // ── 429 RETRY ────────────────────────────────────────────────────
+  // The account's TPM (tokens-per-minute) limit is small enough that a
+  // single request with tools + a big generated code block can bump
+  // into it, and Groq's error message tells us exactly how long to
+  // wait ("Please try again in 29.145s"). Rather than surface that as
+  // a failure, parse the wait time and retry once — capped at 15s so
+  // a genuinely long wait still fails fast instead of hanging the
+  // chat request.
+  if (res.status === 429) {
+    const err = await res.json().catch(() => ({}));
+    const msg = err.error?.message || "";
+    const waitMatch = msg.match(/try again in ([\d.]+)s/i);
+    const waitSecs = waitMatch ? Math.min(parseFloat(waitMatch[1]), 15) : null;
+    if (waitSecs !== null) {
+      await new Promise(r => setTimeout(r, Math.ceil(waitSecs * 1000) + 250));
+      try {
+        res = await doFetch();
+      } catch (e) {
+        throw new Error(`Could not reach Groq API: ${e.message}`);
+      }
+    } else {
+      throw new Error(`Groq API error 429: ${msg || "rate limit reached"}`);
+    }
   }
 
   if (!res.ok) {
@@ -473,10 +500,25 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
   // second tool call's `text` argument has to contain an entire generated
   // script — the budget would run out after the first tool call (or mid-
   // generation of the second), so type_text either never got called or got
-  // truncated into invalid JSON that silently parsed as {}. Bumped the
-  // budget way up and forced reasoning_effort low so tokens go to actual
-  // output instead of invisible deliberation.
-  const assistantMsg = await groqFetchRaw(messages, { tools: TOOLS, tool_choice: "auto", maxTokens: 2048, reasoning_effort: "low" });
+  // truncated into invalid JSON that silently parsed as {}.
+  //
+  // But this account's Groq tier has an 8000 TPM (tokens/minute) cap, which
+  // a single big request can eat most of on its own — so the budget is now
+  // ADAPTIVE rather than always maxed out: ordinary requests (timers,
+  // weather, "open Chrome") get a small budget as before, and only
+  // requests that look like "open X and type/write a script/poem/etc."
+  // get the bigger allowance, and only on this first call. That keeps the
+  // common case cheap on tokens and means the fallback round below rarely
+  // has to fire at all (each round is a separate hit against the same
+  // per-minute cap).
+  const looksCompoundGenerate = /\b(type|write)\b/i.test(message) &&
+    /\b(script|code|program|game|function|poem|essay|story|paragraph|text|snippet|class|component)\b/i.test(message);
+  const assistantMsg = await groqFetchRaw(messages, {
+    tools: TOOLS,
+    tool_choice: "auto",
+    maxTokens: looksCompoundGenerate ? 2048 : 900,
+    reasoning_effort: "low",
+  });
 
   if (!assistantMsg.tool_calls || !assistantMsg.tool_calls.length) {
     return { reply: (assistantMsg.content || "").trim(), toolCalls: [], usedTool: false };
@@ -502,10 +544,8 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
   // fallback safety net that runs AFTER Groq has already seen and acted
   // on the message, not a regex router intercepting it beforehand.
   const calledNames = results.map(r => r.name);
-  const wantsTyping = /\b(type|write)\b/i.test(message) &&
-    /\b(script|code|program|game|function|poem|essay|story|paragraph|text|snippet|class|component)\b/i.test(message);
 
-  if (calledNames.includes("open_on_computer") && !calledNames.includes("type_text") && wantsTyping) {
+  if (calledNames.includes("open_on_computer") && !calledNames.includes("type_text") && looksCompoundGenerate) {
     try {
       const followupMessages = [
         ...messages,
@@ -521,7 +561,7 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
       const followupMsg = await groqFetchRaw(followupMessages, {
         tools: TOOLS,
         tool_choice: { type: "function", function: { name: "type_text" } },
-        maxTokens: 3072,
+        maxTokens: 1800,
         reasoning_effort: "low",
       });
       if (followupMsg.tool_calls && followupMsg.tool_calls.length) {
