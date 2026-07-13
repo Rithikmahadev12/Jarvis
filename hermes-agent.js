@@ -216,8 +216,14 @@ function buildCommand(target) {
 
   if (platform === "win32") {
     // "start" needs an explicit empty title ("") before the real
-    // target whenever the target itself is quoted.
-    return `start "" "${alias || clean}"`;
+    // target whenever the target itself is quoted. "/B" tells it to
+    // launch without opening a new console window — without it, "start"
+    // always pops a visible window for batch/console-style targets like
+    // VS Code's "code.cmd", no matter what windowsHide is set to on the
+    // exec() call itself (that only hides the invisible cmd.exe wrapper
+    // Node spawns to run "start" in the first place, not the separate
+    // window "start" opens for its target).
+    return `start "" /B "${alias || clean}"`;
   }
   if (platform === "darwin") {
     // Known apps: launch by app name. Anything else: treat as a
