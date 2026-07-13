@@ -72,8 +72,30 @@ function isConfigured() {
 let _client = null;
 function client() {
   if (_client) return _client;
+
+  // Supabase's client sets up a Realtime/WebSocket layer internally even
+  // though this module only ever uses Storage (upload/download/list) —
+  // and on Node < 22 (no native global WebSocket) that setup throws,
+  // which was silently killing every push/pull ("Failed to push X:
+  // Node.js 20 detected without native WebSocket support"). Node 22+
+  // (what Render runs) has native WebSocket so it never hit this.
+  // Fix: hand it the "ws" package as its transport when the native
+  // global isn't there, exactly as Supabase's own error suggests.
+  let wsTransport;
+  if (typeof WebSocket === "undefined") {
+    try { wsTransport = require("ws"); }
+    catch {
+      console.warn(
+        '[MEMORY-SYNC] Node < 22 detected and the "ws" package isn\'t installed — ' +
+        'Supabase sync will fail. Run `npm install ws` (already in package.json) or ' +
+        "upgrade to Node 22+."
+      );
+    }
+  }
+
   _client = createClient(SUPABASE_URL, SERVICE_KEY, {
     auth: { persistSession: false },
+    ...(wsTransport ? { realtime: { transport: wsTransport } } : {}),
   });
   return _client;
 }
