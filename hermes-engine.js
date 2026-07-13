@@ -466,7 +466,17 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
     { role: "user", content: message },
   ];
 
-  const assistantMsg = await groqFetchRaw(messages, { tools: TOOLS, tool_choice: "auto", maxTokens: 768 });
+  // NOTE ON maxTokens/reasoning_effort: gpt-oss models spend hidden
+  // "reasoning" tokens out of the same max_tokens budget before they ever
+  // emit the actual tool_calls JSON. 768 was tight enough that on compound
+  // requests like "open VS Code and type a flappy bird script" — where the
+  // second tool call's `text` argument has to contain an entire generated
+  // script — the budget would run out after the first tool call (or mid-
+  // generation of the second), so type_text either never got called or got
+  // truncated into invalid JSON that silently parsed as {}. Bumped the
+  // budget way up and forced reasoning_effort low so tokens go to actual
+  // output instead of invisible deliberation.
+  const assistantMsg = await groqFetchRaw(messages, { tools: TOOLS, tool_choice: "auto", maxTokens: 2048, reasoning_effort: "low" });
 
   if (!assistantMsg.tool_calls || !assistantMsg.tool_calls.length) {
     return { reply: (assistantMsg.content || "").trim(), toolCalls: [], usedTool: false };
@@ -480,6 +490,53 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
     try { result = await executeTool(call.function.name, args); }
     catch (e) { result = { reply: `That didn't go through, ${T}. ${e.message || ""}`.trim() }; }
     results.push({ name: call.function.name, args, result });
+  }
+
+  // ── SAFETY NET FOR DROPPED COMPOUND CALLS ────────────────────────
+  // Even with the bigger budget, models sometimes still only call one
+  // tool from a compound request despite the system-prompt instruction.
+  // If the user's message opened something AND clearly also wanted
+  // something typed/generated, but type_text never got called, give
+  // Groq one more forced round — feeding back what already happened —
+  // specifically to produce the content and call type_text. This is a
+  // fallback safety net that runs AFTER Groq has already seen and acted
+  // on the message, not a regex router intercepting it beforehand.
+  const calledNames = results.map(r => r.name);
+  const wantsTyping = /\b(type|write)\b/i.test(message) &&
+    /\b(script|code|program|game|function|poem|essay|story|paragraph|text|snippet|class|component)\b/i.test(message);
+
+  if (calledNames.includes("open_on_computer") && !calledNames.includes("type_text") && wantsTyping) {
+    try {
+      const followupMessages = [
+        ...messages,
+        { role: "assistant", content: assistantMsg.content || "", tool_calls: assistantMsg.tool_calls },
+        ...assistantMsg.tool_calls.map(c => ({
+          role: "tool",
+          tool_call_id: c.id,
+          name: c.function.name,
+          content: JSON.stringify(results.find(r => r.name === c.function.name)?.result || {}),
+        })),
+        { role: "user", content: "Now generate the actual full content that was asked for and call type_text with it as the `text` argument (set new_file: true since an editor/app was just opened)." },
+      ];
+      const followupMsg = await groqFetchRaw(followupMessages, {
+        tools: TOOLS,
+        tool_choice: { type: "function", function: { name: "type_text" } },
+        maxTokens: 3072,
+        reasoning_effort: "low",
+      });
+      if (followupMsg.tool_calls && followupMsg.tool_calls.length) {
+        for (const call of followupMsg.tool_calls) {
+          let args = {};
+          try { args = JSON.parse(call.function.arguments || "{}"); } catch {}
+          let result;
+          try { result = await executeTool(call.function.name, args); }
+          catch (e) { result = { reply: `That didn't go through, ${T}. ${e.message || ""}`.trim() }; }
+          results.push({ name: call.function.name, args, result });
+        }
+      }
+    } catch (e) {
+      console.error("[TOOLS] Follow-up type_text round failed:", e.message);
+    }
   }
 
   const primary = results[0]?.result || {};
