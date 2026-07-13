@@ -199,6 +199,25 @@ function runCommand(command) {
 // app isn't installed, or isn't on PATH). So a resolved promise here
 // means "the OS accepted the request", not a hard guarantee the
 // window actually appeared.
+// Same as openOnComputer(), but skips the Groq reasoning call entirely —
+// used when a caller (e.g. the open_on_computer tool, where Groq already
+// parsed the user's message and handed us a clean target) already knows
+// exactly what to open and doesn't need it re-interpreted.
+async function openTarget(target) {
+  if (!isEnabled()) {
+    throw new Error(
+      "Jarvis agent is disabled here — this instance is running on Render, " +
+      "not on your own computer, so there's nothing local for it to open."
+    );
+  }
+  const clean = String(target || "").trim();
+  if (!clean) throw new Error("Couldn't figure out what you want opened.");
+
+  const command = buildCommand(clean);
+  await runCommand(command);
+  return { target: clean, command };
+}
+
 async function openOnComputer(userMessage) {
   if (!isEnabled()) {
     throw new Error(
@@ -341,24 +360,58 @@ function runShellCommand(command) {
 // user is currently looking at, so a misheard phrase could type the
 // wrong thing into the wrong place. Always goes through the
 // confirm/pending flow in server.js.
-function typeText(text) {
+//
+// opts.newFile: send the platform's "new file/tab" shortcut
+// (Ctrl/Cmd+N) right before typing — useful right after opening an
+// editor, e.g. "open VS Code and type a flappy bird script", so the
+// generated code lands in a fresh file instead of whatever tab
+// happened to be open.
+// opts.delayMs: how long to wait before the first keystroke, to give
+// a just-launched app time to actually become the focused window.
+function typeText(text, opts = {}) {
   const platform = os.platform();
   const clean = String(text || "");
   if (!clean) return Promise.reject(new Error("No text given to type."));
 
+  const newFile   = !!opts.newFile;
+  const delaySecs = Math.max(0, Number(opts.delayMs) || 0) / 1000;
+
   if (platform === "darwin") {
-    const escaped = clean.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    return runCommand(`osascript -e 'tell application "System Events" to keystroke "${escaped}"'`);
+    // Multi-line text is sent line-by-line with an explicit Return
+    // keypress (key code 36) between lines, rather than embedding raw
+    // newlines in the AppleScript string — more reliable across editors
+    // that might auto-indent on a literal newline keystroke.
+    const lines = clean.split("\n").map(l => l.replace(/\\/g, "\\\\").replace(/"/g, '\\"'));
+    const keystrokeLines = lines
+      .map((l, i) => `keystroke "${l}"${i < lines.length - 1 ? "\n    key code 36" : ""}`)
+      .join("\n    ");
+    const newFileLine = newFile ? `keystroke "n" using command down\n    delay 0.5\n    ` : "";
+    const script = `tell application "System Events"
+    delay ${delaySecs}
+    ${newFileLine}${keystrokeLines}
+end tell`;
+    return runCommand(`osascript -e '${script.replace(/'/g, `'\\''`)}'`);
   }
+
   if (platform === "win32") {
     // SendKeys treats +^%~(){} as special characters — escape them by
-    // wrapping in braces so they're typed literally.
-    const escaped = clean.replace(/'/g, "''").replace(/([{}()\[\]+^%~])/g, "{$1}");
-    return runCommand(`powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; Start-Sleep -Milliseconds 300; [System.Windows.Forms.SendKeys]::SendWait('${escaped}')"`);
+    // wrapping in braces so they're typed literally. Newlines become
+    // {ENTER} since SendKeys has no concept of a literal line break.
+    const escaped = clean
+      .replace(/'/g, "''")
+      .replace(/([{}()\[\]+^%~])/g, "{$1}")
+      .replace(/\n/g, "{ENTER}");
+    const newFileCmd = newFile ? "[System.Windows.Forms.SendKeys]::SendWait('^n'); Start-Sleep -Milliseconds 400; " : "";
+    const delayMs = Math.max(300, Math.round(delaySecs * 1000));
+    return runCommand(`powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; Start-Sleep -Milliseconds ${delayMs}; ${newFileCmd}[System.Windows.Forms.SendKeys]::SendWait('${escaped}')"`);
   }
-  // linux — requires xdotool to be installed
+
+  // linux — requires xdotool to be installed. xdotool type handles
+  // embedded newlines as Return presses on its own.
   const escaped = clean.replace(/'/g, `'\\''`);
-  return runCommand(`xdotool type --delay 20 '${escaped}'`);
+  const delayCmd   = delaySecs ? `sleep ${delaySecs} && ` : "";
+  const newFileCmd = newFile ? "xdotool key ctrl+n && sleep 0.5 && " : "";
+  return runCommand(`${delayCmd}${newFileCmd}xdotool type --delay 20 '${escaped}'`);
 }
 
 // ── PENDING CONFIRMATIONS ─────────────────────────────────────────
@@ -394,6 +447,7 @@ module.exports = {
   buildCommand,
   runCommand,
   openOnComputer,
+  openTarget,
   showTextResult,
   getDiskSpace,
   openDiskSpaceViewer,
