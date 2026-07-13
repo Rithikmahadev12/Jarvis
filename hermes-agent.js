@@ -136,6 +136,11 @@ async function askHermes(userMessage) {
       model: HERMES_MODEL,
       stream: false,
       format: "json",
+      // Ollama unloads a model from memory 5 minutes after its last use by
+      // default, so the NEXT request pays the full ~20s load time again.
+      // Keeping it warm for 30 minutes means only the very first request
+      // in a session is slow — everything after that is fast.
+      keep_alive: "30m",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: userMessage },
@@ -225,7 +230,12 @@ function buildCommand(target) {
 
 function runCommand(command) {
   return new Promise((resolve, reject) => {
-    exec(command, (err) => err ? reject(err) : resolve());
+    // windowsHide matters here specifically: some app launchers (like VS
+    // Code's "code" command) are actually .cmd batch files, not real .exe
+    // binaries. Windows briefly pops a console window to run those unless
+    // we explicitly tell Node to hide it — this was the visible terminal
+    // flash on every launch.
+    exec(command, { windowsHide: true }, (err) => err ? reject(err) : resolve());
   });
 }
 
