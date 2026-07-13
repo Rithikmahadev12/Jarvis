@@ -373,6 +373,155 @@ async function searchHackerNews(name) {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ── DEEP RESEARCH — real live web search ─────────────────────
+// Unlike research()/searchDuckDuckGo() above (which only use DDG's
+// "Instant Answer" API — great for encyclopedic facts, useless for
+// "find me X near Y" type questions), this hits DuckDuckGo's actual
+// HTML search results page and pulls back real ranked links + snippets.
+// No API key required. This is what makes "find me free English
+// classes in Beaverton" possible instead of the AI just guessing.
+// ═══════════════════════════════════════════════════════════════
+
+async function webSearch(query, opts = {}) {
+  const maxResults = opts.maxResults || 6;
+  const cacheKey = `websearch:${query.toLowerCase()}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return [];
+    const html = await res.text();
+
+    const linkRe    = /<a rel="nofollow" class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+    const snippetRe = /<a class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+
+    const links = [];
+    let m;
+    while ((m = linkRe.exec(html)) !== null) links.push({ href: m[1], titleHtml: m[2] });
+
+    const snippets = [];
+    while ((m = snippetRe.exec(html)) !== null) snippets.push(m[1]);
+
+    const results = [];
+    for (let i = 0; i < links.length && results.length < maxResults; i++) {
+      const title = cleanText(links[i].titleHtml.replace(/<[^>]+>/g, ""));
+      let href = links[i].href;
+      const uddg = href.match(/uddg=([^&]+)/);
+      if (uddg) { try { href = decodeURIComponent(uddg[1]); } catch {} }
+      if (!/^https?:\/\//.test(href)) continue;
+      const snippet = snippets[i] ? cleanText(snippets[i].replace(/<[^>]+>/g, "")) : "";
+      if (!title) continue;
+      results.push({ title, url: href, snippet });
+    }
+
+    if (results.length) setCache(cacheKey, results);
+    return results;
+  } catch (e) {
+    console.warn("[RESEARCH] Web search error:", e.message);
+    return [];
+  }
+}
+
+// Best-effort extraction of a place name from phrasing like
+// "... in Beaverton", "... near Portland", "... around downtown".
+function extractLocationPhrase(text) {
+  const patterns = [
+    /\b(?:in|near|around)\s+([a-z][a-z .'-]{2,40}?)(?=\s+(?:or|and)\b|[,.?!]|$)/i,
+  ];
+  for (const p of patterns) {
+    const match = text.match(p);
+    if (match) {
+      let loc = match[1].replace(/\b(online|please|today|right now|now|me)\b/gi, "").trim();
+      if (loc.length > 1) return loc;
+    }
+  }
+  if (/\bnear me\b/i.test(text)) return "near_me";
+  return null;
+}
+
+// Words/phrases that signal "I want you to actually go find real,
+// current, real-world options for me" — classes, resources, services,
+// local businesses, events — as opposed to a pure encyclopedic fact
+// (handled by research()/shouldResearch above) or a person lookup.
+const DEEP_RESEARCH_SIGNALS = /\b(find me|help me find|can you find|find some|find any|look for|where can i|classes?|courses?|free (?:class|course|resource|program|workshop)|tutoring|lessons?|resources? for|programs? for|places to|things to do|events? (?:in|near|around)|recommend(?:ation)?s? for|options? for|near me|nearby|volunteer|meetup|support group)\b/i;
+
+// Things that mean this is really a device/app command, not a
+// "go research the real world" request.
+const DEEP_RESEARCH_EXCLUSIONS = /\b(spotify|camera|thermostat|lights?|alarm|timer|calendar event|reminder|ball game|energy ball|hologram|build mode|map mode)\b/i;
+
+function isDeepResearchQuery(text) {
+  const lower = text.toLowerCase().trim();
+  if (DEEP_RESEARCH_EXCLUSIONS.test(lower)) return false;
+  if (text.trim().split(/\s+/).length < 3) return false;
+  return DEEP_RESEARCH_SIGNALS.test(lower);
+}
+
+// Runs several targeted queries in parallel (the raw ask, the ask
+// pinned to a detected location, and an "online" variant if relevant),
+// merges + dedupes the results, and writes up an actual list of real,
+// linked options instead of a made-up-sounding paragraph.
+async function deepResearch(rawQuery, userTitle) {
+  const T = userTitle || "Sir";
+  const query = rawQuery.trim();
+  const location = extractLocationPhrase(query);
+  const wantsOnline = /\bonline\b/i.test(query);
+
+  const queries = [query];
+  if (location && location !== "near_me") queries.push(`${query} ${location}`);
+  if (wantsOnline) queries.push(query.replace(/\bonline\b/i, "").trim() + " online free");
+  if (!wantsOnline && !location) queries.push(`${query} near me`);
+
+  const uniqueQueries = [...new Set(queries.map(q => q.replace(/\s+/g, " ").trim()).filter(Boolean))].slice(0, 3);
+
+  console.log(`[RESEARCH] Deep research: "${query}" — running ${uniqueQueries.length} search(es)`);
+
+  const batches = await Promise.allSettled(uniqueQueries.map(q => webSearch(q, { maxResults: 5 })));
+  let all = [];
+  for (const b of batches) if (b.status === "fulfilled") all.push(...b.value);
+
+  const seen = new Set();
+  const deduped = [];
+  for (const r of all) {
+    let domain = "";
+    try { domain = new URL(r.url).hostname.replace(/^www\./, ""); } catch { domain = r.url; }
+    const key = domain + "|" + r.title.toLowerCase().slice(0, 40);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(r);
+  }
+
+  if (deduped.length === 0) {
+    return {
+      reply: `I searched but didn't turn up anything solid for that, ${T}. Could you give me a bit more to go on — a specific city, or whether online options are fine?`,
+      results: [],
+      query,
+    };
+  }
+
+  const top = deduped.slice(0, 6);
+  const openers = [
+    `I went and searched the live web for this, ${T}. Here's what came up —`,
+    `Here's what I found, ${T} —`,
+    `I dug through current results for you, ${T}. Here's what looks solid —`,
+  ];
+
+  const listText = top
+    .map((r, i) => `${i + 1}. ${r.title}${r.snippet ? ` — ${truncate(r.snippet, 140)}` : ""}\n   ${r.url}`)
+    .join("\n");
+
+  const reply = `${pick(openers)}\n\n${listText}`;
+
+  return { reply, results: top, query, location: location && location !== "near_me" ? location : null };
+}
+
 async function lookupPerson(fullName) {
   console.log(`[RESEARCH] Person lookup initiated: "${fullName}"`);
 
@@ -676,4 +825,8 @@ module.exports = {
   searchStackOverflow,
   searchNPM,
   searchHackerNews,
+  webSearch,
+  deepResearch,
+  isDeepResearchQuery,
+  extractLocationPhrase,
 };
