@@ -1051,7 +1051,13 @@ app.get("/api/extension/download", (req, res) => {
 app.post("/api/research", async (req, res) => {
   const { query, userTitle } = req.body;
   if (!query) return res.status(400).json({ error: "Missing query" });
-  try { res.json(await Research.research(query, userTitle || "Sir") || { reply: null }); }
+  try {
+    let result = await Research.research(query, userTitle || "Sir");
+    if (!result?.reply && Research.isDeepResearchQuery(query)) {
+      result = await Research.deepResearch(query, userTitle || "Sir");
+    }
+    res.json(result || { reply: null });
+  }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 app.post("/api/research/person", async (req, res) => {
@@ -1790,7 +1796,10 @@ async function executeAssistantTool(name, args, ctx) {
       let url = `https://www.google.com/search?q=${encodeURIComponent(topic)}`;
       let spoken = `Pulling up some resources on ${topic}, ${T}.`;
       try {
-        const r = await Research.research(topic, T);
+        let r = await Research.research(topic, T);
+        if ((!r || !r.reply) && Research.isDeepResearchQuery(topic)) {
+          r = await Research.deepResearch(topic, T);
+        }
         if (r && r.reply) {
           spoken = r.reply;
           if (r.sources?.wikiUrl) url = r.sources.wikiUrl;
