@@ -62,6 +62,35 @@ function distillLesson(message) {
 async function respond({ message, sessionId, userName, userTitle, memories, moodContext, serverData, conversationHistory = [] }) {
   const T = userTitle || "Sir";
 
+  // 0. Real-world lookup requests — "find me free English classes in
+  //    Beaverton", "where can I get tutoring near me", "free workshops
+  //    online", etc. Neither the local rule engine nor the Groq tutor
+  //    has internet access, so left alone they'd either shrug or
+  //    confidently invent a plausible-sounding but fake answer. This
+  //    runs an actual live web search first and returns real, linked
+  //    results. Takes priority over everything else.
+  if (Research.isDeepResearchQuery(message)) {
+    try {
+      const found = await Research.deepResearch(message, userTitle);
+      if (found?.reply) {
+        stats.freeResearch++;
+        return {
+          reply: found.reply,
+          action: "DEEP_RESEARCH",
+          intent: "deep_research",
+          topic: found.query,
+          sources: found.results,
+          source: "deep_research",
+          needsTutor: false,
+        };
+      }
+    } catch (e) {
+      console.error("[BRAIN] Deep research failed:", e.message);
+    }
+    // If the search itself errored or came up totally empty, fall
+    // through to the normal pipeline below rather than dead-ending.
+  }
+
   // 1. Ask the local brain. ai-engine.js's process() already checks
   //    Groq's learned-intents store internally before it gives up,
   //    so "local" here includes everything it's been taught so far.
