@@ -382,6 +382,38 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "check_disk_space",
+      description: "Check how much storage space is free/used on the user's own computer. Call for things like 'how much space do I have on my computer', 'check my disk space', 'how full is my drive/hard drive'. Only works when Jarvis is running locally on the user's machine, not in the cloud.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "run_computer_command",
+      description: "Run a shell/terminal command on the user's own computer, e.g. 'check my battery', 'list files in Downloads', 'what's my IP address', 'run ipconfig'. Only works when Jarvis is running locally on the user's machine, not in the cloud. A short allowlist of read-only commands (like checking disk space, listing files) runs immediately; anything else asks the user to confirm before it actually runs.",
+      parameters: {
+        type: "object",
+        properties: { command: { type: "string", description: "The literal shell command to run, translated to the right command for the user's OS if you can infer it (Windows/macOS/Linux)." } },
+        required: ["command"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "type_text",
+      description: "Type text into whatever window currently has focus on the user's own computer — e.g. 'type this for me: ...', 'fill in my name as...'. Only works when Jarvis is running locally. Always asks the user to confirm before actually typing, since it types into whatever they're currently looking at.",
+      parameters: {
+        type: "object",
+        properties: { text: { type: "string", description: "The exact text to type." } },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_calendar",
       description: "Check the user's real Google Calendar for upcoming events. Call this whenever the user asks about their calendar/schedule/agenda/meetings, e.g. 'what's on my calendar today', 'do I have any meetings tomorrow', 'what's my schedule this week'. This is a REAL, direct connection to their actual Google Calendar (via the Google sign-in they've already completed) — never say you don't have access; call this tool instead.",
       parameters: {
@@ -409,7 +441,7 @@ async function chatWithTools({ message, userTitle = "Sir", memories = [], contex
 
   const systemPrompt = getSystemPrompt(T, memories, context, []) + `
 
-You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, reading a specific email in full once they pick one, checking their real Google Calendar, and noticing when the user needs a break. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. After check_email lists unread emails and the user replies with something like "read the first one" or "the one from Sarah", call read_email with the right index or sender. If nothing calls for a tool, just answer normally in plain text.
+You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, reading a specific email in full once they pick one, checking their real Google Calendar, noticing when the user needs a break, and (when Jarvis is running on the user's own computer) checking disk space, running shell commands, and typing text into the active window. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. After check_email lists unread emails and the user replies with something like "read the first one" or "the one from Sarah", call read_email with the right index or sender. If nothing calls for a tool, just answer normally in plain text.
 
 Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use this to compute datetime_iso for reminders.`;
 
