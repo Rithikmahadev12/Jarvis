@@ -1343,6 +1343,25 @@ async function handleTypeText(text, T, sessionId, newFile = false) {
 const AFFIRMATIVE_RE = /^\s*(yes|yeah|yep|yup|sure|do it|go ahead|confirm(ed)?|affirmative|please do|correct)\b/i;
 const NEGATIVE_RE    = /^\s*(no|nope|nah|cancel|don'?t|stop|never ?mind|negative)\b/i;
 
+// Strips leading filler/hesitation words ("umm", "uh", "well", "so", "like",
+// "hmm", "actually") and stray punctuation before testing against the
+// yes/no regexes above, which are anchored to the start of the string.
+// Without this, a perfectly clear "umm... no" or "uh yeah" fails to match
+// either regex, falls through to normal chat routing, and derails whatever
+// pending yes/no question was actually being answered.
+const LEADING_FILLER_RE = /^\s*(?:umm?|uh+|erm?|hm+|well|so|like|actually|okay|ok)[\s,.]+/i;
+function stripLeadingFiller(message) {
+  let m = String(message || "");
+  let prev;
+  do {
+    prev = m;
+    m = m.replace(LEADING_FILLER_RE, "");
+  } while (m !== prev);
+  return m;
+}
+function isAffirmative(message) { return AFFIRMATIVE_RE.test(stripLeadingFiller(message)); }
+function isNegative(message)    { return NEGATIVE_RE.test(stripLeadingFiller(message)); }
+
 // ── DAILY BRIEFING (conversational, no big screen) ──────────────
 // Trigger phrases the user actually has to say — this never fires on
 // its own (not on login, not after face enrollment, nothing proactive).
@@ -1360,7 +1379,7 @@ async function routeDailyBriefing(message, T, sessionId, userName, userTimezone)
   const pending = Briefing.getPendingGoalQuestion(sessionId);
 
   if (pending) {
-    if (NEGATIVE_RE.test(message)) {
+    if (isNegative(message)) {
       Briefing.clearPendingGoalQuestion(sessionId);
       // No goal — just deliver the general stuff (weather/calendar/news/inbox),
       // no task-based steps to insist on.
@@ -1370,7 +1389,7 @@ async function routeDailyBriefing(message, T, sessionId, userName, userTimezone)
     }
 
     if (pending.phase === "awaiting_yes_no") {
-      if (AFFIRMATIVE_RE.test(message)) {
+      if (isAffirmative(message)) {
         Briefing.setGoalQuestionPhase(sessionId, "awaiting_goal_text");
         return { reply: `What's the goal, ${T}?`, action: "DAILY_BRIEFING", intent: "daily_briefing" };
       }
@@ -1407,11 +1426,11 @@ async function resolvePendingAgentAction(message, T, sessionId) {
   const pending = JarvisAgent.getPendingAction(sessionId);
   if (!pending) return null;
 
-  if (NEGATIVE_RE.test(message)) {
+  if (isNegative(message)) {
     JarvisAgent.clearPendingAction(sessionId);
     return { reply: `Cancelled, ${T}.`, action: "AGENT_ACTION_CANCELLED", intent: "agent_confirm" };
   }
-  if (!AFFIRMATIVE_RE.test(message)) return null; // not a yes/no reply — let normal routing handle it
+  if (!isAffirmative(message)) return null; // not a yes/no reply — let normal routing handle it
 
   JarvisAgent.clearPendingAction(sessionId);
 
