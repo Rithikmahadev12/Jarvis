@@ -22,6 +22,7 @@ const Improve     = require("./self-improve");
 const Trainer     = require("./trainer");
 const Brain       = require("./brain");
 const Reminders   = require("./reminders");
+const Boards      = require("./boards");
 const Briefing    = require("./briefing");
 const InboxTriage = require("./inbox-triage");
 const Schedule    = require("./schedule");
@@ -950,6 +951,21 @@ app.get("/api/reminders", (req, res) => {
   res.json({ items: Reminders.listUpcoming(20) });
 });
 
+// ═══════════════════════════════════════════════════════════════
+// ── FLOATING BOARDS ──
+// ═══════════════════════════════════════════════════════════════
+app.get("/api/boards", (req, res) => {
+  res.json({ boards: Boards.listBoards() });
+});
+app.get("/api/boards/:id", (req, res) => {
+  const board = Boards.loadAll().find(b => b.id === req.params.id);
+  if (!board) return res.status(404).json({ error: "not found" });
+  res.json(board);
+});
+app.delete("/api/boards/:id", (req, res) => {
+  res.json({ deleted: Boards.deleteBoard(req.params.id) });
+});
+
 // ── WORK-SESSION NUDGE — polled every ~20s. Autonomous: if you've
 //    been at it over an hour, JARVIS has already picked a break
 //    suggestion by the time this responds; it never waits for a
@@ -1402,6 +1418,115 @@ function handleHologramOpen(message, T) {
   return { reply, action: "SHOW_HOLOGRAM", intent: "hologram", meta: { query: q } };
 }
 
+// ── FLOATING BOARDS ────────────────────────────────────────────
+// "Jarvis, make a board on how you work" / "pull up the board we
+// made on X" — small floating cards rendered directly on the main
+// screen (public/board-widget.js), backed by boards.js so they
+// survive a page refresh and can be recalled by topic later.
+
+// Real facts about this app's own architecture, so a board about
+// "how you work" is grounded instead of invented.
+const JARVIS_SELF_KNOWLEDGE = `
+JARVIS's brain is Groq's cloud API (hermes-engine.js) — the conversation is sent to Groq along with a list of real callable tools, and Groq itself decides from natural language whether to answer in words or call one of them; there's no rigid keyword list. Tools include timers, reminders and the agenda (reminders.js), weather, on-screen music playback pulled from YouTube, a hand-tracked 3D Build Mode workspace (Three.js + a real camera hand-tracking pipeline), a news page/widget, smart-home device control, real Gmail and Google Calendar access via OAuth, person lookup/research, and now these floating boards. A self-improvement loop (self-improve.js, trainer.js) logs anything it fumbles and learns new phrasings over time. The personality layer (personality.js) is J.A.R.V.I.S from the Iron Man films — formal, dry British wit. It runs as a Node/Express server with a browser front end (public/jarvis.js) doing speech recognition and speech synthesis, and a data/ folder mirrored to Supabase storage (persistence.js) so memories, reminders, and boards survive restarts, not just refreshes.
+`.trim();
+
+function isSelfTopic(topic) {
+  return /\b(you|your|yourself|jarvis)\b/i.test(topic) && /\b(work|function|built|made|architecture|system|brain|run|operate|how)\b/i.test(topic);
+}
+
+function fallbackBoardContent(topic, T) {
+  // Used only if Groq is unavailable/unconfigured — a plain, honest
+  // board rather than no board at all.
+  if (isSelfTopic(topic)) {
+    return {
+      title: "How I Work",
+      content: [
+        "Groq is the brain — it reads plain English and picks the right tool itself.",
+        "Tools on tap: timers, reminders, weather, music, Build Mode, news, smart home, email, calendar.",
+        "A learning loop remembers what trips me up and improves over it.",
+        "Everything — memories, reminders, boards — is saved to disk, not just this tab.",
+      ].join("\n"),
+    };
+  }
+  return {
+    title: topic.slice(0, 40) || "Untitled Board",
+    content: `${T}, I don't have a live connection to write this one up properly — add a GROQ_API_KEY and ask again for the full board.`,
+  };
+}
+
+async function generateBoardContent(topic, T) {
+  if (!Groq.isConfigured()) return fallbackBoardContent(topic, T);
+
+  const selfTopic = isSelfTopic(topic);
+  const sys = `You are writing the CONTENT for a small floating information board inside the JARVIS assistant app, on the topic: "${topic}".
+Write in JARVIS's voice — formal, precise, dry British wit — but this is a board someone GLANCES at, not an essay, so keep it terse.
+Reply in PLAIN TEXT ONLY (no markdown, no asterisks, no numbering).
+Line 1: a short board title, at most 6 words.
+Line 2: blank.
+Then 3 to 6 short standalone lines, each a single punchy clause or fact — no bullet characters.
+Whole thing under 110 words.${selfTopic ? `\nThis board is about JARVIS itself — base it on these real facts about how this specific system actually works, don't invent architecture:\n${JARVIS_SELF_KNOWLEDGE}` : ""}`;
+
+  try {
+    const raw = await Groq.groqFetch(
+      [{ role: "system", content: sys }, { role: "user", content: topic }],
+      Groq.MODELS.fast,
+      0.65,
+      350
+    );
+    const lines = raw.split("\n").map(l => l.trim()).filter((l, i) => !(i === 0 && l === ""));
+    const title = (lines[0] || topic).replace(/^title:\s*/i, "").slice(0, 80) || topic;
+    const body = lines.slice(1).join("\n").trim() || raw.trim();
+    return { title, content: body };
+  } catch (e) {
+    console.error("[BOARDS] generation failed, using fallback:", e.message);
+    return fallbackBoardContent(topic, T);
+  }
+}
+
+async function handleMakeBoard(topic, T) {
+  const clean = (topic || "").trim();
+  if (!clean) return { reply: `What should the board be about, ${T}?`, action: "ASK_BOARD_TOPIC", intent: "board" };
+  const { title, content } = await generateBoardContent(clean, T);
+  const board = Boards.createBoard(title, content);
+  return {
+    reply: `Board's up, ${T} — "${board.title}". Move it wherever suits you.`,
+    action: "SHOW_BOARD",
+    intent: "board",
+    meta: { id: board.id, title: board.title, content: board.content, mode: "create" },
+  };
+}
+
+function handleShowBoard(topic, T) {
+  const board = Boards.findBoard((topic || "").trim());
+  if (!board) {
+    return { reply: `I don't have a board on that yet, ${T}. Want me to make one?`, action: "BOARD_NOT_FOUND", intent: "board" };
+  }
+  return {
+    reply: `Here's "${board.title}", ${T}.`,
+    action: "SHOW_BOARD",
+    intent: "board",
+    meta: { id: board.id, title: board.title, content: board.content, mode: "open" },
+  };
+}
+
+function handleListBoards(T) {
+  const boards = Boards.listBoards();
+  if (!boards.length) return { reply: `No boards saved yet, ${T}.`, action: "LIST_BOARDS", intent: "board", meta: { boards: [] } };
+  return {
+    reply: `You've got ${boards.length} board${boards.length === 1 ? "" : "s"} saved, ${T}: ${boards.map(b => b.title).join(", ")}.`,
+    action: "LIST_BOARDS",
+    intent: "board",
+    meta: { boards: boards.map(b => ({ id: b.id, title: b.title })) },
+  };
+}
+
+function handleForgetBoard(topic, T) {
+  const board = Boards.findBoard((topic || "").trim());
+  if (!board) return { reply: `Couldn't find a board on that, ${T}.`, action: "BOARD_NOT_FOUND", intent: "board" };
+  Boards.deleteBoard(board.id);
+  return { reply: `Deleted "${board.title}", ${T}.`, action: "BOARD_DELETED", intent: "board", meta: { id: board.id } };
+}
+
 // ── NEW: Feature draft/ship handlers ─────────────────────────
 async function handleFeatureDraft(message, T) {
   if (!process.env.GITHUB_TOKEN || !process.env.GITHUB_REPO) {
@@ -1564,6 +1689,18 @@ async function executeAssistantTool(name, args, ctx) {
 
     case "open_build_mode":
       return handleHologramOpen(args.query ? `build mode ${args.query}` : "build mode", T);
+
+    case "make_board":
+      return await handleMakeBoard(args.topic, T);
+
+    case "show_board":
+      return handleShowBoard(args.topic, T);
+
+    case "list_boards":
+      return handleListBoards(T);
+
+    case "forget_board":
+      return handleForgetBoard(args.topic, T);
 
     case "get_news": {
       const msg = args.topic ? `news about ${args.topic}` : (args.category ? `${args.category} news` : "news");
@@ -1750,6 +1887,28 @@ app.post("/api/chat", async (req, res) => {
   // ── 1.1 Drafting table / blueprint mode — routes into Build Mode ──
   if (/\b(blueprint|blue print|drafting table|design table|engineering bay|cad mode|let'?s design|sketch (out|something)|draft something|design something)\b/i.test(message)) {
     return res.json(handleHologramOpen(message, T));
+  }
+
+  // ── 1.2 Floating boards — regex safety net (Groq's tool-calling
+  //      stage below handles these too, in any phrasing; this just
+  //      keeps boards working even if Groq is unconfigured/down) ──
+  {
+    const makeBoardMatch = message.match(/\bmake\s+(?:me\s+)?a\s+board\s+(?:on|about|for|of)\s+(.+)/i)
+                        || message.match(/\bboard\s+(?:on|about)\s+(.+)/i);
+    if (makeBoardMatch) {
+      return res.json(await handleMakeBoard(makeBoardMatch[1], T));
+    }
+    const showBoardMatch = message.match(/\b(?:pull up|bring up|bring back|show me|open|show)\s+(?:the|that|our|my)?\s*board\s*(?:we made\s+)?(?:on|about)?\s*(.*)/i);
+    if (showBoardMatch) {
+      return res.json(handleShowBoard(showBoardMatch[1], T));
+    }
+    if (/\bwhat boards\b|\blist (?:my |the )?boards\b/i.test(message)) {
+      return res.json(handleListBoards(T));
+    }
+    const forgetBoardMatch = message.match(/\b(?:delete|forget|remove|get rid of)\s+(?:the|that)?\s*board\s*(?:on|about)?\s*(.*)/i);
+    if (forgetBoardMatch) {
+      return res.json(handleForgetBoard(forgetBoardMatch[1], T));
+    }
   }
 
   // ── 2. Personality shortcuts (no AI needed) ──
