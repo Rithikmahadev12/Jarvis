@@ -51,46 +51,24 @@ else
   echo "[STARTUP][WARN] No GROQ_API_KEY found in .env — Jarvis's AI brain will be unavailable until you add one."
 fi
 
-# ── HERMES AGENT (real local LLM via Ollama) ────────────────────
+# ── JARVIS AGENT (Groq-powered, LOCAL-ONLY) ─────────────────────
 # Render sets $RENDER automatically on every deploy. When it's set,
 # we're running in the cloud — there's no local desktop for Jarvis
-# to open apps/files on, so we skip Ollama/Hermes entirely and don't
-# waste boot time on a multi-GB model download. When $RENDER is
-# unset, we're on someone's own machine: make sure Ollama is
-# installed, running, and has actually pulled the Hermes model, so
-# Jarvis can reason about "open X" commands with a real local LLM.
-# Groq still handles the main AI brain either way — this is purely
-# about the local "open X on my computer" capability.
-HERMES_MODEL="${HERMES_MODEL:-hermes3}"
-
+# to open apps/files on, so the agent disables itself entirely
+# (see jarvis-agent.js's isEnabled()) and there's nothing to boot
+# here. When $RENDER is unset, we're on someone's own machine: the
+# agent reasons about "open X" requests using Groq's cloud API (the
+# same GROQ_API_KEY already checked above), not a local model — so,
+# unlike the old Ollama-based agent, there's no separate binary to
+# install and no model to pull. As long as GROQ_API_KEY is set, it's
+# ready the instant this instance starts locally.
 if [ -n "$RENDER" ]; then
-  echo "[STARTUP] Running on Render — skipping Ollama/Hermes agent (no local PC to control from here)."
+  echo "[STARTUP] Running on Render — Jarvis agent stays disabled (no local PC to control from here)."
 else
-  echo "[STARTUP] Running locally — checking for Ollama (needed to run the Hermes agent)..."
-  if ! command -v ollama >/dev/null 2>&1; then
-    OS_NAME="$(uname -s 2>/dev/null || echo unknown)"
-    if [ "$OS_NAME" = "Linux" ]; then
-      echo "[STARTUP] Ollama not found — installing it (official script, Linux only)..."
-      curl -fsSL https://ollama.com/install.sh | sh || \
-        echo "[STARTUP][WARN] Ollama install failed. Install manually from https://ollama.com/download."
-    else
-      echo "[STARTUP][WARN] Ollama not found. On macOS/Windows it needs to be installed manually:"
-      echo "[STARTUP][WARN]   -> https://ollama.com/download"
-      echo "[STARTUP][WARN] Local 'open X on my computer' commands will be unavailable until it's installed."
-    fi
-  fi
-
-  if command -v ollama >/dev/null 2>&1; then
-    # Start the Ollama server in the background if it isn't already running.
-    if ! curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
-      echo "[STARTUP] Starting Ollama server..."
-      ollama serve > /tmp/ollama.log 2>&1 &
-      sleep 2
-    fi
-    echo "[STARTUP] Pulling Hermes model ($HERMES_MODEL) — first run only, several GB, this can take a while..."
-    ollama pull "$HERMES_MODEL" || \
-      echo "[STARTUP][WARN] Failed to pull $HERMES_MODEL. Jarvis will retry lazily the first time you ask it to open something."
-    echo "[STARTUP] Hermes agent ready ($HERMES_MODEL via Ollama)."
+  if [ -n "$GROQ_API_KEY" ]; then
+    echo "[STARTUP] Running locally — Jarvis agent ready (Groq-powered, 'open X on my computer' will work)."
+  else
+    echo "[STARTUP][WARN] Running locally but no GROQ_API_KEY set — Jarvis agent can't reason about 'open X' until one is added to .env."
   fi
 fi
 
