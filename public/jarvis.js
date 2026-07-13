@@ -1610,15 +1610,6 @@ function handleChatCommand(text) {
     enrollUserFace(); return;
   }
 
-  // ── Manually summon the ball game on demand ──
-  if (/\b(ball|energy ball)\b/.test(cleanedLower) &&
-      /\b(spawn|give|show|bring|throw|start|play|summon)\b/.test(cleanedLower)) {
-    const r = `Here you go, ${state.userTitle}.`;
-    addMsg("jarvis", r); speak(r);
-    if (window.BallGame) window.BallGame.requestBall();
-    return;
-  }
-
   sendToAI(cleaned);
 }
 
