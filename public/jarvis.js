@@ -1229,8 +1229,30 @@ async function checkVoiceAuth(spokenText) {
 // ═══════════════════════════════════════════════════════════════
 // ── LAUNCH MAIN ──
 // ═══════════════════════════════════════════════════════════════
+// ── SETTINGS SYNC — persists toggles (face detection, etc.) to the
+// server so they survive page reloads/restarts, on Render too. ──
+async function loadServerSettings() {
+  try {
+    const res = await fetch("/api/settings");
+    const settings = await res.json();
+    if (typeof settings.faceDetection === "boolean") {
+      state.intruderDetectionEnabled = settings.faceDetection;
+    }
+  } catch (e) {
+    console.warn("[SETTINGS] Couldn't load saved settings, using defaults:", e.message);
+  }
+}
+function saveServerSetting(partial) {
+  fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(partial),
+  }).catch((e) => console.warn("[SETTINGS] Couldn't save setting:", e.message));
+}
+
 function launchMain() {
   state.phase = "chatting";
+  loadServerSettings(); // restore saved toggles (face detection, etc.) — fire-and-forget, applies as soon as it resolves
   $("auth-screen").classList.remove("active");
   $("main-screen").classList.add("active");
   const ud = $("user-display"); if (ud) ud.textContent = `${state.user} / ${state.userTitle}`;
@@ -1550,6 +1572,7 @@ function handleChatCommand(text) {
   if (/\b(disable|turn off|deactivate|stop)\b/.test(cleanedLower) &&
       /\b(intruder|face detection|face recognition|facial recognition|facial|unknown face)\b/.test(cleanedLower)) {
     state.intruderDetectionEnabled = false;
+    saveServerSetting({ faceDetection: false });
     if (state.intruderActive) {
       stopIntruderRecord();
       state.intruderActive = false;
@@ -1563,6 +1586,7 @@ function handleChatCommand(text) {
   if (/\b(enable|turn on|activate|start|re-enable)\b/.test(cleanedLower) &&
       /\b(intruder|face detection|face recognition|facial recognition|facial|unknown face)\b/.test(cleanedLower)) {
     state.intruderDetectionEnabled = true;
+    saveServerSetting({ faceDetection: true });
     const r = `Intruder detection re-enabled, ${state.userTitle}. I'll alert you if an unknown face appears on camera.`;
     addMsg("jarvis", r); speak(r); updateMood(2); return;
   }
@@ -2247,6 +2271,7 @@ function showNotifSettings() {
     $("notif-perm-btn")?.addEventListener("click", () => notif.requestPerm());
     $("nt-intruder-master")?.addEventListener("change", (e) => {
       state.intruderDetectionEnabled = e.target.checked;
+      saveServerSetting({ faceDetection: e.target.checked });
       const r = e.target.checked
         ? `Intruder detection re-enabled, ${state.userTitle}. Monitoring for unknown faces.`
         : `Intruder detection disabled, ${state.userTitle}. I will stop monitoring.`;
