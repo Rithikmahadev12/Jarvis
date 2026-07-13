@@ -151,17 +151,72 @@ async function askHermes(userMessage) {
   return parsed.target || null;
 }
 
+// ── APP NAME → REAL LAUNCH COMMAND ───────────────────────────────
+// Hermes is good at figuring out WHAT the user means ("vs code",
+// "the browser", "my file explorer") but the OS doesn't recognize
+// human-friendly names like that — "start vs code" does nothing on
+// Windows because there's no app literally called "vs code"; the
+// real command is "code". This table maps common friendly names
+// (and their variants) to the actual command/protocol/app-name each
+// OS expects. Anything not in here falls through to the OS's
+// generic opener, which handles file paths, folder paths, and URLs
+// correctly on its own.
+const APP_ALIASES = {
+  win32: {
+    "vs code": "code", "vscode": "code", "visual studio code": "code", "code editor": "code",
+    notepad: "notepad", calculator: "calc", calc: "calc",
+    "file explorer": "explorer", explorer: "explorer", finder: "explorer",
+    paint: "mspaint", terminal: "wt", "command prompt": "cmd", cmd: "cmd",
+    powershell: "powershell", chrome: "chrome", "google chrome": "chrome",
+    firefox: "firefox", edge: "msedge", browser: "msedge",
+    spotify: "spotify:", word: "winword", excel: "excel",
+    settings: "ms-settings:",
+  },
+  darwin: {
+    "vs code": "Visual Studio Code", "vscode": "Visual Studio Code",
+    "visual studio code": "Visual Studio Code", "code editor": "Visual Studio Code",
+    notepad: "TextEdit", calculator: "Calculator", calc: "Calculator",
+    "file explorer": "Finder", finder: "Finder", explorer: "Finder",
+    terminal: "Terminal", chrome: "Google Chrome", "google chrome": "Google Chrome",
+    firefox: "Firefox", edge: "Microsoft Edge", safari: "Safari", browser: "Safari",
+    spotify: "Spotify", word: "Microsoft Word", excel: "Microsoft Excel",
+    settings: "System Settings",
+  },
+  linux: {
+    "vs code": "code", "vscode": "code", "visual studio code": "code", "code editor": "code",
+    "file explorer": "xdg-open .", finder: "xdg-open .", explorer: "xdg-open .",
+    calculator: "gnome-calculator", calc: "gnome-calculator",
+    terminal: "x-terminal-emulator", chrome: "google-chrome",
+    "google chrome": "google-chrome", firefox: "firefox",
+    spotify: "spotify", browser: "xdg-open about:blank",
+  },
+};
+
 // ── OS EXECUTION ──────────────────────────────────────────────
 // Once Hermes has told us WHAT to open, this is HOW: the actual OS
-// command that opens it, per-platform.
+// command that opens it, per-platform. Known apps go through
+// APP_ALIASES so they resolve to something the OS actually
+// recognizes; anything else is treated as a literal file/folder
+// path or URL and handed to the OS's generic opener.
 function buildCommand(target) {
   const platform = os.platform(); // 'win32' | 'darwin' | 'linux'
   const clean = String(target || "").trim();
   if (!clean) return null;
 
-  if (platform === "win32")  return `start "" "${clean}"`;
-  if (platform === "darwin") return `open "${clean}"`;
-  return `xdg-open "${clean}"`; // linux + any other *nix
+  const alias = (APP_ALIASES[platform] || {})[clean.toLowerCase()];
+
+  if (platform === "win32") {
+    // "start" needs an explicit empty title ("") before the real
+    // target whenever the target itself is quoted.
+    return `start "" "${alias || clean}"`;
+  }
+  if (platform === "darwin") {
+    // Known apps: launch by app name. Anything else: treat as a
+    // file/folder path or URL, which plain "open" already handles.
+    return alias ? `open -a "${alias}"` : `open "${clean}"`;
+  }
+  // linux + any other *nix
+  return alias || `xdg-open "${clean}"`;
 }
 
 function runCommand(command) {
@@ -175,6 +230,15 @@ function runCommand(command) {
 // computer" or "launch chrome"), asks the local Hermes model what
 // that actually means, then executes it. Resolves with
 // { target, command }. Rejects with a clear reason otherwise.
+//
+// NOTE ON RELIABILITY: Windows' "start" (and macOS/Linux's "open"/
+// "xdg-open" to a lesser extent) hand off asynchronously and report
+// success even if the target couldn't actually be launched (e.g. an
+// app isn't installed, or isn't on PATH). So a resolved promise here
+// means "the OS accepted the request", not a hard guarantee the
+// window actually appeared. If something reliably won't open, check
+// that the app is installed and (for CLI-style launches like VS
+// Code's "code") that it was installed with its PATH option enabled.
 async function openOnComputer(userMessage) {
   if (!isEnabled()) {
     throw new Error(
@@ -213,4 +277,5 @@ module.exports = {
   openOnComputer,
   OLLAMA_URL,
   HERMES_MODEL,
+
 };
