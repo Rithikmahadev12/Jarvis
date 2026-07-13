@@ -156,10 +156,39 @@ function clearToday(user) {
   return true;
 }
 
+// ── PENDING GOAL QUESTION (conversational flow, not the big screen) ──
+// "Daily briefing" used to always launch the full-screen briefing.js
+// experience and ask "what's your task" every time. Now it's a plain
+// back-and-forth in chat: ask once whether there's a goal for today,
+// only when the user actually asks for the briefing — never launched
+// on its own. sessionId -> { phase: "awaiting_yes_no" | "awaiting_goal_text" }
+const PENDING_GOAL_QUESTION = new Map();
+
+function proposeGoalQuestion(sessionId) {
+  if (!sessionId) return;
+  PENDING_GOAL_QUESTION.set(sessionId, { phase: "awaiting_yes_no" });
+}
+function setGoalQuestionPhase(sessionId, phase) {
+  if (!sessionId) return;
+  const rec = PENDING_GOAL_QUESTION.get(sessionId);
+  if (rec) rec.phase = phase;
+}
+function getPendingGoalQuestion(sessionId) {
+  if (!sessionId) return null;
+  return PENDING_GOAL_QUESTION.get(sessionId) || null;
+}
+function clearPendingGoalQuestion(sessionId) {
+  PENDING_GOAL_QUESTION.delete(sessionId);
+}
+
 module.exports = {
   getToday,
   setToday,
   clearToday,
   generateBriefing,
   todayKey,
+  proposeGoalQuestion,
+  setGoalQuestionPhase,
+  getPendingGoalQuestion,
+  clearPendingGoalQuestion,
 };
