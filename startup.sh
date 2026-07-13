@@ -46,9 +46,52 @@ if [ ! -f "$MODEL" ]; then
 fi
 
 if [ -n "$GROQ_API_KEY" ]; then
-  echo "[STARTUP] GROQ_API_KEY found — Jarvis will talk to Groq's API directly (no local agent needed)."
+  echo "[STARTUP] GROQ_API_KEY found — Jarvis will talk to Groq's API directly for the AI brain."
 else
   echo "[STARTUP][WARN] No GROQ_API_KEY found in .env — Jarvis's AI brain will be unavailable until you add one."
+fi
+
+# ── HERMES AGENT (real local LLM via Ollama) ────────────────────
+# Render sets $RENDER automatically on every deploy. When it's set,
+# we're running in the cloud — there's no local desktop for Jarvis
+# to open apps/files on, so we skip Ollama/Hermes entirely and don't
+# waste boot time on a multi-GB model download. When $RENDER is
+# unset, we're on someone's own machine: make sure Ollama is
+# installed, running, and has actually pulled the Hermes model, so
+# Jarvis can reason about "open X" commands with a real local LLM.
+# Groq still handles the main AI brain either way — this is purely
+# about the local "open X on my computer" capability.
+HERMES_MODEL="${HERMES_MODEL:-hermes3}"
+
+if [ -n "$RENDER" ]; then
+  echo "[STARTUP] Running on Render — skipping Ollama/Hermes agent (no local PC to control from here)."
+else
+  echo "[STARTUP] Running locally — checking for Ollama (needed to run the Hermes agent)..."
+  if ! command -v ollama >/dev/null 2>&1; then
+    OS_NAME="$(uname -s 2>/dev/null || echo unknown)"
+    if [ "$OS_NAME" = "Linux" ]; then
+      echo "[STARTUP] Ollama not found — installing it (official script, Linux only)..."
+      curl -fsSL https://ollama.com/install.sh | sh || \
+        echo "[STARTUP][WARN] Ollama install failed. Install manually from https://ollama.com/download."
+    else
+      echo "[STARTUP][WARN] Ollama not found. On macOS/Windows it needs to be installed manually:"
+      echo "[STARTUP][WARN]   -> https://ollama.com/download"
+      echo "[STARTUP][WARN] Local 'open X on my computer' commands will be unavailable until it's installed."
+    fi
+  fi
+
+  if command -v ollama >/dev/null 2>&1; then
+    # Start the Ollama server in the background if it isn't already running.
+    if ! curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1; then
+      echo "[STARTUP] Starting Ollama server..."
+      ollama serve > /tmp/ollama.log 2>&1 &
+      sleep 2
+    fi
+    echo "[STARTUP] Pulling Hermes model ($HERMES_MODEL) — first run only, several GB, this can take a while..."
+    ollama pull "$HERMES_MODEL" || \
+      echo "[STARTUP][WARN] Failed to pull $HERMES_MODEL. Jarvis will retry lazily the first time you ask it to open something."
+    echo "[STARTUP] Hermes agent ready ($HERMES_MODEL via Ollama)."
+  fi
 fi
 
 echo "[STARTUP] Launching voice server on :5050..."
