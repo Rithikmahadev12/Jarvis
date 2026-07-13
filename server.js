@@ -1753,6 +1753,17 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ reply: smalltalkReply, action: "SMALLTALK", intent: "smalltalk" });
   }
 
+  // ── 2.4 Local PC control (Hermes Agent via Ollama) ──
+  // Must run BEFORE Groq's tool-calling stage below. Groq has no
+  // "open an app on my computer" tool, so if this ran after Groq,
+  // Groq would just answer in generic text and return early —
+  // hermes-agent.js (and Ollama) would never actually get called.
+  // Checked here instead, ahead of Groq, so local open/launch
+  // requests always reach the real Ollama-backed agent.
+  if (HARD_COMMANDS.openOnPC.test(message)) {
+    return res.json(await handleOpenOnPC(message, T));
+  }
+
   // ── 2.5 AI decides + acts — replaces regex command matching ──
   // Groq reads the message and either calls a real tool (reminder,
   // timer, weather, Spotify, home control) or just answers in text.
