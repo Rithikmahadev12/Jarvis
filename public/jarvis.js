@@ -345,7 +345,7 @@ syncHomeTalkBadge();
 // still sounds a little quiet at that cap, a Web Audio gain node lets
 // us push it genuinely louder rather than just maxing out volume=1.
 let _ttsAudioCtx = null;
-const TTS_VOLUME_BOOST = 2.8; // >1 = louder than the source recording. Raise/lower to taste.
+const TTS_VOLUME_BOOST = 5.0; // >1 = louder than the source recording. Raise/lower to taste.
 function playBoostedAudio(audioEl) {
   try {
     if (!_ttsAudioCtx) _ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1874,6 +1874,20 @@ async function handleAction(action, meta, replyText) {
   const T = state.userTitle || "Sir";
 
   switch (action) {
+    case "SHOW_BOARD": {
+      speak(replyText, () => mic.resume());
+      if (window.BoardWidget && meta) {
+        window.BoardWidget.show({ id: meta.id, title: meta.title, content: meta.content });
+      }
+      break;
+    }
+    case "BOARD_NOT_FOUND":
+    case "ASK_BOARD_TOPIC":
+    case "LIST_BOARDS":
+    case "BOARD_DELETED": {
+      speak(replyText, () => mic.resume());
+      break;
+    }
     case "SHOW_HOLOGRAM": {
       const query = meta?.query || "";
       speak(replyText, () => {
