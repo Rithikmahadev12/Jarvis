@@ -17,7 +17,7 @@ const Build       = require("./build-engine");
 const BuildAI     = require("./build-ai");
 const Home        = require("./home");
 const Groq        = require("./hermes-engine");
-const HermesAgent = require("./hermes-agent");
+const JarvisAgent = require("./jarvis-agent");
 const Improve     = require("./self-improve");
 const Trainer     = require("./trainer");
 const Brain       = require("./brain");
@@ -1157,11 +1157,11 @@ const HARD_COMMANDS = {
   calendar:     /\b(calendar|schedule|events?|agenda|meetings?|appointments?|what('s| is) (on|planned)|my day|today'?s? (plan|event|meeting|schedule))\b/i,
   links:        /\b(show (my |all )?links|open links|link bank|all my links)\b/i,
   openLink:     /\b(open|launch|pull up|go to)\b.{1,40}\b(infamous|petzah|fern|vapor)\b/i,
-  // Local PC control (Hermes Agent) — "open notepad", "launch chrome",
-  // "open C:\notes.txt on my computer", etc. Checked after openLink so
-  // saved link names still win if they overlap. Actually disabled at
-  // runtime (not just skipped) when running on Render — see
-  // hermes-agent.js's isEnabled().
+  // Local PC control (Jarvis Agent, Groq-powered) — "open notepad",
+  // "launch chrome", "open C:\notes.txt on my computer", etc. Checked
+  // after openLink so saved link names still win if they overlap.
+  // Actually disabled at runtime (not just skipped) when running on
+  // Render — see jarvis-agent.js's isEnabled().
   openOnPC:     /\b(open|launch|start|fire up|pull up)\b.{1,40}\b(on (my|the) (computer|pc|machine|desktop)|notepad|calculator|calc|file explorer|finder|paint|chrome|firefox|edge|safari|spotify app|word|excel|terminal|command prompt|cmd|vs\s?code|vscode|settings app)\b/i,
   hologram:     /\b(show me a (3d|hologram)|holographic|3d model|3d scan|build mode)\b/i,
   newsWidget:   /\bnews widget\b/i,
@@ -1228,17 +1228,17 @@ async function handleSpotifyFetch(message, T) {
   }
 }
 
-// ── HERMES AGENT: open something on the local computer ─────────
+// ── JARVIS AGENT: open something on the local computer ─────────
 async function handleOpenOnPC(message, T) {
-  if (!HermesAgent.isEnabled()) {
+  if (!JarvisAgent.isEnabled()) {
     return {
-      reply: `Can't do that from here, ${T} — this instance is running in the cloud, not on your computer, so the Hermes agent is disabled.`,
+      reply: `Can't do that from here, ${T} — this instance is running in the cloud, not on your computer, so the Jarvis agent is disabled.`,
       action: "OPEN_ON_PC",
       intent: "open_on_pc",
     };
   }
   try {
-    const result = await HermesAgent.openOnComputer(message);
+    const result = await JarvisAgent.openOnComputer(message);
     return { reply: `Opening ${result.target}, ${T}.`, action: "OPEN_ON_PC", intent: "open_on_pc", meta: { opened: result.target } };
   } catch (e) {
     return { reply: `Couldn't do that, ${T}. ${e.message}`, action: "OPEN_ON_PC", intent: "open_on_pc" };
@@ -1932,13 +1932,15 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ reply: smalltalkReply, action: "SMALLTALK", intent: "smalltalk" });
   }
 
-  // ── 2.4 Local PC control (Hermes Agent via Ollama) ──
-  // Must run BEFORE Groq's tool-calling stage below. Groq has no
-  // "open an app on my computer" tool, so if this ran after Groq,
-  // Groq would just answer in generic text and return early —
-  // hermes-agent.js (and Ollama) would never actually get called.
-  // Checked here instead, ahead of Groq, so local open/launch
-  // requests always reach the real Ollama-backed agent.
+  // ── 2.4 Local PC control (Jarvis Agent, Groq-powered) ──
+  // Must run BEFORE Groq's tool-calling stage below. Groq's main chat
+  // brain has no "open an app on my computer" tool, so if this ran
+  // after that stage, it would just answer in generic text and return
+  // early — jarvis-agent.js would never actually get called. Checked
+  // here instead, ahead of the main brain, so local open/launch
+  // requests always reach the agent. jarvis-agent.js itself only ever
+  // executes when this Jarvis instance is running on your own machine
+  // (not Render) — see its isEnabled().
   if (HARD_COMMANDS.openOnPC.test(message)) {
     return res.json(await handleOpenOnPC(message, T));
   }
