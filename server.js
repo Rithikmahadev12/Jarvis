@@ -28,6 +28,7 @@ const Schedule    = require("./schedule");
 const Proactive   = require("./proactive");
 const TTS = require("./tts");
 const Persistence = require("./persistence");
+const Settings    = require("./settings");
 
 const app        = express();
 
@@ -320,6 +321,16 @@ app.get("/api/news", async (req, res) => {
 app.get("/api/links/summary", (req, res) => res.json(getLinksSummary()));
 app.get("/api/links/all",     (req, res) => res.json({ links: getAllLinksFormatted() }));
 app.get("/api/brain/stats", (req, res) => res.json(Brain.getGrowthStats()));
+
+// ── SETTINGS (persisted toggles — face detection, etc.) ──
+// Reading: GET returns the full merged settings object (defaults + saved).
+// Writing: POST body is merged into whatever's already saved and written
+// back — send only the keys you're changing, e.g. { "faceDetection": false }.
+// data/settings.json is inside the SAME data/ folder persistence.js mirrors
+// to Supabase, so on Render (with SUPABASE_* env vars set) this survives
+// redeploys and spin-downs exactly like profiles/memories already do.
+app.get("/api/settings", (req, res) => res.json(Settings.load()));
+app.post("/api/settings", (req, res) => res.json(Settings.save(req.body || {})));
 app.post("/api/link",         (req, res) => {
   const { query } = req.body;
   if (!query) return res.status(400).json({ found: false });
