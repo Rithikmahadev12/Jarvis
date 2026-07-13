@@ -345,7 +345,7 @@ syncHomeTalkBadge();
 // still sounds a little quiet at that cap, a Web Audio gain node lets
 // us push it genuinely louder rather than just maxing out volume=1.
 let _ttsAudioCtx = null;
-const TTS_VOLUME_BOOST = 5.0; // >1 = louder than the source recording. Raise/lower to taste.
+const TTS_VOLUME_BOOST = 3.0; // >1 = louder than the source recording. Raise/lower to taste.
 function playBoostedAudio(audioEl) {
   try {
     if (!_ttsAudioCtx) _ttsAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
