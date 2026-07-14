@@ -11,11 +11,11 @@
   <link rel="stylesheet" href="daily-briefing.css"/>
   <link rel="stylesheet" href="glass-ui.css"/>
   <link rel="stylesheet" href="home-ui.css"/>
-  <link rel="stylesheet" href="chat-hero.css"/>
   <link rel="stylesheet" href="music-widget.css"/>
   <link rel="stylesheet" href="mode-picker.css"/>
   <link rel="stylesheet" href="board-widget.css"/>
 
+  <!-- PWA: lets this be "Added to Home Screen" as an app on a phone -->
   <link rel="manifest" href="manifest.json"/>
   <meta name="theme-color" content="#0a0e14"/>
   <link rel="apple-touch-icon" href="icons/icon-192.png"/>
@@ -25,17 +25,22 @@
 </head>
 <body>
 
+  <!-- PARTICLE CANVAS -->
   <canvas id="particle-canvas"></canvas>
 
+  <!-- GLOBAL GRID OVERLAY -->
   <div class="global-grid"></div>
 
+  <!-- CORNER BRACKETS -->
   <div class="corner tl"><div class="pip"></div></div>
   <div class="corner tr"><div class="pip"></div></div>
   <div class="corner bl"><div class="pip"></div></div>
   <div class="corner br"><div class="pip"></div></div>
 
+  <!-- SCANLINE -->
   <div class="scanline"></div>
 
+  <!-- INTRO / BOOT SCREEN — plays once after login, before main HUD reveals -->
   <div id="intro-screen">
     <div class="intro-grid"></div>
     <div class="intro-vignette"></div>
@@ -69,6 +74,9 @@
     </div>
     <div id="intro-greeting"></div>
 
+    <!-- decorative preview of the mode taskbar the user will land on —
+         mirrors the real #mode-taskbar exactly (same icons/markup) so the
+         boot screen matches the home screen pixel-for-pixel. Non-interactive. -->
     <nav class="intro-taskbar" id="intro-taskbar">
       <button class="taskbar-btn active" tabindex="-1" title="Chat">
         <span class="tb-icon">
@@ -98,8 +106,11 @@
   </div>
 
 
+  <!-- DAILY BRIEFING SCREEN — plays after boot, before main HUD.
+       Content is built dynamically by daily-briefing.js -->
   <div id="briefing-screen"></div>
 
+  <!-- SETUP SCREEN -->
   <div id="setup-screen" class="screen">
     <div class="setup-container">
       <div class="arc-reactor">
@@ -144,6 +155,13 @@
     </div>
   </div>
 
+  <!-- LOCK SCREEN — plays first, before the login/create screen ever
+       shows. Auto-checks for an existing account, then scans your
+       face: a match signs you straight in, no account routes you to
+       Create Account, no match falls back to manual sign-in. Orb is
+       a rotating particle sphere (dots), matching the reference —
+       tinted differently from the boot screen so they read as two
+       distinct states. -->
   <div id="lock-screen">
     <div class="intro-grid"></div>
     <div class="intro-vignette"></div>
@@ -165,6 +183,7 @@
     <div id="lock-substatus"></div>
   </div>
 
+  <!-- AUTH SCREEN -->
   <div id="auth-screen" class="screen">
     <div class="auth-container">
 
@@ -245,6 +264,7 @@
     </div>
   </div>
 
+  <!-- FACE AUTH OVERLAY -->
   <div id="face-auth-overlay" class="face-auth-overlay hidden">
     <div class="face-auth-box">
       <div class="face-auth-alert-bar">
@@ -262,6 +282,7 @@
     </div>
   </div>
 
+  <!-- CLIP REVIEW OVERLAY -->
   <div id="clip-review-overlay" class="clip-review-overlay hidden">
     <div class="clip-review-box">
       <div class="clip-review-header">
@@ -277,8 +298,13 @@
     </div>
   </div>
 
+  <!-- ═══════════════════════════════════════════════ -->
+  <!-- MAIN SCREEN                                    -->
+  <!-- ═══════════════════════════════════════════════ -->
   <div id="main-screen" class="screen hud-minimal">
 
+    <!-- TOP BAR (hidden in minimal mode via CSS — kept so existing JS
+         that updates these fields doesn't need to change) -->
     <div class="top-bar">
       <div class="top-bar-left">
         <div class="tb-block">
@@ -322,6 +348,9 @@
       </div>
     </div>
 
+    <!-- HUD HOME — minimal centered badge, replaces the old dashboard look.
+         Reuses the EXACT same classes as the intro/boot screen (intro-grid,
+         intro-vignette, boot-badge-*) so it renders identically. -->
     <div class="hud-home">
       <div class="intro-grid"></div>
       <div class="intro-vignette"></div>
@@ -344,6 +373,7 @@
           </svg>
         </div>
 
+        <!-- functional orb — drives setOrb()/mood state, kept invisible behind the badge -->
         <div class="orb" id="orb">
           <div class="orb-ring r1"></div>
           <div class="orb-ring r2"></div>
@@ -353,24 +383,15 @@
         </div>
       </div>
 
+      <!-- status text kept in the DOM for jarvis.js (setOrb) but not shown,
+           to match the reference screens exactly (no caption under the badge) -->
       <div class="home-status-text sr-only" id="status-text">STANDBY</div>
-
-      <div class="chat-hero">
-        <h1 class="chat-hero-title">Where should we begin?</h1>
-        <div class="input-bar show-typing" id="chat-input-bar">
-          <button class="chat-bar-btn chat-plus-btn" id="chat-plus-btn" type="button" title="Add" aria-label="Add">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
-          </button>
-          <input type="text" id="type-input" placeholder="Ask anything" autocomplete="off" spellcheck="false"/>
-          <button class="chat-bar-btn chat-mic-btn" id="type-send" type="button" title="Voice input" aria-label="Voice input">
-            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21M8.5 21h7"/></svg>
-          </button>
-        </div>
-      </div>
     </div>
 
+    <!-- MAIN CONTENT AREA -->
     <div class="main-content">
 
+      <!-- LEFT PANEL -->
       <div class="side-panel left-panel">
         <div class="panel-header">VISUAL SENSORS</div>
         <div class="camera-wrap" id="camera-panel">
@@ -434,16 +455,19 @@
           <div class="mem-sub">LONG-TERM FACTS</div>
         </div>
 
+        <!-- Clip indicator -->
         <div id="clip-indicator" class="clip-indicator hidden">
           <span class="rec-dot"></span>
           <span>BUFFER ACTIVE</span>
         </div>
 
+        <!-- Extension download -->
         <a href="/api/extension/download" download="jarvis-extension.zip" class="ext-btn">
           <span>⬡</span> EXTENSION
         </a>
       </div>
 
+      <!-- TRANSCRIPT AREA -->
       <div class="transcript-column">
         <div class="transcript-header">
           <div class="th-edge left"></div>
@@ -462,6 +486,15 @@
 
         <div id="attachment-tray" class="attachment-tray"></div>
 
+        <div class="input-bar">
+          <div class="input-bar-prefix">▶</div>
+          <input type="file" id="file-input" multiple hidden
+                 accept=".txt,.md,.csv,.json,.js,.ts,.py,.log,.html,.css,.xml,.yml,.yaml,image/*,.pdf"/>
+          <button id="attach-btn" class="attach-btn" type="button" title="Attach files">📎</button>
+          <input type="text" id="type-input" placeholder="Speak or type anything…" autocomplete="off" spellcheck="false"/>
+          <button id="type-send" class="send-btn">⏎</button>
+        </div>
+
         <div class="hint-strip">
           <span>"Jarvis, anything"</span>
           <span class="dot">·</span>
@@ -475,6 +508,7 @@
         </div>
       </div>
 
+      <!-- RIGHT PANEL -->
       <div class="side-panel right-panel">
         <div class="panel-header">INTELLIGENCE</div>
 
@@ -521,7 +555,7 @@
             <button class="q-btn" onclick="handleChatCommand('Jarvis system status')">DIAGNOSTICS</button>
             <button class="q-btn" onclick="handleChatCommand('Jarvis show me all my links')">LINK BANK</button>
             <button class="q-btn" onclick="handleChatCommand('Jarvis what is the weather')">WEATHER</button>
-            <button class="q-btn" onclick="what is playing on Spotify')">SPOTIFY</button>
+            <button class="q-btn" onclick="handleChatCommand('what is playing on Spotify')">SPOTIFY</button>
           </div>
         </div>
 
@@ -529,6 +563,8 @@
       </div>
     </div>
 
+    <!-- TICKER -->
+    <!-- ══ MOBILE NAV BAR (hidden on desktop) ══ -->
     <nav class="mobile-nav" id="mobile-nav">
       <button class="mob-nav-btn active" id="mob-btn-chat" onclick="mobileNav('chat')">
         <span class="mob-icon">💬</span>CHAT
@@ -544,23 +580,29 @@
       </button>
     </nav>
 
+    <!-- ══ LEFT DRAWER (mobile) ══ -->
     <div class="mob-drawer-overlay" id="mob-overlay-left" onclick="closeMobileDrawers()"></div>
     <div class="mob-drawer" id="mob-drawer-left">
       <button class="mob-drawer-close" onclick="closeMobileDrawers()">✕</button>
-      </div>
+      <!-- content injected by JS from left-panel -->
+    </div>
 
+    <!-- ══ RIGHT DRAWER (mobile) ══ -->
     <div class="mob-drawer-overlay" id="mob-overlay-right" onclick="closeMobileDrawers()"></div>
     <div class="mob-drawer right" id="mob-drawer-right">
       <button class="mob-drawer-close" onclick="closeMobileDrawers()">✕</button>
-      </div>
+      <!-- content injected by JS from right-panel -->
+    </div>
 
     <div id="status-ticker">
       <div class="ticker-track" id="ticker-track"></div>
     </div>
 
+    <!-- CLIP TOAST -->
     <div id="clip-toast" class="clip-toast hidden">✂ Clip saved — last 60 seconds</div>
     <div id="home-talk-badge" class="home-talk-badge hidden"></div>
 
+    <!-- MAP PANEL -->
     <div id="map-panel" class="hologram-panel" style="display:none">
       <button id="map-close-btn" class="holo-close-btn" onclick="closeMapMode()">✕ CLOSE</button>
       <iframe id="map-iframe"
@@ -570,6 +612,7 @@
       ></iframe>
     </div>
 
+    <!-- BUILD MODE PANEL -->
     <div id="build-panel" class="hologram-panel" style="display:none">
       <iframe id="build-iframe"
         data-src="build-mode.html"
@@ -578,6 +621,7 @@
       ></iframe>
     </div>
 
+    <!-- NEWS WIDGET PANEL -->
     <div id="news-panel" class="hologram-panel" style="display:none">
       <button id="news-close-btn" class="holo-close-btn" onclick="closeNews()">✕ CLOSE</button>
       <iframe id="news-iframe"
@@ -587,6 +631,7 @@
       ></iframe>
     </div>
 
+    <!-- ══ MODE TASKBAR — bottom dock, switch modes by tap or by voice ("Jarvis, switch to map") ══ -->
     <nav id="mode-taskbar">
       <button class="taskbar-btn active" id="tb-btn-chat" onclick="switchMode('chat')" title="Chat">
         <span class="tb-icon">
@@ -617,7 +662,9 @@
       </button>
     </nav>
 
-  </div><script src="retina-scan.js"></script>
+  </div><!-- /main-screen -->
+
+<script src="retina-scan.js"></script>
   <script src="camera-observer.js"></script>
   <script src="visuals.js"></script>
   <script src="music-widget.js"></script>
