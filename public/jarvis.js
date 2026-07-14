@@ -1562,12 +1562,14 @@ function handleChatCommand(text, attachments) {
   // whole conversation (goal question, steps, or the general "here's
   // what's going on" fallback) as plain chat replies.
 
-  // ── Simple Chat Mode: "Jarvis turn on chat mode" swaps in a plain
-  //    text-chat overlay (light theme, "Ask anything" bar, no HUD/orb).
-  //    "Jarvis turn off chat mode" goes back to the full HUD. Checked
-  //    before the "switch to chat mode" HUD-mode match below since
-  //    both use the word "chat mode" but mean different things. ──
-  if (/\b(turn on|enable|activate|start|go into|open)\s+(?:the\s+)?(?:simple\s+|text\s+)?chat\s*mode\b/.test(cleanedLower)) {
+  // ── Simple Chat Mode: "Jarvis turn on/switch to/enable chat mode"
+  //    swaps in a plain text-chat overlay (light theme, "Ask anything"
+  //    bar, no HUD/orb). "Jarvis turn off/exit chat mode" goes back to
+  //    the full HUD. Any phrasing that includes the word "mode" is
+  //    claimed here, ahead of the generic switchMatch below — a bare
+  //    "switch to chat" (no "mode") still falls through to that and
+  //    just flips the HUD's own chat tab. ──
+  if (/\b(turn on|enable|activate|start|go into|open|switch(?:\s+(?:to|into))?)\s+(?:the\s+)?(?:simple\s+|text\s+)?chat\s*mode\b/.test(cleanedLower)) {
     enterSimpleChatMode();
     const r = `Chat mode on, ${state.userTitle}.`;
     addMsg("jarvis", r); speak(r);
