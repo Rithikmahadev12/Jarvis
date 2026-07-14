@@ -57,6 +57,7 @@ const state = window.state = {
   moodScore: 0,
   interactionCount: 0,
   lastInteraction: Date.now(),
+  pendingAttachments: [], // files staged via the 📎 button, cleared on send
   selectedCameraId: null,
   availableCameras: [],
   tesseractWorker: null,
@@ -1399,19 +1400,115 @@ function startChatListening() {
 function setupTypingBox() {
   const input = $("type-input"), btn = $("type-send"); if (!input || !btn) return;
   const submit = () => {
-    const text = input.value.trim(); if (!text || state.phase !== "chatting") return;
-    input.value = ""; handleChatCommand(text);
+    const text = input.value.trim();
+    if (!text && state.pendingAttachments.length === 0) return;
+    if (state.phase !== "chatting") return;
+    input.value = "";
+    const attachments = state.pendingAttachments.slice();
+    clearAttachments();
+    handleChatCommand(text || "(see attached file)", attachments);
   };
   btn.addEventListener("click", submit);
   input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); submit(); } e.stopPropagation(); });
   input.addEventListener("focus", () => mic.suspend());
   input.addEventListener("blur",  () => { if (state.phase === "chatting") mic.resume(); });
+
+  setupAttachments();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── FILE ATTACHMENTS (chat mode file upload, ChatGPT-style) ──
+// Click the 📎 button → pick files → they're read client-side and
+// staged as chips above the input bar. On send, they ride along with
+// the message to /api/chat, where the server folds their text content
+// into what the AI sees. Text-ish files (code, txt, md, csv, json…)
+// get their full content read; images get a data URL for on-screen
+// preview but the current text-only model can't "see" pixels — the
+// server tells JARVIS that plainly rather than pretending it can.
+// ═══════════════════════════════════════════════════════════════
+const ATTACH_MAX_FILE_BYTES = 8 * 1024 * 1024; // 8MB per file
+const TEXT_EXT_RE = /\.(txt|md|csv|json|js|ts|jsx|tsx|py|log|html|css|xml|yml|yaml|c|cpp|h|java|sh)$/i;
+
+function setupAttachments() {
+  const fileInput = $("file-input"), attachBtn = $("attach-btn");
+  if (!fileInput || !attachBtn) return;
+
+  attachBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    const files = Array.from(fileInput.files || []);
+    fileInput.value = ""; // allow re-selecting the same file later
+    for (const file of files) await stageAttachment(file);
+    renderAttachmentTray();
+  });
+}
+
+async function stageAttachment(file) {
+  if (file.size > ATTACH_MAX_FILE_BYTES) {
+    addMsg("system", `"${file.name}" is too large to attach (max 8MB).`);
+    return;
+  }
+  const isImage = file.type.startsWith("image/");
+  const isText = isImage ? false : (file.type.startsWith("text/") || TEXT_EXT_RE.test(file.name) || file.type === "application/json");
+
+  const entry = { name: file.name, mimeType: file.type || "application/octet-stream", size: file.size, isImage };
+
+  try {
+    if (isImage) {
+      entry.dataUrl = await readFileAsDataURL(file);
+    } else if (isText) {
+      entry.textContent = await readFileAsText(file);
+    }
+    // Anything else (pdf, docx, etc.) is staged with just its name/type —
+    // the server notes it can't extract that format's content yet.
+  } catch (e) {
+    console.error("[ATTACH] failed to read file:", e);
+  }
+  state.pendingAttachments.push(entry);
+}
+
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsText(file);
+  });
+}
+function readFileAsDataURL(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+function renderAttachmentTray() {
+  const tray = $("attachment-tray"), attachBtn = $("attach-btn");
+  if (!tray) return;
+  tray.innerHTML = "";
+  state.pendingAttachments.forEach((a, i) => {
+    const chip = document.createElement("div");
+    chip.className = "attachment-chip";
+    chip.innerHTML = `${a.isImage ? `<img class="ac-thumb" src="${a.dataUrl}"/>` : ""}<span class="ac-name">${a.name}</span><button class="ac-remove" title="Remove">✕</button>`;
+    chip.querySelector(".ac-remove").addEventListener("click", () => {
+      state.pendingAttachments.splice(i, 1);
+      renderAttachmentTray();
+    });
+    tray.appendChild(chip);
+  });
+  if (attachBtn) attachBtn.classList.toggle("has-files", state.pendingAttachments.length > 0);
+}
+
+function clearAttachments() {
+  state.pendingAttachments = [];
+  renderAttachmentTray();
 }
 
 // ═══════════════════════════════════════════════════════════════
 // ── CHAT COMMAND HANDLER ──
 // ═══════════════════════════════════════════════════════════════
-function handleChatCommand(text) {
+function handleChatCommand(text, attachments) {
   const lower = text.toLowerCase();
   const prevInteraction = state.lastInteraction;
   state.lastInteraction = Date.now();
@@ -1601,14 +1698,14 @@ function handleChatCommand(text) {
     enrollUserFace(); return;
   }
 
-  sendToAI(cleaned);
+  sendToAI(cleaned, attachments);
 }
 
 // ═══════════════════════════════════════════════════════════════
 // ── AI CHAT ──
-async function sendToAI(message) {
+async function sendToAI(message, attachments) {
   mic.suspend();
-  addMsg("user", message);
+  addMsg("user", message, attachments);
   setOrb("thinking");
 
   try {
@@ -1643,6 +1740,11 @@ async function sendToAI(message) {
         cameraActive: !!state.cameraStream,   // tell the AI camera is already online
         screenActive: !!state.screenStream,   // and whether screen share is active
         userTimezone: getUserTimezone(),      // so JARVIS knows YOUR local time, not the server's
+        // Only name/type/text ride to the server — data URLs stay client-side
+        // for preview only, since the current model can't read image pixels.
+        attachments: (attachments || []).map(a => ({
+          name: a.name, mimeType: a.mimeType, isImage: !!a.isImage, textContent: a.textContent || null,
+        })),
       }),
     });
     const data  = await res.json();
@@ -2897,10 +2999,23 @@ function handleLogout() {
 }
 
 // ── TRANSCRIPT ──
-function addMsg(type, text) {
+function addMsg(type, text, attachments) {
   const labels = { user:"YOU", jarvis:"J.A.R.V.I.S", system:"SYSTEM" };
   const wrap   = document.createElement("div"); wrap.className = `msg ${type}`;
   wrap.innerHTML = `<div class="msg-label">${labels[type] || type}</div><div class="msg-text">${text}</div>`;
+  if (attachments && attachments.length) {
+    const row = document.createElement("div"); row.className = "msg-attachments";
+    attachments.forEach(a => {
+      if (a.isImage && a.dataUrl) {
+        const img = document.createElement("img"); img.src = a.dataUrl; img.alt = a.name;
+        row.appendChild(img);
+      } else {
+        const chip = document.createElement("span"); chip.className = "ac-name-only"; chip.textContent = a.name;
+        row.appendChild(chip);
+      }
+    });
+    wrap.appendChild(row);
+  }
   $("transcript").appendChild(wrap); $("transcript").scrollTop = $("transcript").scrollHeight;
   // Track JARVIS questions so short replies like "yes" can be understood in context
   if (type === "jarvis" && text.includes("?")) {
