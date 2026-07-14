@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="music-widget.css"/>
   <link rel="stylesheet" href="mode-picker.css"/>
   <link rel="stylesheet" href="board-widget.css"/>
+  <link rel="stylesheet" href="simple-chat-mode.css"/>
 
   <!-- PWA: lets this be "Added to Home Screen" as an app on a phone -->
   <link rel="manifest" href="manifest.json"/>
@@ -469,6 +470,8 @@
 
       <!-- TRANSCRIPT AREA -->
       <div class="transcript-column">
+        <button id="simple-chat-exit-btn" type="button" onclick="exitSimpleChatMode()" title="Back to HUD">⤺ HUD MODE</button>
+        <div class="simple-chat-greeting" id="simple-chat-greeting">Where should we begin?</div>
         <div class="transcript-header">
           <div class="th-edge left"></div>
           <div class="th-title">NEURAL INTERFACE — ACTIVE SESSION</div>
