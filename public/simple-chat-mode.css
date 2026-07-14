@@ -1,0 +1,174 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — SIMPLE CHAT MODE
+   A plain, minimal text-chat overlay (à la ChatGPT/Claude) that
+   swaps out for the full HUD. Toggled by voice: "Jarvis, turn on
+   chat mode" / "Jarvis, turn off chat mode" — see enterSimpleChatMode()
+   / exitSimpleChatMode() in jarvis.js. Purely additive: hides the HUD
+   chrome via a body class and reuses the exact same #transcript /
+   #type-input / addMsg()/handleChatCommand() plumbing, so nothing
+   about how messages are sent or rendered has to change.
+   ═══════════════════════════════════════════════════════════════ */
+
+body.simple-chat-active {
+  background: #fafafa;
+}
+
+/* Hide all the HUD chrome */
+body.simple-chat-active .top-bar,
+body.simple-chat-active .hud-home,
+body.simple-chat-active .side-panel,
+body.simple-chat-active #mode-taskbar,
+body.simple-chat-active .mobile-nav,
+body.simple-chat-active #status-ticker,
+body.simple-chat-active .transcript-header,
+body.simple-chat-active .hint-strip,
+body.simple-chat-active #home-talk-badge,
+body.simple-chat-active #clip-indicator,
+body.simple-chat-active #waveform-canvas,
+body.simple-chat-active #live-hearing {
+  display: none !important;
+}
+
+body.simple-chat-active #main-screen {
+  background: #fafafa;
+}
+
+body.simple-chat-active .main-content {
+  padding: 0;
+  height: 100vh;
+}
+
+body.simple-chat-active .transcript-column {
+  max-width: 720px;
+  margin: 0 auto;
+  height: 100vh;
+  justify-content: center;
+}
+
+/* Empty-state greeting, shown until the first message lands */
+.simple-chat-greeting {
+  display: none;
+  text-align: center;
+  font-family: var(--raj, sans-serif);
+  font-size: 1.7rem;
+  font-weight: 500;
+  color: #1a1a1a;
+  margin-bottom: 28px;
+  letter-spacing: 0.01em;
+}
+body.simple-chat-active.simple-chat-empty .simple-chat-greeting {
+  display: block;
+}
+
+body.simple-chat-active.simple-chat-empty .transcript-area {
+  display: none;
+}
+body.simple-chat-active:not(.simple-chat-empty) .simple-chat-greeting {
+  display: none;
+}
+
+body.simple-chat-active .transcript-area {
+  flex: 1;
+  max-height: 70vh;
+  padding: 32px 8px 12px;
+}
+
+body.simple-chat-active.simple-chat-empty .transcript-area {
+  flex: 0;
+}
+
+/* Message bubbles, light-theme */
+body.simple-chat-active .msg-label { display: none; }
+body.simple-chat-active .msg-text {
+  font-family: var(--raj, sans-serif);
+  font-size: 0.98rem;
+  line-height: 1.5;
+  border-radius: 16px;
+  box-shadow: none;
+}
+body.simple-chat-active .msg.user .msg-text {
+  background: #1a1a1a;
+  color: #fff;
+  padding: 10px 16px;
+  border: none;
+}
+body.simple-chat-active .msg.jarvis .msg-text {
+  background: transparent;
+  color: #1a1a1a;
+  padding: 4px 2px;
+  border: none;
+  max-width: 100%;
+}
+body.simple-chat-active .msg.system .msg-text {
+  background: #f0f0f0;
+  color: #666;
+  border: none;
+}
+
+/* Pill-shaped input bar, matching the reference "Ask anything" look */
+body.simple-chat-active .attachment-tray:not(:empty) {
+  max-width: 680px;
+  margin: 0 auto 8px;
+}
+
+body.simple-chat-active .input-bar {
+  max-width: 680px;
+  margin: 0 auto 40px;
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  border-radius: 32px;
+  padding: 6px 8px 6px 18px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.06);
+  height: auto;
+  min-height: 56px;
+}
+body.simple-chat-active .input-bar:focus-within {
+  border-color: #d4d4d4;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.09);
+}
+body.simple-chat-active .input-bar-prefix { display: none; }
+body.simple-chat-active .input-bar input[type="text"] {
+  font-family: var(--raj, sans-serif);
+  color: #1a1a1a;
+  font-size: 0.98rem;
+}
+body.simple-chat-active .input-bar input[type="text"]::placeholder { color: #9a9a9a; opacity: 1; }
+body.simple-chat-active .attach-btn {
+  color: #6b6b6b;
+  border-radius: 50%;
+}
+body.simple-chat-active .attach-btn:hover { background: #f0f0f0; color: #1a1a1a; }
+body.simple-chat-active .send-btn {
+  background: #1a1a1a;
+  color: #fff;
+  border-radius: 50%;
+  width: 36px; height: 36px;
+}
+body.simple-chat-active .send-btn:hover { background: #333; }
+
+/* Small pill button, top-right, to hop back into the full HUD without
+   needing the voice command */
+#simple-chat-exit-btn {
+  display: none;
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 50;
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  color: #4a4a4a;
+  font-family: var(--raj, sans-serif);
+  font-size: 0.8rem;
+  padding: 8px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+}
+#simple-chat-exit-btn:hover { background: #f5f5f5; color: #1a1a1a; }
+body.simple-chat-active #simple-chat-exit-btn { display: block; }
+
+@media (max-width: 760px) {
+  body.simple-chat-active .transcript-column { max-width: 94%; }
+  .simple-chat-greeting { font-size: 1.3rem; padding: 0 12px; }
+  #simple-chat-exit-btn { top: 12px; right: 12px; font-size: 0.72rem; padding: 7px 12px; }
+}
