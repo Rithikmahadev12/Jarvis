@@ -1,0 +1,149 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — CHAT HERO (light "Ask anything" landing screen)
+   Triggered whenever chat mode is active ("Jarvis, switch to chat
+   mode" or the CHAT tab). Replaces the dark sci-fi orb screen with
+   a plain, light landing page: a centered question + a rounded
+   pill input bar, à la a modern AI assistant homepage.
+
+   Only applies while #main-screen is the active screen AND hud-home
+   is NOT in corner-mode (i.e. no other full-screen mode — map/build/
+   news — is open). As soon as another mode opens, hud-home gets
+   .corner-mode and the whole dark HUD chrome (grid/scanline/orb)
+   comes back for that mode, unaffected by anything below.
+
+   Load AFTER home-ui.css so these rules win.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Kill the dark sci-fi chrome while the plain chat hero is showing ── */
+body:has(#main-screen.active.hud-minimal .hud-home:not(.corner-mode)) #particle-canvas,
+body:has(#main-screen.active.hud-minimal .hud-home:not(.corner-mode)) .global-grid,
+body:has(#main-screen.active.hud-minimal .hud-home:not(.corner-mode)) .corner,
+body:has(#main-screen.active.hud-minimal .hud-home:not(.corner-mode)) .scanline {
+  display: none !important;
+}
+
+/* ── Hero background: soft off-white, faint top-left glow like the reference ── */
+#main-screen.hud-minimal .hud-home:not(.corner-mode) {
+  background:
+    radial-gradient(1100px 700px at 14% 8%, rgba(0,0,0,0.035), transparent 60%),
+    #fafafa;
+}
+
+/* Hide the JARVIS orb badge entirely while the plain hero is showing —
+   it reappears automatically once corner-mode kicks in for other modes. */
+#main-screen.hud-minimal .hud-home:not(.corner-mode) .boot-badge-wrap,
+#main-screen.hud-minimal .hud-home:not(.corner-mode) .intro-grid,
+#main-screen.hud-minimal .hud-home:not(.corner-mode) .intro-vignette {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── Hero content wrap ── */
+#main-screen.hud-minimal .hud-home .chat-hero {
+  position: relative;
+  z-index: 6;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  width: min(680px, 90vw);
+  pointer-events: auto;
+  transform: translateY(-2vh);
+}
+#main-screen.hud-minimal .hud-home:not(.corner-mode) .chat-hero {
+  display: flex;
+}
+
+.chat-hero-title {
+  margin: 0;
+  font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  font-weight: 400;
+  font-size: clamp(1.6rem, 3.2vw, 2.4rem);
+  color: #262524;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+
+/* ── Pill input bar ── */
+#main-screen.hud-minimal .hud-home .chat-hero .input-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 14px 14px 18px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.07), 0 1px 2px rgba(0,0,0,0.04);
+}
+#main-screen.hud-minimal .hud-home .chat-hero .input-bar:focus-within {
+  border-color: rgba(0,0,0,0.16);
+  box-shadow: 0 10px 34px rgba(0,0,0,0.09), 0 1px 2px rgba(0,0,0,0.05);
+}
+
+#main-screen.hud-minimal .hud-home .chat-hero #type-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 1.02rem;
+  color: #1f1f1f;
+  padding: 4px 0;
+}
+#main-screen.hud-minimal .hud-home .chat-hero #type-input::placeholder {
+  color: #8a8a8a;
+}
+
+.chat-bar-btn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #3a3a3a;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.chat-bar-btn:hover { background: rgba(0,0,0,0.06); }
+.chat-bar-btn:active { background: rgba(0,0,0,0.1); }
+
+.chat-plus-btn { color: #4a4a4a; }
+
+.chat-mic-btn { color: #4a4a4a; }
+.chat-mic-btn.live {
+  color: #ffffff;
+  background: #262524;
+}
+.chat-mic-btn.live:hover { background: #3a3836; }
+
+/* ── Bottom mode dock — light pill to match, only while the plain
+   chat hero is showing (other modes keep the dark HUD dock) ── */
+#main-screen.hud-minimal:has(.hud-home:not(.corner-mode)) #mode-taskbar {
+  background: #ffffff;
+  border-color: rgba(0,0,0,0.08);
+  box-shadow: 0 8px 26px rgba(0,0,0,0.08);
+}
+#main-screen.hud-minimal:has(.hud-home:not(.corner-mode)) .taskbar-btn {
+  color: #6b6b6b;
+}
+#main-screen.hud-minimal:has(.hud-home:not(.corner-mode)) .taskbar-btn.active,
+#main-screen.hud-minimal:has(.hud-home:not(.corner-mode)) .taskbar-btn:hover {
+  color: #1f1f1f;
+  background: rgba(0,0,0,0.06);
+}
+#main-screen.hud-minimal:has(.hud-home:not(.corner-mode)) .taskbar-btn.mic-btn.live {
+  color: #ffffff;
+  background: #262524;
+}
+
+@media (max-width: 640px) {
+  #main-screen.hud-minimal .hud-home .chat-hero { gap: 20px; width: min(92vw, 560px); }
+  .chat-hero-title { font-size: 1.4rem; }
+  #main-screen.hud-minimal .hud-home .chat-hero .input-bar { padding: 11px 11px 11px 15px; }
+}
