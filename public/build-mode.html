@@ -83,6 +83,7 @@
     <button id="btnScriptOut">Copy feature tree JSON</button>
     <button id="btnScriptIn">Paste / run script</button>
     <button id="btnSTL">Export STL</button>
+    <button id="btnHologram" title="Send the current solids to the holographic viewer, where you can turn and move it with your hands">🔮 View as Hologram</button>
     <button id="btnClear">Clear all</button>
   </header>
 
@@ -807,6 +808,27 @@ document.getElementById("btnSTL").onclick = () => {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob); a.download = "model.stl"; a.click();
   log("Exported model.stl", "ok");
+};
+
+document.getElementById("btnHologram").onclick = () => {
+  const solids = displayGroup.children.filter(o => o.type === "Mesh" && o.visible);
+  if (!solids.length) { log("Nothing to send — build something first.", "err"); return; }
+  const payload = {
+    createdAt: Date.now(),
+    meshes: solids.map(o => ({
+      geometry: o.geometry.toJSON(),
+      color: "#" + o.material.color.getHexString(),
+      metalness: o.material.metalness ?? 0.7,
+      roughness: o.material.roughness ?? 0.35,
+    })),
+  };
+  try {
+    localStorage.setItem("jarvis:holoModel", JSON.stringify(payload));
+    log(`Sent ${solids.length} solid(s) to the Holographic Viewer — opening…`, "ok");
+    window.open("hologram-build.html", "_blank");
+  } catch (e) {
+    log("Failed to send to hologram viewer: " + e.message, "err");
+  }
 };
 
 document.getElementById("btnScriptOut").onclick = () => {
