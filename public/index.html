@@ -484,8 +484,13 @@
 
         <canvas id="waveform-canvas" width="600" height="48"></canvas>
 
+        <div id="attachment-tray" class="attachment-tray"></div>
+
         <div class="input-bar">
           <div class="input-bar-prefix">▶</div>
+          <input type="file" id="file-input" multiple hidden
+                 accept=".txt,.md,.csv,.json,.js,.ts,.py,.log,.html,.css,.xml,.yml,.yaml,image/*,.pdf"/>
+          <button id="attach-btn" class="attach-btn" type="button" title="Attach files">📎</button>
           <input type="text" id="type-input" placeholder="Speak or type anything…" autocomplete="off" spellcheck="false"/>
           <button id="type-send" class="send-btn">⏎</button>
         </div>
