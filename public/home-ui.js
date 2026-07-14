@@ -37,6 +37,43 @@
   window.showTypingFeature = showTypingFeature;
   window.hideTypingFeature = hideTypingFeature;
 
+  // ── Chat hero pill buttons ──
+  // #type-send now doubles as the pill's mic icon (jarvis.js's own
+  // click listener still fires and sends the message when there's
+  // text). We check on mousedown — BEFORE jarvis.js's click listener
+  // clears the input — so we know whether the click was "send" or
+  // "start listening" without racing it.
+  window.addEventListener("load", () => {
+    const micBtn = $("type-send");
+    const input = $("type-input");
+    const plusBtn = $("chat-plus-btn");
+
+    if (micBtn && input) {
+      micBtn.addEventListener("mousedown", () => {
+        micBtn.dataset.hadText = input.value.trim() ? "1" : "0";
+      });
+      micBtn.addEventListener("click", () => {
+        if (micBtn.dataset.hadText === "0" && typeof window.toggleListening === "function") {
+          window.toggleListening();
+        }
+      });
+    }
+
+    if (plusBtn && input) {
+      plusBtn.addEventListener("click", () => input.focus());
+    }
+
+    // Mirror the taskbar mic's "live" state onto the pill's mic icon.
+    if (typeof window.toggleListening === "function") {
+      const originalToggle = window.toggleListening;
+      window.toggleListening = function () {
+        originalToggle();
+        const tbMic = $("tb-btn-mic");
+        if (micBtn && tbMic) micBtn.classList.toggle("live", tbMic.classList.contains("live"));
+      };
+    }
+  });
+
   const SHOW_TYPING = /\b(pull up|bring up|show|open|enable|activate)\s+(the\s+)?typ(e|ing)(\s+feature|\s+box|\s+bar|\s+mode)?\b/i;
   const HIDE_TYPING  = /\b(hide|close|dismiss|put away)\s+(the\s+)?typ(e|ing)(\s+feature|\s+box|\s+bar|\s+mode)?\b/i;
 
