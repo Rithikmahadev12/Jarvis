@@ -58,6 +58,7 @@ const state = window.state = {
   interactionCount: 0,
   lastInteraction: Date.now(),
   pendingAttachments: [], // files staged via the 📎 button, cleared on send
+  simpleChatMode: false,  // true while the plain text "Simple Chat Mode" overlay is showing
   selectedCameraId: null,
   availableCameras: [],
   tesseractWorker: null,
@@ -1561,6 +1562,24 @@ function handleChatCommand(text, attachments) {
   // whole conversation (goal question, steps, or the general "here's
   // what's going on" fallback) as plain chat replies.
 
+  // ── Simple Chat Mode: "Jarvis turn on chat mode" swaps in a plain
+  //    text-chat overlay (light theme, "Ask anything" bar, no HUD/orb).
+  //    "Jarvis turn off chat mode" goes back to the full HUD. Checked
+  //    before the "switch to chat mode" HUD-mode match below since
+  //    both use the word "chat mode" but mean different things. ──
+  if (/\b(turn on|enable|activate|start|go into|open)\s+(?:the\s+)?(?:simple\s+|text\s+)?chat\s*mode\b/.test(cleanedLower)) {
+    enterSimpleChatMode();
+    const r = `Chat mode on, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r);
+    return;
+  }
+  if (/\b(turn off|disable|deactivate|stop|exit|leave|close)\s+(?:the\s+)?(?:simple\s+|text\s+)?chat\s*mode\b/.test(cleanedLower)) {
+    exitSimpleChatMode();
+    const r = `Chat mode off, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r);
+    return;
+  }
+
   // ── Mode switching: "Jarvis switch to map/chat/3d/build" ──
   const switchMatch = cleanedLower.match(/\bswitch(?:\s+(?:to|into))?\s+(map|chat|3d|hologram|holo|build|blueprint|cad)\s*(?:mode)?\b/);
   if (switchMatch) {
@@ -1781,6 +1800,34 @@ async function sendToAI(message, attachments) {
 // commands ("Jarvis, switch to map"). Keeps the active tab highlighted
 // and makes sure only one full-screen panel is open at a time.
 // ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
+// ── SIMPLE CHAT MODE ──
+// A plain text-chat overlay (light theme, centered "Ask anything"
+// bar, no HUD/orb/panels) — toggled by "Jarvis, turn on/off chat
+// mode". Purely a CSS-driven view swap: the exact same #transcript,
+// #type-input and addMsg()/handleChatCommand() plumbing keeps running
+// underneath, so nothing about how messages are sent/rendered changes.
+// ═══════════════════════════════════════════════════════════════
+function enterSimpleChatMode() {
+  if (state.simpleChatMode) return;
+  state.simpleChatMode = true;
+  closeBuild(); closeMapMode(); closeNews();
+  document.body.classList.add("simple-chat-active");
+  updateSimpleChatEmptyState();
+  const input = $("type-input");
+  if (input) setTimeout(() => input.focus(), 50);
+}
+function exitSimpleChatMode() {
+  if (!state.simpleChatMode) return;
+  state.simpleChatMode = false;
+  document.body.classList.remove("simple-chat-active", "simple-chat-empty");
+}
+function updateSimpleChatEmptyState() {
+  const transcript = $("transcript");
+  const isEmpty = !transcript || transcript.children.length === 0;
+  document.body.classList.toggle("simple-chat-empty", state.simpleChatMode && isEmpty);
+}
+
 function switchMode(mode, query) {
   // Close whatever full-screen panel is currently open (idempotent if none is)
   closeBuild();
@@ -3017,6 +3064,7 @@ function addMsg(type, text, attachments) {
     wrap.appendChild(row);
   }
   $("transcript").appendChild(wrap); $("transcript").scrollTop = $("transcript").scrollHeight;
+  if (state.simpleChatMode) updateSimpleChatEmptyState();
   // Track JARVIS questions so short replies like "yes" can be understood in context
   if (type === "jarvis" && text.includes("?")) {
     // Store the last sentence that contains a question mark
