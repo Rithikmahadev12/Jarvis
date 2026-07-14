@@ -2074,7 +2074,7 @@ async function executeAssistantTool(name, args, ctx) {
 }
 
 app.post("/api/chat", async (req, res) => {
-  let { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, screenActive, userTimezone } = req.body;
+  let { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, screenActive, userTimezone, attachments } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
 
   // Fix likely speech-to-text mishearings (e.g. "tired" heard as "tarot")
@@ -2087,6 +2087,29 @@ app.post("/api/chat", async (req, res) => {
   let enrichedMessage = message;
   if (cameraActive && /\b(camera|see|look|watch|analyze|analyse|fighting|style|face|visual)\b/i.test(message) && !/permission|access|grant/i.test(message)) {
     enrichedMessage = `[Camera is already active and online] ${message}`;
+  }
+
+  // ── Chat-mode file attachments ──
+  // Folded into enrichedMessage (not the raw `message` used for regex
+  // routing above/below) so uploaded files reach the AI's context without
+  // disturbing existing command matching. Text-ish files get their full
+  // (truncated) content inlined; anything else is just named, so JARVIS
+  // is honest about not being able to read that format yet.
+  if (Array.isArray(attachments) && attachments.length) {
+    const MAX_CHARS_PER_FILE = 6000;
+    const blocks = attachments.slice(0, 5).map(a => {
+      const name = String(a?.name || "file").slice(0, 200);
+      if (a?.textContent) {
+        let content = String(a.textContent);
+        if (content.length > MAX_CHARS_PER_FILE) content = content.slice(0, MAX_CHARS_PER_FILE) + "\n...[truncated]";
+        return `\n\n[Attached file: ${name}]\n${content}`;
+      }
+      if (a?.isImage) {
+        return `\n\n[Attached image: ${name} — shared but not visually analyzable with the current text-only model]`;
+      }
+      return `\n\n[Attached file: ${name} — format not readable as text yet]`;
+    }).join("");
+    enrichedMessage = `${enrichedMessage}${blocks}`;
   }
 
   const T = userTitle || "Sir";
