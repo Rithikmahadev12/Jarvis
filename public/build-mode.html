@@ -1,2040 +1,903 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<title>J.A.R.V.I.S — Build Mode</title>
-<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="hand-tracking.css"/>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>J.A.R.V.I.S — CAD Engine</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Share Tech Mono',monospace;color:#00c8ff}
-:root{
-  --blue:#00c8ff;--glow:rgba(0,200,255,0.45);--bg:#000508;
-  --dim:rgba(0,200,255,0.25);--text:#a8dff5;--dim-text:#2e5a78;
-  --amber:#ffaa00;--green:#00ff88;--red:#ff3333;
-  --hud:'Orbitron',monospace;
-}
-#c{position:fixed;inset:0;display:block;width:100%!important;height:100%!important;cursor:crosshair}
-#c.dragging{cursor:grabbing}
+  :root{
+    --bg:#0b0f12; --panel:#12181c; --panel2:#161e23; --line:#22303a;
+    --ink:#d7e2e8; --ink-dim:#7f97a3; --accent:#3ddc97; --accent2:#ff8a3d;
+    --danger:#ff5c5c; --mono: 'JetBrains Mono','SF Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--mono);overflow:hidden;}
+  #app{display:grid;grid-template-columns:220px 1fr 300px;grid-template-rows:44px 1fr 150px;height:100%;}
+  header{grid-column:1/4;grid-row:1;background:var(--panel);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:14px;padding:0 14px;}
+  header .logo{font-weight:700;letter-spacing:.12em;color:var(--accent);font-size:13px;}
+  header .sub{color:var(--ink-dim);font-size:11px;}
+  header .spacer{flex:1;}
+  header button{background:var(--panel2);border:1px solid var(--line);color:var(--ink);
+    padding:6px 10px;border-radius:4px;font-family:var(--mono);font-size:11px;cursor:pointer;}
+  header button:hover{border-color:var(--accent);color:var(--accent);}
+  #left{grid-column:1;grid-row:2/4;background:var(--panel);border-right:1px solid var(--line);
+    padding:10px;overflow-y:auto;}
+  #viewport{grid-column:2;grid-row:2;position:relative;background:#05080a;}
+  #viewport canvas{display:block;width:100%;height:100%;}
+  #right{grid-column:3;grid-row:2;background:var(--panel);border-left:1px solid var(--line);
+    padding:10px;overflow-y:auto;}
+  #console{grid-column:2/4;grid-row:3;background:var(--panel);border-left:1px solid var(--line);
+    border-top:1px solid var(--line);padding:8px 10px;display:flex;flex-direction:column;gap:6px;}
+  #bottomleft{grid-column:1;grid-row:3;background:var(--panel);border-top:1px solid var(--line);
+    border-right:1px solid var(--line);padding:8px;font-size:10px;color:var(--ink-dim);overflow-y:auto;}
 
-/* boot */
-#loading{position:fixed;inset:0;background:#000508;z-index:100;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px}
-.load-ring{width:56px;height:56px;border:2px solid rgba(0,200,255,0.15);border-top-color:var(--blue);border-radius:50%;animation:spin 1s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
-.load-title{font-family:var(--hud);font-size:1rem;letter-spacing:0.5em;color:var(--blue)}
-.load-sub{font-size:0.62rem;letter-spacing:0.2em;color:var(--dim-text)}
+  .group-title{font-size:10px;color:var(--ink-dim);letter-spacing:.1em;margin:12px 0 6px;text-transform:uppercase;}
+  .group-title:first-child{margin-top:0;}
+  .tbtn{width:100%;text-align:left;background:var(--panel2);border:1px solid var(--line);color:var(--ink);
+    padding:7px 9px;border-radius:4px;font-family:var(--mono);font-size:11.5px;cursor:pointer;margin-bottom:5px;
+    display:flex;align-items:center;gap:8px;}
+  .tbtn:hover{border-color:var(--accent);}
+  .tbtn.active{background:#123326;border-color:var(--accent);color:var(--accent);}
+  .tbtn .k{opacity:.6;font-size:10px;margin-left:auto;}
+  select,input[type=text],input[type=number]{background:#0d1316;border:1px solid var(--line);color:var(--ink);
+    font-family:var(--mono);font-size:11px;padding:5px 6px;border-radius:3px;width:100%;}
+  label.f{display:block;font-size:10px;color:var(--ink-dim);margin:6px 0 2px;text-transform:uppercase;letter-spacing:.06em;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;}
 
-.corner{position:fixed;width:44px;height:44px;pointer-events:none;z-index:20}
-.corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.7}
-.corner::before{width:100%;height:1.5px;top:0}
-.corner::after{width:1.5px;height:100%;top:0}
-.corner.tl{top:14px;left:14px}.corner.tr{top:14px;right:14px;transform:scaleX(-1)}
-.corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}.corner.br{bottom:14px;right:14px;transform:scale(-1)}
+  .feat{border:1px solid var(--line);border-radius:4px;padding:7px 8px;margin-bottom:6px;cursor:pointer;background:#0e1316;}
+  .feat:hover{border-color:#33505c;}
+  .feat.sel{border-color:var(--accent);background:#0f231c;}
+  .feat .ft{font-size:11px;font-weight:700;}
+  .feat .fs{font-size:9.5px;color:var(--ink-dim);}
+  .feat .fx{float:right;color:var(--danger);cursor:pointer;font-weight:700;}
+  .feat.hidden-feat{opacity:.4;}
 
-#top{position:fixed;top:0;left:0;right:0;height:52px;background:linear-gradient(180deg,rgba(0,4,12,0.98),rgba(0,6,18,0.85));border-bottom:1px solid rgba(0,200,255,0.18);display:flex;align-items:center;justify-content:space-between;padding:0 18px;z-index:30}
-.top-title{font-family:var(--hud);font-size:0.95rem;font-weight:900;letter-spacing:0.45em;color:var(--blue);text-shadow:0 0 20px var(--glow)}
-.top-right{display:flex;align-items:center;gap:14px;font-size:0.5rem;letter-spacing:0.18em;color:var(--dim-text)}
-#exit-btn{background:rgba(255,51,51,0.08);border:1px solid rgba(255,51,51,0.35);color:#ff8a8a;font-family:var(--hud);font-size:0.4rem;letter-spacing:0.2em;padding:7px 14px;cursor:pointer;border-radius:2px}
-#exit-btn:hover{background:rgba(255,51,51,0.2)}
-.render-btn{background:rgba(0,255,136,0.08);border:1px solid rgba(0,255,136,0.4);color:var(--green);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.2em;padding:7px 14px;cursor:pointer;border-radius:2px}
-.render-btn:hover{background:rgba(0,255,136,0.2)}
-.render-btn.active{background:rgba(0,255,136,0.25);box-shadow:0 0 10px rgba(0,255,136,0.35)}
-.led-swatch-row{display:flex;gap:6px;margin-top:6px}
-.led-swatch{width:26px;height:26px;border-radius:50%;border:2px solid rgba(255,255,255,0.15);cursor:pointer;flex-shrink:0}
-.led-swatch.active{border-color:#fff;box-shadow:0 0 8px rgba(255,255,255,0.6)}
+  #paramsBox{border:1px dashed var(--line);border-radius:5px;padding:8px;margin-top:8px;}
+  #paramsBox h4{margin:0 0 6px;font-size:10.5px;color:var(--accent2);text-transform:uppercase;letter-spacing:.08em;}
 
-#sidebar{position:fixed;top:52px;left:0;bottom:0;width:220px;background:rgba(0,3,10,0.94);border-right:1px solid rgba(0,200,255,0.1);z-index:20;display:flex;flex-direction:column;padding:12px 0;overflow-y:auto;scrollbar-width:none}
-#sidebar::-webkit-scrollbar{display:none}
-.sb-label{font-family:var(--hud);font-size:0.36rem;letter-spacing:0.28em;color:var(--dim-text);padding:8px 14px 6px;text-transform:uppercase}
-.tool-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:0 12px 6px}
-.tool-grid.single{grid-template-columns:1fr}
-.tool-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.22);color:var(--text);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.08em;padding:10px 4px;cursor:pointer;border-radius:3px;text-align:center;line-height:1.5}
-.tool-btn:hover{background:rgba(0,200,255,0.16)}
-.tool-btn.active{background:rgba(255,170,0,0.18);border-color:var(--amber);color:var(--amber);box-shadow:0 0 10px rgba(255,170,0,0.25)}
-.tool-btn.weld.active{background:rgba(255,51,51,0.18);border-color:var(--red);color:#ff9a9a;box-shadow:0 0 10px rgba(255,51,51,0.3)}
+  #promptRow{display:flex;gap:6px;}
+  #promptRow input{flex:1;}
+  #promptRow button{background:var(--accent);color:#04150e;border:none;font-weight:700;border-radius:4px;
+    padding:0 14px;cursor:pointer;font-family:var(--mono);font-size:11px;}
+  #log{flex:1;overflow-y:auto;font-size:10.5px;color:var(--ink-dim);white-space:pre-wrap;}
+  #log .err{color:var(--danger);} #log .ok{color:var(--accent);}
 
-#my-parts{flex:1;overflow-y:auto;padding:0 10px;scrollbar-width:none;min-height:80px}
-#my-parts::-webkit-scrollbar{display:none}
-.mp-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-left:2px solid transparent;border-bottom:1px solid rgba(0,200,255,0.05);cursor:pointer;font-size:0.62rem;color:var(--dim-text)}
-.mp-item:hover{background:rgba(0,200,255,0.06);color:var(--text)}
-.mp-item.selected{border-left-color:var(--amber);color:var(--amber);background:rgba(255,170,0,0.06)}
-.mp-item .mp-dot{width:6px;height:6px;border-radius:50%;background:var(--dim-text);flex-shrink:0}
-.mp-item.welded .mp-dot{background:var(--green);box-shadow:0 0 6px var(--green)}
-.mp-item .mp-del{margin-left:auto;color:var(--red);opacity:0.5;font-size:0.7rem}
-.mp-item .mp-del:hover{opacity:1}
-
-#right-panel{position:fixed;top:52px;right:0;bottom:0;width:220px;background:rgba(0,3,10,0.94);border-left:1px solid rgba(0,200,255,0.1);z-index:20;display:flex;flex-direction:column;padding:12px 0;gap:4px;overflow-y:auto;scrollbar-width:none}
-#right-panel::-webkit-scrollbar{display:none}
-.rp-section{padding:8px 14px;border-bottom:1px solid rgba(0,200,255,0.06)}
-.rp-title{font-family:var(--hud);font-size:0.34rem;letter-spacing:0.26em;color:var(--dim-text);margin-bottom:6px}
-.rp-val{font-size:0.6rem;color:var(--text);line-height:1.6}
-.rp-btn{width:100%;background:rgba(0,200,255,0.08);border:1px solid rgba(0,200,255,0.25);color:var(--blue);font-family:var(--hud);font-size:0.4rem;letter-spacing:0.12em;padding:9px 4px;cursor:pointer;border-radius:2px;margin-top:6px}
-.rp-btn:hover{background:rgba(0,200,255,0.2)}
-.rp-btn.amber{border-color:rgba(255,170,0,0.5);color:var(--amber)}
-.rp-btn.amber:hover{background:rgba(255,170,0,0.18)}
-.rp-btn.green{border-color:rgba(0,255,136,0.5);color:var(--green)}
-.rp-btn.green:hover{background:rgba(0,255,136,0.15)}
-.rp-btn.active{background:rgba(0,255,136,0.18);border-color:var(--green);color:var(--green)}
-.rot-row{display:flex;gap:4px;margin-top:6px}
-.rot-row .rp-btn{margin-top:0}
-.gesture-hint{font-size:0.52rem;color:var(--dim-text);line-height:1.7;letter-spacing:0.01em}
-input[type=range]{width:100%;accent-color:var(--amber);margin-top:2px}
-.slider-val{color:var(--amber);font-family:var(--hud)}
-
-#ticker{position:fixed;bottom:0;left:220px;right:220px;height:24px;background:rgba(0,3,10,0.98);border-top:1px solid rgba(0,200,255,0.1);display:flex;align-items:center;padding:0 14px;z-index:25;font-size:0.55rem;color:var(--dim-text);letter-spacing:0.05em}
-
-#ai-build-wrap{padding:0 12px 10px}
-#ai-build-input{width:100%;background:rgba(0,200,255,0.05);border:1px solid rgba(0,200,255,0.25);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:0.62rem;padding:8px;border-radius:3px;resize:none;height:52px}
-#ai-build-input:focus{outline:none;border-color:var(--amber)}
-#ai-build-input::placeholder{color:var(--dim-text)}
-.ai-build-btn{width:100%;margin-top:6px;background:rgba(255,170,0,0.08);border:1px solid rgba(255,170,0,0.4);color:var(--amber);font-family:var(--hud);font-size:0.42rem;letter-spacing:0.14em;padding:9px 4px;cursor:pointer;border-radius:3px}
-.ai-build-btn:hover{background:rgba(255,170,0,0.2)}
-.ai-build-btn:disabled{opacity:0.45;cursor:wait}
-#ai-build-status{font-size:0.52rem;color:var(--dim-text);margin-top:5px;line-height:1.5;min-height:1.2em}
-
-/* generic status toast */
-#toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:40;background:rgba(0,6,16,0.95);border:1px solid rgba(0,200,255,0.35);color:var(--text);font-size:0.66rem;letter-spacing:0.03em;padding:9px 18px;border-radius:3px;opacity:0;pointer-events:none;transition:opacity .3s}
-#toast.show{opacity:1}
+  .hint{font-size:10px;color:var(--ink-dim);line-height:1.5;margin-top:6px;}
+  .badge{display:inline-block;background:#1b2a22;color:var(--accent);border:1px solid #234; border-radius:3px;
+    padding:1px 5px;font-size:9px;margin-left:6px;}
+  #planeIndicator{position:absolute;top:10px;left:10px;background:rgba(10,15,18,.75);border:1px solid var(--line);
+    padding:6px 10px;border-radius:4px;font-size:11px;color:var(--accent2);display:none;}
+  #axesLabel{position:absolute;bottom:10px;left:10px;font-size:9.5px;color:var(--ink-dim);}
+  ::-webkit-scrollbar{width:8px;height:8px;} ::-webkit-scrollbar-thumb{background:#233038;border-radius:4px;}
 </style>
 </head>
 <body>
+<div id="app">
+  <header>
+    <div class="logo">◆ J.A.R.V.I.S CAD</div>
+    <div class="sub">real feature-based modeler — sketch → extrude/revolve → boolean, not a preset library</div>
+    <div class="spacer"></div>
+    <button id="btnDemo">Load demo: 4-cyl engine</button>
+    <button id="btnScriptOut">Copy feature tree JSON</button>
+    <button id="btnScriptIn">Paste / run script</button>
+    <button id="btnSTL">Export STL</button>
+    <button id="btnClear">Clear all</button>
+  </header>
 
-<div id="loading">
-  <div class="load-ring"></div>
-  <div class="load-title">J.A.R.V.I.S</div>
-  <div class="load-sub">BUILD MODE — INITIALISING FORGE</div>
-</div>
+  <div id="left">
+    <div class="group-title">Sketch</div>
+    <button class="tbtn" data-tool="sketch-plane">▦ New sketch plane</button>
+    <button class="tbtn" data-tool="sketch-rect">▭ Rectangle</button>
+    <button class="tbtn" data-tool="sketch-circle">◯ Circle</button>
+    <button class="tbtn" data-tool="sketch-poly">⬡ Polygon (click pts)</button>
+    <button class="tbtn" id="btnFinishPoly">✓ Finish polygon</button>
 
-<canvas id="c"></canvas>
-<div class="corner tl"></div><div class="corner tr"></div>
-<div class="corner bl"></div><div class="corner br"></div>
+    <div class="group-title">Solid features</div>
+    <button class="tbtn" data-tool="extrude">⬆ Extrude sketch</button>
+    <button class="tbtn" data-tool="revolve">↻ Revolve sketch</button>
 
-<div id="top">
-  <div class="top-title">BUILD MODE</div>
-  <div class="top-right">
-    <span id="part-count">0 PIECES</span>
-    <span id="assembly-status">—</span>
-    <button id="render-btn" class="render-btn" onclick="toggleRenderAll()">▶ RENDER</button>
-    <button id="exit-btn" onclick="exitBuild()">✕ EXIT</button>
-  </div>
-</div>
+    <div class="group-title">Boolean</div>
+    <button class="tbtn" data-tool="bool-union">⊕ Union (pick A, B)</button>
+    <button class="tbtn" data-tool="bool-sub">⊖ Subtract (A − B)</button>
+    <button class="tbtn" data-tool="bool-int">⊗ Intersect</button>
 
-<div id="sidebar">
-  <div class="sb-label">⬡ RAW METAL</div>
-  <div class="tool-grid">
-    <button class="tool-btn" onclick="spawnBar()">＋ BAR</button>
-    <button class="tool-btn" onclick="spawnServo()">＋ SERVO</button>
-    <button class="tool-btn" onclick="spawnLED()">＋ LED</button>
-  </div>
+    <div class="group-title">Primitives</div>
+    <button class="tbtn" data-tool="prim-box">▢ Box</button>
+    <button class="tbtn" data-tool="prim-cyl">▮ Cylinder</button>
+    <button class="tbtn" data-tool="prim-sphere">◍ Sphere</button>
+    <button class="tbtn" data-tool="prim-cone">▲ Cone</button>
+    <button class="tbtn" data-tool="prim-torus">◎ Torus</button>
 
-  <div class="sb-label">⬡ SHAPES</div>
-  <div class="tool-grid">
-    <button class="tool-btn" onclick="spawnShape('box')">▢ BOX</button>
-    <button class="tool-btn" onclick="spawnShape('sphere')">◯ SPHERE</button>
-    <button class="tool-btn" onclick="spawnShape('cylinder')">⬤ CYLINDER</button>
-    <button class="tool-btn" onclick="spawnShape('cone')">▲ CONE</button>
-    <button class="tool-btn" onclick="spawnShape('torus')">◎ TORUS</button>
-    <button class="tool-btn" onclick="spawnShape('wedge')">◺ WEDGE</button>
-  </div>
+    <div class="group-title">Pattern</div>
+    <button class="tbtn" data-tool="pattern-linear">▤ Linear array</button>
+    <button class="tbtn" data-tool="pattern-circular">✳ Circular array</button>
 
-  <div class="sb-label">⬡ TOOLS</div>
-  <div class="tool-grid">
-    <button class="tool-btn active" id="tool-bend" onclick="setTool('bend')">🖐 BEND</button>
-    <button class="tool-btn" id="tool-move" onclick="setTool('move')">✋ MOVE</button>
-    <button class="tool-btn weld" id="tool-weld" onclick="setTool('weld')">🔥 WELD</button>
-    <button class="tool-btn" id="tool-delete" onclick="setTool('delete')">🗑 DELETE</button>
-    <button class="tool-btn" id="tool-boolean" onclick="setTool('boolean')">⊕ BOOLEAN</button>
+    <div class="group-title">Selection</div>
+    <button class="tbtn active" data-tool="select">↖ Select / orbit</button>
+    <div class="hint" id="toolHint">Pick a tool above. Sketch tools draw on a plane; click points in the viewport. Everything is parametric — edit exact numbers on the right after placing.</div>
   </div>
 
-  <div class="sb-label">⬡ JARVIS AI</div>
-  <div id="ai-build-wrap">
-    <textarea id="ai-build-input" placeholder="e.g. a hydrogen tank with a repulsor jetting flame out the back"></textarea>
-    <button class="ai-build-btn" id="ai-build-btn" onclick="requestAIBuild($('ai-build-input').value)">🤖 BUILD IT</button>
-    <div id="ai-build-status"></div>
+  <div id="viewport">
+    <div id="planeIndicator"></div>
+    <div id="axesLabel">red=X green=Y blue=Z · scroll=zoom · drag=orbit · shift-drag=pan</div>
   </div>
 
-  <div class="sb-label">⬡ WORLD</div>
-  <div class="tool-grid">
-    <button class="tool-btn" id="snap-toggle" onclick="toggleSnap()">▦ SNAP: OFF</button>
-    <button class="tool-btn" id="physics-toggle" onclick="togglePhysics()">🌍 PHYSICS: OFF</button>
+  <div id="right">
+    <div class="group-title">Feature tree <span class="badge" id="featCount">0</span></div>
+    <div id="featList"></div>
+    <div id="paramsBox" style="display:none;"></div>
   </div>
 
-  <div class="sb-label">⬡ VIEW</div>
-  <div class="tool-grid">
-    <button class="tool-btn" onclick="zoomBy(0.82)">🔍+ IN</button>
-    <button class="tool-btn" onclick="zoomBy(1.22)">🔍− OUT</button>
+  <div id="bottomleft">
+    <b style="color:var(--ink)">How this works</b><br/>
+    This is a real feature-tree kernel: sketches become solids via extrude/revolve, solids combine via boolean CSG,
+    and every number stays editable after the fact — change an extrude depth or a bolt-circle radius and the whole
+    downstream assembly rebuilds. Nothing here is a fixed catalog part.
   </div>
 
-  <div class="sb-label">⬡ SCALE PIECE</div>
-  <div class="tool-grid">
-    <button class="tool-btn" onclick="scaleSelectedPiece(1.25)">⤢ BIGGER</button>
-    <button class="tool-btn" onclick="scaleSelectedPiece(0.8)">⤡ SMALLER</button>
-  </div>
-
-  <div class="sb-label">⬡ SCALE WHOLE BUILD</div>
-  <div class="tool-grid">
-    <button class="tool-btn" onclick="scaleBuild(1.25)">⤢ BIGGER</button>
-    <button class="tool-btn" onclick="scaleBuild(0.8)">⤡ SMALLER</button>
-  </div>
-
-  <div class="sb-label" style="margin-top:6px">WORKSHOP — CLICK TO SELECT</div>
-  <div id="my-parts"></div>
-</div>
-
-<div id="right-panel">
-  <div class="rp-section">
-    <div class="rp-title">SELECTED</div>
-    <div class="rp-val" id="sel-name">— none —</div>
-
-    <div id="bar-controls" style="display:none">
-      <button class="rp-btn" onclick="straightenSelected()">📏 STRAIGHTEN</button>
+  <div id="console">
+    <div class="group-title" style="margin:0;">Jarvis — build from a description</div>
+    <div id="promptRow">
+      <input id="prompt" type="text" placeholder="e.g. a 4-cylinder inline crankshaft with pistons and connecting rods" />
+      <button id="btnBuild">Build</button>
     </div>
-
-    <div id="servo-controls" style="display:none">
-      <div class="rp-title" style="margin-top:10px">MODE</div>
-      <div class="rot-row">
-        <button class="rp-btn" id="mode-manual" onclick="setServoMode('manual')">POSE</button>
-        <button class="rp-btn" id="mode-sweep" onclick="setServoMode('sweep')">SWEEP</button>
-        <button class="rp-btn" id="mode-continuous" onclick="setServoMode('continuous')">SPIN</button>
-      </div>
-      <div class="rp-title" style="margin-top:10px">ANGLE <span class="slider-val" id="angle-val"></span></div>
-      <input type="range" id="angle-slider" min="-150" max="150" value="60" oninput="onAngleSlider(this.value)"/>
-      <div class="rp-title" style="margin-top:10px">SPEED <span class="slider-val" id="speed-val"></span></div>
-      <input type="range" id="speed-slider" min="10" max="360" value="90" oninput="onSpeedSlider(this.value)"/>
-      <button class="rp-btn green" id="servo-run-btn" onclick="toggleServoRun()">▶ RUN</button>
-    </div>
-
-    <div id="led-controls" style="display:none">
-      <div class="rp-title" style="margin-top:10px">COLOR</div>
-      <div class="led-swatch-row">
-        <button class="led-swatch active" id="led-color-white" style="background:#ffffff" onclick="setLEDColor('white')"></button>
-        <button class="led-swatch" id="led-color-red" style="background:#ff3333" onclick="setLEDColor('red')"></button>
-        <button class="led-swatch" id="led-color-green" style="background:#00ff88" onclick="setLEDColor('green')"></button>
-        <button class="led-swatch" id="led-color-blue" style="background:#00c8ff" onclick="setLEDColor('blue')"></button>
-        <button class="led-swatch" id="led-color-amber" style="background:#ffaa00" onclick="setLEDColor('amber')"></button>
-      </div>
-      <div class="rot-row" style="margin-top:10px">
-        <button class="rp-btn green" id="led-on-btn" onclick="toggleLEDOn()">○ OFF</button>
-        <button class="rp-btn amber" id="led-blink-btn" onclick="toggleLEDBlink()">✦ BLINK</button>
-      </div>
-    </div>
-
-    <div id="shape-controls" style="display:none">
-      <div class="rp-title" style="margin-top:10px">SIZE <span class="slider-val" id="shape-size-val"></span></div>
-      <input type="range" id="shape-size-slider" min="30" max="300" value="100" oninput="onShapeSizeSlider(this.value)"/>
-      <div id="shape-extra-params"></div>
-      <div class="rp-title" style="margin-top:10px">ROTATE</div>
-      <div class="rot-row">
-        <button class="rp-btn" onclick="rotateSelectedShape('y',-45)">↺ Y</button>
-        <button class="rp-btn" onclick="rotateSelectedShape('y',45)">↻ Y</button>
-      </div>
-      <div class="rot-row">
-        <button class="rp-btn" onclick="rotateSelectedShape('x',-45)">↺ X</button>
-        <button class="rp-btn" onclick="rotateSelectedShape('x',45)">↻ X</button>
-      </div>
-      <div class="rp-title" style="margin-top:10px">MATERIAL</div>
-      <div class="led-swatch-row">
-        <button class="led-swatch" style="background:#9fb4c4" onclick="setShapeColor('#9fb4c4')"></button>
-        <button class="led-swatch" style="background:#ff3333" onclick="setShapeColor('#ff3333')"></button>
-        <button class="led-swatch" style="background:#00ff88" onclick="setShapeColor('#00ff88')"></button>
-        <button class="led-swatch" style="background:#00c8ff" onclick="setShapeColor('#00c8ff')"></button>
-        <button class="led-swatch" style="background:#ffaa00" onclick="setShapeColor('#ffaa00')"></button>
-      </div>
-      <div class="rp-title" style="margin-top:8px">METAL <span class="slider-val" id="shape-metal-val"></span></div>
-      <input type="range" id="shape-metal-slider" min="0" max="100" value="60" oninput="onShapeMetalSlider(this.value)"/>
-      <div class="rp-title" style="margin-top:8px">ROUGH <span class="slider-val" id="shape-rough-val"></span></div>
-      <input type="range" id="shape-rough-slider" min="0" max="100" value="35" oninput="onShapeRoughSlider(this.value)"/>
-      <div class="rot-row" style="margin-top:10px">
-        <button class="rp-btn amber" id="shape-physics-btn" onclick="toggleEntityPhysics()">🌍 PHYSICS: OFF</button>
-      </div>
-    </div>
-
-    <button class="rp-btn" style="border-color:rgba(255,51,51,0.4);color:#ff8a8a" onclick="deleteSelected()">🗑 DELETE PIECE</button>
-  </div>
-
-  <div class="rp-section" id="boolean-controls" style="display:none">
-    <div class="rp-title">BOOLEAN</div>
-    <div class="rp-val" id="boolean-hint">Click a shape, then click a second shape to combine them.</div>
-    <div class="rot-row" style="margin-top:8px">
-      <button class="rp-btn green" onclick="setBooleanOp('union')" id="bool-union-btn">⊕ UNION</button>
-      <button class="rp-btn amber" onclick="setBooleanOp('subtract')" id="bool-subtract-btn">⊖ SUBTRACT</button>
-    </div>
-  </div>
-
-  <div class="rp-section">
-    <div class="rp-title">HAND CONTROL</div>
-    <div class="gesture-hint" id="gesture-hint">Pick a tool, then pinch thumb + index to use it with your hand. Spread both hands apart / together to zoom.</div>
-    <button class="rp-btn green" id="hand-toggle-btn" onclick="toggleHandControl()">✋ ENABLE HAND CONTROL</button>
-  </div>
-
-  <div class="rp-section" style="flex:1">
-    <div class="rp-title">STRUCTURE</div>
-    <div class="rp-val" id="assembly-detail">Nothing built yet.</div>
+    <div id="log"></div>
   </div>
 </div>
 
-<div id="ticker">BEND: grab &amp; drag any point on a bar. WELD: touch two pieces with the torch to fuse them. Scroll or use the view buttons to zoom.</div>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+    "three-bvh-csg": "https://unpkg.com/three-bvh-csg@0.0.17/build/index.module.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { STLExporter } from "three/addons/exporters/STLExporter.js";
+import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
+import { Brush, Evaluator, ADDITION, SUBTRACTION, INTERSECTION } from "three-bvh-csg";
 
-<div id="toast"></div>
-
-<video id="camera-feed" autoplay muted playsinline style="position:fixed;bottom:-9999px;width:2px;height:2px;opacity:0"></video>
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-<script src="hand-tracking.js"></script>
-<script>
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — BUILD MODE (metal workshop: bend, weld, servos)
-// Everything is built from raw stock in-scene — no online parts.
+// SCENE / RENDERER
 // ═══════════════════════════════════════════════════════════════
-const $ = (id) => document.getElementById(id);
-const YAXIS = new THREE.Vector3(0, 1, 0);
-
-// ── THREE.JS SETUP ──
-const canvas = $("c");
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-renderer.outputEncoding = THREE.sRGBEncoding;
-renderer.shadowMap.enabled = true;
+const viewport = document.getElementById("viewport");
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+viewport.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x000508);
-scene.fog = new THREE.FogExp2(0x000508, 0.03);
+scene.background = new THREE.Color(0x05080a);
+scene.fog = new THREE.FogExp2(0x05080a, 0.012);
 
-const camera = new THREE.PerspectiveCamera(50, 1, 0.05, 300);
-camera.position.set(3.4, 2.6, 3.4);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 500);
+camera.position.set(9, 7, 11);
 
-const controls = new THREE.OrbitControls(camera, renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
-controls.target.set(0, 0.5, 0);
-controls.maxPolarAngle = Math.PI * 0.49;
-controls.minDistance = 0.6;
-controls.maxDistance = 40;
+controls.target.set(0, 1, 0);
 
-scene.add(new THREE.AmbientLight(0x445566, 0.9));
-const keyLight = new THREE.DirectionalLight(0xffffff, 1.6);
-keyLight.position.set(5, 8, 4); keyLight.castShadow = true;
-scene.add(keyLight);
-const rim = new THREE.PointLight(0x00aaff, 1.2, 30);
-rim.position.set(-4, 3, -3); scene.add(rim);
+scene.add(new THREE.HemisphereLight(0x8fb4c9, 0x0a0d0f, 0.9));
+const key = new THREE.DirectionalLight(0xffffff, 2.1);
+key.position.set(8, 12, 6);
+scene.add(key);
+const rim = new THREE.DirectionalLight(0x3ddc97, 0.5);
+rim.position.set(-8, 4, -8);
+scene.add(rim);
 
-const grid = new THREE.GridHelper(20, 40, 0x00475e, 0x001522);
+const grid = new THREE.GridHelper(30, 30, 0x24343d, 0x151e23);
 scene.add(grid);
-const floor = new THREE.Mesh(
-  new THREE.PlaneGeometry(20, 20),
-  new THREE.MeshStandardMaterial({ color: 0x000a12, roughness: 1 })
-);
-floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true;
-scene.add(floor);
+const axes = new THREE.AxesHelper(2.2);
+scene.add(axes);
 
 function resize() {
-  const w = window.innerWidth, h = window.innerHeight;
+  const w = viewport.clientWidth, h = viewport.clientHeight;
   renderer.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
-window.addEventListener("resize", resize);
+new ResizeObserver(resize).observe(viewport);
 resize();
 
-// Drag contexts + entity model declared before animate() runs, so they're
-// never in the temporal dead zone when the render loop reads them on the
-// first frame (animate() is invoked synchronously below, immediately).
-let bendCtx = null;   // {pieceId, jointIndex}
-let moveCtx = null;   // {entityId, plane, offset}
-const clock = new THREE.Clock();
-
-let entities = new Map();             // id -> entity
-let entityAssemblyOf = new Map();     // entityId -> assemblyId
-let entityAssemblyMembers = new Map();// assemblyId -> Set(entityId)
-let weldBeads = [];                   // [{mesh, getPos, entityIds}]
-let barWeldLinks = [];                // [{aId,aIdx,bId,bIdx}] bar-to-bar joint welds —
-                                       // these are the only weld type bend ripples through
-let selectedId = null;
-let spawnIndex = 0, barCount = 0, servoCount = 0, ledCount = 0;
-let physicsOn = false;   // read by stepPhysics(), called from animate() below —
-                         // must exist before animate() runs or it's a TDZ error
-const GRAVITY = -9.8;
-let effectSystems = []; // read by stepEffects(), same reason as physicsOn above —
-                         // [{ entityId, points, velocities, ages, spec, spawnAcc }]
-
-function animate() {
+(function animate() {
   requestAnimationFrame(animate);
-  controls.enabled = !(bendCtx || moveCtx);
   controls.update();
-  const dt = Math.min(clock.getDelta(), 0.05);
-  stepAllServos(dt);
-  stepAllLEDs(dt);
-  stepPhysics(dt);
-  stepEffects(dt);
-  weldBeads.forEach((w) => w.mesh.position.copy(w.getPos()));
   renderer.render(scene, camera);
+})();
+
+// ═══════════════════════════════════════════════════════════════
+// LOG HELPER
+// ═══════════════════════════════════════════════════════════════
+const logEl = document.getElementById("log");
+function log(msg, cls) {
+  const d = document.createElement("div");
+  if (cls) d.className = cls;
+  d.textContent = msg;
+  logEl.appendChild(d);
+  logEl.scrollTop = logEl.scrollHeight;
 }
-animate();
+log("Engine ready. Sketch → Extrude/Revolve → Boolean, or type a prompt below.");
 
-setTimeout(() => { $("loading").style.display = "none"; }, 500);
-
-// ── TOAST HELPERS ──
-let toastTimer = null;
-function showToast(msg, ms = 3200) {
-  const t = $("toast"); t.textContent = msg; t.classList.add("show");
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.remove("show"), ms);
+// ═══════════════════════════════════════════════════════════════
+// PLANE MATH — maps a sketch's local 2D (u,v) coords to world 3D
+// ═══════════════════════════════════════════════════════════════
+function planeBasis(plane) {
+  if (plane === "XZ") return { u: new THREE.Vector3(1,0,0), v: new THREE.Vector3(0,0,1), n: new THREE.Vector3(0,-1,0) };
+  if (plane === "YZ") return { u: new THREE.Vector3(0,1,0), v: new THREE.Vector3(0,0,1), n: new THREE.Vector3(1,0,0) };
+  return { u: new THREE.Vector3(1,0,0), v: new THREE.Vector3(0,1,0), n: new THREE.Vector3(0,0,1) }; // XY default
+}
+function planeMatrix(plane, origin) {
+  const { u, v, n } = planeBasis(plane);
+  const m = new THREE.Matrix4().makeBasis(u, v, n);
+  m.setPosition(new THREE.Vector3(origin[0]||0, origin[1]||0, origin[2]||0));
+  return m;
+}
+function planeToWorld(plane, origin, uu, vv) {
+  const { u, v } = planeBasis(plane);
+  return new THREE.Vector3(origin[0]||0, origin[1]||0, origin[2]||0)
+    .addScaledVector(u, uu).addScaledVector(v, vv);
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── ENTITY MODEL: bars (bendable chains) + servos ──
-// (variables declared earlier, above animate(), to avoid TDZ errors)
+// FEATURE TREE STATE
+// features: ordered array, each solid feature owns a baked (world-space)
+// BufferGeometry once rebuilt. Sketches are visualized only.
 // ═══════════════════════════════════════════════════════════════
-function uid() { return "e" + Math.random().toString(36).slice(2, 10); }
+let features = [];
+let idCounter = 1;
+function nextId() { return "f" + (idCounter++); }
+let selectedId = null;
+const displayGroup = new THREE.Group();
+scene.add(displayGroup);
 
-function nextSpawnPosition() {
-  const i = spawnIndex++;
-  const cols = 4;
-  const x = (i % cols) * 1.6 - (cols - 1) * 0.8;
-  const z = Math.floor(i / cols) * 1.6 - 1.6;
-  return new THREE.Vector3(x, 0.5, z);
-}
+const DEFAULT_MAT = () => new THREE.MeshStandardMaterial({ color: 0x9fb4c4, metalness: 0.75, roughness: 0.32 });
 
-function unionEntities(a, b) {
-  const asmA = entityAssemblyOf.get(a), asmB = entityAssemblyOf.get(b);
-  if (asmA === asmB) return;
-  const membersA = entityAssemblyMembers.get(asmA);
-  const membersB = entityAssemblyMembers.get(asmB);
-  for (const m of membersB) { entityAssemblyOf.set(m, asmA); membersA.add(m); }
-  entityAssemblyMembers.delete(asmB);
-}
-function sameAssembly(a, b) { return entityAssemblyOf.get(a) === entityAssemblyOf.get(b); }
-function assemblyMemberIds(id) { return Array.from(entityAssemblyMembers.get(entityAssemblyOf.get(id)) || [id]); }
+function findFeature(id) { return features.find(f => f.id === id); }
 
-function translateAssemblyEntities(id, delta) {
-  for (const mid of assemblyMemberIds(id)) {
-    const e = entities.get(mid);
-    if (!e) continue;
-    if (e.kind === "bar") { e.joints.forEach((j) => j.add(delta)); updateBarMesh(e); }
-    else { e.base.add(delta); updateServoVisual(e); }
-  }
-}
-function rotateAssemblyEntitiesAround(id, pivot, axis, radians) {
-  if (Math.abs(radians) < 1e-9) return;
-  const q = new THREE.Quaternion().setFromAxisAngle(axis, radians);
-  for (const mid of assemblyMemberIds(id)) {
-    const e = entities.get(mid);
-    if (!e) continue;
-    if (e.kind === "bar") {
-      e.joints.forEach((j) => { const rel = j.clone().sub(pivot); rel.applyQuaternion(q); j.copy(pivot).add(rel); });
-      updateBarMesh(e);
-    } else {
-      const rel = e.base.clone().sub(pivot); rel.applyQuaternion(q); e.base.copy(pivot).add(rel);
-      updateServoVisual(e);
-    }
-  }
-}
-
-function entityAnchorPoint(id) {
-  const e = entities.get(id);
-  if (!e) return new THREE.Vector3();
-  if (e.kind === "bar") {
-    const c = new THREE.Vector3();
-    e.joints.forEach((j) => c.add(j));
-    return c.divideScalar(e.joints.length);
-  }
-  return e.base.clone();
-}
-
-// Single dispatch point for "redraw this entity's meshes from its data" —
-// every entity kind (servo, LED, whatever comes next) just needs one of
-// these instead of translate/rotate having to special-case each kind.
-function updateEntityVisual(e) {
-  if (e.kind === "bar") updateBarMesh(e);
-  else if (e.kind === "servo") updateServoVisual(e);
-  else if (e.kind === "led") updateLEDVisual(e);
-  else if (e.kind === "shape" || e.kind === "solid") updateShapeVisual(e);
-}
-
-function translateAssemblyEntities(id, delta) {
-  for (const mid of assemblyMemberIds(id)) {
-    const e = entities.get(mid);
-    if (!e) continue;
-    if (e.kind === "bar") { e.joints.forEach((j) => j.add(delta)); updateBarMesh(e); }
-    else { e.base.add(delta); updateEntityVisual(e); }
-  }
-}
-function rotateAssemblyEntitiesAround(id, pivot, axis, radians) {
-  if (Math.abs(radians) < 1e-9) return;
-  const q = new THREE.Quaternion().setFromAxisAngle(axis, radians);
-  for (const mid of assemblyMemberIds(id)) {
-    const e = entities.get(mid);
-    if (!e) continue;
-    if (e.kind === "bar") {
-      e.joints.forEach((j) => { const rel = j.clone().sub(pivot); rel.applyQuaternion(q); j.copy(pivot).add(rel); });
-      updateBarMesh(e);
-    } else {
-      const rel = e.base.clone().sub(pivot); rel.applyQuaternion(q); e.base.copy(pivot).add(rel);
-      updateEntityVisual(e);
-    }
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── SCALE: grow/shrink the whole build (helmets need room!) ──
-// Scales every entity's position away from the build's centroid, and
-// also grows wall-thickness / part size so things don't just spread out
-// thin and flimsy-looking — everything gets proportionally bigger.
-// ═══════════════════════════════════════════════════════════════
-let buildScale = 1;
-function computeBuildCentroid() {
-  const pts = [];
-  for (const e of entities.values()) {
-    if (e.kind === "bar") e.joints.forEach((j) => pts.push(j));
-    else pts.push(e.base);
-  }
-  if (!pts.length) return new THREE.Vector3(0, 0.5, 0);
-  const c = new THREE.Vector3();
-  pts.forEach((p) => c.add(p));
-  return c.divideScalar(pts.length);
-}
-function scaleBuild(factor) {
-  if (!entities.size) { showToast("Nothing to scale yet — place a piece first."); return; }
-  const pivot = computeBuildCentroid();
-  buildScale *= factor;
-  for (const e of entities.values()) {
-    e.sizeScale = (e.sizeScale || 1) * factor;
-    if (e.kind === "bar") {
-      e.joints.forEach((j) => { j.sub(pivot).multiplyScalar(factor).add(pivot); });
-      e.restLength *= factor;
-      updateBarMesh(e);
-    } else {
-      e.base.sub(pivot).multiplyScalar(factor).add(pivot);
-      if (e.kind === "servo") e.armLength *= factor;
-      updateEntityVisual(e);
-    }
-  }
-  // zoom the camera out to keep a growing build in frame
-  if (factor > 1) zoomBy(Math.min(factor, 1.4));
-  showToast(`Build scaled to ${Math.round(buildScale * 100)}%.`);
-}
-
-// Scales just the SELECTED piece (and anything welded to it, so a fused
-// assembly grows as one object) around its own centroid, leaving every
-// other piece in the scene untouched — unlike scaleBuild() above, which
-// grows everything at once.
-function scaleSelectedPiece(factor) {
-  if (!selectedId || !entities.has(selectedId)) {
-    showToast("Select a piece first, then scale it.");
-    return;
-  }
-  const memberIds = assemblyMemberIds(selectedId);
-  const members = memberIds.map((id) => entities.get(id)).filter(Boolean);
-  if (!members.length) return;
-
-  const pts = [];
-  for (const e of members) {
-    if (e.kind === "bar") e.joints.forEach((j) => pts.push(j));
-    else pts.push(e.base);
-  }
-  const pivot = new THREE.Vector3();
-  pts.forEach((p) => pivot.add(p));
-  pivot.divideScalar(pts.length);
-
-  for (const e of members) {
-    e.sizeScale = (e.sizeScale || 1) * factor;
-    if (e.kind === "bar") {
-      e.joints.forEach((j) => { j.sub(pivot).multiplyScalar(factor).add(pivot); });
-      e.restLength *= factor;
-      updateBarMesh(e);
-    } else {
-      e.base.sub(pivot).multiplyScalar(factor).add(pivot);
-      if (e.kind === "servo") e.armLength *= factor;
-      updateEntityVisual(e);
-    }
-  }
-  const label = members.length > 1 ? "Piece (welded assembly)" : (entities.get(selectedId)?.name || "Piece");
-  showToast(`${label} scaled to ${Math.round((members[0].sizeScale || 1) * 100)}%.`);
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── BARS (raw metal rods you bend by hand) ──
-// ═══════════════════════════════════════════════════════════════
-const BAR_JOINTS = 9;
-const BAR_LENGTH = 1.5;
-const BAR_RADIUS = 0.045;
-
-function spawnBar() {
-  const rest = BAR_LENGTH / (BAR_JOINTS - 1);
-  const start = nextSpawnPosition();
-  const joints = [];
-  for (let i = 0; i < BAR_JOINTS; i++) {
-    joints.push(new THREE.Vector3(start.x - BAR_LENGTH / 2 + i * rest, start.y + 0.5, start.z));
-  }
-  const mat = new THREE.MeshStandardMaterial({ color: 0x9fb4c4, metalness: 0.85, roughness: 0.32 });
-  const group = new THREE.Group();
-  const segMeshes = [], capMeshes = [];
-  const id = uid();
-
-  for (let i = 0; i < BAR_JOINTS - 1; i++) {
-    const geo = new THREE.CylinderGeometry(BAR_RADIUS, BAR_RADIUS, rest, 10);
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = mesh.receiveShadow = true;
-    mesh.userData = { entityId: id, kind: "seg", segIndex: i };
-    group.add(mesh); segMeshes.push(mesh);
-  }
-  for (let i = 0; i < BAR_JOINTS; i++) {
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(BAR_RADIUS, 10, 10), mat);
-    cap.castShadow = true;
-    cap.userData = { entityId: id, kind: "cap", jointIndex: i };
-    group.add(cap); capMeshes.push(cap);
-  }
-  scene.add(group);
-
-  const piece = {
-    id, kind: "bar", name: `Metal Bar ${++barCount}`,
-    joints, restLength: rest, group, segMeshes, capMeshes,
-    weldedJointIndices: new Set(),
-  };
-  entities.set(id, piece);
-  entityAssemblyOf.set(id, id);
-  entityAssemblyMembers.set(id, new Set([id]));
-  updateBarMesh(piece);
-  refreshEntityList(); updateTopStatus(); selectEntity(id);
-  showToast(`Placed: ${piece.name}`);
-  return piece;
-}
-
-function updateBarMesh(piece) {
-  const { joints, segMeshes, capMeshes, restLength } = piece;
-  const t = piece.sizeScale || 1;
-  for (let i = 0; i < segMeshes.length; i++) {
-    const a = joints[i], b = joints[i + 1];
-    const mid = a.clone().add(b).multiplyScalar(0.5);
-    const dir = b.clone().sub(a);
-    const len = dir.length() || 0.0001;
-    segMeshes[i].position.copy(mid);
-    segMeshes[i].scale.set(t, len / restLength, t);
-    segMeshes[i].quaternion.setFromUnitVectors(YAXIS, dir.normalize());
-  }
-  for (let i = 0; i < capMeshes.length; i++) { capMeshes[i].position.copy(joints[i]); capMeshes[i].scale.setScalar(t); }
-}
-
-// A joint welded to a SERVO or LED stays a fixed anchor — those parts are
-// rigid, not bendable, so the bar shouldn't be able to drag them around.
-// A joint welded to another BAR is different: it's a link in a longer
-// chain, so it should NOT be pinned — it should propagate motion into
-// the other bar instead, which is what makes a whole welded assembly
-// bend as one continuous piece.
-function jointWeldedToNonBar(piece, jointIndex) {
-  if (!piece.weldedJointIndices.has(jointIndex)) return false;
-  const isBarLink = barWeldLinks.some((w) =>
-    (w.aId === piece.id && w.aIdx === jointIndex) ||
-    (w.bId === piece.id && w.bIdx === jointIndex));
-  return !isBarLink;
-}
-
-// Position-based-dynamics distance solve, run across every bar in the
-// welded assembly at once: the grabbed joint is pinned, joints welded to
-// a servo/LED are pinned to that anchor, and everything else (including
-// bar-to-bar weld joints) relaxes to keep each segment's length. After
-// each bar's internal pass, bar-to-bar weld joints are snapped back to
-// coincide with their partner joint — that coupling is what lets a bend
-// on one bar ripple through every bar fused to it, like one long chain.
-function pbdRelaxAssembly(pinnedEntityId, pinnedJointIndex, iterations = 14) {
-  const asmId = entityAssemblyOf.get(pinnedEntityId);
-  const memberIds = Array.from(entityAssemblyMembers.get(asmId) || [pinnedEntityId]);
-  const bars = memberIds.map((id) => entities.get(id)).filter((e) => e && e.kind === "bar");
-  if (!bars.length) return;
-
-  const isHardPinned = (piece, i) =>
-    (piece.id === pinnedEntityId && i === pinnedJointIndex) || jointWeldedToNonBar(piece, i);
-
-  const links = barWeldLinks.filter((w) =>
-    bars.some((b) => b.id === w.aId) && bars.some((b) => b.id === w.bId));
-
-  for (let iter = 0; iter < iterations; iter++) {
-    for (const piece of bars) {
-      const { joints, restLength: rest } = piece;
-      for (let i = 0; i < joints.length - 1; i++) {
-        const a = joints[i], b = joints[i + 1];
-        const delta = b.clone().sub(a);
-        const dist = delta.length() || 0.0001;
-        const diff = (dist - rest) / dist;
-        const correction = delta.multiplyScalar(diff * 0.5);
-        if (!isHardPinned(piece, i)) a.add(correction);
-        if (!isHardPinned(piece, i + 1)) b.sub(correction);
-      }
-    }
-    for (const link of links) {
-      const pieceA = entities.get(link.aId), pieceB = entities.get(link.bId);
-      if (!pieceA || !pieceB) continue;
-      const jointA = pieceA.joints[link.aIdx], jointB = pieceB.joints[link.bIdx];
-      const aPinned = isHardPinned(pieceA, link.aIdx);
-      const bPinned = isHardPinned(pieceB, link.bIdx);
-      if (aPinned && bPinned) continue;
-      if (aPinned) jointB.copy(jointA);
-      else if (bPinned) jointA.copy(jointB);
-      else {
-        const mid = jointA.clone().add(jointB).multiplyScalar(0.5);
-        jointA.copy(mid); jointB.copy(mid);
-      }
-    }
-  }
-  for (const piece of bars) updateBarMesh(piece);
-}
-
-function straightenSelected() {
-  const e = entities.get(selectedId);
-  if (!e || e.kind !== "bar") return;
-  const n = e.joints.length;
-  const a = e.joints[0].clone(), b = e.joints[n - 1].clone();
-  for (let i = 0; i < n; i++) e.joints[i].copy(a.clone().lerp(b, i / (n - 1)));
-  updateBarMesh(e);
-  showToast("Straightened.");
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── SERVOS (motorised joints — weld other pieces to the arm) ──
-// ═══════════════════════════════════════════════════════════════
-function spawnServo() {
-  const start = nextSpawnPosition();
-  const base = new THREE.Vector3(start.x, 0.42, start.z);
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0x223344, metalness: 0.55, roughness: 0.45 });
-  const armMat = new THREE.MeshStandardMaterial({ color: 0x00c8ff, metalness: 0.7, roughness: 0.3, emissive: 0x002233 });
-
-  const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.22, 0.18), bodyMat);
-  bodyMesh.castShadow = bodyMesh.receiveShadow = true;
-  const mountMesh = new THREE.Mesh(new THREE.SphereGeometry(0.05, 10, 10), bodyMat);
-  const armMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 1, 10), armMat);
-  armMesh.castShadow = true;
-  const tipMesh = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 10), armMat);
-
-  const id = uid();
-  bodyMesh.userData = { entityId: id, kind: "servoBody" };
-  mountMesh.userData = { entityId: id, kind: "servoMount" };
-  armMesh.userData = { entityId: id, kind: "servoArm" };
-  tipMesh.userData = { entityId: id, kind: "servoTip" };
-
-  const group = new THREE.Group();
-  group.add(bodyMesh, mountMesh, armMesh, tipMesh);
-  scene.add(group);
-
-  const servo = {
-    id, kind: "servo", name: `Servo ${++servoCount}`,
-    base, armLength: 0.5, angle: 0,
-    targetAngle: THREE.MathUtils.degToRad(60),
-    speed: THREE.MathUtils.degToRad(90),
-    mode: "manual", running: false, sweepDir: 1,
-    bodyMesh, mountMesh, armMesh, tipMesh, group,
-    attached: new Set(),
-  };
-  entities.set(id, servo);
-  entityAssemblyOf.set(id, id);
-  entityAssemblyMembers.set(id, new Set([id]));
-  updateServoVisual(servo);
-  refreshEntityList(); updateTopStatus(); selectEntity(id);
-  showToast(`Placed: ${servo.name}`);
-  return servo;
-}
-
-function servoTipWorld(servo) {
-  return new THREE.Vector3(
-    servo.base.x + Math.cos(servo.angle) * servo.armLength,
-    servo.base.y,
-    servo.base.z + Math.sin(servo.angle) * servo.armLength
-  );
-}
-
-function updateServoVisual(servo) {
-  const t = servo.sizeScale || 1;
-  servo.bodyMesh.position.copy(servo.base).add(new THREE.Vector3(0, 0.11 * t, 0));
-  servo.bodyMesh.scale.setScalar(t);
-  servo.mountMesh.position.copy(servo.base);
-  servo.mountMesh.scale.setScalar(t);
-  const tip = servoTipWorld(servo);
-  const mid = servo.base.clone().add(tip).multiplyScalar(0.5);
-  const dir = tip.clone().sub(servo.base);
-  const len = dir.length() || 0.0001;
-  servo.armMesh.position.copy(mid);
-  servo.armMesh.scale.set(t, len, t);
-  servo.armMesh.quaternion.setFromUnitVectors(YAXIS, dir.normalize());
-  servo.tipMesh.position.copy(tip);
-  servo.tipMesh.scale.setScalar(t);
-}
-
-function stepServo(servo, dt) {
-  if (!servo.running) return 0;
-  const before = servo.angle;
-  if (servo.mode === "continuous") {
-    servo.angle += servo.speed * dt;
-  } else if (servo.mode === "sweep") {
-    const limit = servo.targetAngle;
-    let na = servo.angle + servo.speed * dt * servo.sweepDir;
-    if (na > limit) { na = limit; servo.sweepDir = -1; }
-    if (na < -limit) { na = -limit; servo.sweepDir = 1; }
-    servo.angle = na;
+function buildShapeFromSketch(sk) {
+  const shape = new THREE.Shape();
+  if (sk.shape === "rect") {
+    const w = sk.rect.w / 2, h = sk.rect.h / 2;
+    shape.moveTo(-w, -h); shape.lineTo(w, -h); shape.lineTo(w, h); shape.lineTo(-w, h); shape.closePath();
+  } else if (sk.shape === "circle") {
+    shape.absarc(0, 0, sk.circle.r, 0, Math.PI * 2, false);
   } else {
-    const diff = servo.targetAngle - servo.angle;
-    const maxStep = servo.speed * dt;
-    servo.angle += Math.max(-maxStep, Math.min(maxStep, diff));
+    const pts = sk.polygon.points;
+    if (pts.length < 3) throw new Error(`sketch ${sk.id} polygon needs >=3 points`);
+    shape.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i][0], pts[i][1]);
+    shape.closePath();
   }
-  return servo.angle - before;
-}
-
-function stepAllServos(dt) {
-  for (const e of entities.values()) {
-    if (e.kind !== "servo") continue;
-    const dAngle = stepServo(e, dt);
-    updateServoVisual(e);
-    if (dAngle !== 0 && e.attached.size) {
-      for (const rootId of e.attached) rotateAssemblyEntitiesAround(rootId, e.base, YAXIS, dAngle);
-    }
-  }
-}
-
-// Runs (or stops) every servo in the build at once — this is what "RENDER"
-// and the "Jarvis, render it" voice command both trigger, so you can see
-// the whole mechanism move without selecting and running each servo by hand.
-function runAllServos(run = true) {
-  let count = 0;
-  for (const e of entities.values()) {
-    if (e.kind !== "servo") continue;
-    e.running = run;
-    count++;
-  }
-  if (selectedId) {
-    const sel = entities.get(selectedId);
-    if (sel && sel.kind === "servo") {
-      $("servo-run-btn").textContent = sel.running ? "⏸ STOP" : "▶ RUN";
-      $("servo-run-btn").classList.toggle("active", sel.running);
-    }
-  }
-  const rb = $("render-btn");
-  if (rb) { rb.textContent = run ? "⏸ STOP" : "▶ RENDER"; rb.classList.toggle("active", run); }
-  if (!count) { showToast("No servos in the build yet — add one to render motion."); return; }
-  showToast(run ? `Rendering — running all ${count} servo${count === 1 ? "" : "s"}.` : "Stopped.");
-}
-function toggleRenderAll() {
-  const anyRunning = Array.from(entities.values()).some((e) => e.kind === "servo" && e.running);
-  runAllServos(!anyRunning);
-}
-
-// Lets JARVIS drive Build Mode by voice from the main chat page — see
-// jarvis.js's "render it" / "make it bigger" command handling.
-window.addEventListener("message", (e) => {
-  const t = e.data?.type;
-  if (t === "BUILD_RUN") runAllServos(true);
-  else if (t === "BUILD_STOP") runAllServos(false);
-  else if (t === "BUILD_SCALE_UP") scaleBuild(1.35);
-  else if (t === "BUILD_SCALE_DOWN") scaleBuild(0.75);
-  else if (t === "BUILD_AI_REQUEST" && e.data.prompt) requestAIBuild(e.data.prompt);
-});
-
-function setServoMode(mode) {
-  const e = entities.get(selectedId);
-  if (!e || e.kind !== "servo") return;
-  e.mode = mode;
-  if (mode === "sweep") e.sweepDir = 1;
-  updateModeButtons(e);
-}
-function updateModeButtons(e) {
-  ["manual", "sweep", "continuous"].forEach((m) => {
-    $("mode-" + m).classList.toggle("active", e.mode === m);
-  });
-}
-function onAngleSlider(val) {
-  const e = entities.get(selectedId);
-  if (!e || e.kind !== "servo") return;
-  e.targetAngle = THREE.MathUtils.degToRad(+val);
-  $("angle-val").textContent = Math.round(val) + "°";
-  if (!e.running) {
-    const dAngle = e.targetAngle - e.angle;
-    e.angle = e.targetAngle;
-    updateServoVisual(e);
-    if (e.attached.size) for (const r of e.attached) rotateAssemblyEntitiesAround(r, e.base, YAXIS, dAngle);
-  }
-}
-function onSpeedSlider(val) {
-  const e = entities.get(selectedId);
-  if (!e || e.kind !== "servo") return;
-  e.speed = THREE.MathUtils.degToRad(+val);
-  $("speed-val").textContent = Math.round(val) + "°/s";
-}
-function toggleServoRun() {
-  const e = entities.get(selectedId);
-  if (!e || e.kind !== "servo") return;
-  e.running = !e.running;
-  $("servo-run-btn").textContent = e.running ? "⏸ STOP" : "▶ RUN";
-  $("servo-run-btn").classList.toggle("active", e.running);
-  showToast(e.running ? `${e.name} running.` : `${e.name} stopped.`);
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── LEDS (weldable lights — same single-anchor rules as a servo mount) ──
-// ═══════════════════════════════════════════════════════════════
-const LED_COLORS = { white: 0xffffff, red: 0xff3333, green: 0x00ff88, blue: 0x00c8ff, amber: 0xffaa00 };
-
-function spawnLED() {
-  const start = nextSpawnPosition();
-  const base = new THREE.Vector3(start.x, 0.5, start.z);
-  const id = uid();
-  const colorKey = "white";
-  const mat = new THREE.MeshStandardMaterial({
-    color: LED_COLORS[colorKey], emissive: LED_COLORS[colorKey], emissiveIntensity: 0.05,
-    metalness: 0.1, roughness: 0.25,
-  });
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.055, 14, 14), mat);
-  mesh.castShadow = true;
-  mesh.userData = { entityId: id, kind: "ledBulb" };
-  const light = new THREE.PointLight(LED_COLORS[colorKey], 0, 1.6);
-  const group = new THREE.Group();
-  group.add(mesh, light);
-  scene.add(group);
-
-  const led = {
-    id, kind: "led", name: `LED ${++ledCount}`,
-    base, mesh, mat, light, group,
-    colorKey, on: false, blinking: false, blinkOn: true, blinkTimer: 0,
-    sizeScale: 1,
-  };
-  entities.set(id, led);
-  entityAssemblyOf.set(id, id);
-  entityAssemblyMembers.set(id, new Set([id]));
-  updateLEDVisual(led);
-  refreshEntityList(); updateTopStatus(); selectEntity(id);
-  showToast(`Placed: ${led.name}`);
-  return led;
-}
-
-function updateLEDVisual(led) {
-  led.group.position.copy(led.base);
-  led.mesh.scale.setScalar(led.sizeScale || 1);
-  const lit = led.on && (!led.blinking || led.blinkOn);
-  led.mat.emissiveIntensity = lit ? 1.5 : 0.05;
-  led.light.intensity = lit ? 1.2 : 0;
-}
-function setLEDColor(colorKey) {
-  const e = entities.get(selectedId);
-  if (!e || e.kind !== "led" || !LED_COLORS[colorKey]) return;
-  e.colorKey = colorKey;
-  e.mat.color.setHex(LED_COLORS[colorKey]);
-  e.mat.emissive.setHex(LED_COLORS[colorKey]);
-  e.light.color.setHex(LED_COLORS[colorKey]);
-  updateLEDControls(e);
-}
-function toggleLEDOn() {
-  const e = entities.get(selectedId);
-  if (!e || e.kind !== "led") return;
-  e.on = !e.on;
-  updateLEDVisual(e);
-  updateLEDControls(e);
-}
-function toggleLEDBlink() {
-  const e = entities.get(selectedId);
-  if (!e || e.kind !== "led") return;
-  e.blinking = !e.blinking;
-  e.blinkOn = true; e.blinkTimer = 0;
-  updateLEDVisual(e);
-  updateLEDControls(e);
-}
-function updateLEDControls(e) {
-  Object.keys(LED_COLORS).forEach((k) => {
-    const btn = document.getElementById("led-color-" + k);
-    if (btn) btn.classList.toggle("active", e.colorKey === k);
-  });
-  const onBtn = $("led-on-btn");
-  if (onBtn) { onBtn.textContent = e.on ? "● ON" : "○ OFF"; onBtn.classList.toggle("active", e.on); }
-  const blinkBtn = $("led-blink-btn");
-  if (blinkBtn) blinkBtn.classList.toggle("active", e.blinking);
-}
-function stepAllLEDs(dt) {
-  for (const e of entities.values()) {
-    if (e.kind !== "led" || !e.blinking || !e.on) continue;
-    e.blinkTimer += dt;
-    if (e.blinkTimer >= 0.45) { e.blinkTimer = 0; e.blinkOn = !e.blinkOn; updateLEDVisual(e); }
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── SHAPES (parametric primitives — box/sphere/cylinder/cone/torus/wedge)
-// Same "kind" pattern as bar/servo/led: base = world position, group
-// holds one mesh, updateShapeVisual() rebuilds geometry from params and
-// re-applies the group transform. Fits straight into the existing
-// translate/rotate/scale/pick machinery with no special-casing there.
-// ═══════════════════════════════════════════════════════════════
-let shapeCount = 0;
-const SHAPE_DEFAULTS = {
-  box:      { w: 0.5, h: 0.5, d: 0.5 },
-  sphere:   { r: 0.3 },
-  cylinder: { r: 0.25, h: 0.6 },
-  cone:     { r: 0.28, h: 0.6 },
-  torus:    { r: 0.28, tube: 0.09 },
-  wedge:    { w: 0.5, h: 0.5, d: 0.5 },
-};
-const SHAPE_LABELS = { box: "Box", sphere: "Sphere", cylinder: "Cylinder", cone: "Cone", torus: "Torus", wedge: "Wedge" };
-
-// Wedge has no built-in three.js geometry, so it's hand-built as a
-// triangular prism (a box with the top face collapsed to an edge).
-function buildWedgeGeometry(w, h, d) {
-  const hw = w / 2, hh = h / 2, hd = d / 2;
-  const geo = new THREE.BufferGeometry();
-  const v = [
-    [-hw, -hh, -hd], [hw, -hh, -hd], [hw, -hh, hd], [-hw, -hh, hd], // bottom
-    [-hw, hh, -hd], [-hw, hh, hd],                                   // top ridge
-  ];
-  const idx = [
-    0, 1, 2, 0, 2, 3,          // bottom
-    0, 4, 1, 1, 4, 5, 1, 5, 2, // back+right slope
-    2, 5, 3,                   // right slope tri
-    3, 5, 4, 3, 4, 0,          // left slope
-  ];
-  const positions = new Float32Array(idx.length * 3);
-  idx.forEach((vi, i) => { positions[i * 3] = v[vi][0]; positions[i * 3 + 1] = v[vi][1]; positions[i * 3 + 2] = v[vi][2]; });
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geo.computeVertexNormals();
-  return geo;
-}
-
-function buildShapeGeometry(shapeType, p) {
-  switch (shapeType) {
-    case "box":      return new THREE.BoxGeometry(p.w, p.h, p.d);
-    case "sphere":   return new THREE.SphereGeometry(p.r, 22, 16);
-    case "cylinder": return new THREE.CylinderGeometry(p.r, p.r, p.h, 22);
-    case "cone":     return new THREE.ConeGeometry(p.r, p.h, 22);
-    case "torus":    return new THREE.TorusGeometry(p.r, p.tube, 14, 28);
-    case "wedge":    return buildWedgeGeometry(p.w, p.h, p.d);
-    default:         return new THREE.BoxGeometry(0.4, 0.4, 0.4);
-  }
-}
-
-// Rough bounding radius per shape — used for physics collision, floor
-// contact, and centroid-relative scale/rotate pivots.
-function shapeBoundingRadius(e) {
-  const p = e.params, s = e.sizeScale || 1;
-  switch (e.shapeType) {
-    case "box": case "wedge": return Math.hypot(p.w, p.h, p.d) / 2 * s;
-    case "sphere":            return p.r * s;
-    case "cylinder": case "cone": return Math.max(p.r, p.h / 2) * s;
-    case "torus":              return (p.r + p.tube) * s;
-    default: return 0.3 * s;
-  }
-}
-
-function spawnShape(shapeType) {
-  const start = nextSpawnPosition();
-  const base = new THREE.Vector3(start.x, 0.6, start.z);
-  const params = { ...SHAPE_DEFAULTS[shapeType] };
-  const color = 0x9fb4c4;
-  const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.6, roughness: 0.35 });
-  const mesh = new THREE.Mesh(buildShapeGeometry(shapeType, params), mat);
-  mesh.castShadow = mesh.receiveShadow = true;
-  const id = uid();
-  mesh.userData = { entityId: id, kind: "shapeMesh" };
-  const group = new THREE.Group();
-  group.add(mesh);
-  scene.add(group);
-
-  const shape = {
-    id, kind: "shape", name: `${SHAPE_LABELS[shapeType]} ${++shapeCount}`,
-    shapeType, params, base, quaternion: new THREE.Quaternion(),
-    sizeScale: 1, mat, mesh, group,
-    physics: { enabled: false, velocity: new THREE.Vector3(), sleeping: false },
-  };
-  entities.set(id, shape);
-  entityAssemblyOf.set(id, id);
-  entityAssemblyMembers.set(id, new Set([id]));
-  updateShapeVisual(shape);
-  refreshEntityList(); updateTopStatus(); selectEntity(id);
-  showToast(`Placed: ${shape.name}`);
   return shape;
 }
 
-function updateShapeVisual(e) {
-  // "solid" entities (boolean-op results) have a fixed baked geometry —
-  // only the group transform moves; nothing to rebuild from params.
-  if (e.kind === "shape") {
-    e.mesh.geometry.dispose();
-    e.mesh.geometry = buildShapeGeometry(e.shapeType, e.params);
+function sketchLocalPoints(sk) {
+  if (sk.shape === "rect") {
+    const w = sk.rect.w / 2, h = sk.rect.h / 2;
+    return [[-w,-h],[w,-h],[w,h],[-w,h]];
   }
-  e.group.position.copy(e.base);
-  e.group.quaternion.copy(e.quaternion);
-  e.group.scale.setScalar(e.sizeScale || 1);
+  if (sk.shape === "circle") {
+    const pts = []; const n = 48;
+    for (let i = 0; i <= n; i++) { const a = (i/n)*Math.PI*2; pts.push([Math.cos(a)*sk.circle.r, Math.sin(a)*sk.circle.r]); }
+    return pts;
+  }
+  return sk.polygon.points;
 }
 
-function shapeParamFields(shapeType) {
-  switch (shapeType) {
-    case "box": case "wedge": return [["w", "WIDTH"], ["h", "HEIGHT"], ["d", "DEPTH"]];
-    case "sphere":            return [["r", "RADIUS"]];
-    case "cylinder": case "cone": return [["r", "RADIUS"], ["h", "HEIGHT"]];
-    case "torus":              return [["r", "RADIUS"], ["tube", "TUBE"]];
-    default: return [];
-  }
-}
-function refreshShapeParamUI(e) {
-  const wrap = $("shape-extra-params");
-  wrap.innerHTML = "";
-  if (e.kind !== "shape") return;
-  for (const [key, label] of shapeParamFields(e.shapeType)) {
-    const row = document.createElement("div");
-    const val = e.params[key];
-    row.innerHTML = `<div class="rp-title" style="margin-top:8px">${label} <span class="slider-val">${val.toFixed(2)}</span></div>
-      <input type="range" min="0.08" max="1.4" step="0.02" value="${val}"/>`;
-    const slider = row.querySelector("input");
-    const valSpan = row.querySelector(".slider-val");
-    slider.oninput = () => {
-      e.params[key] = parseFloat(slider.value);
-      valSpan.textContent = e.params[key].toFixed(2);
-      updateShapeVisual(e);
-    };
-    wrap.appendChild(row);
-  }
-}
-function onShapeSizeSlider(val) {
-  const e = entities.get(selectedId);
-  if (!e || (e.kind !== "shape" && e.kind !== "solid")) return;
-  e.sizeScale = val / 100;
-  $("shape-size-val").textContent = val + "%";
-  updateShapeVisual(e);
-}
-function rotateSelectedShape(axis, degrees) {
-  const e = entities.get(selectedId);
-  if (!e || (e.kind !== "shape" && e.kind !== "solid")) return;
-  const axisVec = axis === "x" ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
-  const q = new THREE.Quaternion().setFromAxisAngle(axisVec, THREE.MathUtils.degToRad(degrees));
-  e.quaternion.premultiply(q);
-  updateShapeVisual(e);
-}
-function setShapeColor(hex) {
-  const e = entities.get(selectedId);
-  if (!e || (e.kind !== "shape" && e.kind !== "solid")) return;
-  e.mat.color.set(hex);
-}
-function onShapeMetalSlider(val) {
-  const e = entities.get(selectedId);
-  if (!e || (e.kind !== "shape" && e.kind !== "solid")) return;
-  e.mat.metalness = val / 100;
-  $("shape-metal-val").textContent = val + "%";
-}
-function onShapeRoughSlider(val) {
-  const e = entities.get(selectedId);
-  if (!e || (e.kind !== "shape" && e.kind !== "solid")) return;
-  e.mat.roughness = val / 100;
-  $("shape-rough-val").textContent = val + "%";
-}
-function toggleEntityPhysics() {
-  const e = entities.get(selectedId);
-  if (!e || (e.kind !== "shape" && e.kind !== "solid")) return;
-  e.physics.enabled = !e.physics.enabled;
-  e.physics.sleeping = false;
-  e.physics.velocity.set(0, 0, 0);
-  $("shape-physics-btn").textContent = "🌍 PHYSICS: " + (e.physics.enabled ? "ON" : "OFF");
-  $("shape-physics-btn").classList.toggle("active", e.physics.enabled);
+function bakeWorld(geometry, plane, origin) {
+  geometry.applyMatrix4(planeMatrix(plane, origin));
+  return geometry;
 }
 
-// ═══════════════════════════════════════════════════════════════
-// ── SELF-CONTAINED CSG (BSP boolean) — no CDN dependency ──
-// Classic Evan Wallace CSG.js algorithm, ported onto three.js
-// BufferGeometry in/out so it survives being offline/CDN-flaky, same
-// reasoning that killed the old Tripo3D hologram pipeline.
-// ═══════════════════════════════════════════════════════════════
-const CSG = (() => {
-  class CVertex {
-    constructor(pos, normal) { this.pos = pos; this.normal = normal; }
-    clone() { return new CVertex(this.pos.clone(), this.normal.clone()); }
-    flip() { this.normal.negate(); }
-    interpolate(other, t) {
-      return new CVertex(this.pos.clone().lerp(other.pos, t), this.normal.clone().lerp(other.normal, t).normalize());
+function buildGeometryFor(feat) {
+  switch (feat.type) {
+    case "sketch": {
+      // visualization only — a line loop
+      const pts = sketchLocalPoints(feat).map(([u,v]) => planeToWorld(feat.plane, feat.origin, u, v));
+      pts.push(pts[0]);
+      const geo = new THREE.BufferGeometry().setFromPoints(pts);
+      return { kind: "line", geo };
     }
-  }
-  class CPlane {
-    constructor(normal, w) { this.normal = normal; this.w = w; }
-    static fromPoints(a, b, c) {
-      const n = new THREE.Vector3().subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a)).normalize();
-      return new CPlane(n, n.dot(a));
+    case "primitive": {
+      let geo;
+      const d = feat.dims || {};
+      if (feat.shape === "box") geo = new THREE.BoxGeometry(d.w||1, d.h||1, d.d||1);
+      else if (feat.shape === "cylinder") geo = new THREE.CylinderGeometry(d.r||0.5, d.r2 ?? d.r ?? 0.5, d.h||1, d.segments||32);
+      else if (feat.shape === "sphere") geo = new THREE.SphereGeometry(d.r||0.5, 24, 18);
+      else if (feat.shape === "cone") geo = new THREE.ConeGeometry(d.r||0.5, d.h||1, d.segments||32);
+      else if (feat.shape === "torus") geo = new THREE.TorusGeometry(d.r||0.6, d.tube||0.15, 16, 32);
+      else throw new Error("unknown primitive shape " + feat.shape);
+      const pos = feat.position || [0,0,0];
+      const rotDeg = feat.rotationDeg || [0,0,0];
+      const m = new THREE.Matrix4();
+      const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+        THREE.MathUtils.degToRad(rotDeg[0]||0), THREE.MathUtils.degToRad(rotDeg[1]||0), THREE.MathUtils.degToRad(rotDeg[2]||0)));
+      m.compose(new THREE.Vector3(pos[0]||0,pos[1]||0,pos[2]||0), q, new THREE.Vector3(1,1,1));
+      geo.applyMatrix4(m);
+      return { kind: "solid", geo };
     }
-    flip() { this.normal.negate(); this.w = -this.w; }
-    splitPolygon(poly, coplanarFront, coplanarBack, front, back) {
-      const EPS = 1e-5, COPLANAR = 0, FRONT = 1, BACK = 2, SPANNING = 3;
-      let polyType = 0; const types = [];
-      for (const v of poly.vertices) {
-        const t = this.normal.dot(v.pos) - this.w;
-        const type = t < -EPS ? BACK : t > EPS ? FRONT : COPLANAR;
-        polyType |= type; types.push(type);
-      }
-      switch (polyType) {
-        case COPLANAR: (this.normal.dot(poly.plane.normal) > 0 ? coplanarFront : coplanarBack).push(poly); break;
-        case FRONT: front.push(poly); break;
-        case BACK: back.push(poly); break;
-        case SPANNING: {
-          const f = [], b = [];
-          for (let i = 0; i < poly.vertices.length; i++) {
-            const j = (i + 1) % poly.vertices.length;
-            const ti = types[i], tj = types[j];
-            const vi = poly.vertices[i], vj = poly.vertices[j];
-            if (ti !== BACK) f.push(vi);
-            if (ti !== FRONT) b.push(ti !== BACK ? vi.clone() : vi);
-            if ((ti | tj) === SPANNING) {
-              const t = (this.w - this.normal.dot(vi.pos)) / this.normal.dot(new THREE.Vector3().subVectors(vj.pos, vi.pos));
-              const v = vi.interpolate(vj, t);
-              f.push(v); b.push(v.clone());
-            }
-          }
-          if (f.length >= 3) front.push({ vertices: f, plane: poly.plane });
-          if (b.length >= 3) back.push({ vertices: b, plane: poly.plane });
-          break;
+    case "extrude": {
+      const sk = findFeature(feat.sketch);
+      if (!sk || sk.type !== "sketch") throw new Error("extrude: sketch " + feat.sketch + " not found");
+      const shape = buildShapeFromSketch(sk);
+      const depth = feat.depth ?? 1;
+      const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 24 });
+      if (feat.symmetric) geo.translate(0, 0, -depth/2);
+      bakeWorld(geo, sk.plane, sk.origin);
+      return { kind: "solid", geo };
+    }
+    case "revolve": {
+      const sk = findFeature(feat.sketch);
+      if (!sk || sk.type !== "sketch") throw new Error("revolve: sketch " + feat.sketch + " not found");
+      const raw = sketchLocalPoints(sk);
+      const pts = raw.map(([u,v]) => new THREE.Vector2(Math.max(0, u), v));
+      const angleRad = THREE.MathUtils.degToRad(feat.angleDeg ?? 360);
+      const geo = new THREE.LatheGeometry(pts, feat.segments || 32, 0, angleRad);
+      bakeWorld(geo, sk.plane, sk.origin);
+      return { kind: "solid", geo };
+    }
+    case "boolean": {
+      const a = findFeature(feat.a), b = findFeature(feat.b);
+      if (!a || !a._geo) throw new Error("boolean: input A (" + feat.a + ") missing/not built");
+      if (!b || !b._geo) throw new Error("boolean: input B (" + feat.b + ") missing/not built");
+      const brushA = new Brush(a._geo); brushA.updateMatrixWorld();
+      const brushB = new Brush(b._geo); brushB.updateMatrixWorld();
+      const ev = new Evaluator();
+      const op = feat.op === "union" ? ADDITION : feat.op === "intersect" ? INTERSECTION : SUBTRACTION;
+      const result = ev.evaluate(brushA, brushB, op);
+      a._hidden = true; b._hidden = true;
+      return { kind: "solid", geo: result.geometry };
+    }
+    case "pattern": {
+      const src = findFeature(feat.source);
+      if (!src || !src._geo) throw new Error("pattern: source " + feat.source + " missing/not built");
+      const count = Math.max(1, feat.count || 2);
+      const geos = [];
+      for (let i = 0; i < count; i++) {
+        let m = new THREE.Matrix4();
+        if (feat.mode === "circular") {
+          const c = feat.circular || {};
+          const axis = new THREE.Vector3(...(c.axis || [0,1,0])).normalize();
+          const center = new THREE.Vector3(...(c.center || [0,0,0]));
+          const total = c.angleDeg ?? 360;
+          const step = count > 1 ? total / (total >= 359.9 ? count : (count - 1)) : 0;
+          const q = new THREE.Quaternion().setFromAxisAngle(axis, THREE.MathUtils.degToRad(step * i));
+          m.compose(new THREE.Vector3(), q, new THREE.Vector3(1,1,1));
+          const t1 = new THREE.Matrix4().makeTranslation(-center.x, -center.y, -center.z);
+          const t2 = new THREE.Matrix4().makeTranslation(center.x, center.y, center.z);
+          m = t2.clone().multiply(m).multiply(t1);
+        } else {
+          const l = feat.linear || {};
+          const axis = new THREE.Vector3(...(l.axis || [1,0,0])).normalize();
+          const off = axis.clone().multiplyScalar((l.spacing || 1) * i);
+          m.makeTranslation(off.x, off.y, off.z);
         }
+        geos.push(src._geo.clone().applyMatrix4(m));
       }
-    }
-  }
-  class CNode {
-    constructor(polygons) { this.plane = null; this.front = null; this.back = null; this.polygons = []; if (polygons) this.build(polygons); }
-    clone() {
-      const n = new CNode();
-      n.plane = this.plane; n.front = this.front && this.front.clone(); n.back = this.back && this.back.clone();
-      n.polygons = this.polygons.map((p) => ({ vertices: p.vertices.map((v) => v.clone()), plane: p.plane }));
-      return n;
-    }
-    invert() {
-      for (const p of this.polygons) { p.vertices.reverse(); p.vertices.forEach((v) => v.flip()); p.plane.flip(); }
-      this.plane && this.plane.flip();
-      this.front && this.front.invert(); this.back && this.back.invert();
-      const t = this.front; this.front = this.back; this.back = t;
-    }
-    clipPolygons(polygons) {
-      if (!this.plane) return polygons.slice();
-      let front = [], back = [];
-      for (const p of polygons) this.plane.splitPolygon(p, front, back, front, back);
-      if (this.front) front = this.front.clipPolygons(front);
-      back = this.back ? this.back.clipPolygons(back) : [];
-      return front.concat(back);
-    }
-    clipTo(node) { this.polygons = node.clipPolygons(this.polygons); if (this.front) this.front.clipTo(node); if (this.back) this.back.clipTo(node); }
-    allPolygons() { let p = this.polygons.slice(); if (this.front) p = p.concat(this.front.allPolygons()); if (this.back) p = p.concat(this.back.allPolygons()); return p; }
-    build(polygons) {
-      if (!polygons.length) return;
-      if (!this.plane) this.plane = new CPlane(polygons[0].plane.normal.clone(), polygons[0].plane.w);
-      const front = [], back = [];
-      for (const p of polygons) this.plane.splitPolygon(p, this.polygons, this.polygons, front, back);
-      if (front.length) { if (!this.front) this.front = new CNode(); this.front.build(front); }
-      if (back.length) { if (!this.back) this.back = new CNode(); this.back.build(back); }
-    }
-  }
-  function toPolygons(mesh) {
-    const geo = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry;
-    const pos = geo.attributes.position;
-    geo.computeVertexNormals();
-    const norm = geo.attributes.normal;
-    const m = mesh.matrixWorld;
-    const nm = new THREE.Matrix3().getNormalMatrix(m);
-    const polys = [];
-    for (let i = 0; i < pos.count; i += 3) {
-      const verts = [];
-      for (let k = 0; k < 3; k++) {
-        const j = i + k;
-        const p = new THREE.Vector3(pos.getX(j), pos.getY(j), pos.getZ(j)).applyMatrix4(m);
-        const n = new THREE.Vector3(norm.getX(j), norm.getY(j), norm.getZ(j)).applyMatrix3(nm).normalize();
-        verts.push(new CVertex(p, n));
-      }
-      polys.push({ vertices: verts, plane: CPlane.fromPoints(verts[0].pos, verts[1].pos, verts[2].pos) });
-    }
-    return polys;
-  }
-  function polygonsToGeometry(polygons) {
-    const positions = [], normals = [];
-    for (const poly of polygons) {
-      for (let i = 2; i < poly.vertices.length; i++) {
-        [poly.vertices[0], poly.vertices[i - 1], poly.vertices[i]].forEach((v) => {
-          positions.push(v.pos.x, v.pos.y, v.pos.z);
-          normals.push(v.normal.x, v.normal.y, v.normal.z);
-        });
-      }
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    geo.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
-    return geo;
-  }
-  function op(meshA, meshB, kind) {
-    meshA.updateMatrixWorld(true); meshB.updateMatrixWorld(true);
-    let a = new CNode(toPolygons(meshA));
-    let b = new CNode(toPolygons(meshB));
-    let resultPolys;
-    if (kind === "union") {
-      a.clipTo(b); b.clipTo(a); b.invert(); b.clipTo(a); b.invert();
-      resultPolys = a.allPolygons().concat(b.allPolygons());
-      const merged = new CNode(); merged.build(resultPolys); resultPolys = merged.allPolygons();
-    } else { // subtract: a - b
-      a.invert(); a.clipTo(b); b.clipTo(a); b.invert(); b.clipTo(a); b.invert(); a.build(b.allPolygons()); a.invert();
-      resultPolys = a.allPolygons();
-    }
-    return polygonsToGeometry(resultPolys);
-  }
-  return { union: (a, b) => op(a, b, "union"), subtract: (a, b) => op(a, b, "subtract") };
-})();
-
-// ── Boolean tool: pick two shape/solid entities, fuse or cut them ──
-let booleanOp = "union";
-let booleanFirstId = null;
-function setBooleanOp(op) {
-  booleanOp = op;
-  $("bool-union-btn").classList.toggle("active", op === "union");
-  $("bool-subtract-btn").classList.toggle("active", op === "subtract");
-}
-function clearBooleanPending() {
-  if (booleanFirstId && entities.has(booleanFirstId)) {
-    const prev = entities.get(booleanFirstId);
-    if (prev.mat.emissive) prev.mat.emissive.setHex(0x000000);
-  }
-  booleanFirstId = null;
-}
-function pickBooleanTarget() {
-  const hits = raycaster.intersectObjects(allPickableMeshes(), false);
-  for (const h of hits) {
-    const e = entities.get(h.object.userData.entityId);
-    if (e && (e.kind === "shape" || e.kind === "solid")) return e;
-  }
-  return null;
-}
-function handleBooleanPick() {
-  const e = pickBooleanTarget();
-  if (!e) return;
-  if (!booleanFirstId) {
-    booleanFirstId = e.id;
-    if (e.mat.emissive) e.mat.emissive.setHex(0x223322);
-    showToast(`${e.name} selected — pick a second shape to ${booleanOp}.`);
-    return;
-  }
-  if (e.id === booleanFirstId) { clearBooleanPending(); return; }
-  const a = entities.get(booleanFirstId);
-  if (a.mat.emissive) a.mat.emissive.setHex(0x000000);
-  const b = e;
-  try {
-    const resultGeo = booleanOp === "union" ? CSG.union(a.mesh, b.mesh) : CSG.subtract(a.mesh, b.mesh);
-    // Result comes out in world space, so the new entity sits at the
-    // origin with an identity transform and bakes the position in.
-    const mat = a.mat.clone();
-    const mesh = new THREE.Mesh(resultGeo, mat);
-    mesh.castShadow = mesh.receiveShadow = true;
-    const id = uid();
-    mesh.userData = { entityId: id, kind: "shapeMesh" };
-    const group = new THREE.Group();
-    group.add(mesh);
-    scene.add(group);
-    const solid = {
-      id, kind: "solid", name: `${booleanOp === "union" ? "Union" : "Cut"} ${++shapeCount}`,
-      base: new THREE.Vector3(0, 0, 0), quaternion: new THREE.Quaternion(),
-      sizeScale: 1, mat, mesh, group,
-      physics: { enabled: false, velocity: new THREE.Vector3(), sleeping: false },
-    };
-    deleteEntity(a.id); deleteEntity(b.id);
-    entities.set(id, solid);
-    entityAssemblyOf.set(id, id);
-    entityAssemblyMembers.set(id, new Set([id]));
-    updateShapeVisual(solid);
-    refreshEntityList(); updateTopStatus(); selectEntity(id);
-    showToast(`${solid.name} created.`);
-  } catch (err) {
-    showToast("Boolean failed — try shapes that overlap more.");
-  }
-  booleanFirstId = null;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── LIGHTWEIGHT PHYSICS — gravity + floor + shape/shape collisions ──
-// Deliberately simple (explicit-Euler + sphere-approximated collision)
-// rather than a full rigid-body engine: it's self-contained (no CDN),
-// fast with a handful of parts, and plenty convincing for "things can
-// fall and knock into each other" in a build workshop.
-// ═══════════════════════════════════════════════════════════════
-function togglePhysics() {
-  physicsOn = !physicsOn;
-  $("physics-toggle").textContent = "🌍 PHYSICS: " + (physicsOn ? "ON" : "OFF");
-  $("physics-toggle").classList.toggle("active", physicsOn);
-  showToast(physicsOn ? "Physics on — enable it per-piece in SELECTED to drop things." : "Physics off.");
-}
-function stepPhysics(dt) {
-  if (!physicsOn) return;
-  const bodies = [];
-  for (const e of entities.values()) {
-    if ((e.kind !== "shape" && e.kind !== "solid") || !e.physics.enabled) continue;
-    bodies.push(e);
-  }
-  for (const e of bodies) {
-    const r = shapeBoundingRadius(e);
-    e.physics.velocity.y += GRAVITY * dt;
-    e.base.addScaledVector(e.physics.velocity, dt);
-    // floor contact
-    if (e.base.y - r < 0) {
-      e.base.y = r;
-      e.physics.velocity.y = Math.abs(e.physics.velocity.y) * -0.35;
-      e.physics.velocity.x *= 0.9; e.physics.velocity.z *= 0.9;
-      if (Math.abs(e.physics.velocity.y) < 0.05) e.physics.velocity.y = 0;
-    }
-  }
-  // sphere-approximated pairwise collision resolution
-  for (let i = 0; i < bodies.length; i++) {
-    for (let j = i + 1; j < bodies.length; j++) {
-      const a = bodies[i], b = bodies[j];
-      const ra = shapeBoundingRadius(a), rb = shapeBoundingRadius(b);
-      const delta = new THREE.Vector3().subVectors(b.base, a.base);
-      const dist = delta.length() || 0.0001;
-      const minDist = ra + rb;
-      if (dist < minDist) {
-        const push = delta.multiplyScalar((minDist - dist) / dist / 2);
-        a.base.sub(push); b.base.add(push);
-        const rel = new THREE.Vector3().subVectors(b.physics.velocity, a.physics.velocity).dot(delta.clone().normalize());
-        if (rel < 0) {
-          const impulse = delta.clone().normalize().multiplyScalar(-rel * 0.5);
-          a.physics.velocity.sub(impulse); b.physics.velocity.add(impulse);
+      let merged = BufferGeometryUtils.mergeGeometries(geos, false);
+      if (feat.union && count > 1) {
+        const ev = new Evaluator();
+        let acc = new Brush(geos[0]); acc.updateMatrixWorld();
+        for (let i = 1; i < geos.length; i++) {
+          const b = new Brush(geos[i]); b.updateMatrixWorld();
+          acc = ev.evaluate(acc, b, ADDITION);
         }
+        merged = acc.geometry;
       }
+      src._hidden = feat.hideSource !== false;
+      return { kind: "solid", geo: merged };
+    }
+    default:
+      throw new Error("unknown feature type " + feat.type);
+  }
+}
+
+function rebuildAll() {
+  // reset hidden flags — booleans/patterns will re-hide their inputs
+  features.forEach(f => { f._hidden = false; });
+  while (displayGroup.children.length) displayGroup.remove(displayGroup.children[0]);
+
+  for (const feat of features) {
+    try {
+      const built = buildGeometryFor(feat);
+      feat._geo = built.kind === "solid" ? built.geo : null;
+      feat._error = null;
+      let obj;
+      if (built.kind === "line") {
+        obj = new THREE.LineLoop(built.geo, new THREE.LineBasicMaterial({ color: 0xff8a3d }));
+      } else {
+        const mat = feat.material
+          ? new THREE.MeshStandardMaterial({ color: feat.material.color || 0x9fb4c4, metalness: feat.material.metalness ?? 0.7, roughness: feat.material.roughness ?? 0.35 })
+          : DEFAULT_MAT();
+        obj = new THREE.Mesh(built.geo, mat);
+        obj.castShadow = obj.receiveShadow = true;
+      }
+      obj.userData.featureId = feat.id;
+      feat._obj = obj;
+      displayGroup.add(obj);
+    } catch (e) {
+      feat._error = e.message;
+      feat._geo = null;
+      log(`✗ ${feat.id} (${feat.type}): ${e.message}`, "err");
     }
   }
-  for (const e of bodies) updateShapeVisual(e);
+  // apply hidden state (from booleans/patterns consuming inputs) + sketch visibility
+  for (const feat of features) {
+    if (!feat._obj) continue;
+    const isLine = feat.type === "sketch";
+    feat._obj.visible = !feat._hidden && (isLine ? sketchVisible : true);
+  }
+  renderFeatureList();
+}
+
+let sketchVisible = true;
+
+// ═══════════════════════════════════════════════════════════════
+// FEATURE LIST UI
+// ═══════════════════════════════════════════════════════════════
+const featList = document.getElementById("featList");
+const featCount = document.getElementById("featCount");
+function renderFeatureList() {
+  featList.innerHTML = "";
+  featCount.textContent = features.length;
+  for (const f of features) {
+    const div = document.createElement("div");
+    div.className = "feat" + (f.id === selectedId ? " sel" : "") + (f._hidden ? " hidden-feat" : "");
+    div.innerHTML = `<span class="fx" data-del="${f.id}">✕</span><div class="ft">${f.id} · ${f.type}${f._error ? " ⚠" : ""}</div>
+      <div class="fs">${featureSummary(f)}</div>`;
+    div.onclick = (e) => { if (e.target.dataset.del) return; selectedId = f.id; renderFeatureList(); renderParams(f); };
+    featList.appendChild(div);
+  }
+  document.querySelectorAll("[data-del]").forEach(el => {
+    el.onclick = (e) => { e.stopPropagation(); deleteFeature(el.dataset.del); };
+  });
+}
+function featureSummary(f) {
+  if (f.type === "sketch") return `${f.plane} plane · ${f.shape}`;
+  if (f.type === "primitive") return f.shape;
+  if (f.type === "extrude") return `sketch ${f.sketch} · depth ${f.depth}`;
+  if (f.type === "revolve") return `sketch ${f.sketch} · ${f.angleDeg||360}°`;
+  if (f.type === "boolean") return `${f.a} ${f.op} ${f.b}`;
+  if (f.type === "pattern") return `${f.mode} × ${f.count} of ${f.source}`;
+  return "";
+}
+function deleteFeature(id) {
+  features = features.filter(f => f.id !== id);
+  if (selectedId === id) { selectedId = null; document.getElementById("paramsBox").style.display = "none"; }
+  rebuildAll();
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── EFFECT EMITTERS — flame / sparks / smoke / glow ──
-// Lightweight GPU-free particle system (a single THREE.Points per
-// emitter) so AI-designed builds (a thruster, a repulsor, an arc
-// reactor) can actually look like they're doing something, without
-// pulling in a real particle-effects library. Each emitter is parented
-// to its entity's group, so it moves/rotates/scales with the part for
-// free — no per-frame world-transform bookkeeping needed here.
+// PARAMETER EDITOR (right panel) — edits rebuild live
 // ═══════════════════════════════════════════════════════════════
-const EFFECT_DEFAULTS = {
-  flame: { count: 60, blending: THREE.AdditiveBlending },
-  sparks: { count: 40, blending: THREE.AdditiveBlending },
-  smoke: { count: 36, blending: THREE.NormalBlending },
-  glow: { count: 1, blending: THREE.AdditiveBlending },
+const paramsBox = document.getElementById("paramsBox");
+function numField(label, val, onChange) {
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `<label class="f">${label}</label>`;
+  const inp = document.createElement("input");
+  inp.type = "number"; inp.step = "any"; inp.value = val;
+  inp.oninput = () => onChange(parseFloat(inp.value) || 0);
+  wrap.appendChild(inp);
+  return wrap;
+}
+function textField(label, val, onChange) {
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `<label class="f">${label}</label>`;
+  const inp = document.createElement("input");
+  inp.type = "text"; inp.value = val;
+  inp.oninput = () => onChange(inp.value);
+  wrap.appendChild(inp);
+  return wrap;
+}
+function selectField(label, val, options, onChange) {
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `<label class="f">${label}</label>`;
+  const sel = document.createElement("select");
+  options.forEach(o => { const op = document.createElement("option"); op.value = o; op.textContent = o; if (o===val) op.selected=true; sel.appendChild(op); });
+  sel.onchange = () => onChange(sel.value);
+  wrap.appendChild(sel);
+  return wrap;
+}
+function renderParams(f) {
+  paramsBox.style.display = "block";
+  paramsBox.innerHTML = `<h4>${f.id} — ${f.type}</h4>`;
+  const rb = () => rebuildAll();
+  if (f.type === "sketch") {
+    paramsBox.appendChild(selectField("Plane", f.plane, ["XY","XZ","YZ"], v => { f.plane = v; rb(); }));
+    const row = document.createElement("div"); row.className="row3";
+    ["x","y","z"].forEach((ax,i) => row.appendChild(numField(ax, f.origin[i], v => { f.origin[i]=v; rb(); })));
+    paramsBox.appendChild(row);
+    if (f.shape === "rect") {
+      const r = document.createElement("div"); r.className="row2";
+      r.appendChild(numField("width", f.rect.w, v=>{f.rect.w=v; rb();}));
+      r.appendChild(numField("height", f.rect.h, v=>{f.rect.h=v; rb();}));
+      paramsBox.appendChild(r);
+    } else if (f.shape === "circle") {
+      paramsBox.appendChild(numField("radius", f.circle.r, v=>{f.circle.r=v; rb();}));
+    } else {
+      paramsBox.appendChild(textField("points [[u,v],...]", JSON.stringify(f.polygon.points), v=>{
+        try { f.polygon.points = JSON.parse(v); rb(); } catch(e){ log("bad points JSON: "+e.message,"err"); }
+      }));
+    }
+  } else if (f.type === "primitive") {
+    paramsBox.appendChild(selectField("Shape", f.shape, ["box","cylinder","sphere","cone","torus"], v=>{f.shape=v; rb();}));
+    const d = f.dims;
+    const r2 = document.createElement("div"); r2.className="row3";
+    Object.keys(d).forEach(k => r2.appendChild(numField(k, d[k], v=>{d[k]=v; rb();})));
+    paramsBox.appendChild(r2);
+    const rowp = document.createElement("div"); rowp.className="row3";
+    ["x","y","z"].forEach((ax,i)=>rowp.appendChild(numField("pos "+ax, f.position[i], v=>{f.position[i]=v; rb();})));
+    paramsBox.appendChild(rowp);
+    const rowr = document.createElement("div"); rowr.className="row3";
+    ["x","y","z"].forEach((ax,i)=>rowr.appendChild(numField("rot° "+ax, f.rotationDeg[i], v=>{f.rotationDeg[i]=v; rb();})));
+    paramsBox.appendChild(rowr);
+  } else if (f.type === "extrude") {
+    paramsBox.appendChild(numField("depth", f.depth, v=>{f.depth=v; rb();}));
+  } else if (f.type === "revolve") {
+    paramsBox.appendChild(numField("angle °", f.angleDeg, v=>{f.angleDeg=v; rb();}));
+    paramsBox.appendChild(numField("segments", f.segments, v=>{f.segments=Math.max(3,Math.round(v)); rb();}));
+  } else if (f.type === "boolean") {
+    paramsBox.appendChild(selectField("op", f.op, ["union","subtract","intersect"], v=>{f.op=v; rb();}));
+  } else if (f.type === "pattern") {
+    paramsBox.appendChild(numField("count", f.count, v=>{f.count=Math.max(1,Math.round(v)); rb();}));
+    if (f.mode === "linear") {
+      paramsBox.appendChild(numField("spacing", f.linear.spacing, v=>{f.linear.spacing=v; rb();}));
+    } else {
+      paramsBox.appendChild(numField("angle span °", f.circular.angleDeg, v=>{f.circular.angleDeg=v; rb();}));
+    }
+  }
+  const matRow = document.createElement("div");
+  matRow.innerHTML = `<label class="f">Color</label>`;
+  const colorInp = document.createElement("input");
+  colorInp.type = "text"; colorInp.value = (f.material && f.material.color) || "#9fb4c4";
+  colorInp.oninput = () => { f.material = f.material || {}; f.material.color = colorInp.value; rb(); };
+  matRow.appendChild(colorInp);
+  paramsBox.appendChild(matRow);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TOOL / INTERACTION STATE
+// ═══════════════════════════════════════════════════════════════
+let currentTool = "select";
+let pendingSketch = null;   // {plane, origin} while placing a sketch
+let polyPoints = [];
+let clickStage = 0;
+let rectFirstPt = null;
+let boolPickA = null;
+const planeIndicator = document.getElementById("planeIndicator");
+const toolHint = document.getElementById("toolHint");
+
+const HINTS = {
+  "select": "Orbit / click a solid to select it (see feature tree on the right).",
+  "sketch-plane": "Choose a plane to sketch on. A translucent grid appears — then pick Rectangle / Circle / Polygon.",
+  "sketch-rect": "Click two opposite corners on the active sketch plane.",
+  "sketch-circle": "Click the center, then click again to set the radius.",
+  "sketch-poly": "Click points to build a polygon profile. Click 'Finish polygon' to close it.",
+  "extrude": "Click a sketch (orange outline) to extrude it into a solid.",
+  "revolve": "Click a sketch (orange outline) to revolve it 360° around its plane's vertical axis.",
+  "bool-union": "Click solid A, then solid B — they combine into one union solid.",
+  "bool-sub": "Click solid A, then solid B — B is subtracted from A.",
+  "bool-int": "Click solid A, then solid B — only their overlap remains.",
+  "prim-box": "Placed at the origin — drag the numeric fields on the right to move/size it.",
+  "prim-cyl": "Placed at the origin — edit radius/height/position on the right.",
+  "prim-sphere": "Placed at the origin — edit radius/position on the right.",
+  "prim-cone": "Placed at the origin — edit radius/height/position on the right.",
+  "prim-torus": "Placed at the origin — edit radius/tube/position on the right.",
+  "pattern-linear": "Click one solid to array it along an axis. Edit count/spacing on the right.",
+  "pattern-circular": "Click one solid to array it around an axis. Edit count/angle on the right."
 };
 
-function attachEffect(entityId, spec) {
-  const e = entities.get(entityId);
-  if (!e || !e.group) return null;
-  const def = EFFECT_DEFAULTS[spec.type] || EFFECT_DEFAULTS.flame;
-  const count = def.count;
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(count * 3), 3));
-  const mat = new THREE.PointsMaterial({
-    color: new THREE.Color(spec.color || "#ff7b00"),
-    size: spec.size || 0.05,
-    transparent: true,
-    opacity: 0.9,
-    depthWrite: false,
-    blending: def.blending,
-  });
-  const points = new THREE.Points(geo, mat);
-  points.frustumCulled = false;
-  e.group.add(points); // parented → inherits the part's transform automatically
-  const sys = {
-    entityId,
-    points,
-    velocities: Array.from({ length: count }, () => new THREE.Vector3()),
-    ages: new Float32Array(count).fill(Infinity), // Infinity = dead/unspawned
-    spec: {
-      type: spec.type || "flame",
-      direction: new THREE.Vector3(spec.direction?.x ?? 0, spec.direction?.y ?? 0, spec.direction?.z ?? 1).normalize(),
-      speed: spec.speed ?? 1.6,
-      rate: spec.rate ?? 30,
-      lifetime: spec.lifetime ?? 0.6,
-      size: spec.size ?? 0.05,
-      glow: (spec.type || "flame") === "glow",
-    },
-    spawnAcc: 0,
+document.querySelectorAll(".tbtn[data-tool]").forEach(btn => {
+  btn.onclick = () => setTool(btn.dataset.tool);
+});
+function setTool(tool) {
+  currentTool = tool;
+  polyPoints = []; rectFirstPt = null; clickStage = 0; boolPickA = null;
+  document.querySelectorAll(".tbtn[data-tool]").forEach(b => b.classList.toggle("active", b.dataset.tool === tool));
+  toolHint.textContent = HINTS[tool] || "";
+  controls.enableRotate = tool === "select" || tool.startsWith("bool") || tool === "extrude" || tool === "revolve" || tool.startsWith("pattern");
+  planeIndicator.style.display = "none";
+
+  if (tool === "sketch-plane") {
+    const plane = prompt("Plane: XY, XZ, or YZ?", "XY") || "XY";
+    const originStr = prompt("Origin as x,y,z", "0,0,0.5") || "0,0,0";
+    const origin = originStr.split(",").map(s => parseFloat(s.trim()) || 0);
+    pendingSketch = { plane: plane.toUpperCase(), origin };
+    showPlaneHelper(pendingSketch);
+    planeIndicator.style.display = "block";
+    planeIndicator.textContent = `sketch plane: ${pendingSketch.plane} @ [${origin.join(",")}]`;
+    setTool("select-after-plane-noop"); // fallthrough handled below
+    currentTool = "select"; // wait for next real tool pick
+    document.querySelectorAll(".tbtn[data-tool]").forEach(b => b.classList.remove("active"));
+  }
+
+  if (["prim-box","prim-cyl","prim-sphere","prim-cone","prim-torus"].includes(tool)) {
+    addPrimitive(tool);
+    setTool("select");
+  }
+}
+
+let planeHelperMesh = null;
+function showPlaneHelper(sk) {
+  if (planeHelperMesh) scene.remove(planeHelperMesh);
+  const geo = new THREE.PlaneGeometry(6, 6, 12, 12);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.06, side: THREE.DoubleSide, wireframe:false });
+  planeHelperMesh = new THREE.Mesh(geo, mat);
+  planeHelperMesh.applyMatrix4(planeMatrix(sk.plane, sk.origin));
+  scene.add(planeHelperMesh);
+}
+
+function addPrimitive(tool) {
+  const shape = tool.replace("prim-", "").replace("cyl","cylinder");
+  const dimsMap = {
+    box: { w:1, h:1, d:1 },
+    cylinder: { r:0.5, h:1, segments:32 },
+    sphere: { r:0.5 },
+    cone: { r:0.5, h:1, segments:32 },
+    torus: { r:0.6, tube:0.15 }
   };
-  if (sys.spec.glow) {
-    // "glow" is just a single steady point at the attach origin, no motion.
-    sys.ages[0] = 0;
-  }
-  effectSystems.push(sys);
-  return sys;
+  const f = { id: nextId(), type: "primitive", shape, dims: dimsMap[shape], position:[0,0,0], rotationDeg:[0,0,0] };
+  features.push(f);
+  selectedId = f.id;
+  rebuildAll();
+  renderParams(f);
+  log(`+ ${f.id} primitive:${shape}`, "ok");
 }
 
-function removeEffectsForEntity(entityId) {
-  effectSystems = effectSystems.filter((s) => {
-    if (s.entityId !== entityId) return true;
-    s.points.geometry.dispose();
-    s.points.material.dispose();
-    return false;
-  });
+document.getElementById("btnFinishPoly").onclick = () => {
+  if (currentTool !== "sketch-poly" || polyPoints.length < 3) { log("Need >=3 points to finish a polygon.", "err"); return; }
+  const f = { id: nextId(), type: "sketch", plane: pendingSketch.plane, origin: pendingSketch.origin, shape: "polygon", polygon: { points: polyPoints.slice() } };
+  features.push(f);
+  log(`+ ${f.id} sketch (polygon, ${polyPoints.length} pts) on ${f.plane}`, "ok");
+  polyPoints = [];
+  if (planeHelperMesh) { scene.remove(planeHelperMesh); planeHelperMesh = null; }
+  selectedId = f.id;
+  rebuildAll();
+  renderParams(f);
+  setTool("select");
+};
+
+// ── raycasting for clicks ──
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2();
+renderer.domElement.addEventListener("pointerdown", onViewportClick);
+
+function screenToPlanePoint(evt, sk) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseNDC.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNDC.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouseNDC, camera);
+  const { u, v, n } = planeBasis(sk.plane);
+  const planeNormal = n.clone();
+  const planePoint = new THREE.Vector3(...sk.origin);
+  const plane3 = new THREE.Plane().setFromNormalAndCoplanarPoint(planeNormal, planePoint);
+  const hit = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(plane3, hit)) return null;
+  const rel = hit.clone().sub(planePoint);
+  return [rel.dot(u), rel.dot(v)];
 }
 
-function stepEffects(dt) {
-  if (!effectSystems.length) return;
-  for (const s of effectSystems) {
-    const pos = s.points.geometry.attributes.position.array;
-    const n = s.ages.length;
+function pickFeatureAt(evt) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseNDC.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNDC.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouseNDC, camera);
+  const hits = raycaster.intersectObjects(displayGroup.children, false);
+  if (!hits.length) return null;
+  return hits[0].object.userData.featureId;
+}
 
-    if (s.spec.glow) {
-      pos[0] = 0; pos[1] = 0; pos[2] = 0;
-      s.points.geometry.attributes.position.needsUpdate = true;
-      continue;
-    }
-
-    // Spawn new particles at the emitter's local origin, roughly along
-    // `direction`, with a little random spread so it reads as a jet/plume
-    // rather than a single laser-straight line.
-    s.spawnAcc += s.spec.rate * dt;
-    while (s.spawnAcc >= 1) {
-      s.spawnAcc -= 1;
-      let slot = -1;
-      for (let i = 0; i < n; i++) if (s.ages[i] === Infinity || s.ages[i] > s.spec.lifetime) { slot = i; break; }
-      if (slot === -1) break;
-      s.ages[slot] = 0;
-      pos[slot * 3] = 0; pos[slot * 3 + 1] = 0; pos[slot * 3 + 2] = 0;
-      const spread = 0.25;
-      s.velocities[slot].copy(s.spec.direction)
-        .multiplyScalar(s.spec.speed)
-        .add(new THREE.Vector3((Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread, (Math.random() - 0.5) * spread));
-    }
-
-    for (let i = 0; i < n; i++) {
-      if (s.ages[i] === Infinity || s.ages[i] > s.spec.lifetime) continue;
-      s.ages[i] += dt;
-      const t = s.ages[i] / s.spec.lifetime;
-      if (t > 1) { s.ages[i] = Infinity; pos[i * 3 + 1] = 9999; continue; } // park dead particles off-screen
-      pos[i * 3]     += s.velocities[i].x * dt;
-      pos[i * 3 + 1] += s.velocities[i].y * dt;
-      pos[i * 3 + 2] += s.velocities[i].z * dt;
-      if (s.spec.type === "smoke") s.velocities[i].y += 0.4 * dt; // smoke drifts upward as it ages
-    }
-    s.points.material.opacity = 0.9;
-    s.points.geometry.attributes.position.needsUpdate = true;
+function onViewportClick(evt) {
+  if (evt.button !== 0) return;
+  if (currentTool === "select") {
+    const id = pickFeatureAt(evt);
+    if (id) { selectedId = id; renderFeatureList(); renderParams(findFeature(id)); }
+    return;
   }
+  if (["sketch-rect","sketch-circle","sketch-poly"].includes(currentTool)) {
+    if (!pendingSketch) { log("Pick 'New sketch plane' first.", "err"); return; }
+    const p = screenToPlanePoint(evt, pendingSketch);
+    if (!p) return;
+    if (currentTool === "sketch-poly") {
+      polyPoints.push([+p[0].toFixed(3), +p[1].toFixed(3)]);
+      log(`point ${polyPoints.length}: [${p[0].toFixed(3)}, ${p[1].toFixed(3)}]`);
+      return;
+    }
+    if (currentTool === "sketch-rect") {
+      if (!rectFirstPt) { rectFirstPt = p; log("corner 1 set — click opposite corner"); return; }
+      const w = Math.abs(p[0]-rectFirstPt[0]), h = Math.abs(p[1]-rectFirstPt[1]);
+      const cx = (p[0]+rectFirstPt[0])/2, cy=(p[1]+rectFirstPt[1])/2;
+      const origin = pendingSketch.origin.slice();
+      const { u, v } = planeBasis(pendingSketch.plane);
+      const worldOff = u.clone().multiplyScalar(cx).add(v.clone().multiplyScalar(cy));
+      origin[0]+=worldOff.x; origin[1]+=worldOff.y; origin[2]+=worldOff.z;
+      const f = { id: nextId(), type:"sketch", plane: pendingSketch.plane, origin, shape:"rect", rect:{ w: w||1, h: h||1 } };
+      features.push(f); rectFirstPt = null;
+      log(`+ ${f.id} sketch (rect ${w.toFixed(2)}×${h.toFixed(2)}) on ${f.plane}`, "ok");
+      selectedId = f.id; rebuildAll(); renderParams(f); setTool("select");
+      return;
+    }
+    if (currentTool === "sketch-circle") {
+      if (!rectFirstPt) { rectFirstPt = p; log("center set — click to set radius"); return; }
+      const r = Math.hypot(p[0]-rectFirstPt[0], p[1]-rectFirstPt[1]) || 0.5;
+      const origin = pendingSketch.origin.slice();
+      const { u, v } = planeBasis(pendingSketch.plane);
+      const worldOff = u.clone().multiplyScalar(rectFirstPt[0]).add(v.clone().multiplyScalar(rectFirstPt[1]));
+      origin[0]+=worldOff.x; origin[1]+=worldOff.y; origin[2]+=worldOff.z;
+      const f = { id: nextId(), type:"sketch", plane: pendingSketch.plane, origin, shape:"circle", circle:{ r } };
+      features.push(f); rectFirstPt = null;
+      log(`+ ${f.id} sketch (circle r=${r.toFixed(2)}) on ${f.plane}`, "ok");
+      selectedId = f.id; rebuildAll(); renderParams(f); setTool("select");
+      return;
+    }
+  }
+  if (currentTool === "extrude" || currentTool === "revolve") {
+    const id = pickFeatureAt(evt) || pickSketchLine(evt);
+    if (!id) return;
+    const sk = findFeature(id);
+    if (!sk || sk.type !== "sketch") { log("Click a sketch outline, not a solid.", "err"); return; }
+    const f = currentTool === "extrude"
+      ? { id: nextId(), type:"extrude", sketch: sk.id, depth: 1 }
+      : { id: nextId(), type:"revolve", sketch: sk.id, angleDeg: 360, segments: 32 };
+    features.push(f);
+    log(`+ ${f.id} ${f.type} of ${sk.id}`, "ok");
+    selectedId = f.id; rebuildAll(); renderParams(f); setTool("select");
+    return;
+  }
+  if (currentTool.startsWith("bool-")) {
+    const id = pickFeatureAt(evt);
+    if (!id) return;
+    if (!boolPickA) { boolPickA = id; log(`A = ${id} — now click B`); return; }
+    const op = currentTool === "bool-union" ? "union" : currentTool === "bool-int" ? "intersect" : "subtract";
+    const f = { id: nextId(), type:"boolean", a: boolPickA, b: id, op };
+    features.push(f);
+    log(`+ ${f.id} boolean ${op}(${boolPickA}, ${id})`, "ok");
+    selectedId = f.id; boolPickA = null; rebuildAll(); renderParams(f); setTool("select");
+    return;
+  }
+  if (currentTool.startsWith("pattern-")) {
+    const id = pickFeatureAt(evt);
+    if (!id) return;
+    const mode = currentTool === "pattern-linear" ? "linear" : "circular";
+    const f = { id: nextId(), type:"pattern", source: id, mode, count: 4,
+      linear: { axis:[1,0,0], spacing: 1.5 },
+      circular: { axis:[0,1,0], center:[0,0,0], angleDeg: 360 } };
+    features.push(f);
+    log(`+ ${f.id} pattern(${mode}) of ${id}`, "ok");
+    selectedId = f.id; rebuildAll(); renderParams(f); setTool("select");
+    return;
+  }
+}
+function pickSketchLine(evt) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouseNDC.x = ((evt.clientX - rect.left) / rect.width) * 2 - 1;
+  mouseNDC.y = -((evt.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouseNDC, camera);
+  raycaster.params.Line = { threshold: 0.08 };
+  const lines = displayGroup.children.filter(o => o.type === "LineLoop");
+  const hits = raycaster.intersectObjects(lines, false);
+  return hits.length ? hits[0].object.userData.featureId : null;
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── AI BUILD — "Jarvis, build a helmet" ──
-// Sends a natural-language description to the server (build-ai.js →
-// Groq), gets back a JSON scene plan, and spawns it using the exact
-// same spawnShape/updateShapeVisual/unionEntities/attachEffect
-// primitives a human uses by hand — the AI is just driving the same
-// controls, not a separate rendering path.
+// TOP BAR ACTIONS
 // ═══════════════════════════════════════════════════════════════
-async function requestAIBuild(promptText) {
-  const prompt = (promptText || "").trim();
-  const btn = $("ai-build-btn");
-  const status = $("ai-build-status");
-  if (!prompt) { if (status) status.textContent = "Describe something first."; return; }
-  if (btn) btn.disabled = true;
-  if (status) status.textContent = `Designing "${prompt}"…`;
-  showToast(`Jarvis is designing: ${prompt}`);
+document.getElementById("btnClear").onclick = () => {
+  if (!confirm("Clear the entire feature tree?")) return;
+  features = []; selectedId = null; idCounter = 1;
+  paramsBox.style.display = "none";
+  rebuildAll();
+};
+
+document.getElementById("btnSTL").onclick = () => {
+  const solids = displayGroup.children.filter(o => o.type === "Mesh" && o.visible);
+  if (!solids.length) { log("Nothing to export.", "err"); return; }
+  const merged = BufferGeometryUtils.mergeGeometries(solids.map(o => o.geometry.clone()), false);
+  const exporter = new STLExporter();
+  const tempMesh = new THREE.Mesh(merged);
+  const str = exporter.parse(tempMesh, { binary: false });
+  const blob = new Blob([str], { type: "text/plain" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = "model.stl"; a.click();
+  log("Exported model.stl", "ok");
+};
+
+document.getElementById("btnScriptOut").onclick = () => {
+  const clean = features.map(({ _geo, _obj, _hidden, _error, ...rest }) => rest);
+  const json = JSON.stringify({ features: clean }, null, 2);
+  navigator.clipboard?.writeText(json).catch(()=>{});
+  log("Feature tree JSON copied to clipboard (also logged below):");
+  log(json);
+};
+
+document.getElementById("btnScriptIn").onclick = () => {
+  const txt = prompt("Paste a { features: [...] } script:");
+  if (!txt) return;
+  try {
+    const parsed = JSON.parse(txt);
+    loadScript(parsed);
+  } catch (e) { log("Bad JSON: " + e.message, "err"); }
+};
+
+function loadScript(plan, append) {
+  if (!append) { features = []; idCounter = 1; }
+  const idMap = {};
+  const remap = (id) => idMap[id] || id;
+  for (const raw of plan.features || []) {
+    const f = JSON.parse(JSON.stringify(raw));
+    const oldId = f.id;
+    f.id = nextId();
+    if (oldId) idMap[oldId] = f.id;
+    if (f.sketch) f.sketch = remap(f.sketch);
+    if (f.a) f.a = remap(f.a);
+    if (f.b) f.b = remap(f.b);
+    if (f.source) f.source = remap(f.source);
+    features.push(f);
+  }
+  rebuildAll();
+  log(`Loaded ${plan.features?.length || 0} features${plan.name ? " — " + plan.name : ""}.`, "ok");
+}
+
+// ═══════════════════════════════════════════════════════════════
+// JARVIS AI HOOK — POST /api/build/generate { prompt } -> { plan:{features:[...]} }
+// ═══════════════════════════════════════════════════════════════
+document.getElementById("btnBuild").onclick = runAiBuild;
+document.getElementById("prompt").addEventListener("keydown", e => { if (e.key === "Enter") runAiBuild(); });
+async function runAiBuild() {
+  const prompt = document.getElementById("prompt").value.trim();
+  if (!prompt) return;
+  log("→ asking Jarvis: " + prompt);
   try {
     const res = await fetch("/api/build/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt }),
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt })
     });
     const data = await res.json();
-    if (!res.ok || data.error) throw new Error(data.error || `Server returned ${res.status}`);
-    applyBuildPlan(data.plan);
-    if (status) status.textContent = `Built "${data.plan.name}" — ${data.plan.parts.length} piece${data.plan.parts.length === 1 ? "" : "s"}.`;
-  } catch (err) {
-    showToast(`Build failed: ${err.message}`, 4500);
-    if (status) status.textContent = `Failed: ${err.message}`;
-  } finally {
-    if (btn) btn.disabled = false;
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    loadScript(data.plan, true);
+  } catch (e) {
+    log("✗ " + e.message, "err");
+    log("(Needs a working Groq key in .env for hermes-engine — see build-ai.js)");
   }
-}
-
-function applyBuildPlan(plan) {
-  if (!plan || !Array.isArray(plan.parts) || !plan.parts.length) return;
-  const idMap = new Map(); // plan-local part id -> real entity id
-
-  for (const p of plan.parts) {
-    const shape = spawnShape(p.shapeType);
-    idMap.set(p.id, shape.id);
-
-    Object.assign(shape.params, p.params);
-    shape.base.set(p.position.x, p.position.y, p.position.z);
-    const axisVec = p.rotationDeg.axis === "x" ? new THREE.Vector3(1, 0, 0)
-                  : p.rotationDeg.axis === "z" ? new THREE.Vector3(0, 0, 1)
-                  : new THREE.Vector3(0, 1, 0);
-    shape.quaternion.setFromAxisAngle(axisVec, THREE.MathUtils.degToRad(p.rotationDeg.deg));
-    shape.sizeScale = p.sizeScale;
-    shape.mat.color.set(p.color);
-    shape.mat.metalness = p.metal;
-    shape.mat.roughness = p.rough;
-    shape.physics.enabled = !!p.physics;
-    shape.name = p.id;
-    updateShapeVisual(shape);
-  }
-
-  for (const [aPlanId, bPlanId] of plan.welds || []) {
-    const a = idMap.get(aPlanId), b = idMap.get(bPlanId);
-    if (a && b) unionEntities(a, b);
-  }
-
-  for (const fx of plan.effects || []) {
-    const realId = idMap.get(fx.attachTo);
-    if (realId) attachEffect(realId, fx);
-  }
-
-  refreshEntityList(); updateTopStatus(); updateAssemblyDetail();
-  const last = idMap.get(plan.parts[plan.parts.length - 1].id);
-  if (last) selectEntity(last);
-  showToast(`Assembled: ${plan.name} (${plan.parts.length} pieces)`);
-}
-
-// ── SNAP TO GRID — quantizes MOVE-tool dragging ──
-let snapOn = false;
-const GRID_SIZE = 0.25;
-function toggleSnap() {
-  snapOn = !snapOn;
-  $("snap-toggle").textContent = "▦ SNAP: " + (snapOn ? "ON" : "OFF");
-  $("snap-toggle").classList.toggle("active", snapOn);
-}
-function snapVec(v) {
-  if (!snapOn) return v;
-  v.x = Math.round(v.x / GRID_SIZE) * GRID_SIZE;
-  v.z = Math.round(v.z / GRID_SIZE) * GRID_SIZE;
-  return v;
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── SELECTION / LIST UI ──
+// DEMO: 4-cylinder inline crankshaft + pistons, built entirely from
+// primitives/revolve/pattern — proves the kernel isn't a fixed catalog.
 // ═══════════════════════════════════════════════════════════════
-function refreshEntityList() {
-  const box = $("my-parts");
-  box.innerHTML = "";
-  for (const e of entities.values()) {
-    const row = document.createElement("div");
-    const welded = entityAssemblyMembers.get(entityAssemblyOf.get(e.id)).size > 1;
-    row.className = "mp-item" + (e.id === selectedId ? " selected" : "") + (welded ? " welded" : "");
-    row.innerHTML = `<span class="mp-dot"></span><span style="flex:1">${e.name}</span><span class="mp-del" title="delete">✕</span>`;
-    row.querySelector("span:nth-child(2)").onclick = () => selectEntity(e.id);
-    row.querySelector(".mp-del").onclick = (ev) => { ev.stopPropagation(); deleteEntity(e.id); };
-    box.appendChild(row);
-  }
+document.getElementById("btnDemo").onclick = () => loadScript(buildDemoScript());
+function buildDemoScript() {
+  const F = [];
+  const id = (n) => n; // ids assigned fresh by loadScript remap; use readable temp names here
+  F.push({ id:"axis", type:"primitive", shape:"cylinder", dims:{ r:0.28, h:9, segments:24 },
+    position:[0,1,0], rotationDeg:[0,0,90], material:{color:"#c7d3da", metalness:0.9, roughness:0.25} });
+  F.push({ id:"web", type:"primitive", shape:"cylinder", dims:{ r:0.65, h:0.35, segments:24 },
+    position:[-3,1,0], rotationDeg:[0,0,90], material:{color:"#b7c3ca", metalness:0.9, roughness:0.3} });
+  F.push({ id:"throw", type:"primitive", shape:"cylinder", dims:{ r:0.24, h:0.5, segments:20 },
+    position:[-3,1.55,0], rotationDeg:[90,0,0], material:{color:"#e7c257", metalness:0.85, roughness:0.3} });
+  F.push({ id:"webthrow", type:"boolean", a:"web", b:"throw", op:"union" });
+  F.push({ id:"crank", type:"pattern", source:"webthrow", mode:"linear", count:4,
+    linear:{ axis:[1,0,0], spacing:2 }, hideSource:true, union:false });
+  F.push({ id:"rodSketch", type:"sketch", plane:"XZ", origin:[-3,1.55,0], shape:"rect", rect:{ w:0.22, h:1.9 } });
+  F.push({ id:"rod", type:"extrude", sketch:"rodSketch", depth:0.22, symmetric:true, material:{color:"#7d8b93"} });
+  F.push({ id:"pistonProfile", type:"sketch", plane:"XY", origin:[-3,3.55,0], shape:"polygon",
+    polygon:{ points:[[0,0],[0.55,0],[0.55,0.5],[0.4,0.75],[0,0.85]] } });
+  F.push({ id:"piston", type:"revolve", sketch:"pistonProfile", angleDeg:360, segments:28,
+    material:{color:"#c23b3b", metalness:0.4, roughness:0.5} });
+  F.push({ id:"rodAndPiston", type:"boolean", a:"rod", b:"piston", op:"union" });
+  F.push({ id:"engine", type:"pattern", source:"rodAndPiston", mode:"linear", count:4,
+    linear:{ axis:[1,0,0], spacing:2 }, hideSource:true, union:false });
+  return { name:"4-cylinder inline (demo)", features: F };
 }
 
-function selectEntity(id) {
-  selectedId = id;
-  const e = entities.get(id);
-  $("sel-name").textContent = e ? e.name : "— none —";
-  $("bar-controls").style.display = e && e.kind === "bar" ? "block" : "none";
-  $("servo-controls").style.display = e && e.kind === "servo" ? "block" : "none";
-  $("led-controls").style.display = e && e.kind === "led" ? "block" : "none";
-  $("shape-controls").style.display = e && (e.kind === "shape" || e.kind === "solid") ? "block" : "none";
-  if (e && e.kind === "servo") {
-    const ang = Math.round(THREE.MathUtils.radToDeg(e.targetAngle));
-    const spd = Math.round(THREE.MathUtils.radToDeg(e.speed));
-    $("angle-slider").value = ang; $("angle-val").textContent = ang + "°";
-    $("speed-slider").value = spd; $("speed-val").textContent = spd + "°/s";
-    updateModeButtons(e);
-    $("servo-run-btn").textContent = e.running ? "⏸ STOP" : "▶ RUN";
-    $("servo-run-btn").classList.toggle("active", e.running);
-  }
-  if (e && e.kind === "led") updateLEDControls(e);
-  if (e && (e.kind === "shape" || e.kind === "solid")) {
-    const pct = Math.round((e.sizeScale || 1) * 100);
-    $("shape-size-slider").value = pct; $("shape-size-val").textContent = pct + "%";
-    const metalPct = Math.round((e.mat.metalness || 0) * 100);
-    const roughPct = Math.round((e.mat.roughness || 0) * 100);
-    $("shape-metal-slider").value = metalPct; $("shape-metal-val").textContent = metalPct + "%";
-    $("shape-rough-slider").value = roughPct; $("shape-rough-val").textContent = roughPct + "%";
-    $("shape-physics-btn").textContent = "🌍 PHYSICS: " + (e.physics.enabled ? "ON" : "OFF");
-    $("shape-physics-btn").classList.toggle("active", e.physics.enabled);
-    refreshShapeParamUI(e);
-  }
-  refreshEntityList();
-  updateAssemblyDetail();
-}
-
-function deleteSelected() { if (selectedId) deleteEntity(selectedId); }
-
-function deleteEntity(id) {
-  const e = entities.get(id);
-  if (!e) return;
-  scene.remove(e.kind === "bar" ? e.group : e.group);
-  removeEffectsForEntity(id);
-  entities.delete(id);
-  const asm = entityAssemblyOf.get(id);
-  entityAssemblyMembers.get(asm)?.delete(id);
-  entityAssemblyOf.delete(id);
-  for (const other of entities.values()) if (other.kind === "servo") other.attached.delete(id);
-  weldBeads = weldBeads.filter((w) => {
-    if (w.entityIds.includes(id)) { scene.remove(w.mesh); return false; }
-    return true;
-  });
-  barWeldLinks = barWeldLinks.filter((w) => w.aId !== id && w.bId !== id);
-  if (weldPending && weldPending.entityId === id) clearWeldPending();
-  if (booleanFirstId === id) booleanFirstId = null;
-  if (selectedId === id) selectedId = null;
-  refreshEntityList(); updateTopStatus(); updateAssemblyDetail();
-  $("sel-name").textContent = "— none —";
-  $("bar-controls").style.display = "none";
-  $("servo-controls").style.display = "none";
-  $("led-controls").style.display = "none";
-  $("shape-controls").style.display = "none";
-}
-
-function updateTopStatus() {
-  $("part-count").textContent = `${entities.size} PIECE${entities.size === 1 ? "" : "S"}`;
-}
-function updateAssemblyDetail() {
-  const asm = new Set(entityAssemblyOf.values());
-  $("assembly-status").textContent = entities.size ? `${asm.size} STRUCTURE${asm.size === 1 ? "" : "S"}` : "—";
-  if (!entities.size) { $("assembly-detail").textContent = "Nothing built yet."; return; }
-  $("assembly-detail").textContent = asm.size === 1
-    ? "Everything is welded into one structure."
-    : `${asm.size} separate pieces — weld them together to build one structure.`;
-}
-
-// ═══════════════════════════════════════════════════════════════
-// ── TOOLS ──
-// ═══════════════════════════════════════════════════════════════
-let activeTool = "bend";
-const TOOL_HINTS = {
-  bend: "Grab any point on a bar and drag to bend it. Metal holds its shape once you let go.",
-  move: "Grab a piece and drag it around the floor. Welded pieces move together.",
-  weld: "Touch a point on one piece, then touch a point on another to fuse them with the torch.",
-  delete: "Click a piece to scrap it.",
-  boolean: "Click a shape, then click a second shape to union or subtract them.",
-};
-function setTool(name) {
-  activeTool = name;
-  clearWeldPending();
-  clearBooleanPending();
-  ["bend", "move", "weld", "delete", "boolean"].forEach((t) => $("tool-" + t).classList.toggle("active", t === name));
-  $("ticker").textContent = TOOL_HINTS[name];
-  $("gesture-hint").textContent = "Pinch thumb + index to " + name + " with your hand. Spread both hands apart / together to zoom.";
-  $("boolean-controls").style.display = name === "boolean" ? "block" : "none";
-}
-
-function ndcFromScreen(sp) {
-  const r = canvas.getBoundingClientRect();
-  return new THREE.Vector2(((sp.x - r.left) / r.width) * 2 - 1, -((sp.y - r.top) / r.height) * 2 + 1);
-}
-
-const raycaster = new THREE.Raycaster();
-
-function allPickableMeshes() {
-  const arr = [];
-  for (const e of entities.values()) {
-    if (e.kind === "bar") arr.push(...e.segMeshes, ...e.capMeshes);
-    else if (e.kind === "servo") arr.push(e.bodyMesh, e.mountMesh, e.armMesh, e.tipMesh);
-    else if (e.kind === "led") arr.push(e.mesh);
-    else if (e.kind === "shape" || e.kind === "solid") arr.push(e.mesh);
-  }
-  return arr;
-}
-function pickAnyEntity() {
-  const hits = raycaster.intersectObjects(allPickableMeshes(), false);
-  if (!hits.length) return null;
-  return { entityId: hits[0].object.userData.entityId, point: hits[0].point };
-}
-function pickBarJoint() {
-  const meshes = [];
-  for (const e of entities.values()) if (e.kind === "bar") meshes.push(...e.segMeshes, ...e.capMeshes);
-  const hits = raycaster.intersectObjects(meshes, false);
-  if (!hits.length) return null;
-  const ud = hits[0].object.userData;
-  const piece = entities.get(ud.entityId);
-  if (!piece) return null;
-  let jointIndex;
-  if (ud.kind === "cap") jointIndex = ud.jointIndex;
-  else {
-    const a = piece.joints[ud.segIndex], b = piece.joints[ud.segIndex + 1];
-    jointIndex = hits[0].point.distanceTo(a) < hits[0].point.distanceTo(b) ? ud.segIndex : ud.segIndex + 1;
-  }
-  return { piece, jointIndex, point: hits[0].point };
-}
-function pickWeldPoint() {
-  const meshes = [];
-  for (const e of entities.values()) {
-    if (e.kind === "bar") meshes.push(...e.capMeshes);
-    else if (e.kind === "servo") meshes.push(e.mountMesh, e.tipMesh);
-    else if (e.kind === "led") meshes.push(e.mesh);
-  }
-  const hits = raycaster.intersectObjects(meshes, false);
-  if (!hits.length) return null;
-  const ud = hits[0].object.userData;
-  if (ud.kind === "cap") return { entityId: ud.entityId, anchorKind: "joint", jointIndex: ud.jointIndex };
-  if (ud.kind === "servoMount") return { entityId: ud.entityId, anchorKind: "mount" };
-  if (ud.kind === "servoTip") return { entityId: ud.entityId, anchorKind: "tip" };
-  if (ud.kind === "ledBulb") return { entityId: ud.entityId, anchorKind: "mount" };
-  return null;
-}
-function anchorWorldPos(hit) {
-  const e = entities.get(hit.entityId);
-  if (!e) return new THREE.Vector3();
-  if (hit.anchorKind === "joint") return e.joints[hit.jointIndex].clone();
-  if (hit.anchorKind === "mount") return e.base.clone();
-  return servoTipWorld(e);
-}
-
-// ── weld torch state ──
-let weldPending = null;
-let weldMarker = null;
-function clearWeldPending() {
-  weldPending = null;
-  if (weldMarker) { scene.remove(weldMarker); weldMarker = null; }
-}
-function handleWeldPick(hit) {
-  if (!weldPending) {
-    weldPending = hit;
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.85 });
-    weldMarker = new THREE.Mesh(new THREE.SphereGeometry(0.075, 12, 12), mat);
-    weldMarker.position.copy(anchorWorldPos(hit));
-    scene.add(weldMarker);
-    showToast("Torch armed — now touch the second piece to fuse them.");
-    return;
-  }
-  if (weldPending.entityId === hit.entityId) {
-    showToast("Pick a point on a different piece to weld to.");
-    return;
-  }
-  performWeld(weldPending, hit);
-  clearWeldPending();
-}
-function performWeld(hit1, hit2) {
-  let fixedHit = hit1, movingHit = hit2;
-  if (hit1.anchorKind === "tip") { fixedHit = hit1; movingHit = hit2; }
-  else if (hit2.anchorKind === "tip") { fixedHit = hit2; movingHit = hit1; }
-
-  const fixedPos = anchorWorldPos(fixedHit);
-  const movingPos = anchorWorldPos(movingHit);
-  translateAssemblyEntities(movingHit.entityId, fixedPos.clone().sub(movingPos));
-
-  if (fixedHit.anchorKind === "tip") {
-    const servo = entities.get(fixedHit.entityId);
-    servo.attached.add(movingHit.entityId);
-  }
-  const lock = (h) => {
-    const e = entities.get(h.entityId);
-    if (e && e.kind === "bar" && h.anchorKind === "joint") e.weldedJointIndices.add(h.jointIndex);
-  };
-  lock(fixedHit); lock(movingHit);
-
-  // If both sides of the weld are bar joints, remember the link so bend
-  // can propagate across it instead of treating it as a fixed anchor.
-  if (fixedHit.anchorKind === "joint" && movingHit.anchorKind === "joint") {
-    const eA = entities.get(fixedHit.entityId), eB = entities.get(movingHit.entityId);
-    if (eA && eA.kind === "bar" && eB && eB.kind === "bar") {
-      barWeldLinks.push({
-        aId: fixedHit.entityId, aIdx: fixedHit.jointIndex,
-        bId: movingHit.entityId, bIdx: movingHit.jointIndex,
-      });
-    }
-  }
-
-  addWeldBead(fixedHit, movingHit);
-  unionEntities(fixedHit.entityId, movingHit.entityId);
-  refreshEntityList(); updateAssemblyDetail();
-  showToast("Welded.");
-}
-function addWeldBead(fixedHit, movingHit) {
-  const mat = new THREE.MeshStandardMaterial({ color: 0xffaa00, emissive: 0xff6600, emissiveIntensity: 1.1, metalness: 0.2, roughness: 0.6 });
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.058, 10, 10), mat);
-  scene.add(mesh);
-  const getPos = () => anchorWorldPos(fixedHit);
-  mesh.position.copy(getPos());
-  weldBeads.push({ mesh, getPos, entityIds: [fixedHit.entityId, movingHit.entityId] });
-  spawnWeldSparks(getPos());
-}
-function spawnWeldSparks(pos) {
-  const count = 18;
-  const positions = new Float32Array(count * 3);
-  const velocities = [];
-  for (let i = 0; i < count; i++) {
-    positions[i * 3] = pos.x; positions[i * 3 + 1] = pos.y; positions[i * 3 + 2] = pos.z;
-    velocities.push(new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.5 + 0.2, Math.random() - 0.5).normalize().multiplyScalar(0.6 + Math.random() * 0.8));
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const mat = new THREE.PointsMaterial({ color: 0xffcc55, size: 0.035, transparent: true, opacity: 1 });
-  const pts = new THREE.Points(geo, mat);
-  scene.add(pts);
-  const start = performance.now();
-  (function step() {
-    const t = (performance.now() - start) / 500;
-    if (t >= 1) { scene.remove(pts); geo.dispose(); mat.dispose(); return; }
-    const arr = geo.attributes.position.array;
-    for (let i = 0; i < count; i++) {
-      arr[i * 3] += velocities[i].x * 0.016;
-      arr[i * 3 + 1] += velocities[i].y * 0.016 - 0.02;
-      arr[i * 3 + 2] += velocities[i].z * 0.016;
-    }
-    geo.attributes.position.needsUpdate = true;
-    mat.opacity = 1 - t;
-    requestAnimationFrame(step);
-  })();
-}
-
-// ── unified pointer handling (mouse + hand share this) ──
-function toolPointerDown(sp) {
-  const ndc = ndcFromScreen(sp);
-  raycaster.setFromCamera(ndc, camera);
-
-  if (activeTool === "bend") {
-    const hit = pickBarJoint();
-    if (hit && !jointWeldedToNonBar(hit.piece, hit.jointIndex)) {
-      bendCtx = { pieceId: hit.piece.id, jointIndex: hit.jointIndex };
-      selectEntity(hit.piece.id);
-      canvas.classList.add("dragging");
-    } else if (hit) {
-      showToast("That joint is welded to a servo/LED — bend it somewhere else on the bar.");
-    }
-  } else if (activeTool === "move") {
-    const hit = pickAnyEntity();
-    if (hit) {
-      selectEntity(hit.entityId);
-      const anchor = entityAnchorPoint(hit.entityId);
-      moveCtx = {
-        entityId: hit.entityId,
-        plane: new THREE.Plane(new THREE.Vector3(0, 1, 0), -anchor.y),
-        offset: anchor.clone().sub(hit.point),
-      };
-      canvas.classList.add("dragging");
-    }
-  } else if (activeTool === "weld") {
-    const hit = pickWeldPoint();
-    if (hit) handleWeldPick(hit);
-  } else if (activeTool === "delete") {
-    const hit = pickAnyEntity();
-    if (hit) deleteEntity(hit.entityId);
-  } else if (activeTool === "boolean") {
-    handleBooleanPick();
-  }
-}
-function toolPointerMove(sp) {
-  const ndc = ndcFromScreen(sp);
-  raycaster.setFromCamera(ndc, camera);
-
-  if (bendCtx) {
-    const piece = entities.get(bendCtx.pieceId);
-    if (!piece) { bendCtx = null; return; }
-    const jp = piece.joints[bendCtx.jointIndex];
-    const normal = new THREE.Vector3(); camera.getWorldDirection(normal);
-    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, jp);
-    const hitPoint = new THREE.Vector3();
-    if (raycaster.ray.intersectPlane(plane, hitPoint)) {
-      jp.copy(hitPoint);
-      pbdRelaxAssembly(bendCtx.pieceId, bendCtx.jointIndex);
-    }
-  } else if (moveCtx) {
-    const hitPoint = new THREE.Vector3();
-    if (raycaster.ray.intersectPlane(moveCtx.plane, hitPoint)) {
-      const target = snapVec(hitPoint.add(moveCtx.offset));
-      const anchor = entityAnchorPoint(moveCtx.entityId);
-      translateAssemblyEntities(moveCtx.entityId, target.clone().sub(anchor));
-    }
-  }
-}
-function toolPointerUp() {
-  bendCtx = null; moveCtx = null;
-  canvas.classList.remove("dragging");
-}
-
-canvas.addEventListener("pointerdown", (e) => { toolPointerDown({ x: e.clientX, y: e.clientY }); canvas.setPointerCapture(e.pointerId); });
-canvas.addEventListener("pointermove", (e) => { if (bendCtx || moveCtx) toolPointerMove({ x: e.clientX, y: e.clientY }); });
-window.addEventListener("pointerup", () => toolPointerUp());
-
-window.addEventListener("keydown", (e) => {
-  if (e.key === "1") setTool("bend");
-  if (e.key === "2") setTool("move");
-  if (e.key === "3") setTool("weld");
-  if (e.key === "4") setTool("delete");
-  if (e.key === "5") setTool("boolean");
-  if ((e.key === "Delete" || e.key === "Backspace") && selectedId) deleteSelected();
-});
-
-// ═══════════════════════════════════════════════════════════════
-// ── ZOOM ──
-// ═══════════════════════════════════════════════════════════════
-function zoomBy(factor) {
-  const offset = camera.position.clone().sub(controls.target).multiplyScalar(factor);
-  const dist = THREE.MathUtils.clamp(offset.length(), controls.minDistance, controls.maxDistance);
-  offset.setLength(dist);
-  camera.position.copy(controls.target).add(offset);
-}
-// hand-tracking.js already detects a two-hand spread/close gesture and
-// fires this — spreading hands pulls back (out), bringing them together
-// zooms in, matching the same convention used elsewhere in the app.
-window.addEventListener("jarvis:zoom", (e) => {
-  zoomBy(e.detail.dir === "out" ? 1.25 : 0.8);
-});
-
-// ═══════════════════════════════════════════════════════════════
-// ── HAND CONTROL: pinch drives whichever tool is active ──
-// ═══════════════════════════════════════════════════════════════
-let handActive = false;
-let handStream = null;
-const handState = [
-  { pinching: false, owner: false },
-  { pinching: false, owner: false },
-];
-const PINCH_ON = 0.055, PINCH_OFF = 0.075;
-let dragOwnerHand = -1; // only one hand drives bend/move at a time
-
-async function toggleHandControl() {
-  const btn = $("hand-toggle-btn");
-  if (!handActive) {
-    try {
-      handStream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 480 }, audio: false });
-      const vid = $("camera-feed");
-      vid.srcObject = handStream;
-      await vid.play();
-      await window.HandTracking.start();
-      handActive = true;
-      btn.textContent = "✋ HAND CONTROL: ON";
-      btn.classList.add("active");
-      showToast("Hand control enabled — pinch to use the active tool.");
-    } catch (e) {
-      showToast("Couldn't access the camera for hand control.");
-    }
-  } else {
-    window.HandTracking.stop();
-    if (handStream) handStream.getTracks().forEach((t) => t.stop());
-    handActive = false;
-    handState.forEach((h) => { h.pinching = false; h.owner = false; });
-    dragOwnerHand = -1;
-    toolPointerUp();
-    btn.textContent = "✋ ENABLE HAND CONTROL";
-    btn.classList.remove("active");
-  }
-}
-
-function dist2(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
-function screenPointFromLandmark(lm) { return { x: (1 - lm.x) * window.innerWidth, y: lm.y * window.innerHeight }; }
-
-window.addEventListener("jarvis:handframe", (e) => {
-  if (!handActive) return;
-  const allHands = e.detail.allLandmarks || [];
-  for (let h = 0; h < 2; h++) {
-    const st = handState[h];
-    const lm = allHands[h];
-    if (!lm) {
-      if (st.owner) { toolPointerUp(); dragOwnerHand = -1; }
-      st.pinching = false; st.owner = false;
-      continue;
-    }
-    const thumb = lm[4], index = lm[8];
-    const pd = dist2(thumb, index);
-    const wasPinching = st.pinching;
-    st.pinching = wasPinching ? pd < PINCH_OFF : pd < PINCH_ON;
-    const screenPt = screenPointFromLandmark(index);
-
-    if (st.pinching && !wasPinching && dragOwnerHand === -1) {
-      dragOwnerHand = h; st.owner = true;
-      toolPointerDown(screenPt);
-    } else if (st.pinching && st.owner) {
-      toolPointerMove(screenPt);
-    } else if (!st.pinching && wasPinching && st.owner) {
-      toolPointerUp();
-      st.owner = false; dragOwnerHand = -1;
-    }
-  }
-});
-
-// ═══════════════════════════════════════════════════════════════
-// ── STARTER PIECE ──
-// ═══════════════════════════════════════════════════════════════
-spawnBar();
-setTool("bend");
-
-function exitBuild() {
-  try { window.parent.postMessage({ type: "CLOSE_BUILD" }, "*"); } catch (e) {}
-}
+// initial empty render
+rebuildAll();
 </script>
 </body>
 </html>
