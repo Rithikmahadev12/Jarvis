@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>J.A.R.V.I.S — Hologram: Your Build</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="hand-tracking.css"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:'Share Tech Mono',monospace;color:#00c8ff}
+:root{
+  --blue:#00c8ff;--glow:rgba(0,200,255,0.45);--bg:#000508;
+  --dim:rgba(0,200,255,0.25);--text:#a8dff5;--dim-text:#2e5a78;
+  --amber:#ffaa00;--green:#00ff88;--red:#ff3333;
+  --hud:'Orbitron',monospace;
+}
+#c{position:fixed;inset:0;display:block;width:100%!important;height:100%!important}
+.scan{position:fixed;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,rgba(0,200,255,0.12),transparent);animation:scanMove 8s linear infinite;pointer-events:none;z-index:10}
+@keyframes scanMove{from{top:-2px}to{top:100vh}}
+.corner{position:fixed;width:44px;height:44px;pointer-events:none;z-index:20}
+.corner::before,.corner::after{content:'';position:absolute;background:var(--blue);opacity:0.7}
+.corner::before{width:100%;height:1.5px;top:0}
+.corner::after{width:1.5px;height:100%;top:0}
+.corner.tl{top:14px;left:14px}.corner.tr{top:14px;right:14px;transform:scaleX(-1)}
+.corner.bl{bottom:14px;left:14px;transform:scaleY(-1)}.corner.br{bottom:14px;right:14px;transform:scale(-1)}
+
+#top{position:fixed;top:0;left:0;right:0;height:52px;background:linear-gradient(180deg,rgba(0,4,12,0.98),rgba(0,6,18,0.85));border-bottom:1px solid rgba(0,200,255,0.18);display:flex;align-items:center;justify-content:space-between;padding:0 20px;z-index:30}
+.top-title{font-family:var(--hud);font-size:0.95rem;font-weight:900;letter-spacing:0.45em;color:var(--blue);text-shadow:0 0 20px var(--glow)}
+.top-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+#back-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);color:var(--dim-text);font-family:var(--hud);font-size:0.38rem;letter-spacing:0.2em;padding:7px 12px;cursor:pointer;text-decoration:none;transition:all 0.2s;border-radius:2px}
+#back-btn:hover{border-color:var(--blue);color:var(--blue)}
+.ctl-btn{background:rgba(0,200,255,0.06);border:1px solid rgba(0,200,255,0.2);color:var(--dim-text);font-family:var(--hud);font-size:0.38rem;letter-spacing:0.15em;padding:7px 12px;cursor:pointer;transition:all 0.2s;border-radius:2px}
+.ctl-btn:hover{border-color:var(--blue);color:var(--blue)}
+.ctl-btn.on{border-color:var(--green);color:var(--green);background:rgba(0,255,136,0.08)}
+
+/* HUD readout, bottom-left */
+#hud{position:fixed;left:16px;bottom:16px;z-index:25;font-size:0.62rem;color:var(--dim-text);line-height:1.9;background:rgba(0,3,10,0.7);border:1px solid rgba(0,200,255,0.12);border-radius:3px;padding:10px 14px}
+#hud b{color:var(--text)}
+#hud .lbl{color:var(--dim-text);letter-spacing:0.1em;font-size:0.5rem}
+
+/* Gesture legend, bottom-right */
+#legend{position:fixed;right:16px;bottom:16px;z-index:25;font-size:0.58rem;color:var(--dim-text);line-height:2;background:rgba(0,3,10,0.7);border:1px solid rgba(0,200,255,0.12);border-radius:3px;padding:10px 14px;text-align:right}
+#legend .g{color:var(--amber)}
+
+/* camera PiP */
+#pip-wrap{position:fixed;top:64px;right:16px;width:150px;height:112px;border:1px solid rgba(0,200,255,0.25);border-radius:4px;overflow:hidden;z-index:25;background:#000;opacity:0;pointer-events:none;transition:opacity 0.2s}
+#pip-wrap.show{opacity:1;pointer-events:auto}
+#pip-wrap video{width:100%;height:100%;object-fit:cover;filter:saturate(0.8) brightness(0.9) hue-rotate(180deg) contrast(1.1);transform:scaleX(-1)}
+#pip-label{position:absolute;top:2px;left:4px;font-size:0.36rem;letter-spacing:0.15em;color:var(--dim-text);font-family:var(--hud)}
+
+/* empty state */
+#empty{position:fixed;top:70px;left:0;right:0;display:none;flex-direction:column;align-items:center;gap:8px;z-index:15;text-align:center;padding:16px 40px;pointer-events:none}
+#empty.show{display:flex}
+#empty a{pointer-events:auto}
+#empty h2{font-family:var(--hud);font-size:0.9rem;letter-spacing:0.15em;color:var(--blue)}
+#empty p{font-size:0.75rem;color:var(--dim-text);max-width:420px;line-height:1.7}
+#empty a{color:var(--green);text-decoration:none;border-bottom:1px dashed var(--green)}
+
+#toast{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:40;background:rgba(0,4,14,0.97);border:1px solid rgba(0,200,255,0.4);border-radius:3px;padding:8px 18px;font-size:0.65rem;opacity:0;transition:opacity 0.3s;pointer-events:none;letter-spacing:0.05em}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="scan"></div>
+<div class="corner tl"></div><div class="corner tr"></div><div class="corner bl"></div><div class="corner br"></div>
+
+<div id="top">
+  <div class="top-title">◆ HOLOGRAM — YOUR BUILD</div>
+  <div class="top-right">
+    <button class="ctl-btn" id="btnAutoRotate">⟳ AUTO ROTATE: ON</button>
+    <button class="ctl-btn" id="btnHands">🖐 HAND CONTROL: OFF</button>
+    <button class="ctl-btn" id="btnPip">📷 CAMERA: HIDDEN</button>
+    <button class="ctl-btn" id="btnZoomOut">－ ZOOM OUT</button>
+    <button class="ctl-btn" id="btnZoomIn">＋ ZOOM IN</button>
+    <button class="ctl-btn" id="btnReset">⊕ RESET</button>
+    <a id="back-btn" href="build-mode.html">← BACK TO CAD</a>
+  </div>
+</div>
+
+<div id="pip-wrap">
+  <div id="pip-label">HAND CAM</div>
+  <video id="camera-feed" autoplay muted playsinline></video>
+</div>
+
+<div id="hud">
+  <div class="lbl">MODEL</div><div id="hud-name"><b>—</b></div>
+  <div class="lbl">SOLIDS</div><div id="hud-count"><b>—</b></div>
+  <div class="lbl">SCALE</div><div id="hud-scale"><b>1.00×</b></div>
+</div>
+
+<div id="legend">
+  <div><span class="g">Grab it</span> (pinch, or just close your hand) with <span class="g">one hand</span> and move — it turns</div>
+  <div>Hold one hand still and <span class="g">push it toward/away</span> from the camera — it zooms</div>
+  <div><span class="g">Grab with both hands</span> and move together — it moves with you</div>
+  <div><span class="g">Grab with both hands</span> and pull apart / bring together — it resizes</div>
+  <div>(no camera? drag with mouse · scroll or ± to zoom)</div>
+</div>
+
+<div id="empty">
+  <h2>NO MODEL LOADED</h2>
+  <p>Build something in the CAD engine, then click <b>"View as Hologram"</b> in its toolbar to
+  send it here. Meanwhile, here's a placeholder shape you can still turn and move with your hands.</p>
+  <p><a href="build-mode.html">Open the CAD engine →</a></p>
+</div>
+
+<div id="toast"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+
+// ═══════════════════════════════════════════════════════════════
+// SCENE SETUP
+// ═══════════════════════════════════════════════════════════════
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setClearColor(0x000508);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x000508, 0.028);
+
+const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 200);
+camera.position.set(0, 2.2, 9);
+camera.lookAt(0, 1.4, 0);
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+resize();
+window.addEventListener("resize", resize);
+
+// ── lights ──
+scene.add(new THREE.AmbientLight(0x001428, 0.7));
+const key = new THREE.DirectionalLight(0x00c8ff, 3.2);
+key.position.set(5, 8, 5);
+scene.add(key);
+const fill = new THREE.DirectionalLight(0x002244, 1.1);
+fill.position.set(-6, 2, -4);
+scene.add(fill);
+const rimLight = new THREE.PointLight(0x00aaff, 2.2, 30);
+rimLight.position.set(0, 5, -6);
+scene.add(rimLight);
+
+// ── floor grid + particles for hologram-bay atmosphere ──
+const grid = new THREE.GridHelper(30, 30, 0x001833, 0x000d1a);
+grid.position.y = -0.02;
+scene.add(grid);
+
+const pGeo = new THREE.BufferGeometry();
+const pCount = 600;
+const pPos = new Float32Array(pCount * 3);
+for (let i = 0; i < pCount * 3; i++) pPos[i] = (Math.random() - 0.5) * 36;
+pGeo.setAttribute("position", new THREE.BufferAttribute(pPos, 3));
+scene.add(new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0x004466, size: 0.035, transparent: true, opacity: 0.55 })));
+
+// ── projector pedestal ring, purely decorative ──
+const pedestal = new THREE.Mesh(
+  new THREE.TorusGeometry(1.9, 0.03, 12, 64),
+  new THREE.MeshBasicMaterial({ color: 0x00c8ff, transparent: true, opacity: 0.5 })
+);
+pedestal.rotation.x = Math.PI / 2;
+pedestal.position.y = 0.02;
+scene.add(pedestal);
+
+// ═══════════════════════════════════════════════════════════════
+// HOLOGRAM MATERIALS
+// ═══════════════════════════════════════════════════════════════
+function holoMat(hex) {
+  return new THREE.MeshStandardMaterial({
+    color: new THREE.Color(hex), emissive: new THREE.Color(hex),
+    emissiveIntensity: 0.55, metalness: 0.3, roughness: 0.35,
+    transparent: true, opacity: 0.42,
+  });
+}
+function wireMat(hex) {
+  return new THREE.MeshBasicMaterial({ color: new THREE.Color(hex), wireframe: true, transparent: true, opacity: 0.65 });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LOAD MODEL — from localStorage("jarvis:holoModel"), set by
+// build-mode.html's "View as Hologram" button. Falls back to a
+// placeholder shape so hand controls can still be tried out.
+// ═══════════════════════════════════════════════════════════════
+const holoGroup = new THREE.Group(); // the thing your hands actually move/rotate/scale
+holoGroup.position.y = 1.6;
+scene.add(holoGroup);
+
+let baseScale = 1;
+const hudName = document.getElementById("hud-name");
+const hudCount = document.getElementById("hud-count");
+
+function centerAndMount(objects, sourceLabel, count) {
+  const inner = new THREE.Group();
+  objects.forEach(o => inner.add(o));
+  const box = new THREE.Box3().setFromObject(inner);
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  inner.position.sub(center);
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  baseScale = 3.2 / maxDim;
+  holoGroup.scale.setScalar(baseScale);
+  holoGroup.add(inner);
+  hudName.innerHTML = `<b>${sourceLabel}</b>`;
+  hudCount.innerHTML = `<b>${count}</b>`;
+}
+
+function loadFromBuildMode() {
+  let raw;
+  try { raw = localStorage.getItem("jarvis:holoModel"); } catch (e) { raw = null; }
+  if (!raw) return false;
+  let data;
+  try { data = JSON.parse(raw); } catch (e) { return false; }
+  if (!data.meshes || !data.meshes.length) return false;
+
+  const loader = new THREE.BufferGeometryLoader();
+  const objs = [];
+  data.meshes.forEach(m => {
+    let geo;
+    try { geo = loader.parse(m.geometry); } catch (e) { return; }
+    const solid = new THREE.Mesh(geo, holoMat(m.color || "#00c8ff"));
+    const wire = new THREE.Mesh(geo, wireMat(m.color || "#00c8ff"));
+    objs.push(solid, wire);
+  });
+  if (!objs.length) return false;
+  centerAndMount(objs, "YOUR CAD BUILD", data.meshes.length);
+  return true;
+}
+
+function loadPlaceholder() {
+  document.getElementById("empty").classList.add("show");
+  const geo = new THREE.TorusKnotGeometry(1, 0.32, 140, 20);
+  const solid = new THREE.Mesh(geo, holoMat("#00c8ff"));
+  const wire = new THREE.Mesh(geo, wireMat("#00c8ff"));
+  centerAndMount([solid, wire], "PLACEHOLDER", 1);
+}
+
+if (!loadFromBuildMode()) loadPlaceholder();
+
+// ═══════════════════════════════════════════════════════════════
+// ANIMATE — also carries momentum: whatever velocity your last hand
+// (or mouse) motion left behind keeps drifting and decaying here, so
+// letting go doesn't feel like hitting a wall.
+// ═══════════════════════════════════════════════════════════════
+let autoRotate = true;
+let lastInteractAt = 0;
+let lastGrabAt = 0;
+const vel = { rotY: 0, rotX: 0, posX: 0, posY: 0 };
+const DECAY = 0.90;
+const VEL_EPS = 0.00005;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const settledSinceGrab = now - lastGrabAt > 110; // hand(s)/mouse released a moment ago
+
+  if (settledSinceGrab) {
+    if (Math.abs(vel.rotY) > VEL_EPS || Math.abs(vel.rotX) > VEL_EPS) {
+      holoGroup.rotation.y += vel.rotY;
+      holoGroup.rotation.x = clamp(holoGroup.rotation.x + vel.rotX, -1.1, 1.1);
+      vel.rotY *= DECAY; vel.rotX *= DECAY;
+    } else { vel.rotY = 0; vel.rotX = 0; }
+    if (Math.abs(vel.posX) > VEL_EPS || Math.abs(vel.posY) > VEL_EPS) {
+      holoGroup.position.x += vel.posX;
+      holoGroup.position.y += vel.posY;
+      vel.posX *= DECAY; vel.posY *= DECAY;
+    } else { vel.posX = 0; vel.posY = 0; }
+  }
+
+  const idleFor = now - lastInteractAt;
+  if (autoRotate && idleFor > 1200) holoGroup.rotation.y += 0.0035;
+  pedestal.rotation.z += 0.0015;
+  renderer.render(scene, camera);
+}
+animate();
+
+// ═══════════════════════════════════════════════════════════════
+// TOAST HELPER
+// ═══════════════════════════════════════════════════════════════
+let toastTimer = null;
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MOUSE / TOUCH / KEYBOARD FALLBACK — always available, no camera needed
+// ═══════════════════════════════════════════════════════════════
+const ROT_SENS_MOUSE = 0.006;
+let mouseDown = false, lastMX = 0, lastMY = 0;
+canvas.addEventListener("mousedown", e => { mouseDown = true; lastMX = e.clientX; lastMY = e.clientY; lastGrabAt = performance.now(); });
+window.addEventListener("mouseup", () => { mouseDown = false; });
+window.addEventListener("mousemove", e => {
+  if (!mouseDown) return;
+  const dx = e.clientX - lastMX, dy = e.clientY - lastMY;
+  vel.rotY = dx * ROT_SENS_MOUSE; vel.rotX = dy * ROT_SENS_MOUSE;
+  holoGroup.rotation.y += vel.rotY;
+  holoGroup.rotation.x = clamp(holoGroup.rotation.x + vel.rotX, -1.1, 1.1);
+  lastMX = e.clientX; lastMY = e.clientY;
+  lastInteractAt = lastGrabAt = performance.now();
+});
+canvas.addEventListener("wheel", e => {
+  const factor = e.deltaY > 0 ? 0.92 : 1.08;
+  applyScale(holoGroup.scale.x * factor / baseScale);
+  lastInteractAt = performance.now();
+}, { passive: true });
+window.addEventListener("keydown", e => {
+  if (e.key === "+" || e.key === "=") { applyScale(holoGroup.scale.x * 1.1 / baseScale); lastInteractAt = performance.now(); }
+  if (e.key === "-" || e.key === "_") { applyScale(holoGroup.scale.x * 0.9 / baseScale); lastInteractAt = performance.now(); }
+});
+document.getElementById("btnZoomIn").onclick = () => { applyScale(holoGroup.scale.x * 1.15 / baseScale); lastInteractAt = performance.now(); };
+document.getElementById("btnZoomOut").onclick = () => { applyScale(holoGroup.scale.x * 0.87 / baseScale); lastInteractAt = performance.now(); };
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+const MIN_SCALE = 0.35, MAX_SCALE = 3.0;
+function applyScale(relative) {
+  const s = clamp(relative, MIN_SCALE, MAX_SCALE) * baseScale;
+  holoGroup.scale.setScalar(s);
+  document.getElementById("hud-scale").innerHTML = `<b>${(s / baseScale).toFixed(2)}×</b>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HAND CONTROLS — reuses the shared HandTracking module (hand-tracking.js)
+// but doesn't key off one fixed gesture shape. Any hand that looks
+// "grabbing" (a pinch OR a loose fist — whatever's natural) counts as
+// grabbed, and what happens next is inferred from how it actually
+// moves rather than a preset command:
+//   • one hand grabbed, moving mostly sideways/up-down → turns it
+//   • one hand grabbed, staying in place but growing/shrinking in the
+//     frame (pushing toward/pulling away from the camera) → zooms it
+//   • two hands grabbed, moving together → picks it up and moves it
+//   • two hands grabbed, moving apart/together → resizes it
+// All of these can blend in the same motion — e.g. two hands drifting
+// sideways while also spreading apart moves AND resizes at once.
+// ═══════════════════════════════════════════════════════════════
+const PINCH_ON = 0.07;
+const ROT_SENS_HAND = 0.012;
+const MOVE_SENS_HAND = 0.007;
+const PUSH_ZOOM_SENS = 2.2;     // how strongly apparent hand-size change zooms
+const PUSH_MOTION_GUARD = 22;   // px of lateral motion below which a size-change reads as a push, not a turn
+
+let singlePrev = null;   // {x,y,size} of the one grabbed hand, previous frame
+let twoPrev = null;      // {x,y,dist} of the midpoint + separation of two grabbed hands, previous frame
+
+// A hand counts as "grabbed" if it's pinching (thumb+index close) OR
+// loosely fisted (fingertips curled in toward the palm) — no single
+// required shape, so it responds to however someone naturally grabs.
+function isGrabbing(lm) {
+  const wrist = lm[0], palmRef = lm[9];
+  const palmSize = Math.hypot(wrist.x - palmRef.x, wrist.y - palmRef.y) || 0.001;
+  const thumb = lm[4], index = lm[8];
+  if (Math.hypot(thumb.x - index.x, thumb.y - index.y) < PINCH_ON) return { grabbed: true, palmSize };
+  const tips = [8, 12, 16, 20];
+  const avgTip = tips.reduce((s, i) => s + Math.hypot(lm[i].x - wrist.x, lm[i].y - wrist.y), 0) / tips.length;
+  return { grabbed: avgTip < palmSize * 1.35, palmSize };
+}
+
+window.addEventListener("jarvis:handframe", e => {
+  if (!handsEnabled) return;
+  const all = (e.detail && e.detail.allLandmarks) || [];
+  const grabbed = [];
+  all.forEach(lm => {
+    const { grabbed: isG, palmSize } = isGrabbing(lm);
+    if (!isG) return;
+    const thumb = lm[4], index = lm[8];
+    grabbed.push({
+      x: (1 - (thumb.x + index.x) / 2) * window.innerWidth,
+      y: ((thumb.y + index.y) / 2) * window.innerHeight,
+      size: palmSize,
+    });
+  });
+
+  if (grabbed.length === 1) {
+    twoPrev = null;
+    const h = grabbed[0];
+    if (singlePrev) {
+      const dx = h.x - singlePrev.x, dy = h.y - singlePrev.y;
+      const lateral = Math.hypot(dx, dy);
+      const sizeRatio = h.size / (singlePrev.size || h.size);
+      const pushStrength = Math.abs(sizeRatio - 1);
+
+      if (lateral < PUSH_MOTION_GUARD && pushStrength > 0.012) {
+        // hand mostly holding still but growing/shrinking → reading this
+        // as pushing the hologram away or pulling it closer, not a turn.
+        applyScale((holoGroup.scale.x / baseScale) * (1 + (sizeRatio - 1) * PUSH_ZOOM_SENS));
+      } else {
+        vel.rotY = dx * ROT_SENS_HAND; vel.rotX = dy * ROT_SENS_HAND;
+        holoGroup.rotation.y += vel.rotY;
+        holoGroup.rotation.x = clamp(holoGroup.rotation.x + vel.rotX, -1.1, 1.1);
+      }
+      lastInteractAt = lastGrabAt = performance.now();
+    }
+    singlePrev = h;
+  } else if (grabbed.length === 2) {
+    singlePrev = null;
+    const [a, b] = grabbed;
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    if (twoPrev) {
+      const dx = mid.x - twoPrev.x, dy = mid.y - twoPrev.y;
+      vel.posX = dx * MOVE_SENS_HAND; vel.posY = -dy * MOVE_SENS_HAND;
+      holoGroup.position.x += vel.posX;
+      holoGroup.position.y += vel.posY;
+
+      const distRatio = dist / (twoPrev.dist || dist);
+      if (Math.abs(distRatio - 1) > 0.003) {
+        applyScale((holoGroup.scale.x / baseScale) * distRatio);
+      }
+      lastInteractAt = lastGrabAt = performance.now();
+    }
+    twoPrev = { x: mid.x, y: mid.y, dist };
+  } else {
+    singlePrev = null; twoPrev = null;
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// UI WIRING
+// ═══════════════════════════════════════════════════════════════
+let handsEnabled = false;
+let cameraStream = null;
+
+document.getElementById("btnAutoRotate").onclick = (e) => {
+  autoRotate = !autoRotate;
+  e.target.textContent = `⟳ AUTO ROTATE: ${autoRotate ? "ON" : "OFF"}`;
+  e.target.classList.toggle("on", autoRotate);
+};
+document.getElementById("btnAutoRotate").classList.add("on");
+
+document.getElementById("btnReset").onclick = () => {
+  holoGroup.rotation.set(0, 0, 0);
+  holoGroup.position.set(0, 1.6, 0);
+  applyScale(1);
+  toast("Position, rotation and size reset.");
+};
+
+document.getElementById("btnPip").onclick = (e) => {
+  const wrap = document.getElementById("pip-wrap");
+  const showing = wrap.classList.toggle("show");
+  e.target.textContent = `📷 CAMERA: ${showing ? "SHOWN" : "HIDDEN"}`;
+  e.target.classList.toggle("on", showing);
+};
+
+document.getElementById("btnHands").onclick = async (e) => {
+  const btn = e.target;
+  if (handsEnabled) {
+    handsEnabled = false;
+    window.HandTracking?.stop();
+    if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+    btn.textContent = "🖐 HAND CONTROL: OFF";
+    btn.classList.remove("on");
+    return;
+  }
+  btn.textContent = "🖐 HAND CONTROL: STARTING…";
+  try {
+    const video = document.getElementById("camera-feed");
+    cameraStream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false });
+    video.srcObject = cameraStream;
+    await video.play().catch(() => {});
+    if (!window.HandTracking) { btn.textContent = "🖐 HAND CONTROL: UNAVAILABLE"; return; }
+    window.HandTracking.start();
+    handsEnabled = true;
+    btn.textContent = "🖐 HAND CONTROL: ON";
+    btn.classList.add("on");
+    toast("Grab it with one or both hands — it figures out turn, move, or zoom from how you move.");
+  } catch (err) {
+    console.warn("[hologram-build] camera access failed", err);
+    btn.textContent = "🖐 HAND CONTROL: NO CAMERA";
+  }
+};
+</script>
+<script src="hand-tracking.js"></script>
+</body>
+</html>
