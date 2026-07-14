@@ -2,18 +2,32 @@
    J.A.R.V.I.S — SIMPLE CHAT MODE
    A plain, minimal text-chat overlay (à la ChatGPT/Claude) that
    swaps out for the full HUD. Toggled by voice: "Jarvis, turn on
-   chat mode" / "Jarvis, turn off chat mode" — see enterSimpleChatMode()
-   / exitSimpleChatMode() in jarvis.js. Purely additive: hides the HUD
-   chrome via a body class and reuses the exact same #transcript /
-   #type-input / addMsg()/handleChatCommand() plumbing, so nothing
-   about how messages are sent or rendered has to change.
+   chat mode" / "Jarvis, switch to chat mode" / "Jarvis, turn off
+   chat mode" — see enterSimpleChatMode()/exitSimpleChatMode() in
+   jarvis.js. Purely additive: hides the HUD chrome via a body class
+   and reuses the exact same #transcript / #type-input /
+   addMsg()/handleChatCommand() plumbing, so nothing about how
+   messages are sent or rendered has to change.
+
+   IMPORTANT: the normal home screen is "hud-minimal" (home-ui.css)
+   — a voice-only screen that keeps the transcript/input-bar hidden
+   by design with #main-screen.hud-minimal-scoped rules (some
+   !important). Every override below that needs to UN-hide something
+   is written against that same #main-screen.hud-minimal specificity
+   (plus !important where the original also used !important) so it
+   reliably wins. Rules that only HIDE something extra don't need
+   this — plain !important alone is enough for those.
    ═══════════════════════════════════════════════════════════════ */
 
 body.simple-chat-active {
   background: #fafafa;
 }
+body.simple-chat-active #main-screen {
+  background: #fafafa;
+}
 
-/* Hide all the HUD chrome */
+/* Hide all the HUD chrome (plain !important is enough — nothing
+   fights to keep these visible) */
 body.simple-chat-active .top-bar,
 body.simple-chat-active .hud-home,
 body.simple-chat-active .side-panel,
@@ -29,20 +43,30 @@ body.simple-chat-active #live-hearing {
   display: none !important;
 }
 
-body.simple-chat-active #main-screen {
-  background: #fafafa;
+body.simple-chat-active #main-screen.hud-minimal .main-content {
+  padding: 0 !important;
+  height: 100%;
 }
 
-body.simple-chat-active .main-content {
-  padding: 0;
-  height: 100vh;
-}
-
-body.simple-chat-active .transcript-column {
+/* ── Un-hide + re-lay-out the transcript column ──
+   home-ui.css pins this off in a small absolute-positioned pill at
+   the bottom of the screen for the voice-only home. Bring it back
+   into normal flex flow, centered, ChatGPT/Claude-width. */
+body.simple-chat-active #main-screen.hud-minimal .transcript-column {
+  position: relative !important;
+  left: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+  width: 100% !important;
   max-width: 720px;
   margin: 0 auto;
-  height: 100vh;
+  flex: 1 !important;
+  z-index: auto !important;
+  pointer-events: auto !important;
+  display: flex;
+  flex-direction: column;
   justify-content: center;
+  height: 100%;
 }
 
 /* Empty-state greeting, shown until the first message lands */
@@ -60,70 +84,78 @@ body.simple-chat-active.simple-chat-empty .simple-chat-greeting {
   display: block;
 }
 
-body.simple-chat-active.simple-chat-empty .transcript-area {
-  display: none;
-}
-body.simple-chat-active:not(.simple-chat-empty) .simple-chat-greeting {
-  display: none;
-}
-
-body.simple-chat-active .transcript-area {
-  flex: 1;
-  max-height: 70vh;
+/* ── Un-hide the message log itself (home-ui.css hides this with
+   !important, so we need matching specificity + !important too) ── */
+body.simple-chat-active #main-screen.hud-minimal .transcript-area {
+  display: flex !important;
+  flex: 0 1 auto;
+  max-height: 65vh;
   padding: 32px 8px 12px;
 }
-
-body.simple-chat-active.simple-chat-empty .transcript-area {
-  flex: 0;
+body.simple-chat-active.simple-chat-empty #main-screen.hud-minimal .transcript-area {
+  display: none !important;
 }
 
-/* Message bubbles, light-theme */
+/* Message bubbles, light-theme (glass-ui.css applies !important to
+   .msg .msg-text backgrounds/borders/radius — match it here) */
 body.simple-chat-active .msg-label { display: none; }
 body.simple-chat-active .msg-text {
   font-family: var(--raj, sans-serif);
   font-size: 0.98rem;
   line-height: 1.5;
-  border-radius: 16px;
-  box-shadow: none;
 }
 body.simple-chat-active .msg.user .msg-text {
-  background: #1a1a1a;
+  background: #1a1a1a !important;
   color: #fff;
   padding: 10px 16px;
-  border: none;
+  border: none !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
 }
 body.simple-chat-active .msg.jarvis .msg-text {
-  background: transparent;
+  background: transparent !important;
   color: #1a1a1a;
   padding: 4px 2px;
-  border: none;
+  border: none !important;
+  border-radius: 0 !important;
   max-width: 100%;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
 }
 body.simple-chat-active .msg.system .msg-text {
-  background: #f0f0f0;
+  background: #f0f0f0 !important;
   color: #666;
-  border: none;
+  border: none !important;
+  box-shadow: none !important;
 }
 
-/* Pill-shaped input bar, matching the reference "Ask anything" look */
+/* ── Pill-shaped input bar, matching the reference "Ask anything"
+   look. home-ui.css hides this until ".show-typing" is added and
+   styles it dark; glass-ui.css also applies !important backgrounds/
+   borders — override all of that at matching-or-higher specificity. ── */
 body.simple-chat-active .attachment-tray:not(:empty) {
   max-width: 680px;
   margin: 0 auto 8px;
 }
 
-body.simple-chat-active .input-bar {
+body.simple-chat-active #main-screen.hud-minimal .input-bar {
+  display: flex !important;
   max-width: 680px;
-  margin: 0 auto 40px;
-  background: #fff;
-  border: 1px solid #e6e6e6;
-  border-radius: 32px;
+  width: 100%;
+  margin: 0 auto 40px !important;
+  background: #fff !important;
+  border: 1px solid #e6e6e6 !important;
+  border-radius: 32px !important;
   padding: 6px 8px 6px 18px;
   box-shadow: 0 8px 28px rgba(0,0,0,0.06);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   height: auto;
   min-height: 56px;
 }
-body.simple-chat-active .input-bar:focus-within {
-  border-color: #d4d4d4;
+body.simple-chat-active #main-screen.hud-minimal .input-bar:focus-within {
+  border-color: #d4d4d4 !important;
   box-shadow: 0 8px 28px rgba(0,0,0,0.09);
 }
 body.simple-chat-active .input-bar-prefix { display: none; }
@@ -131,20 +163,22 @@ body.simple-chat-active .input-bar input[type="text"] {
   font-family: var(--raj, sans-serif);
   color: #1a1a1a;
   font-size: 0.98rem;
+  background: transparent !important;
 }
 body.simple-chat-active .input-bar input[type="text"]::placeholder { color: #9a9a9a; opacity: 1; }
 body.simple-chat-active .attach-btn {
   color: #6b6b6b;
   border-radius: 50%;
+  background: transparent !important;
 }
-body.simple-chat-active .attach-btn:hover { background: #f0f0f0; color: #1a1a1a; }
+body.simple-chat-active .attach-btn:hover { background: #f0f0f0 !important; color: #1a1a1a; }
 body.simple-chat-active .send-btn {
-  background: #1a1a1a;
+  background: #1a1a1a !important;
   color: #fff;
   border-radius: 50%;
   width: 36px; height: 36px;
 }
-body.simple-chat-active .send-btn:hover { background: #333; }
+body.simple-chat-active .send-btn:hover { background: #333 !important; }
 
 /* Small pill button, top-right, to hop back into the full HUD without
    needing the voice command */
@@ -153,7 +187,7 @@ body.simple-chat-active .send-btn:hover { background: #333; }
   position: fixed;
   top: 18px;
   right: 18px;
-  z-index: 50;
+  z-index: 700;
   background: #fff;
   border: 1px solid #e6e6e6;
   color: #4a4a4a;
@@ -168,7 +202,7 @@ body.simple-chat-active .send-btn:hover { background: #333; }
 body.simple-chat-active #simple-chat-exit-btn { display: block; }
 
 @media (max-width: 760px) {
-  body.simple-chat-active .transcript-column { max-width: 94%; }
+  body.simple-chat-active #main-screen.hud-minimal .transcript-column { max-width: 94%; }
   .simple-chat-greeting { font-size: 1.3rem; padding: 0 12px; }
   #simple-chat-exit-btn { top: 12px; right: 12px; font-size: 0.72rem; padding: 7px 12px; }
 }
