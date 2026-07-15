@@ -282,6 +282,12 @@ input[type="text"], input[type="password"], select, textarea,
   pointer-events: none;
 }
 
+/* Even dot ring drifts around slowly */
+.jr-dot-ring {
+  transform-origin: 200px 200px;
+  animation: jrSpin 70s linear infinite;
+}
+
 /* Two arcs spin around the orb at different speeds/directions */
 .jr-arc-white {
   transform-origin: 200px 200px;
