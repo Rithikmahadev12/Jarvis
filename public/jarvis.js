@@ -521,6 +521,8 @@ function _speakBrowser(text, onEnd, myGen) {
 function setOrb(s) {
   const orb = $("orb"); if (!orb) return;
   orb.className = "orb" + (s !== "idle" ? " " + s : "");
+  const cfOrb = $("cf-orb");
+  if (cfOrb) cfOrb.className = "orb" + (s !== "idle" ? " " + s : "");
   const labels = { idle: "STANDBY", listening: "LISTENING", thinking: "PROCESSING", speaking: "SPEAKING" };
   const st = $("status-text"); if (st) st.textContent = labels[s] || "STANDBY";
 }
@@ -705,9 +707,13 @@ function updateMuteUI(isMuted) {
   if (micBtn) micBtn.classList.toggle("muted", !!isMuted);
 }
 function updateLiveHearing(text) {
-  const el = $("live-hearing"); if (!el) return;
-  if (!text) { el.classList.add("empty"); el.querySelector(".live-hearing-text").textContent = "listening…"; }
-  else { el.classList.remove("empty"); el.querySelector(".live-hearing-text").textContent = text; }
+  const el = $("live-hearing");
+  if (el) {
+    if (!text) { el.classList.add("empty"); el.querySelector(".live-hearing-text").textContent = "listening…"; }
+    else { el.classList.remove("empty"); el.querySelector(".live-hearing-text").textContent = text; }
+  }
+  const cfText = $("cf-live-hearing");
+  if (cfText) cfText.textContent = text || "listening…";
 }
 
 // ── WAKE WORD ──
@@ -1441,6 +1447,22 @@ function setupTypingBox() {
   input.addEventListener("blur",  () => { if (state.phase === "chatting") mic.resume(); });
 
   setupAttachments();
+
+  // Same submit path, wired to the small talk row shown over the
+  // fullscreen camera (mic stays live too — this is just for typing).
+  const cfInput = $("cf-type-input"), cfBtn = $("cf-type-send");
+  if (cfInput && cfBtn) {
+    const cfSubmit = () => {
+      const text = cfInput.value.trim();
+      if (!text || state.phase !== "chatting") return;
+      cfInput.value = "";
+      handleChatCommand(text);
+    };
+    cfBtn.addEventListener("click", cfSubmit);
+    cfInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); cfSubmit(); } e.stopPropagation(); });
+    cfInput.addEventListener("focus", () => mic.suspend());
+    cfInput.addEventListener("blur",  () => { if (state.phase === "chatting") mic.resume(); });
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
