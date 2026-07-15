@@ -230,7 +230,6 @@ input[type="text"], input[type="password"], select, textarea,
   width: 320px; height: 320px;
   display: flex; align-items: center; justify-content: center;
   z-index: 2;
-  transition: transform 0.45s cubic-bezier(.4,0,.2,1);
 }
 
 /* ── JARVIS ORB — core glow + inner ring + segmented spinning rings + SVG tech-dot rings ── */
@@ -238,7 +237,6 @@ input[type="text"], input[type="password"], select, textarea,
   position: relative;
   width: 100%; height: 100%;
   display: flex; align-items: center; justify-content: center;
-  transition: transform 0.45s cubic-bezier(.4,0,.2,1);
 }
 
 .jr-core-glow {
@@ -250,31 +248,28 @@ input[type="text"], input[type="password"], select, textarea,
   background: radial-gradient(circle, rgba(58,134,255,0.2) 0%, rgba(11,15,25,0) 70%);
   box-shadow: 0 0 70px 25px rgba(58, 134, 255, 0.6);
   z-index: 1;
-  transition: box-shadow 0.5s ease, background 0.5s ease;
 }
 
-/* NOT TALKING (idle) — soft white-blue ring, matches the grid/HUD reference. */
 .jr-inner-ring {
   position: absolute;
   top: 50%; left: 50%;
   width: 160px; height: 160px;
   transform: translate(-50%, -50%);
-  border: 2px solid rgba(222, 236, 250, 0.9);
+  border: 2px solid #ffffff;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   z-index: 3;
-  box-shadow: inset 0 0 15px rgba(180,210,240,0.2), 0 0 15px rgba(120,180,240,0.35);
-  transition: border-color 0.4s ease, box-shadow 0.4s ease, transform 0.4s ease;
+  box-shadow: inset 0 0 15px rgba(255,255,255,0.2), 0 0 15px rgba(255,255,255,0.2);
 }
 
 .jr-title {
-  font-family: var(--hud);
-  color: #eaf7ff;
-  font-size: 1.15rem;
+  font-family: 'Aldrich', var(--hud);
+  color: #ffffff;
+  font-size: 1.2rem;
   font-weight: 400;
-  letter-spacing: 0.34em;
-  text-indent: 6px;
-  text-shadow: 0 0 10px rgba(120, 190, 255, 0.5);
+  letter-spacing: 0.15em;
+  text-indent: 3px;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
 }
 
 /* ── Scattered star-dot field + spinning arc lines around the orb ── */
@@ -285,68 +280,26 @@ input[type="text"], input[type="password"], select, textarea,
   transform: translate(-50%, -50%);
   z-index: 2;
   pointer-events: none;
-  transition: opacity 0.3s ease;
 }
 
 /* Even dot ring drifts around slowly */
 .jr-dot-ring {
   transform-origin: 200px 200px;
   animation: jrSpin 70s linear infinite;
-  transition: opacity 0.3s ease;
 }
 
 /* Two arcs spin around the orb at different speeds/directions */
 .jr-arc-white {
   transform-origin: 200px 200px;
   animation: jrSpin 14s linear infinite;
-  transition: opacity 0.3s ease;
 }
 .jr-arc-blue {
   transform-origin: 200px 200px;
   animation: jrSpinRev 10s linear infinite;
-  transition: opacity 0.3s ease, stroke 0.3s ease;
 }
 
 @keyframes jrSpin    { from { transform: rotate(0deg);   } to { transform: rotate(360deg);  } }
 @keyframes jrSpinRev { from { transform: rotate(0deg);   } to { transform: rotate(-360deg); } }
-
-/* ── TALKING — compact glowing badge, no grid/dot-ring, vivid cyan pulse.
-   jarvis.js setOrb() adds/removes "orb-active" on .hud-home for ANY
-   non-idle state (listening/thinking/speaking all look the same). ── */
-.hud-home.orb-active .intro-grid {
-  opacity: 0;
-  transition: opacity 0.4s ease;
-}
-
-.hud-home.orb-active .boot-badge-wrap {
-  transform: scale(0.55);
-}
-
-.hud-home.orb-active .jr-dot-ring,
-.hud-home.orb-active .jr-arc-white {
-  opacity: 0;
-}
-
-.hud-home.orb-active .jr-inner-ring {
-  border-color: rgba(70, 200, 255, 0.95);
-  box-shadow: inset 0 0 22px rgba(0,200,255,0.4), 0 0 40px rgba(0,200,255,0.8);
-  animation: jrTalkPulse 1s ease-in-out infinite;
-}
-
-.hud-home.orb-active .jr-core-glow {
-  box-shadow: 0 0 90px 30px rgba(0,200,255,0.75);
-  background: radial-gradient(circle, rgba(0,200,255,0.3) 0%, rgba(11,15,25,0) 70%);
-}
-
-.hud-home.orb-active .jr-arc-blue {
-  stroke: rgba(60, 200, 255, 0.95);
-  opacity: 0.7;
-}
-
-@keyframes jrTalkPulse {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); }
-  50%      { transform: translate(-50%, -50%) scale(1.06); }
-}
 
 /* ── COUNTDOWN ── */
 #intro-countdown {
@@ -546,12 +499,12 @@ input[type="text"], input[type="password"], select, textarea,
   position: absolute;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  font-family: var(--hud);
-  color: #eaf7ff;
+  font-family: 'Aldrich', var(--hud);
+  color: #ffffff;
   font-size: 1.05rem;
   font-weight: 400;
-  letter-spacing: 0.34em;
-  text-indent: 6px;
+  letter-spacing: 0.15em;
+  text-indent: 3px;
   text-shadow: 0 0 10px rgba(0,200,255,0.6), 0 0 22px rgba(0,0,0,0.8);
   z-index: 4;
   pointer-events: none;
