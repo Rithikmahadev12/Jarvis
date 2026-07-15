@@ -607,17 +607,16 @@ input[type="text"], input[type="password"], select, textarea,
   pointer-events: none;
 }
 
-.cf-corner {
+/* Full dashed frame — a dotted square all the way around the feed,
+   matching the reference look, instead of four separate corner brackets. */
+.cf-frame {
   position: absolute;
-  width: 26px; height: 26px;
-  border: 2px solid rgba(0,200,255,0.55);
+  inset: 16px;
+  border: 1.5px dashed rgba(120,190,255,0.5);
+  border-radius: 4px;
   pointer-events: none;
   z-index: 2;
 }
-.cf-corner.tl { top: 18px; left: 18px; border-right: none; border-bottom: none; }
-.cf-corner.tr { top: 18px; right: 18px; border-left: none; border-bottom: none; }
-.cf-corner.bl { bottom: 18px; left: 18px; border-right: none; border-top: none; }
-.cf-corner.br { bottom: 18px; right: 18px; border-left: none; border-top: none; }
 
 .cf-dots {
   position: absolute; left: 22px; bottom: 26px;
@@ -634,30 +633,67 @@ input[type="text"], input[type="password"], select, textarea,
   box-shadow: 0 0 6px rgba(0,200,255,0.8);
 }
 
+/* Close/orb badge — bottom-right, reuses the exact same .orb component
+   used everywhere else in the UI (not a bespoke design), just wrapped
+   in a clickable hit-target so it still closes the camera. */
 .cf-badge {
   position: absolute; right: 22px; bottom: 22px;
-  width: 74px; height: 74px;
+  width: 54px; height: 54px;
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
   z-index: 3;
-  background: radial-gradient(circle, rgba(0,200,255,0.18) 0%, rgba(0,0,0,0) 70%);
+  background: radial-gradient(circle, rgba(0,200,255,0.14) 0%, rgba(0,0,0,0) 70%);
 }
-.cf-badge-ring {
-  position: absolute; inset: 0;
-  border-radius: 50%;
-  border: 1.5px solid rgba(0,200,255,0.8);
-  box-shadow: 0 0 16px rgba(0,200,255,0.55), inset 0 0 10px rgba(0,200,255,0.2);
+
+/* Talk row — lets the user see/type while the camera is fullscreen,
+   since the normal input bar is covered by this overlay. */
+.cf-talk-row {
+  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  width: min(560px, calc(100% - 140px));
+  background: rgba(4,14,22,0.55);
+  border: 1px solid rgba(0,200,255,0.3);
+  border-radius: 999px;
+  padding: 8px 14px;
+  backdrop-filter: blur(6px);
+  z-index: 3;
 }
-.cf-badge-arc {
-  position: absolute; inset: 0;
-  animation: jrSpin 3s linear infinite;
+.cf-talk-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: rgba(0,200,255,0.9); box-shadow: 0 0 8px rgba(0,200,255,0.8);
+  animation: pulse 1.4s ease-in-out infinite;
 }
-.cf-badge-title {
-  position: relative;
-  font-family: 'Aldrich', var(--hud);
-  font-size: 0.4rem;
-  letter-spacing: 0.1em;
-  color: #eaf7ff;
-  text-shadow: 0 0 6px rgba(0,200,255,0.6);
+.cf-talk-text {
+  flex: 1; min-width: 0;
+  font-family: var(--mono); font-size: 0.72rem; color: rgba(220,240,255,0.75);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#cf-type-input {
+  flex: 1; min-width: 0;
+  background: transparent; border: none; outline: none;
+  font-family: var(--mono); font-size: 0.78rem; color: #eaf7ff;
+}
+#cf-type-input::placeholder { color: rgba(200,230,255,0.4); }
+.cf-talk-send {
+  background: transparent; border: none; color: var(--blue);
+  cursor: pointer; font-size: 0.9rem; flex: none;
+}
+
+/* ── TOP SCAN BAR — the thin ticked HUD line across the very top of
+   the screen. Lives at the top level (not just camera mode) so it
+   shows in every mode. ── */
+.top-scan-bar {
+  position: fixed; top: 0; left: 0; right: 0;
+  height: 22px;
+  z-index: 950;
+  pointer-events: none;
+  display: flex; align-items: flex-start; justify-content: center;
+}
+.top-scan-bar svg { width: min(100%, 900px); height: 100%; overflow: visible; }
+.top-scan-bar .tsb-line {
+  fill: none; stroke: rgba(120,190,255,0.55); stroke-width: 1.4;
+}
+.top-scan-bar .tsb-tick {
+  stroke: rgba(120,190,255,0.4); stroke-width: 1;
 }
