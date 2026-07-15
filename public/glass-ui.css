@@ -253,18 +253,17 @@ input[type="text"], input[type="password"], select, textarea,
   transition: box-shadow 0.5s ease, background 0.5s ease;
 }
 
-/* Idle look — thin cyan ring (reference: idle HUD badge) rather than a solid
-   white outline; softer glow so the badge reads calm/at-rest. */
+/* NOT TALKING (idle) — soft white-blue ring, matches the grid/HUD reference. */
 .jr-inner-ring {
   position: absolute;
   top: 50%; left: 50%;
   width: 160px; height: 160px;
   transform: translate(-50%, -50%);
-  border: 1.5px solid rgba(0, 200, 255, 0.6);
+  border: 2px solid rgba(222, 236, 250, 0.9);
   border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   z-index: 3;
-  box-shadow: inset 0 0 15px rgba(0,200,255,0.15), 0 0 18px rgba(0,200,255,0.35);
+  box-shadow: inset 0 0 15px rgba(180,210,240,0.2), 0 0 15px rgba(120,180,240,0.35);
   transition: border-color 0.4s ease, box-shadow 0.4s ease, transform 0.4s ease;
 }
 
@@ -275,7 +274,7 @@ input[type="text"], input[type="password"], select, textarea,
   font-weight: 400;
   letter-spacing: 0.34em;
   text-indent: 6px;
-  text-shadow: 0 0 10px rgba(0, 200, 255, 0.55);
+  text-shadow: 0 0 10px rgba(120, 190, 255, 0.5);
 }
 
 /* ── Scattered star-dot field + spinning arc lines around the orb ── */
@@ -286,88 +285,63 @@ input[type="text"], input[type="password"], select, textarea,
   transform: translate(-50%, -50%);
   z-index: 2;
   pointer-events: none;
+  transition: opacity 0.3s ease;
 }
 
 /* Even dot ring drifts around slowly */
 .jr-dot-ring {
   transform-origin: 200px 200px;
   animation: jrSpin 70s linear infinite;
+  transition: opacity 0.3s ease;
 }
 
 /* Two arcs spin around the orb at different speeds/directions */
 .jr-arc-white {
   transform-origin: 200px 200px;
   animation: jrSpin 14s linear infinite;
+  transition: opacity 0.3s ease;
 }
 .jr-arc-blue {
   transform-origin: 200px 200px;
   animation: jrSpinRev 10s linear infinite;
+  transition: opacity 0.3s ease, stroke 0.3s ease;
 }
 
 @keyframes jrSpin    { from { transform: rotate(0deg);   } to { transform: rotate(360deg);  } }
 @keyframes jrSpinRev { from { transform: rotate(0deg);   } to { transform: rotate(-360deg); } }
 
-/* ── TALKING STATE — compact glowing badge (reference: active/talking orb).
-   Toggled by jarvis.js setOrb() adding orb-listening / orb-thinking / orb-speaking
-   to the .hud-home wrapper. Shrinks the badge and fades the outer HUD clutter
-   (dot-ring, tick marks, arcs) so it reads as a small clean floating orb. ── */
-.hud-home.orb-listening .boot-badge-wrap,
-.hud-home.orb-thinking .boot-badge-wrap,
-.hud-home.orb-speaking .boot-badge-wrap {
-  transform: scale(0.56);
-}
-
-.hud-home.orb-listening .jr-dot-ring,
-.hud-home.orb-thinking .jr-dot-ring,
-.hud-home.orb-speaking .jr-dot-ring,
-.hud-home.orb-listening .jr-ticks,
-.hud-home.orb-thinking .jr-ticks,
-.hud-home.orb-speaking .jr-ticks {
+/* ── TALKING — compact glowing badge, no grid/dot-ring, vivid cyan pulse.
+   jarvis.js setOrb() adds/removes "orb-active" on .hud-home for ANY
+   non-idle state (listening/thinking/speaking all look the same). ── */
+.hud-home.orb-active .intro-grid {
   opacity: 0;
-  transition: opacity 0.3s ease;
+  transition: opacity 0.4s ease;
 }
 
-.hud-home.orb-listening .jr-arc-white,
-.hud-home.orb-thinking .jr-arc-white,
-.hud-home.orb-speaking .jr-arc-white {
-  opacity: 0.35;
+.hud-home.orb-active .boot-badge-wrap {
+  transform: scale(0.55);
 }
 
-/* Listening — cyan pulse */
-.hud-home.orb-listening .jr-inner-ring {
-  border-color: rgba(0, 200, 255, 0.95);
-  box-shadow: inset 0 0 20px rgba(0,200,255,0.35), 0 0 34px rgba(0,200,255,0.7);
-  animation: jrTalkPulse 1.1s ease-in-out infinite;
+.hud-home.orb-active .jr-dot-ring,
+.hud-home.orb-active .jr-arc-white {
+  opacity: 0;
 }
-.hud-home.orb-listening .jr-core-glow {
-  box-shadow: 0 0 90px 30px rgba(0,200,255,0.7);
-  background: radial-gradient(circle, rgba(0,200,255,0.28) 0%, rgba(11,15,25,0) 70%);
-}
-.hud-home.orb-listening .jr-arc-blue { stroke: rgba(0,200,255,0.95); }
 
-/* Thinking — amber pulse */
-.hud-home.orb-thinking .jr-inner-ring {
-  border-color: rgba(255, 170, 0, 0.95);
-  box-shadow: inset 0 0 20px rgba(255,170,0,0.35), 0 0 34px rgba(255,170,0,0.7);
-  animation: jrTalkPulse 0.75s ease-in-out infinite;
+.hud-home.orb-active .jr-inner-ring {
+  border-color: rgba(70, 200, 255, 0.95);
+  box-shadow: inset 0 0 22px rgba(0,200,255,0.4), 0 0 40px rgba(0,200,255,0.8);
+  animation: jrTalkPulse 1s ease-in-out infinite;
 }
-.hud-home.orb-thinking .jr-core-glow {
-  box-shadow: 0 0 90px 30px rgba(255,170,0,0.7);
-  background: radial-gradient(circle, rgba(255,170,0,0.28) 0%, rgba(11,15,25,0) 70%);
-}
-.hud-home.orb-thinking .jr-arc-blue { stroke: rgba(255,170,0,0.95); }
 
-/* Speaking — green pulse */
-.hud-home.orb-speaking .jr-inner-ring {
-  border-color: rgba(0, 255, 136, 0.95);
-  box-shadow: inset 0 0 20px rgba(0,255,136,0.35), 0 0 34px rgba(0,255,136,0.7);
-  animation: jrTalkPulse 0.55s ease-in-out infinite;
+.hud-home.orb-active .jr-core-glow {
+  box-shadow: 0 0 90px 30px rgba(0,200,255,0.75);
+  background: radial-gradient(circle, rgba(0,200,255,0.3) 0%, rgba(11,15,25,0) 70%);
 }
-.hud-home.orb-speaking .jr-core-glow {
-  box-shadow: 0 0 90px 30px rgba(0,255,136,0.7);
-  background: radial-gradient(circle, rgba(0,255,136,0.28) 0%, rgba(11,15,25,0) 70%);
+
+.hud-home.orb-active .jr-arc-blue {
+  stroke: rgba(60, 200, 255, 0.95);
+  opacity: 0.7;
 }
-.hud-home.orb-speaking .jr-arc-blue { stroke: rgba(0,255,136,0.95); }
 
 @keyframes jrTalkPulse {
   0%, 100% { transform: translate(-50%, -50%) scale(1); }
