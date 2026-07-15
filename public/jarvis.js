@@ -2235,6 +2235,18 @@ async function handleAction(action, meta, replyText) {
   });
   break;
 }
+    case "SHOW_CAMERA": {
+      speak(replyText, async () => {
+        if (!state.cameraStream) await requestCameraAccess();
+        openCameraFullscreen();
+        mic.resume();
+      });
+      break;
+    }
+    case "HIDE_CAMERA": {
+      speak(replyText, () => { closeCameraFullscreen(); mic.resume(); });
+      break;
+    }
     case "SHOW_HUD": {
       speak(replyText, () => mic.resume());
       if (window.PiPWidgets) window.PiPWidgets.handleVoiceCommand("SHOW_HUD", { query: meta?.query || replyText });
@@ -2652,6 +2664,23 @@ async function readScreen(question) {
     const reply = `Here's what I can read on your screen, ${state.userTitle}: ${lines}`;
     addMsg("jarvis", reply); speak(reply, () => mic.resume());
   }
+}
+
+// ── FULLSCREEN CAMERA — opened by the show_camera tool ──
+function openCameraFullscreen() {
+  const wrap = $("camera-fullscreen"); if (!wrap) return;
+  const feed = $("camera-fullscreen-feed");
+  if (feed && state.cameraStream) feed.srcObject = state.cameraStream;
+  wrap.classList.add("active");
+  const badge = $("camera-fullscreen-badge");
+  if (badge && !badge._cfBound) {
+    badge._cfBound = true;
+    badge.addEventListener("click", closeCameraFullscreen);
+  }
+}
+function closeCameraFullscreen() {
+  const wrap = $("camera-fullscreen"); if (!wrap) return;
+  wrap.classList.remove("active");
 }
 
 // ═══════════════════════════════════════════════════════════════
