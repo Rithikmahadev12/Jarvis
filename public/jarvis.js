@@ -21,6 +21,7 @@ function getUserTimezone() {
 // ── STATE ──
 const state = window.state = {
   phase: "idle",
+  muted: false,          // true after "mute"/"jarvis mute" — speak() becomes a silent no-op
   outputMode: "phone",   // "phone" = normal browser TTS, "home" = cast via Piper/Google Home
   user: null,
   userTitle: null,
@@ -373,6 +374,7 @@ let _speakGen = 0;
 
 async function speak(text, onEnd) {
   if (!text) { if (onEnd) onEnd(); return; }
+  if (state.muted) { if (onEnd) onEnd(); return; }
 
   const myGen = ++_speakGen;
   const isCurrent = () => myGen === _speakGen;
@@ -678,6 +680,30 @@ document.addEventListener("visibilitychange", () => {
 });
 
 function updateMicDebug(msg) { const el = $("mic-debug"); if (el) el.textContent = msg; }
+
+// ── MUTE INDICATOR ──
+// Small self-styled badge — no CSS file edits needed. Voice recognition
+// (listening) keeps working while muted; only Jarvis's spoken replies
+// (speak()) are silenced. Say "unmute" / "jarvis unmute" to bring the
+// voice back.
+function updateMuteUI(isMuted) {
+  let badge = $("jarvis-mute-badge");
+  const micBtn = $("tb-btn-mic");
+  if (!badge) {
+    badge = document.createElement("div");
+    badge.id = "jarvis-mute-badge";
+    badge.textContent = "🔇 MUTED";
+    Object.assign(badge.style, {
+      position: "fixed", bottom: "84px", left: "50%", transform: "translateX(-50%)",
+      background: "rgba(200,40,40,0.85)", color: "#fff", padding: "4px 12px",
+      borderRadius: "999px", fontSize: "12px", fontWeight: "600", letterSpacing: "0.04em",
+      zIndex: 9999, pointerEvents: "none", display: "none", fontFamily: "inherit",
+    });
+    document.body.appendChild(badge);
+  }
+  badge.style.display = isMuted ? "block" : "none";
+  if (micBtn) micBtn.classList.toggle("muted", !!isMuted);
+}
 function updateLiveHearing(text) {
   const el = $("live-hearing"); if (!el) return;
   if (!text) { el.classList.add("empty"); el.querySelector(".live-hearing-text").textContent = "listening…"; }
@@ -1783,7 +1809,16 @@ async function sendToAI(message, attachments) {
     if (data.action === "HOME_TALK_ON")  { state.outputMode = "home";  showHomeTalkBadge(data.meta?.device); }
     if (data.action === "HOME_TALK_OFF") { state.outputMode = "phone"; hideHomeTalkBadge(); }
 
-    if (data.action && data.meta) {
+    // BUGFIX: this used to require BOTH data.action AND data.meta to be
+    // truthy before running handleAction(). Actions like SHOW_CAMERA,
+    // HIDE_CAMERA, and MUTE_ON/MUTE_OFF never carry a `meta` payload —
+    // they don't need one — so this condition silently skipped
+    // handleAction() for them and just spoke the reply text without
+    // ever actually opening the camera / muting / etc. Only `action`
+    // is required now; handleAction's own `default` case already
+    // speaks-and-resumes for anything it doesn't specifically handle,
+    // so this is safe for every existing action too.
+    if (data.action) {
       await handleAction(data.action, data.meta, reply);
     } else {
       speak(reply, () => mic.resume());
@@ -2235,6 +2270,19 @@ async function handleAction(action, meta, replyText) {
   });
   break;
 }
+    case "MUTE_ON": {
+      // Speak the confirmation once (state.muted flips only after it
+      // finishes), then everything after stays silent until unmuted.
+      state.muted = false;
+      speak(replyText, () => { state.muted = true; updateMuteUI(true); mic.resume(); });
+      break;
+    }
+    case "MUTE_OFF": {
+      state.muted = false;
+      updateMuteUI(false);
+      speak(replyText, () => mic.resume());
+      break;
+    }
     case "SHOW_CAMERA": {
       speak(replyText, async () => {
         if (!state.cameraStream) await requestCameraAccess();
