@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════
    J.A.R.V.I.S — SIMPLE CHAT MODE
-   A plain, minimal text-chat overlay (à la ChatGPT/Claude) that
-   swaps out for the full HUD. Toggled by voice: "Jarvis, turn on
+   A plain, minimal text-chat overlay (à la ChatGPT/Claude dark mode)
+   that swaps out for the full HUD. Toggled by voice: "Jarvis, turn on
    chat mode" / "Jarvis, switch to chat mode" / "Jarvis, turn off
    chat mode" — see enterSimpleChatMode()/exitSimpleChatMode() in
    jarvis.js. Purely additive: hides the HUD chrome via a body class
@@ -17,13 +17,34 @@
    (plus !important where the original also used !important) so it
    reliably wins. Rules that only HIDE something extra don't need
    this — plain !important alone is enough for those.
+
+   PALETTE — matches the rest of the JARVIS HUD (#05070c base,
+   #7fd8ff/rgba(0,200,255,*) cyan accents) instead of a plain white
+   ChatGPT-style sheet, so chat mode doesn't feel like a different app.
    ═══════════════════════════════════════════════════════════════ */
 
 body.simple-chat-active {
-  background: #fafafa;
+  background: #05070c;
 }
 body.simple-chat-active #main-screen {
-  background: #fafafa;
+  background: #05070c;
+}
+
+/* Faint drifting tech-grid, same look as the HUD home screen, so the
+   transition in/out of chat mode doesn't feel like a hard cut to a
+   flat void. Sits behind everything, fixed, non-interactive. */
+body.simple-chat-active #main-screen::before {
+  content: "";
+  position: fixed;
+  inset: -2px;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(0,200,255,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,200,255,0.06) 1px, transparent 1px);
+  background-size: 42px 42px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 80%);
+          mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 30%, transparent 80%);
 }
 
 /* Hide all the HUD chrome (plain !important is enough — nothing
@@ -46,6 +67,8 @@ body.simple-chat-active #live-hearing {
 body.simple-chat-active #main-screen.hud-minimal .main-content {
   padding: 0 !important;
   height: 100%;
+  position: relative;
+  z-index: 1;
 }
 
 /* ── Un-hide + re-lay-out the transcript column ──
@@ -76,7 +99,8 @@ body.simple-chat-active #main-screen.hud-minimal .transcript-column {
   font-family: var(--raj, sans-serif);
   font-size: 1.7rem;
   font-weight: 500;
-  color: #1a1a1a;
+  color: #eef6fb;
+  text-shadow: 0 0 20px rgba(0,200,255,0.18);
   margin-bottom: 28px;
   letter-spacing: 0.01em;
 }
@@ -96,7 +120,7 @@ body.simple-chat-active.simple-chat-empty #main-screen.hud-minimal .transcript-a
   display: none !important;
 }
 
-/* Message bubbles, light-theme (glass-ui.css applies !important to
+/* Message bubbles, dark theme (glass-ui.css applies !important to
    .msg .msg-text backgrounds/borders/radius — match it here) */
 body.simple-chat-active .msg-label { display: none; }
 body.simple-chat-active .msg-text {
@@ -105,17 +129,17 @@ body.simple-chat-active .msg-text {
   line-height: 1.5;
 }
 body.simple-chat-active .msg.user .msg-text {
-  background: #1a1a1a !important;
-  color: #fff;
+  background: rgba(0,200,255,0.14) !important;
+  color: #f2fbff;
   padding: 10px 16px;
-  border: none !important;
+  border: 1px solid rgba(0,200,255,0.22) !important;
   border-radius: 16px !important;
   box-shadow: none !important;
   backdrop-filter: none !important;
 }
 body.simple-chat-active .msg.jarvis .msg-text {
   background: transparent !important;
-  color: #1a1a1a;
+  color: #d7e4ec;
   padding: 4px 2px;
   border: none !important;
   border-radius: 0 !important;
@@ -124,8 +148,8 @@ body.simple-chat-active .msg.jarvis .msg-text {
   backdrop-filter: none !important;
 }
 body.simple-chat-active .msg.system .msg-text {
-  background: #f0f0f0 !important;
-  color: #666;
+  background: rgba(255,255,255,0.05) !important;
+  color: #8fa2ad;
   border: none !important;
   box-shadow: none !important;
 }
@@ -144,41 +168,42 @@ body.simple-chat-active #main-screen.hud-minimal .input-bar {
   max-width: 680px;
   width: 100%;
   margin: 0 auto 40px !important;
-  background: #fff !important;
-  border: 1px solid #e6e6e6 !important;
+  background: rgba(12, 20, 30, 0.75) !important;
+  border: 1px solid rgba(0,200,255,0.24) !important;
   border-radius: 32px !important;
   padding: 6px 8px 6px 18px;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.06);
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.35), 0 0 22px rgba(0,200,255,0.05);
+  backdrop-filter: blur(16px) !important;
+  -webkit-backdrop-filter: blur(16px) !important;
   height: auto;
   min-height: 56px;
 }
 body.simple-chat-active #main-screen.hud-minimal .input-bar:focus-within {
-  border-color: #d4d4d4 !important;
-  box-shadow: 0 8px 28px rgba(0,0,0,0.09);
+  border-color: rgba(0,200,255,0.45) !important;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.4), 0 0 26px rgba(0,200,255,0.12);
 }
 body.simple-chat-active .input-bar-prefix { display: none; }
 body.simple-chat-active .input-bar input[type="text"] {
   font-family: var(--raj, sans-serif);
-  color: #1a1a1a;
+  color: #f2fbff;
   font-size: 0.98rem;
   background: transparent !important;
 }
-body.simple-chat-active .input-bar input[type="text"]::placeholder { color: #9a9a9a; opacity: 1; }
+body.simple-chat-active .input-bar input[type="text"]::placeholder { color: #6d7f8a; opacity: 1; }
 body.simple-chat-active .attach-btn {
-  color: #6b6b6b;
+  color: #9db2bd;
   border-radius: 50%;
   background: transparent !important;
 }
-body.simple-chat-active .attach-btn:hover { background: #f0f0f0 !important; color: #1a1a1a; }
+body.simple-chat-active .attach-btn:hover { background: rgba(0,200,255,0.1) !important; color: #f2fbff; }
 body.simple-chat-active .send-btn {
-  background: #1a1a1a !important;
-  color: #fff;
+  background: #7fd8ff !important;
+  color: #05070c;
   border-radius: 50%;
   width: 36px; height: 36px;
+  box-shadow: 0 0 14px rgba(0,200,255,0.35);
 }
-body.simple-chat-active .send-btn:hover { background: #333 !important; }
+body.simple-chat-active .send-btn:hover { background: #a3e6ff !important; }
 
 /* Small pill button, top-right, to hop back into the full HUD without
    needing the voice command */
@@ -188,17 +213,19 @@ body.simple-chat-active .send-btn:hover { background: #333 !important; }
   top: 18px;
   right: 18px;
   z-index: 700;
-  background: #fff;
-  border: 1px solid #e6e6e6;
-  color: #4a4a4a;
+  background: rgba(12, 20, 30, 0.75);
+  border: 1px solid rgba(0,200,255,0.24);
+  color: #c3d4dd;
   font-family: var(--raj, sans-serif);
   font-size: 0.8rem;
   padding: 8px 16px;
   border-radius: 20px;
   cursor: pointer;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
 }
-#simple-chat-exit-btn:hover { background: #f5f5f5; color: #1a1a1a; }
+#simple-chat-exit-btn:hover { background: rgba(0,200,255,0.1); border-color: rgba(0,200,255,0.4); color: #f2fbff; }
 body.simple-chat-active #simple-chat-exit-btn { display: block; }
 
 @media (max-width: 760px) {
