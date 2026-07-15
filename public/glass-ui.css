@@ -282,12 +282,6 @@ input[type="text"], input[type="password"], select, textarea,
   pointer-events: none;
 }
 
-/* Dot field drifts around slowly, like a loose star field orbiting the badge */
-.jr-dots-rotate {
-  transform-origin: 200px 200px;
-  animation: jrSpin 90s linear infinite;
-}
-
 /* Two arcs spin around the orb at different speeds/directions */
 .jr-arc-white {
   transform-origin: 200px 200px;
