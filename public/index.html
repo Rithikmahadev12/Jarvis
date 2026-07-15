@@ -844,5 +844,27 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMobileD
   }, { passive: true });
 })();
 </script>
+
+<!-- FULLSCREEN CAMERA — opened by the show_camera tool, closed by hide_camera
+     or tapping the JARVIS badge. Reuses the already-live #camera-feed stream. -->
+<div id="camera-fullscreen" class="camera-fullscreen">
+  <video id="camera-fullscreen-feed" class="camera-fullscreen-feed" autoplay muted playsinline></video>
+  <div class="cf-grid-overlay"></div>
+  <div class="cf-vignette"></div>
+  <div class="cf-corner tl"></div>
+  <div class="cf-corner tr"></div>
+  <div class="cf-corner bl"></div>
+  <div class="cf-corner br"></div>
+  <div class="cf-dots">
+    <span class="cf-dot active"></span><span class="cf-dot"></span><span class="cf-dot"></span><span class="cf-dot"></span>
+  </div>
+  <div class="cf-badge" id="camera-fullscreen-badge" title="Close camera">
+    <div class="cf-badge-ring"></div>
+    <svg class="cf-badge-arc" viewBox="0 0 100 100">
+      <circle cx="50" cy="50" r="46" fill="none" stroke="rgba(0,200,255,0.85)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="70 300"/>
+    </svg>
+    <div class="cf-badge-title">JARVIS</div>
+  </div>
+</div>
 </body>
 </html>
