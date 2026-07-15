@@ -522,13 +522,10 @@ function setOrb(s) {
   const labels = { idle: "STANDBY", listening: "LISTENING", thinking: "PROCESSING", speaking: "SPEAKING" };
   const st = $("status-text"); if (st) st.textContent = labels[s] || "STANDBY";
 
-  // Switch the visible JARVIS badge to its compact "talking" look whenever
-  // we're actively listening/thinking/speaking, back to the idle badge otherwise.
+  // Visible JARVIS badge: compact/vivid "talking" look for listening,
+  // thinking, AND speaking (they all count as "talking"); idle look otherwise.
   const home = document.querySelector(".hud-home");
-  if (home) {
-    home.classList.remove("orb-listening", "orb-thinking", "orb-speaking");
-    if (s !== "idle") home.classList.add("orb-" + s);
-  }
+  if (home) home.classList.toggle("orb-active", s !== "idle");
 }
 // ═══════════════════════════════════════════════════════════════
 // ── CAMERA ──
