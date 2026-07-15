@@ -242,13 +242,12 @@ input[type="text"], input[type="password"], select, textarea,
 .jr-core-glow {
   position: absolute;
   top: 50%; left: 50%;
-  width: 260px; height: 260px;
+  width: 180px; height: 180px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(58,134,255,0.32) 0%, rgba(58,134,255,0.12) 45%, rgba(11,15,25,0) 72%);
-  box-shadow: 0 0 90px 30px rgba(58, 134, 255, 0.45);
+  background: radial-gradient(circle, rgba(58,134,255,0.2) 0%, rgba(11,15,25,0) 70%);
+  box-shadow: 0 0 70px 25px rgba(58, 134, 255, 0.6);
   z-index: 1;
-  animation: jrGlowBreathe 5s ease-in-out infinite;
 }
 
 .jr-inner-ring {
@@ -273,39 +272,34 @@ input[type="text"], input[type="password"], select, textarea,
   text-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
 }
 
-/* Single calm ring — no rotating bright segment, no dashes */
-.jr-outer-ring-1 {
+/* ── Scattered star-dot field + spinning arc lines around the orb ── */
+.jr-hud-svg {
   position: absolute;
   top: 50%; left: 50%;
-  width: 200px; height: 200px;
+  width: 320px; height: 320px;
   transform: translate(-50%, -50%);
-  border: 1.5px solid rgba(140, 210, 255, 0.55);
-  border-radius: 50%;
-  box-shadow: 0 0 20px 2px rgba(58, 134, 255, 0.35);
   z-index: 2;
-  animation: jrRingBreathe 5s ease-in-out infinite;
-}
-
-/* Soft outer halo — smooth, even glow all the way around */
-.jr-outer-glow {
-  position: absolute;
-  top: 50%; left: 50%;
-  width: 300px; height: 300px;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(58,134,255,0.18) 0%, rgba(58,134,255,0.06) 55%, rgba(11,15,25,0) 78%);
-  z-index: 0;
   pointer-events: none;
 }
 
-@keyframes jrGlowBreathe {
-  0%, 100% { opacity: 0.85; }
-  50%      { opacity: 1; }
+/* Dot field drifts around slowly, like a loose star field orbiting the badge */
+.jr-dots-rotate {
+  transform-origin: 200px 200px;
+  animation: jrSpin 90s linear infinite;
 }
-@keyframes jrRingBreathe {
-  0%, 100% { opacity: 0.7; box-shadow: 0 0 20px 2px rgba(58, 134, 255, 0.35); }
-  50%      { opacity: 1;   box-shadow: 0 0 28px 5px rgba(58, 134, 255, 0.5); }
+
+/* Two arcs spin around the orb at different speeds/directions */
+.jr-arc-white {
+  transform-origin: 200px 200px;
+  animation: jrSpin 14s linear infinite;
 }
+.jr-arc-blue {
+  transform-origin: 200px 200px;
+  animation: jrSpinRev 10s linear infinite;
+}
+
+@keyframes jrSpin    { from { transform: rotate(0deg);   } to { transform: rotate(360deg);  } }
+@keyframes jrSpinRev { from { transform: rotate(0deg);   } to { transform: rotate(-360deg); } }
 
 /* ── COUNTDOWN ── */
 #intro-countdown {
