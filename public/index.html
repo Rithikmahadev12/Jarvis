@@ -851,20 +851,45 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeMobileD
   <video id="camera-fullscreen-feed" class="camera-fullscreen-feed" autoplay muted playsinline></video>
   <div class="cf-grid-overlay"></div>
   <div class="cf-vignette"></div>
-  <div class="cf-corner tl"></div>
-  <div class="cf-corner tr"></div>
-  <div class="cf-corner bl"></div>
-  <div class="cf-corner br"></div>
+  <div class="cf-frame"></div>
   <div class="cf-dots">
     <span class="cf-dot active"></span><span class="cf-dot"></span><span class="cf-dot"></span><span class="cf-dot"></span>
   </div>
-  <div class="cf-badge" id="camera-fullscreen-badge" title="Close camera">
-    <div class="cf-badge-ring"></div>
-    <svg class="cf-badge-arc" viewBox="0 0 100 100">
-      <circle cx="50" cy="50" r="46" fill="none" stroke="rgba(0,200,255,0.85)" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="70 300"/>
-    </svg>
-    <div class="cf-badge-title">JARVIS</div>
+
+  <!-- talk row — mic stays live here too, this just makes it visible/typeable -->
+  <div class="cf-talk-row">
+    <span class="cf-talk-dot"></span>
+    <span class="cf-talk-text" id="cf-live-hearing">listening…</span>
+    <input type="text" id="cf-type-input" placeholder="Speak or type…" autocomplete="off" spellcheck="false"/>
+    <button id="cf-type-send" class="cf-talk-send" type="button">⏎</button>
   </div>
+
+  <!-- close badge — the same .orb used everywhere else, just placed bottom-right here -->
+  <div class="cf-badge" id="camera-fullscreen-badge" title="Close camera">
+    <div class="orb" id="cf-orb">
+      <div class="orb-ring r1"></div>
+      <div class="orb-ring r2"></div>
+      <div class="orb-ring r3"></div>
+      <div class="orb-core"></div>
+      <div class="orb-pulse"></div>
+    </div>
+  </div>
+</div>
+
+<!-- TOP SCAN BAR — persistent HUD line across the top, all modes -->
+<div class="top-scan-bar" id="top-scan-bar">
+  <svg viewBox="0 0 900 22" preserveAspectRatio="none">
+    <path class="tsb-line" d="M 20 20 L 60 20 L 90 4 L 810 4 L 840 20 L 880 20"/>
+    <line class="tsb-tick" x1="120" y1="4" x2="120" y2="12"/>
+    <line class="tsb-tick" x1="200" y1="4" x2="200" y2="12"/>
+    <line class="tsb-tick" x1="280" y1="4" x2="280" y2="12"/>
+    <line class="tsb-tick" x1="360" y1="4" x2="360" y2="12"/>
+    <line class="tsb-tick" x1="450" y1="4" x2="450" y2="12"/>
+    <line class="tsb-tick" x1="540" y1="4" x2="540" y2="12"/>
+    <line class="tsb-tick" x1="620" y1="4" x2="620" y2="12"/>
+    <line class="tsb-tick" x1="700" y1="4" x2="700" y2="12"/>
+    <line class="tsb-tick" x1="780" y1="4" x2="780" y2="12"/>
+  </svg>
 </div>
 </body>
 </html>
