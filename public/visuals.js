@@ -18,6 +18,7 @@ window.JarvisVisuals = (function () {
     CONNECT_DIST: 130,
     MOUSE_PULL:   180,
     SPEED:        0.28,
+    ORB_EXCLUDE_R: 230, // keep the starfield clear of the orb badge — it has its own dedicated dot ring, this shouldn't overlap it
 
     init() {
       this.canvas = document.getElementById('particle-canvas');
@@ -39,6 +40,23 @@ window.JarvisVisuals = (function () {
       this.h = this.canvas.height = window.innerHeight;
     },
 
+    // Pushes a point radially outward until it clears the orb's exclusion
+    // zone (the badge is centered in the viewport via flex, so viewport
+    // center is a good stand-in for its screen position).
+    _clearOrbZone(x, y) {
+      const cx = this.w / 2, cy = this.h / 2;
+      const dx = x - cx, dy = y - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < this.ORB_EXCLUDE_R) {
+        const ang = Math.atan2(dy, dx) || (Math.random() * Math.PI * 2);
+        return {
+          x: cx + Math.cos(ang) * this.ORB_EXCLUDE_R,
+          y: cy + Math.sin(ang) * this.ORB_EXCLUDE_R,
+        };
+      }
+      return { x, y };
+    },
+
     spawn() {
       this.particles = [];
       // Evenly-jittered grid spawn: divides the screen into cells and drops
@@ -55,9 +73,13 @@ window.JarvisVisuals = (function () {
         for (let rx = 0; rx < cols && placed < this.COUNT; rx++) {
           const jitterX = (Math.random() - 0.5) * cellW * 0.9;
           const jitterY = (Math.random() - 0.5) * cellH * 0.9;
+          const cleared = this._clearOrbZone(
+            rx * cellW + cellW / 2 + jitterX,
+            ry * cellH + cellH / 2 + jitterY
+          );
           this.particles.push({
-            x:    rx * cellW + cellW / 2 + jitterX,
-            y:    ry * cellH + cellH / 2 + jitterY,
+            x:    cleared.x,
+            y:    cleared.y,
             vx:   (Math.random() - 0.5) * this.SPEED,
             vy:   (Math.random() - 0.5) * this.SPEED,
             r:    Math.random() * 1.2 + 0.3,
@@ -98,6 +120,16 @@ window.JarvisVisuals = (function () {
         if (p.x > this.w + 10) p.x = -10;
         if (p.y < -10) p.y = this.h + 10;
         if (p.y > this.h + 10) p.y = -10;
+
+        // Keep clear of the orb badge — reflect back out if drift carried
+        // it into the zone instead of letting it coast across the ring
+        {
+          const cleared = this._clearOrbZone(p.x, p.y);
+          if (cleared.x !== p.x || cleared.y !== p.y) {
+            p.x = cleared.x; p.y = cleared.y;
+            p.vx *= -0.4; p.vy *= -0.4; // gentle bounce back out
+          }
+        }
 
         // Draw dot
         const alpha = p.bright
