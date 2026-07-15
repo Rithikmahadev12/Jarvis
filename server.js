@@ -161,6 +161,13 @@ let outputMode = "phone";
 const HOME_TALK_ON  = /\b(enable|turn on|activate)\s+home\s*talk\b/i;
 const HOME_TALK_OFF = /\b(disable|turn off|deactivate)\s+home\s*talk\b/i;
 
+// Mute/unmute — checked as an instant regex safety net (like Home Talk
+// above) so it always works even if Groq is unconfigured/down, on top
+// of the real `mute_jarvis` / `unmute_jarvis` tools Groq can also call
+// for any other phrasing ("keep it down", "quiet please", etc).
+const MUTE_ON  = /^\s*(?:jarvis[,]?\s*)?(?:please\s+)?mute\b|\bstop\s+talking\b|\bbe\s+quiet\b|\bsilence\b(?!\s+detection)/i;
+const MUTE_OFF = /^\s*(?:jarvis[,]?\s*)?(?:please\s+)?unmute\b|\bstart\s+talking\b|\bspeak\s+again\b/i;
+
 app.use(cors());
 app.use(express.json({ limit: "30mb" }));
 
@@ -1911,6 +1918,12 @@ async function executeAssistantTool(name, args, ctx) {
     case "hide_camera":
       return { reply: `Closing the camera feed, ${T}.`, action: "HIDE_CAMERA", intent: "camera" };
 
+    case "mute_jarvis":
+      return { reply: `Muted, ${T}. Say "unmute" and I'll speak again.`, action: "MUTE_ON", intent: "mute" };
+
+    case "unmute_jarvis":
+      return { reply: `Unmuted, ${T}.`, action: "MUTE_OFF", intent: "mute" };
+
     case "get_weather":
       return await handleWeatherFetch(args.location ? `weather in ${args.location}` : "weather", T);
 
@@ -2161,6 +2174,17 @@ app.post("/api/chat", async (req, res) => {
       intent: "home_talk",
       meta:   { outputMode },
     });
+  }
+
+  // ── 0.5 Mute / unmute toggle — instant, no AI round-trip needed.
+  //      Checked as a safety net so it always works even if Groq is
+  //      unconfigured/down; the mute_jarvis/unmute_jarvis tools below
+  //      handle any other phrasing Groq recognizes. ──
+  if (MUTE_OFF.test(message)) {
+    return res.json({ reply: `Unmuted, ${T}.`, action: "MUTE_OFF", intent: "mute" });
+  }
+  if (MUTE_ON.test(message)) {
+    return res.json({ reply: `Muted, ${T}. Say "unmute" or "jarvis unmute" and I'll speak again.`, action: "MUTE_ON", intent: "mute" });
   }
 
   // ── 1. Home commands ──
