@@ -410,7 +410,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "open_on_computer",
-      description: "Open an application, file, folder, or URL on the user's own computer — e.g. 'open VS Code', 'launch chrome', 'open my resume'. Only works when Jarvis is running locally, not in the cloud. IMPORTANT: for compound requests like 'open VS Code and type a flappy bird script', call THIS tool AND type_text in the SAME response — don't stop after just opening.",
+      description: "Open an application, file, folder, or URL on the user's own computer — e.g. 'open VS Code', 'launch chrome', 'open my resume'. Only works when Jarvis is running locally, not in the cloud. IMPORTANT: for compound requests like 'open VS Code and type a flappy bird script', call THIS tool AND type_text in the SAME response — don't stop after just opening. IMPORTANT: never use this for camera requests ('open camera', 'open the camera', 'show camera') — those mean the on-screen webcam feed, not launching an OS camera app. Use show_camera for those instead.",
       parameters: {
         type: "object",
         properties: { target: { type: "string", description: "The app name, file/folder path, or URL to open." } },
@@ -470,7 +470,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "show_camera",
-      description: "Open the live camera feed fullscreen on screen — e.g. 'show camera', 'jarvis show me the camera', 'pull up the camera feed', 'let me see what the camera sees', 'full screen the camera'. Turns the camera on first if it isn't already active.",
+      description: "Open the live camera feed fullscreen on screen — e.g. 'show camera', 'open camera', 'open the camera', 'jarvis show me the camera', 'pull up the camera feed', 'let me see what the camera sees', 'full screen the camera'. This is ALWAYS what 'open camera' means from Jarvis — never route camera requests to open_on_computer. Turns the camera on first if it isn't already active.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -479,6 +479,22 @@ const TOOLS = [
     function: {
       name: "hide_camera",
       description: "Close the fullscreen camera feed that show_camera opened — e.g. 'hide the camera', 'close the camera view', 'get rid of the camera feed'. Does not turn the camera itself off, just closes the fullscreen view.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "mute_jarvis",
+      description: "Silence Jarvis's spoken voice output — e.g. 'mute', 'jarvis mute', 'stop talking', 'be quiet', 'keep it down', 'shut up'. Jarvis keeps listening and responding in text; only speech is silenced until unmute_jarvis is called.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "unmute_jarvis",
+      description: "Restore Jarvis's spoken voice output after mute_jarvis silenced it — e.g. 'unmute', 'jarvis unmute', 'you can talk again', 'speak again'.",
       parameters: { type: "object", properties: {} },
     },
   },
