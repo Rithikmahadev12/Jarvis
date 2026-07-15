@@ -316,6 +316,17 @@ input[type="text"], input[type="password"], select, textarea,
 @keyframes jrRotateCW1  { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(360deg); } }
 @keyframes jrRotateCCW1 { from { transform: translate(-50%, -50%) rotate(0deg); } to { transform: translate(-50%, -50%) rotate(-360deg); } }
 
+/* ── TWINKLE RING — full 360° halo of small star-dots around the
+   badge (evenly spaced with slight jitter so it reads as organic,
+   not mechanical). Sits above the core glow so it stays visible on
+   every side, including the bright half where the glow is strongest. ── */
+.jr-twinkle-ring { transform-origin: center; animation: jrRotateCW 90s linear infinite; }
+.jr-twinkle { animation-name: jrTwinklePulse; animation-timing-function: ease-in-out; animation-iteration-count: infinite; transform-origin: center; transform-box: fill-box; }
+@keyframes jrTwinklePulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.85); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
+
 /* ── COUNTDOWN ── */
 #intro-countdown {
   font-family: var(--mono);
