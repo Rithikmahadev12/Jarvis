@@ -1905,6 +1905,12 @@ async function executeAssistantTool(name, args, ctx) {
     case "get_agenda":
       return Reminders.buildAgendaReply(T, userTimezone, args.scope === "today" ? "today" : "");
 
+    case "show_camera":
+      return { reply: `Bringing up the camera feed, ${T}.`, action: "SHOW_CAMERA", intent: "camera" };
+
+    case "hide_camera":
+      return { reply: `Closing the camera feed, ${T}.`, action: "HIDE_CAMERA", intent: "camera" };
+
     case "get_weather":
       return await handleWeatherFetch(args.location ? `weather in ${args.location}` : "weather", T);
 
