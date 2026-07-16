@@ -727,7 +727,20 @@ function getDevice(id)      { const d = devices.get(id); return d ? serializeDev
 function clearDevices()     { devices.clear(); lastScan = 0; }
 function assignRoom(id, room)   { const d = devices.get(id); if (!d) return false; d.room = room; return true; }
 function renameDevice(id, name) { const d = devices.get(id); if (!d) return false; d.name = name; return true; }
-function isHomeCommand(text)    { return /\b(light|lights|lamp|bulb|plug|socket|outlet|switch|power|turn on|turn off|dim|brighten|smart home|scan|discover|find devices)\b/i.test(text.toLowerCase()); }
+function isHomeCommand(text) {
+  const lower = text.toLowerCase();
+  // "turn on"/"turn off"/"power"/"switch" below are bare enough that phrases
+  // like "turn on camera mode" or "switch on the camera" match them purely by
+  // accident — that's the built-in webcam, not a smart-home device. Bail out
+  // of home-command routing for ANY camera phrasing unless the user actually
+  // names a real smart-home camera by location (e.g. "driveway camera"),
+  // which is the one legitimate case control_home should still handle.
+  if (/\bcamera\b/.test(lower)) {
+    const namesLocation = /\b(driveway|garage|front door|back ?yard|porch|baby|nursery|living room|bedroom|office|kitchen|hallway|entrance)\s+camera\b/.test(lower);
+    if (!namesLocation) return false;
+  }
+  return /\b(light|lights|lamp|bulb|plug|socket|outlet|switch|power|turn on|turn off|dim|brighten|smart home|scan|discover|find devices)\b/.test(lower);
+}
 function isHomePanelRequest(t)  { return /^home\s*$/.test(t.toLowerCase().trim()) || /\b(open home|home panel|home control|smart home|home hub|show home)\b/i.test(t); }
 
 module.exports = {
