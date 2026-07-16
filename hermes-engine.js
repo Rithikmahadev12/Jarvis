@@ -333,7 +333,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "control_home",
-      description: "Control smart home devices — lights, plugs, thermostats, casting audio, etc.",
+      description: "Control smart home devices that were scanned/added on the home network — lights, plugs, thermostats, casting audio, IP/RTSP security cameras added on the home panel, etc. NEVER use this for the built-in webcam / on-screen camera feed, or for phrases like 'camera mode', 'turn on camera', 'turn on camera mode', 'activate camera' — those always mean show_camera, not a smart-home device. Only use control_home when the user clearly names a home device/room (lights, plugs, thermostat) or explicitly says 'smart home' / 'home panel'.",
       parameters: {
         type: "object",
         properties: { query: { type: "string", description: "The home command in natural language, e.g. 'turn off the bedroom lights', 'set the thermostat to 70'." } },
@@ -470,7 +470,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "show_camera",
-      description: "Open the live camera feed fullscreen on screen — e.g. 'show camera', 'open camera', 'open the camera', 'jarvis show me the camera', 'pull up the camera feed', 'let me see what the camera sees', 'full screen the camera'. This is ALWAYS what 'open camera' means from Jarvis — never route camera requests to open_on_computer. Turns the camera on first if it isn't already active.",
+      description: "Open the live camera feed fullscreen on screen — e.g. 'show camera', 'open camera', 'open the camera', 'turn on camera mode', 'turn on camera', 'activate camera mode', 'enable camera mode', 'jarvis show me the camera', 'pull up the camera feed', 'let me see what the camera sees', 'full screen the camera'. This is ALWAYS what any 'camera' or 'camera mode' request means from Jarvis — never route these to open_on_computer or control_home, even though control_home can technically manage other smart-home cameras. The built-in on-screen webcam always wins unless the user explicitly names a smart-home camera by location (e.g. 'turn on the driveway camera'). Turns the camera on first if it isn't already active.",
       parameters: { type: "object", properties: {} },
     },
   },
