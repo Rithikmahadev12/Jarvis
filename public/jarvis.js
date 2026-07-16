@@ -574,10 +574,10 @@ async function switchCamera(deviceId) {
     state.faceEnrolled = false;
     await enrollUserFace();
     const reply = `Camera switched, ${state.userTitle}. Visual sensors updated.`;
-    addMsg("jarvis", reply); speak(reply); updateMood(2);
+    addMsg("jarvis", reply); speak(reply, () => mic.resume()); updateMood(2);
   } catch {
     const reply = `Camera switch failed, ${state.userTitle}. The device may be in use.`;
-    addMsg("jarvis", reply); speak(reply);
+    addMsg("jarvis", reply); speak(reply, () => mic.resume());
   }
 }
 
@@ -2739,8 +2739,14 @@ async function readScreen(question) {
 // ── FULLSCREEN CAMERA — opened by the show_camera tool ──
 function openCameraFullscreen() {
   const wrap = $("camera-fullscreen"); if (!wrap) return;
+  // Without a live stream this would just show a black "active" overlay
+  // while Jarvis claims the feed is up — tell the truth instead.
+  if (!state.cameraStream) {
+    addMsg("system", "Camera isn't available — check that camera permission was granted (browser address-bar icon) and try again.");
+    return;
+  }
   const feed = $("camera-fullscreen-feed");
-  if (feed && state.cameraStream) feed.srcObject = state.cameraStream;
+  if (feed) feed.srcObject = state.cameraStream;
   wrap.classList.add("active");
   const badge = $("camera-fullscreen-badge");
   if (badge && !badge._cfBound) {
