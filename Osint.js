@@ -1,8 +1,8 @@
-const puppeteer = require('puppeteer');
+// Upgrade to the stealth-enabled orchestration framework
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 
-/**
- * Clean and standardize phone numbers to format: (XXX) XXX-XXXX or XX-XX...
- */
 function cleanPhoneNumber(phoneStr) {
     const cleaned = ('' + phoneStr).replace(/\D/g, '');
     if (cleaned.length === 10) {
@@ -11,10 +11,6 @@ function cleanPhoneNumber(phoneStr) {
     return `"${cleaned}"`;
 }
 
-/**
- * Replicates a premium Reverse Phone Lookup API completely for free by using 
- * real-time headless OSINT web-scraping footprints.
- */
 async function reversePhoneLookup(phoneNumber) {
     if (!phoneNumber) {
         return { success: false, error: "No phone number provided." };
@@ -25,7 +21,7 @@ async function reversePhoneLookup(phoneNumber) {
     let browser;
     
     try {
-        // Launch a stealthy headless browser context
+        // Launches a human-masked Chromium execution pool
         browser = await puppeteer.launch({
             headless: true,
             args: [
@@ -36,16 +32,20 @@ async function reversePhoneLookup(phoneNumber) {
         });
 
         const page = await browser.newPage();
-        // Set user agent to pretend we are a standard browser profile
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        
+        // Emulate a standard verified Windows Chrome user profile layout
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'en-US,en;q=0.9'
+        });
 
         let socialMatches = [];
         let classifications = [];
 
         // --- PHASE 1: EXPANDED SOCIAL MEDIA SEARCH ---
-        // We query for the formatted number, raw digits, and international variations across social sites
         if (cleanedRaw.length >= 7) {
-            const socialDork = `(site:instagram.com OR site:facebook.com OR site:linkedin.com/in OR site:twitter.com) AND ("${cleanedRaw}" OR ${formattedQuery} OR "+1${cleanedRaw}")`;
+            // Re-engineered cross-platform lookup pattern (handles raw strings, formatting, and international formats)
+            const socialDork = `(site:instagram.com OR site:facebook.com OR site:linkedin.com) AND ("${cleanedRaw}" OR ${formattedQuery} OR "+1${cleanedRaw}")`;
             const socialSearchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(socialDork)}`;
             
             await page.goto(socialSearchUrl, { waitUntil: 'networkidle2' });
@@ -54,36 +54,33 @@ async function reversePhoneLookup(phoneNumber) {
                 const profiles = [];
                 const snippets = document.querySelectorAll('.result__snippet');
                 const titles = document.querySelectorAll('.result__title');
+                const links = document.querySelectorAll('.result__url');
                 
                 snippets.forEach((el, index) => {
                     const titleText = titles[index] ? titles[index].innerText : '';
                     const snippetText = el.innerText;
+                    const urlText = links[index] ? links[index].innerText : '';
                     
                     let platform = "Social Profile";
-                    if (titleText.toLowerCase().includes('instagram') || snippetText.toLowerCase().includes('instagram')) platform = "Instagram";
-                    else if (titleText.toLowerCase().includes('facebook') || snippetText.toLowerCase().includes('facebook')) platform = "Facebook";
-                    else if (titleText.toLowerCase().includes('linkedin') || snippetText.toLowerCase().includes('linkedin')) platform = "LinkedIn";
+                    if (urlText.includes('instagram.com') || snippetText.toLowerCase().includes('instagram')) platform = "Instagram";
+                    else if (urlText.includes('facebook.com') || snippetText.toLowerCase().includes('facebook')) platform = "Facebook";
+                    else if (urlText.includes('linkedin.com') || snippetText.toLowerCase().includes('linkedin')) platform = "LinkedIn";
 
                     profiles.push({
                         platform: platform,
                         title: titleText,
-                        snippet: snippetText
+                        snippet: snippetText,
+                        link: urlText
                     });
                 });
                 return profiles;
             });
         }
 
-        if (socialMatches.length > 0) {
-            classifications.push(`Social Matches Found (${socialMatches.length})`);
-        }
+        // --- PHASE 2: PUBLIC RECORD FOOTPRINT SEARCH ---
+        const generalSearchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(formattedQuery)}`;
+        await page.goto(generalSearchUrl, { waitUntil: 'networkidle2' });
 
-        // --- PHASE 2: GENERAL OSINT SEARCH ---
-        // We run a targeted exact-string lookup on raw data pools
-        const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(formattedQuery)}`;
-        await page.goto(searchUrl, { waitUntil: 'networkidle2' });
-
-        // Extract metadata text snippets that premium APIs scrape behind paywalls
         const results = await page.evaluate(() => {
             const snippets = [];
             const elements = document.querySelectorAll('.result__snippet');
@@ -100,50 +97,40 @@ async function reversePhoneLookup(phoneNumber) {
 
         await browser.close();
 
+        // Check if bot detection still blocked both passes completely
         if (results.length === 0 && socialMatches.length === 0) {
             return {
-                success: true,
-                number: phoneNumber,
-                owner: "Unknown / Unlisted Name",
-                details: "No explicit public record linked to this exact format string.",
-                spamRisk: "Low",
-                socialMatches: []
+                success: false,
+                error: "The search index throttled the automation request. Try checking your local IP or network restrictions."
             };
         }
 
-        // --- Intelligence Processing and Parsing ---
+        // --- PHASE 3: PARSING LOGIC ENGINE ---
+        if (socialMatches.length > 0) {
+            classifications.push(`Social Footprints Isolated (${socialMatches.length})`);
+        }
+
         let combinedText = [...results, ...socialMatches].map(r => `${r.title} ${r.snippet}`).join(' ').toLowerCase();
         let suspectedOwner = "Unknown Owner";
         let riskScore = "Low";
 
-        // Identify scam indicators
-        if (combinedText.includes('scam') || combinedText.includes('telemarketer') || combinedText.includes('spam') || combinedText.includes('robocall')) {
+        if (combinedText.includes('scam') || combinedText.includes('telemarketer') || combinedText.includes('spam')) {
             riskScore = "High";
-            classifications.push("Reported Scam/Spam Active");
-        }
-        
-        // Scan for potential names or business entities
-        const businessKeywords = ['inc', 'llc', 'co', 'services', 'support', 'telecom', 'department'];
-        let foundBusiness = businessKeywords.find(kw => combinedText.includes(kw));
-        
-        if (foundBusiness) {
-            classifications.push("Possible Commercial Entity");
+            classifications.push("Reported Spam Active");
         }
 
-        // Check social matches first for identity strings
+        // Attempt identity extraction from matching profiles
         for (const profile of socialMatches) {
-            const match = profile.title.match(/^([^|•\-(]+)/); // Grabs everything before layout characters
+            const match = profile.title.match(/^([^|•\-(]+)/);
             if (match && match[1] && !match[1].toLowerCase().includes('instagram') && !match[1].toLowerCase().includes('facebook')) {
                 suspectedOwner = match[1].trim() + ` (${profile.platform})`;
                 break;
             }
         }
 
-        // Fallback natural extraction matching pattern if social didn't yield a direct name
         if (suspectedOwner === "Unknown Owner") {
             for (const item of results) {
-                const text = item.snippet;
-                const match = text.match(/(?:owned by|registered to|owner:)\s*([A-Z][a-z]+\s+[A-Z][a-z]+)/i);
+                const match = item.snippet.match(/(?:owned by|registered to|owner:)\s*([A-Z][a-z]+\s+[A-Z][a-z]+)/i);
                 if (match && match[1]) {
                     suspectedOwner = match[1];
                     break;
@@ -151,8 +138,7 @@ async function reversePhoneLookup(phoneNumber) {
             }
         }
 
-        // If no explicit phrase, parse out the cleanest high-ranking context title
-        if (suspectedOwner === "Unknown Owner" && results.length > 0 && results[0].title) {
+        if (suspectedOwner === "Unknown Owner" && results.length > 0) {
             suspectedOwner = results[0].title.replace(/\|.*/, '').trim();
         }
 
@@ -162,14 +148,13 @@ async function reversePhoneLookup(phoneNumber) {
             owner: suspectedOwner,
             spamRisk: riskScore,
             tags: classifications.length > 0 ? classifications : ["Personal Line"],
-            socialMatches: socialMatches,
-            rawIntelSample: results.slice(0, 2)
+            socialMatches: socialMatches
         };
 
     } catch (error) {
         if (browser) await browser.close();
-        console.error("OSINT Lookup Error:", error);
-        return { success: false, error: "Internal processing engine timeout." };
+        console.error("Stealth OSINT Engine Exception:", error);
+        return { success: false, error: "Scraping pipeline execution failure." };
     }
 }
 
