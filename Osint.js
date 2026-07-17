@@ -20,6 +20,7 @@ async function reversePhoneLookup(phoneNumber) {
         return { success: false, error: "No phone number provided." };
     }
 
+    const cleanedRaw = ('' + phoneNumber).replace(/\D/g, '');
     const formattedQuery = cleanPhoneNumber(phoneNumber);
     let browser;
     
@@ -38,6 +39,46 @@ async function reversePhoneLookup(phoneNumber) {
         // Set user agent to pretend we are a standard browser profile
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
+        let socialMatches = [];
+        let classifications = [];
+
+        // --- PHASE 1: EXPANDED SOCIAL MEDIA SEARCH ---
+        // We query for the formatted number, raw digits, and international variations across social sites
+        if (cleanedRaw.length >= 7) {
+            const socialDork = `(site:instagram.com OR site:facebook.com OR site:linkedin.com/in OR site:twitter.com) AND ("${cleanedRaw}" OR ${formattedQuery} OR "+1${cleanedRaw}")`;
+            const socialSearchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(socialDork)}`;
+            
+            await page.goto(socialSearchUrl, { waitUntil: 'networkidle2' });
+
+            socialMatches = await page.evaluate(() => {
+                const profiles = [];
+                const snippets = document.querySelectorAll('.result__snippet');
+                const titles = document.querySelectorAll('.result__title');
+                
+                snippets.forEach((el, index) => {
+                    const titleText = titles[index] ? titles[index].innerText : '';
+                    const snippetText = el.innerText;
+                    
+                    let platform = "Social Profile";
+                    if (titleText.toLowerCase().includes('instagram') || snippetText.toLowerCase().includes('instagram')) platform = "Instagram";
+                    else if (titleText.toLowerCase().includes('facebook') || snippetText.toLowerCase().includes('facebook')) platform = "Facebook";
+                    else if (titleText.toLowerCase().includes('linkedin') || snippetText.toLowerCase().includes('linkedin')) platform = "LinkedIn";
+
+                    profiles.push({
+                        platform: platform,
+                        title: titleText,
+                        snippet: snippetText
+                    });
+                });
+                return profiles;
+            });
+        }
+
+        if (socialMatches.length > 0) {
+            classifications.push(`Social Matches Found (${socialMatches.length})`);
+        }
+
+        // --- PHASE 2: GENERAL OSINT SEARCH ---
         // We run a targeted exact-string lookup on raw data pools
         const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(formattedQuery)}`;
         await page.goto(searchUrl, { waitUntil: 'networkidle2' });
@@ -59,21 +100,21 @@ async function reversePhoneLookup(phoneNumber) {
 
         await browser.close();
 
-        if (results.length === 0) {
+        if (results.length === 0 && socialMatches.length === 0) {
             return {
                 success: true,
                 number: phoneNumber,
                 owner: "Unknown / Unlisted Name",
                 details: "No explicit public record linked to this exact format string.",
-                spamRisk: "Low"
+                spamRisk: "Low",
+                socialMatches: []
             };
         }
 
         // --- Intelligence Processing and Parsing ---
-        let combinedText = results.map(r => `${r.title} ${r.snippet}`).join(' ').toLowerCase();
+        let combinedText = [...results, ...socialMatches].map(r => `${r.title} ${r.snippet}`).join(' ').toLowerCase();
         let suspectedOwner = "Unknown Owner";
         let riskScore = "Low";
-        let classifications = [];
 
         // Identify scam indicators
         if (combinedText.includes('scam') || combinedText.includes('telemarketer') || combinedText.includes('spam') || combinedText.includes('robocall')) {
@@ -89,19 +130,29 @@ async function reversePhoneLookup(phoneNumber) {
             classifications.push("Possible Commercial Entity");
         }
 
-        // Fallback natural extraction matching pattern
-        // Looks for common configurations in OSINT directories: "is registered to [Name]" or "Name: [Value]"
-        for (const item of results) {
-            const text = item.snippet;
-            const match = text.match(/(?:owned by|registered to|owner:)\s*([A-Z][a-z]+\s+[A-Z][a-z]+)/i);
-            if (match && match[1]) {
-                suspectedOwner = match[1];
+        // Check social matches first for identity strings
+        for (const profile of socialMatches) {
+            const match = profile.title.match(/^([^|•\-(]+)/); // Grabs everything before layout characters
+            if (match && match[1] && !match[1].toLowerCase().includes('instagram') && !match[1].toLowerCase().includes('facebook')) {
+                suspectedOwner = match[1].trim() + ` (${profile.platform})`;
                 break;
             }
         }
 
+        // Fallback natural extraction matching pattern if social didn't yield a direct name
+        if (suspectedOwner === "Unknown Owner") {
+            for (const item of results) {
+                const text = item.snippet;
+                const match = text.match(/(?:owned by|registered to|owner:)\s*([A-Z][a-z]+\s+[A-Z][a-z]+)/i);
+                if (match && match[1]) {
+                    suspectedOwner = match[1];
+                    break;
+                }
+            }
+        }
+
         // If no explicit phrase, parse out the cleanest high-ranking context title
-        if (suspectedOwner === "Unknown Owner" && results[0].title) {
+        if (suspectedOwner === "Unknown Owner" && results.length > 0 && results[0].title) {
             suspectedOwner = results[0].title.replace(/\|.*/, '').trim();
         }
 
@@ -111,7 +162,8 @@ async function reversePhoneLookup(phoneNumber) {
             owner: suspectedOwner,
             spamRisk: riskScore,
             tags: classifications.length > 0 ? classifications : ["Personal Line"],
-            rawIntelSample: results.slice(0, 2) // Send back top footprints for the dashboard UI
+            socialMatches: socialMatches,
+            rawIntelSample: results.slice(0, 2)
         };
 
     } catch (error) {
