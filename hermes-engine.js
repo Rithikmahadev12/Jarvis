@@ -470,7 +470,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "show_camera",
-      description: "Open the live camera feed fullscreen on screen — e.g. 'show camera', 'open camera', 'open the camera', 'turn on camera mode', 'turn on camera', 'activate camera mode', 'enable camera mode', 'jarvis show me the camera', 'pull up the camera feed', 'let me see what the camera sees', 'full screen the camera'. This is ALWAYS what any 'camera' or 'camera mode' request means from Jarvis — never route these to open_on_computer or control_home, even though control_home can technically manage other smart-home cameras. The built-in on-screen webcam always wins unless the user explicitly names a smart-home camera by location (e.g. 'turn on the driveway camera'). Turns the camera on first if it isn't already active.",
+      description: "Open the live camera feed fullscreen on screen — e.g. 'show camera', 'open camera', 'open the camera', 'turn on camera mode', 'turn on camera', 'activate camera mode', 'enable camera mode', 'jarvis show me the camera', 'pull up the camera feed', 'let me see what the camera sees', 'full screen the camera'. This is ALWAYS what any 'camera' or 'camera mode' request means from Jarvis — never route these to open_on_computer or control_home, even though control_home can technically manage other smart-home cameras. The built-in on-screen webcam always wins unless the user explicitly names a smart-home camera by location (e.g. 'turn on the driveway camera'). Turns the camera on first if it isn't already active. IMPORTANT: if the phrase pairs 'camera mode' with an off/stop/disable/close/exit/hide word (e.g. 'disable camera mode', 'turn off camera mode', 'exit camera mode'), that is NOT this tool — use hide_camera instead.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -478,7 +478,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "hide_camera",
-      description: "Close the fullscreen camera feed that show_camera opened — e.g. 'hide the camera', 'close the camera view', 'get rid of the camera feed'. Does not turn the camera itself off, just closes the fullscreen view.",
+      description: "Close the fullscreen camera feed that show_camera opened — e.g. 'hide the camera', 'close the camera view', 'get rid of the camera feed', 'turn off camera mode', 'disable camera mode', 'exit camera mode', 'stop camera mode', 'deactivate camera mode'. Any 'camera mode' phrasing paired with an off/stop/disable/close/exit word means THIS tool, not show_camera. Does not turn the camera itself off, just closes the fullscreen view.",
       parameters: { type: "object", properties: {} },
     },
   },
