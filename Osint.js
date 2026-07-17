@@ -1,8 +1,5 @@
 const puppeteer = require('puppeteer');
 
-/**
- * Clean and standardize phone numbers to format: (XXX) XXX-XXXX or XX-XX...
- */
 function cleanPhoneNumber(phoneStr) {
     const cleaned = ('' + phoneStr).replace(/\D/g, '');
     if (cleaned.length === 10) {
@@ -11,10 +8,6 @@ function cleanPhoneNumber(phoneStr) {
     return `"${cleaned}"`;
 }
 
-/**
- * Replicates a premium Reverse Phone Lookup API completely for free by using 
- * real-time headless OSINT web-scraping footprints.
- */
 async function reversePhoneLookup(phoneNumber) {
     if (!phoneNumber) {
         return { success: false, error: "No phone number provided." };
@@ -24,7 +17,6 @@ async function reversePhoneLookup(phoneNumber) {
     let browser;
     
     try {
-        // Launch a stealthy headless browser context
         browser = await puppeteer.launch({
             headless: true,
             args: [
@@ -35,88 +27,88 @@ async function reversePhoneLookup(phoneNumber) {
         });
 
         const page = await browser.newPage();
-        // Set user agent to pretend we are a standard browser profile
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-        // We run a targeted exact-string lookup on raw data pools
-        const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(formattedQuery)}`;
+        // --- PHASE 1: TARGETED SOCIAL MEDIA CRAWL ---
+        // Tells the search engine to ONLY look for this phone number inside specific social networks
+        const socialDork = `(site:facebook.com OR site:linkedin.com/in OR site:instagram.com) AND ${formattedQuery}`;
+        const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(socialDork)}`;
+        
         await page.goto(searchUrl, { waitUntil: 'networkidle2' });
 
-        // Extract metadata text snippets that premium APIs scrape behind paywalls
-        const results = await page.evaluate(() => {
-            const snippets = [];
+        const socialResults = await page.evaluate(() => {
+            const items = [];
             const elements = document.querySelectorAll('.result__snippet');
-            const titles = document.querySelectorAll('.result__title');
+            const links = document.querySelectorAll('.result__url');
             
             elements.forEach((el, index) => {
-                snippets.push({
-                    title: titles[index] ? titles[index].innerText : '',
-                    snippet: el.innerText
-                });
+                if(links[index]) {
+                    items.push({
+                        url: links[index].innerText.trim(),
+                        snippet: el.innerText
+                    });
+                }
             });
-            return snippets;
+            return items;
         });
 
-        await browser.close();
-
-        if (results.length === 0) {
-            return {
-                success: true,
-                number: phoneNumber,
-                owner: "Unknown / Unlisted Name",
-                details: "No explicit public record linked to this exact format string.",
-                spamRisk: "Low"
-            };
-        }
-
-        // --- Intelligence Processing and Parsing ---
-        let combinedText = results.map(r => `${r.title} ${r.snippet}`).join(' ').toLowerCase();
+        // --- PHASE 2: PROCESSING SOCIAL PROFILES ---
+        let socialProfilesFound = [];
         let suspectedOwner = "Unknown Owner";
-        let riskScore = "Low";
         let classifications = [];
 
-        // Identify scam indicators
-        if (combinedText.includes('scam') || combinedText.includes('telemarketer') || combinedText.includes('spam') || combinedText.includes('robocall')) {
-            riskScore = "High";
-            classifications.push("Reported Scam/Spam Active");
-        }
-        
-        // Scan for potential names or business entities
-        const businessKeywords = ['inc', 'llc', 'co', 'services', 'support', 'telecom', 'department'];
-        let foundBusiness = businessKeywords.find(kw => combinedText.includes(kw));
-        
-        if (foundBusiness) {
-            classifications.push("Possible Commercial Entity");
+        if (socialResults.length > 0) {
+            for (const item of socialResults) {
+                let platformName = "Unknown Platform";
+                if (item.url.includes("facebook.com")) platformName = "Facebook";
+                if (item.url.includes("linkedin.com")) platformName = "LinkedIn";
+                if (item.url.includes("instagram.com")) platformName = "Instagram";
+
+                socialProfilesFound.push({
+                    platform: platformName,
+                    link: item.url,
+                    preview: item.snippet
+                });
+
+                // Try to isolate a profile identity name from the social snippet
+                // Example: "Check out John Smith's profile on LinkedIn..."
+                const nameMatch = item.preview.match(/([A-Z][a-z]+\s+[A-Z][a-z]+)/);
+                if (nameMatch && suspectedOwner === "Unknown Owner") {
+                    suspectedOwner = `${nameMatch[1]} (${platformName} Profile)`;
+                }
+            }
+            classifications.push("Social Media Linked");
         }
 
-        // Fallback natural extraction matching pattern
-        // Looks for common configurations in OSINT directories: "is registered to [Name]" or "Name: [Value]"
-        for (const item of results) {
-            const text = item.snippet;
-            const match = text.match(/(?:owned by|registered to|owner:)\s*([A-Z][a-z]+\s+[A-Z][a-z]+)/i);
-            if (match && match[1]) {
-                suspectedOwner = match[1];
-                break;
+        // --- PHASE 3: GENERAL FALLBACK IF SOCIAL CRALWER IS DRY ---
+        if (suspectedOwner === "Unknown Owner") {
+            const fallbackUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(formattedQuery)}`;
+            await page.goto(fallbackUrl, { waitUntil: 'networkidle2' });
+
+            const generalTitle = await page.evaluate(() => {
+                const firstTitle = document.querySelector('.result__title');
+                return firstTitle ? firstTitle.innerText : null;
+            });
+
+            if (generalTitle) {
+                suspectedOwner = generalTitle.replace(/\|.*/, '').trim();
             }
         }
 
-        // If no explicit phrase, parse out the cleanest high-ranking context title
-        if (suspectedOwner === "Unknown Owner" && results[0].title) {
-            suspectedOwner = results[0].title.replace(/\|.*/, '').trim();
-        }
+        await browser.close();
 
         return {
             success: true,
             number: phoneNumber,
             owner: suspectedOwner,
-            spamRisk: riskScore,
+            spamRisk: socialProfilesFound.length > 0 ? "Low (Verified Social Profile)" : "Medium",
             tags: classifications.length > 0 ? classifications : ["Personal Line"],
-            rawIntelSample: results.slice(0, 2) // Send back top footprints for the dashboard UI
+            socialMatches: socialProfilesFound
         };
 
     } catch (error) {
         if (browser) await browser.close();
-        console.error("OSINT Lookup Error:", error);
+        console.error("OSINT Social Lookup Error:", error);
         return { success: false, error: "Internal processing engine timeout." };
     }
 }
