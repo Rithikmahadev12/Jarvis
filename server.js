@@ -1606,6 +1606,20 @@ async function handlePersonFetch(message, meta, T) {
   }
 }
 
+async function handlePhoneLookupFetch(phoneNumber, T) {
+  try {
+    const result = await reversePhoneLookup(phoneNumber);
+    if (!result.success) {
+      return { reply: `Phone lookup failed, ${T}: ${result.error}`, action: "OSINT_LOOKUP", intent: "phone_lookup" };
+    }
+    const tagText = result.tags?.length ? ` Tags: ${result.tags.join(", ")}.` : "";
+    const reply = `Here's what I found on ${phoneNumber}, ${T}. Likely owner or listing: ${result.owner}. Spam risk: ${result.spamRisk}.${tagText}`;
+    return { reply, action: "OSINT_LOOKUP", intent: "phone_lookup", meta: { number: phoneNumber, raw: result } };
+  } catch (e) {
+    return { reply: `Phone lookup hit an error, ${T}. Try again.`, action: "OSINT_LOOKUP", intent: "phone_lookup" };
+  }
+}
+
 async function handleDIYFetch(message, userTitle) {
   const T = userTitle || "Sir";
   try {
@@ -2346,6 +2360,12 @@ app.post("/api/chat", async (req, res) => {
     }
     if (hardCommandType === "newsPage") {
       return res.json(await handleNewsFetch(message, T, "page"));
+    }
+    if (hardCommandType === "lookup") {
+      const phoneMatch = message.match(/(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/);
+      if (phoneMatch) {
+        return res.json(await handlePhoneLookupFetch(phoneMatch[0], T));
+      }
     }
 
     const linkSummary = getLinksSummary();
