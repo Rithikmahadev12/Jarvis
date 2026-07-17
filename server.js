@@ -30,6 +30,7 @@ const Proactive   = require("./proactive");
 const TTS = require("./tts");
 const Persistence = require("./persistence");
 const Settings    = require("./settings");
+const { reversePhoneLookup } = require('./Osint');
 
 const app        = express();
 
@@ -531,6 +532,30 @@ function euclideanDistance(a, b) {
 }
 
 app.get("/favicon.ico", (req, res) => res.status(204).end());
+
+// ═══════════════════════════════════════════════════════════════
+// ── GENUINELY FREE REVERSE PHONE LOOKUP API
+// ═══════════════════════════════════════════════════════════════
+/**
+ * Genuinely Free Reverse Phone Lookup API Endpoint
+ * Accessible by your local deployment or client UI hosted on Render
+ */
+app.get('/api/lookup', async (req, res) => {
+    const { number } = req.query;
+    
+    if (!number) {
+        return res.status(400).json({ success: false, error: "Phone number parameter is required." });
+    }
+
+    // Trigger the real-time API simulation trace
+    const lookupResult = await reversePhoneLookup(number);
+    
+    if (lookupResult.success) {
+        return res.json(lookupResult);
+    } else {
+        return res.status(500).json(lookupResult);
+    }
+});
 
 // ═══════════════════════════════════════════════════════════════
 // ── HOME AUTOMATION
