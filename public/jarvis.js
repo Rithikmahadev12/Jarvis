@@ -301,6 +301,22 @@ window.speechSynthesis.onvoiceschanged = () => {};
 let _currentAudio = null;
 let _ttsReady     = false;
 
+// Kills whatever Jarvis is currently saying (Camb/cloned-voice audio or the
+// browser SpeechSynthesis fallback). Used both by speak() itself when a new
+// reply supersedes an old one, and by the mic's barge-in detection below —
+// bumping _speakGen (declared further down) invalidates any in-flight TTS
+// network request too, so a stale response can't start talking after this.
+function stopSpeaking() {
+  _speakGen++;
+  state.synth.cancel();
+  if (_currentAudio) { try { _currentAudio.pause(); } catch (_) {} _currentAudio = null; }
+  setOrb(state.phase === "chatting" ? "listening" : "idle");
+}
+
+function isJarvisSpeaking() {
+  return !!_currentAudio || (state.synth && state.synth.speaking);
+}
+
 async function checkTTSReady() {
   try {
     const res  = await fetch("/api/tts/status");
@@ -622,10 +638,17 @@ const mic = {
           if ((result[i].confidence || 0) > bestConf) { bestConf = result[i].confidence; bestText = result[i].transcript.trim(); }
         }
         if (!bestText) return;
+        // Barge-in: the mic stays live while Jarvis talks now, so if real
+        // speech comes in before he's done, cut his audio immediately
+        // rather than letting him keep talking over the user.
+        if (isJarvisSpeaking()) stopSpeaking();
         updateLiveHearing(""); updateMicDebug(`Mic: "${bestText}" (${(bestConf * 100).toFixed(0)}%)`);
         if (this.onResult) this.onResult(bestText);
       } else if (result[0]) {
         const interim = result[0].transcript.trim();
+        // Cut in on the interim result too (a few real words in) so Jarvis
+        // stops the instant the user starts talking, not once they finish.
+        if (interim.length > 3 && isJarvisSpeaking()) stopSpeaking();
         updateLiveHearing(interim); updateMicDebug("Mic: " + interim + "…");
         if (this.onInterim) this.onInterim(interim);
       }
@@ -1773,7 +1796,9 @@ function handleChatCommand(text, attachments) {
 // ═══════════════════════════════════════════════════════════════
 // ── AI CHAT ──
 async function sendToAI(message, attachments) {
-  mic.suspend();
+  // Mic intentionally stays live here (not suspended) so the user can talk
+  // over Jarvis mid-reply — see the barge-in check in mic._launch()'s
+  // onresult handler, which cuts his audio the moment new speech comes in.
   addMsg("user", message, attachments);
   setOrb("thinking");
 
