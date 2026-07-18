@@ -1,0 +1,54 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — Face-ID → Main HUD Reveal
+   Instead of an instant cut from the auth screen to the main HUD,
+   the HUD wipes in top-to-bottom behind a glowing scan line, with
+   the taskbar visible the whole time (it lives outside the wrapper
+   below, so it's never clipped).
+   Triggered by adding "revealing"/"active" via JS (see jarvis.js —
+   launchMain()). Both animations share the same duration/easing so
+   the line and the reveal edge stay in sync.
+   ═══════════════════════════════════════════════════════════════ */
+
+#main-reveal-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  clip-path: inset(0 0 100% 0); /* fully hidden until .revealing runs */
+}
+#main-reveal-wrap.revealing {
+  animation: jarvisMainReveal 1100ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes jarvisMainReveal {
+  0%   { clip-path: inset(0 0 100% 0); }
+  100% { clip-path: inset(0 0 0% 0); }
+}
+
+#reveal-scanline {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 3px;
+  z-index: 70; /* above the taskbar (61), below any modal overlays */
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(0, 200, 255, 0.9) 15%,
+    #eafcff 50%,
+    rgba(0, 200, 255, 0.9) 85%,
+    transparent 100%
+  );
+  box-shadow:
+    0 0 20px 4px rgba(0, 190, 255, 0.85),
+    0 0 60px 12px rgba(0, 150, 255, 0.35);
+}
+#reveal-scanline.active {
+  animation: jarvisScanline 1100ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+@keyframes jarvisScanline {
+  0%   { top: 0%;   opacity: 1; }
+  92%  { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
