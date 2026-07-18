@@ -136,17 +136,24 @@
   .broadcast-main {
     grid-row: 1;
     grid-column: 1;
+    background: #010c14;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    border-right: 1px solid rgba(0,200,255,0.14);
+    min-height: 0;
+    overflow: hidden;
+  }
+  .broadcast-text {
     background:
       radial-gradient(circle at 30% 20%, rgba(0,200,255,0.16), transparent 55%),
       linear-gradient(135deg, #0d2035, #010c14);
     display: flex;
     flex-direction: column;
     justify-content: center;
-    align-items: flex-start;
-    padding: 22px 26px;
+    padding: 16px 22px;
     position: relative;
-    border-right: 1px solid rgba(0,200,255,0.14);
-    min-height: 0;
+    flex-shrink: 0;
     overflow: hidden;
   }
   .broadcast-eyebrow {
@@ -158,15 +165,14 @@
   }
   .broadcast-headline {
     font-family: var(--hud);
-    font-size: clamp(1.1rem, 2.4vw, 1.9rem);
+    font-size: clamp(0.95rem, 1.7vw, 1.4rem);
     font-weight: 800;
     line-height: 1.25;
     color: var(--text-bright);
     text-shadow: 0 0 22px rgba(0,200,255,0.25);
-    max-width: 92%;
   }
   .broadcast-src {
-    margin-top: 14px;
+    margin-top: 10px;
     font-family: var(--mono);
     font-size: 0.5rem;
     color: var(--text-dim);
@@ -175,20 +181,23 @@
   .broadcast-glyph {
     position: absolute;
     right: -10px; bottom: -20px;
-    font-size: 8rem;
+    font-size: 6rem;
     color: rgba(0,200,255,0.05);
     font-family: var(--hud);
     pointer-events: none;
-    z-index: 2;
+    z-index: 0;
   }
+  .broadcast-text > * { position: relative; z-index: 1; }
 
   /* ── LIVE VIDEO LAYER ──
-     Sits behind the headline text as a live broadcast backdrop, same
-     idea as a real news channel's "video with text overlay" look. */
+     Sits at the top of the panel as its own block, like a real news
+     player — headline copy lives in .broadcast-text below it instead of
+     overlaid on top, so YouTube's own caption/logo overlays never clash
+     with our text. */
   .broadcast-video-wrap {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
     overflow: hidden;
     background: #000;
   }
@@ -202,18 +211,6 @@
     transform: translate(-50%, -50%);
     border: 0;
     pointer-events: none; /* JARVIS drives mute state, not the viewer */
-  }
-  .broadcast-video-scrim {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    background: linear-gradient(0deg, rgba(1,8,14,0.92) 0%, rgba(1,8,14,0.55) 42%, rgba(1,8,14,0.15) 70%, rgba(1,8,14,0.4) 100%);
-  }
-  .broadcast-main > .broadcast-eyebrow,
-  .broadcast-main > .broadcast-headline,
-  .broadcast-main > .broadcast-src {
-    position: relative;
-    z-index: 2;
   }
   .live-video-tag {
     position: absolute;
@@ -515,14 +512,15 @@
                 allow="autoplay; encrypted-media"
                 title="Live news broadcast"
               ></iframe>
+              <div class="live-video-tag"><span class="dot"></span>LIVE BROADCAST</div>
+              <div class="video-mute-tag" id="video-mute-tag">MUTED — JARVIS NARRATING</div>
             </div>
-            <div class="broadcast-video-scrim"></div>
-            <div class="live-video-tag"><span class="dot"></span>LIVE BROADCAST</div>
-            <div class="video-mute-tag" id="video-mute-tag">MUTED — JARVIS NARRATING</div>
-            <div class="broadcast-eyebrow" id="hero-eyebrow">TOP STORY</div>
-            <div class="broadcast-headline" id="hero-headline">Pulling the latest, standby…</div>
-            <div class="broadcast-src" id="hero-src"></div>
-            <div class="broadcast-glyph">⟁</div>
+            <div class="broadcast-text">
+              <div class="broadcast-eyebrow" id="hero-eyebrow">TOP STORY</div>
+              <div class="broadcast-headline" id="hero-headline">Pulling the latest, standby…</div>
+              <div class="broadcast-src" id="hero-src"></div>
+              <div class="broadcast-glyph">⟁</div>
+            </div>
           </div>
           <div class="broadcast-side">
             <span class="live-tag">LIVE</span>
@@ -639,6 +637,8 @@
       playsinline: "1",
       rel: "0",
       enablejsapi: "1",
+      cc_load_policy: "0",
+      iv_load_policy: "3",
       origin: window.location.origin,
     });
     videoFrame.src = "https://www.youtube.com/embed/live_stream?" + params.toString();
