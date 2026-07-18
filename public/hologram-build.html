@@ -337,39 +337,33 @@ function applyScale(relative) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// HAND CONTROLS — reuses the shared HandTracking module (hand-tracking.js)
-// but doesn't key off one fixed gesture shape. Any hand that looks
-// "grabbing" (a pinch OR a loose fist — whatever's natural) counts as
-// grabbed, and what happens next is inferred from how it actually
-// moves rather than a preset command:
-//   • one hand grabbed, moving mostly sideways/up-down → turns it
-//   • one hand grabbed, staying in place but growing/shrinking in the
-//     frame (pushing toward/pulling away from the camera) → zooms it
-//   • two hands grabbed, moving together → picks it up and moves it
-//   • two hands grabbed, moving apart/together → resizes it
+// HAND CONTROLS — reuses the shared HandTracking module (hand-tracking.js).
+// No grab gesture required at all: the instant a hand is visible and
+// moving, that motion drives the hologram directly — no pinch, no
+// fist, nothing to "try" to do. What happens is still inferred from
+// how the hand actually moves, not a preset command:
+//   • one hand, moving mostly sideways/up-down → turns it
+//   • one hand, staying in place but growing/shrinking in the frame
+//     (pushing toward/pulling away from the camera) → zooms it
+//   • two hands, moving together → picks it up and moves it
+//   • two hands, moving apart/together → resizes it
 // All of these can blend in the same motion — e.g. two hands drifting
 // sideways while also spreading apart moves AND resizes at once.
 // ═══════════════════════════════════════════════════════════════
-const PINCH_ON = 0.07;
 const ROT_SENS_HAND = 0.012;
 const MOVE_SENS_HAND = 0.007;
 const PUSH_ZOOM_SENS = 2.2;     // how strongly apparent hand-size change zooms
 const PUSH_MOTION_GUARD = 22;   // px of lateral motion below which a size-change reads as a push, not a turn
 
-let singlePrev = null;   // {x,y,size} of the one grabbed hand, previous frame
-let twoPrev = null;      // {x,y,dist} of the midpoint + separation of two grabbed hands, previous frame
+let singlePrev = null;   // {x,y,size} of the one tracked hand, previous frame
+let twoPrev = null;      // {x,y,dist} of the midpoint + separation of two tracked hands, previous frame
 
-// A hand counts as "grabbed" if it's pinching (thumb+index close) OR
-// loosely fisted (fingertips curled in toward the palm) — no single
-// required shape, so it responds to however someone naturally grabs.
+// Any tracked hand counts as "active" — no pinch/fist gesture needed.
+// Just being visible and moving is enough to drive the hologram.
 function isGrabbing(lm) {
   const wrist = lm[0], palmRef = lm[9];
   const palmSize = Math.hypot(wrist.x - palmRef.x, wrist.y - palmRef.y) || 0.001;
-  const thumb = lm[4], index = lm[8];
-  if (Math.hypot(thumb.x - index.x, thumb.y - index.y) < PINCH_ON) return { grabbed: true, palmSize };
-  const tips = [8, 12, 16, 20];
-  const avgTip = tips.reduce((s, i) => s + Math.hypot(lm[i].x - wrist.x, lm[i].y - wrist.y), 0) / tips.length;
-  return { grabbed: avgTip < palmSize * 1.35, palmSize };
+  return { grabbed: true, palmSize };
 }
 
 window.addEventListener("jarvis:handframe", e => {
@@ -479,7 +473,7 @@ document.getElementById("btnHands").onclick = async (e) => {
     handsEnabled = true;
     btn.textContent = "🖐 HAND CONTROL: ON";
     btn.classList.add("on");
-    toast("Grab it with one or both hands — it figures out turn, move, or zoom from how you move.");
+    toast("Just move your hand — one or both. It figures out turn, move, or zoom from how you move it.");
   } catch (err) {
     console.warn("[hologram-build] camera access failed", err);
     btn.textContent = "🖐 HAND CONTROL: NO CAMERA";
