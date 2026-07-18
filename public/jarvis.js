@@ -1614,6 +1614,37 @@ function handleChatCommand(text, attachments) {
   const hasWake = hasWakeWord(lower);
   const cleaned = hasWake ? stripWakeWord(text) : text;
 
+  // ── MUTE / UNMUTE — instant, fully local, no network round-trip.
+  //    Checked BEFORE the wake-word/recency gate below so a bare
+  //    "mute" (no "jarvis" prefix) always lands immediately, exactly
+  //    like "jarvis mute" does. Muting never speaks a confirmation —
+  //    telling Jarvis to be quiet and having it talk first (plus a
+  //    "say unmute to unmute" reminder you already know) defeats the
+  //    point — it just flips instantly and shows the mute badge.
+  //    Unmuting gets a short spoken confirmation so you can hear
+  //    voice is back. Mirrors server.js's MUTE_ON/OFF regex so voice
+  //    and typed commands behave identically.
+  const cleanedTrim = cleaned.trim().toLowerCase();
+  const UNMUTE_RE = /^(?:please\s+)?unmute\b|\bstart\s+talking\b|\bspeak\s+again\b/;
+  const MUTE_RE   = /^(?:please\s+)?mute\b|\bstop\s+talking\b|\bbe\s+quiet\b|\bshut\s+up\b/;
+  if (UNMUTE_RE.test(cleanedTrim)) {
+    state.muted = false;
+    updateMuteUI(false);
+    state.lastInteraction = Date.now();
+    const r = `Unmuted, ${state.userTitle}.`;
+    addMsg("jarvis", r);
+    speak(r, () => mic.resume());
+    return;
+  }
+  if (MUTE_RE.test(cleanedTrim)) {
+    stopSpeaking();          // cut off anything Jarvis is mid-saying right now
+    state.muted = true;
+    updateMuteUI(true);
+    state.lastInteraction = Date.now();
+    mic.resume();
+    return;
+  }
+
   // Use the PREVIOUS lastInteraction timestamp, not the one we just set
   const recentlyActive = (Date.now() - prevInteraction) < 30000;
   if (!hasWake && !recentlyActive && state.interactionCount > 3) {
@@ -2343,10 +2374,14 @@ async function handleAction(action, meta, replyText) {
   break;
 }
     case "MUTE_ON": {
-      // Speak the confirmation once (state.muted flips only after it
-      // finishes), then everything after stays silent until unmuted.
-      state.muted = false;
-      speak(replyText, () => { state.muted = true; updateMuteUI(true); mic.resume(); });
+      // Instant + silent — no confirmation is spoken (asking Jarvis to
+      // be quiet and having it talk first defeats the point). This is
+      // now a fallback path only; handleChatCommand() short-circuits
+      // "mute" locally before it ever reaches here.
+      stopSpeaking();
+      state.muted = true;
+      updateMuteUI(true);
+      mic.resume();
       break;
     }
     case "MUTE_OFF": {
