@@ -111,7 +111,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
   <div>While grabbed, pull your fingers away from that piece — it grows (an outward circle works too, not just a straight pull)</div>
   <div>Let go of the pinch to release it</div>
   <div><span class="g">Touch a piece with a finger (no pinch)</span> — it turns into a light pen</div>
-  <div>Then draw a circle ANYWHERE on screen — the piece resizes to fit it</div>
+  <div>Then pull your finger away from it — it grows the further you pull (move back in to shrink)</div>
   <div>(no camera? drag with mouse · scroll or ± to zoom)</div>
 </div>
 
@@ -446,13 +446,12 @@ function applyScale(relative) {
 //   • let go of the pinch → releases it
 //
 // LIGHT PEN — hover a finger over a piece WITHOUT pinching and it "picks
-// up" the pen for that piece (the cursor turns white). From then on you
-// can draw the circle ANYWHERE on screen — it doesn't have to stay over
-// the piece — and once the loop closes, that piece resizes to match the
-// exact size of the circle you drew. Literally "pull the piece bigger to
-// fit the pen's circle," even if the circle itself is drawn off to the
-// side. An unfinished circle drops after a few seconds so you can pick
-// up the pen again.
+// up" the pen for that piece (the cursor turns white, a glowing tether
+// line appears from the piece to your fingertip). From then on, pulling
+// your finger AWAY from the piece grows it continuously the further you
+// pull — exactly like the pinch-pull-to-grow below, just without needing
+// to pinch first. Bringing your finger back in shrinks it back down. It
+// releases automatically if left untouched for a few seconds.
 //
 // Two (or more) hands in frame intentionally do nothing now — that used
 // to move/resize the WHOLE hologram just from having two open hands up,
@@ -465,24 +464,20 @@ const PINCH_ON = 0.05, PINCH_OFF = 0.08; // hysteresis so the pinch doesn't flic
 const RADIAL_SCALE_SENS = 1.1;      // how strongly pulling a grabbed piece outward grows it
 const PIECE_MIN_SCALE = 0.2, PIECE_MAX_SCALE = 5;
 
-// ── LIGHT PEN (circle-draw resize) TUNING ──
-const PEN_MIN_POINTS    = 16;   // trail needs at least this many points before a loop can close
-const PEN_MIN_PATH_PX   = 220;  // and this much total travelled distance — filters out small jitter
-const PEN_CLOSE_DIST_PX = 34;   // how close the trail's end has to get back to its start to "close"
-const PEN_MIN_AREA_PX2  = 3200; // enclosed area floor — throws out thin back-and-forth scribbles
-const PEN_POINT_MIN_GAP_PX = 4; // drop points closer together than this so the trail doesn't clog
-const PEN_MAX_POINTS    = 260;  // safety cap on trail length
-const PEN_COOLDOWN_MS   = 500;  // pause after a resize before a new circle can trigger another
-const PEN_TIMEOUT_MS    = 4000; // drop an unfinished trail if the loop hasn't closed within this long
+// ── LIGHT PEN (pull-to-grow) TUNING ──
+const PEN_POINT_MIN_GAP_PX = 4;   // drop trail points closer together than this so it doesn't clog
+const PEN_MAX_POINTS    = 260;    // safety cap on trail length (visual only)
+const PEN_SCALE_SENS    = 1.1;    // how strongly pulling away from the piece grows it (matches pinch-pull)
+const PEN_RELEASE_GAP_MS = 5000;  // let go automatically if it's sat idle this long (safety net)
 
 let singlePrev = null;       // {x,y} of the grabbing hand, previous frame — drives rotation
 let twoPrev = null;          // {x,y,dist} of the midpoint + separation of two tracked hands, previous frame (unused for move/resize now, kept for future gestures)
 let pinching = false;
 let grabPrevRadius = null;   // previous frame's distance from the grabbed piece's center — drives scale
-let penPiece = null;         // the piece currently "picked up" by the light pen (locked at first touch)
-let penTrail = [];           // {x,y} points traced by the light pen — can roam anywhere on screen
-let penTrailStartAt = 0;     // when the current trail started, for the timeout above
-let lastCircleAt = 0;        // timestamp of the last successful circle-resize, for cooldown
+let penPiece = null;         // the piece currently "picked up" by the light pen (locked at touch)
+let penPrevRadius = null;    // previous frame's distance from penPiece's center — drives its growth
+let penTrail = [];           // {x,y} points traced by the light pen — purely visual feedback
+let penLastMoveAt = 0;       // last time the pen actually moved/resized something, for the idle release
 
 function handSize(lm) {
   const wrist = lm[0], palmRef = lm[9];
@@ -518,7 +513,7 @@ function getPieceScreenInfo(piece) {
   return { cx: c.x, cy: c.y, radius: Math.hypot(e.x - c.x, e.y - c.y) || 40 };
 }
 
-// ── LIGHT PEN — overlay canvas the drawn circle is rendered on ──
+// ── LIGHT PEN — overlay canvas the pull trail is rendered on ──
 const penCanvas = document.createElement("canvas");
 penCanvas.id = "pen-canvas";
 document.body.appendChild(penCanvas);
@@ -527,6 +522,19 @@ function resizePenCanvas() { penCanvas.width = window.innerWidth; penCanvas.heig
 resizePenCanvas();
 window.addEventListener("resize", resizePenCanvas);
 
+// The visible fingertip cursor (#ht-cursor, built by hand-tracking.js) is
+// positioned from the SMOOTHED index-fingertip point, not the raw landmark
+// math — reading its actual on-screen position (rather than recomputing our
+// own from landmarks) guarantees the pen trail is drawn exactly where the
+// cursor appears, instead of drifting off to the side of it.
+function getSharedCursorPos() {
+  const cur = document.getElementById("ht-cursor");
+  if (!cur) return null;
+  const left = parseFloat(cur.style.left), top = parseFloat(cur.style.top);
+  if (Number.isNaN(left) || Number.isNaN(top)) return null;
+  return { x: left, y: top };
+}
+
 function addPenPoint(x, y) {
   const last = penTrail[penTrail.length - 1];
   if (last && Math.hypot(x - last.x, y - last.y) < PEN_POINT_MIN_GAP_PX) return;
@@ -534,37 +542,33 @@ function addPenPoint(x, y) {
   if (penTrail.length > PEN_MAX_POINTS) penTrail.shift();
 }
 
-function penPathLength() {
-  let len = 0;
-  for (let i = 1; i < penTrail.length; i++) len += Math.hypot(penTrail[i].x - penTrail[i - 1].x, penTrail[i].y - penTrail[i - 1].y);
-  return len;
-}
-
-// Shoelace formula — enclosed area of the traced path treated as a polygon.
-function penPolygonArea() {
-  let a = 0;
-  for (let i = 0; i < penTrail.length; i++) {
-    const p1 = penTrail[i], p2 = penTrail[(i + 1) % penTrail.length];
-    a += p1.x * p2.y - p2.x * p1.y;
-  }
-  return Math.abs(a) / 2;
-}
-
-function drawPenTrail() {
+// Draws a glowing "stretch" line from the piece being pulled to the current
+// fingertip, plus the recent trail — like it's tethered to your hand.
+function drawPenTrail(anchor) {
   penCtx.clearRect(0, 0, penCanvas.width, penCanvas.height);
-  if (penTrail.length < 2) return;
+  if (!penTrail.length) return;
+  const tip = penTrail[penTrail.length - 1];
   penCtx.save();
   penCtx.lineJoin = "round";
   penCtx.lineCap = "round";
-  penCtx.shadowBlur = 14;
-  penCtx.shadowColor = "rgba(0,200,255,0.9)";
-  penCtx.strokeStyle = "rgba(150,235,255,0.9)";
-  penCtx.lineWidth = 2.5;
-  penCtx.beginPath();
-  penCtx.moveTo(penTrail[0].x, penTrail[0].y);
-  for (let i = 1; i < penTrail.length; i++) penCtx.lineTo(penTrail[i].x, penTrail[i].y);
-  penCtx.stroke();
-  const tip = penTrail[penTrail.length - 1];
+  penCtx.shadowBlur = 12;
+  penCtx.shadowColor = "rgba(0,200,255,0.85)";
+  if (anchor) {
+    penCtx.strokeStyle = "rgba(120,220,255,0.55)";
+    penCtx.lineWidth = 1.5;
+    penCtx.beginPath();
+    penCtx.moveTo(anchor.x, anchor.y);
+    penCtx.lineTo(tip.x, tip.y);
+    penCtx.stroke();
+  }
+  if (penTrail.length > 1) {
+    penCtx.strokeStyle = "rgba(150,235,255,0.9)";
+    penCtx.lineWidth = 2.5;
+    penCtx.beginPath();
+    penCtx.moveTo(penTrail[0].x, penTrail[0].y);
+    for (let i = 1; i < penTrail.length; i++) penCtx.lineTo(penTrail[i].x, penTrail[i].y);
+    penCtx.stroke();
+  }
   penCtx.shadowBlur = 20;
   penCtx.fillStyle = "rgba(255,255,255,0.95)";
   penCtx.beginPath();
@@ -583,19 +587,6 @@ function setLightPenCursor(on) {
   if (cur) cur.classList.toggle("ht-cursor-lightpen", on);
 }
 
-// Returns { area } once the traced path has genuinely closed into a loop
-// (came back near its own start, travelled enough to not be jitter, and
-// encloses real area rather than being a thin scribbled line) — or false.
-function tryCloseLoop() {
-  if (penTrail.length < PEN_MIN_POINTS) return false;
-  const first = penTrail[0], last = penTrail[penTrail.length - 1];
-  if (Math.hypot(last.x - first.x, last.y - first.y) >= PEN_CLOSE_DIST_PX) return false;
-  if (penPathLength() < PEN_MIN_PATH_PX) return false;
-  const area = penPolygonArea();
-  if (area < PEN_MIN_AREA_PX2) return false;
-  return { area };
-}
-
 window.addEventListener("jarvis:handframe", e => {
   if (!handsEnabled) return;
   const all = (e.detail && e.detail.allLandmarks) || [];
@@ -603,8 +594,13 @@ window.addEventListener("jarvis:handframe", e => {
   const active = [];
   all.forEach(lm => {
     const thumb = lm[4], index = lm[8];
-    const x = (1 - (thumb.x + index.x) / 2) * window.innerWidth;
-    const y = ((thumb.y + index.y) / 2) * window.innerHeight;
+    // Index fingertip only (matches the visible cursor's tracking point in
+    // hand-tracking.js) — NOT the thumb+index midpoint. Using the midpoint
+    // here was why the pen trail drew off to the side of the visible cursor:
+    // thumb and index sit apart whenever the hand isn't pinched, which is
+    // exactly when the light pen is active.
+    const x = (1 - index.x) * window.innerWidth;
+    const y = index.y * window.innerHeight;
     const distFromCenter = Math.hypot(x - zone.cx, y - zone.cy);
     if (distFromCenter > zone.radius * HOTZONE_MARGIN) return; // off to the side — ignore
     active.push({ x, y, size: handSize(lm), pinchDist: Math.hypot(thumb.x - index.x, thumb.y - index.y) });
@@ -613,6 +609,11 @@ window.addEventListener("jarvis:handframe", e => {
   if (active.length === 1) {
     twoPrev = null;
     const h = active[0];
+    // When there's exactly one hand, snap to the exact pixel the visible
+    // cursor is drawn at (it's smoothed; our landmark math isn't), so the
+    // pen trail can never visibly drift from the cursor.
+    const shared = getSharedCursorPos();
+    if (shared) { h.x = shared.x; h.y = shared.y; }
     const wasPinching = pinching;
     pinching = wasPinching ? h.pinchDist < PINCH_OFF : h.pinchDist < PINCH_ON;
 
@@ -621,44 +622,47 @@ window.addEventListener("jarvis:handframe", e => {
     if (hoveredPiece !== hoverPiece) { setHover(hoveredPiece, false); hoveredPiece = hoverPiece; setHover(hoveredPiece, true); }
 
     // ── LIGHT PEN — only while NOT pinching. Touching a piece once "picks
-    // up" the pen for that piece; you can then draw the circle ANYWHERE
-    // on screen (not just on top of the piece) — only the piece touched
-    // first is what gets resized when the loop closes. ──
+    // up" the pen for that piece (locks it in). From then on, pulling your
+    // finger AWAY from that piece grows it, continuously, the further away
+    // you pull — same feel as the pinch-pull-to-grow below, just without
+    // needing to pinch first. Moving back in shrinks it back down. ──
     if (!pinching) {
-      if (!penPiece && hoverPiece) {
+      if (hoverPiece && penPiece !== hoverPiece) {
         penPiece = hoverPiece;
+        penPrevRadius = null;
+        penLastMoveAt = performance.now();
         clearPenTrail();
-        penTrailStartAt = performance.now();
       }
       if (penPiece) {
         setLightPenCursor(true);
-        const now = performance.now();
-        if (now - lastCircleAt > PEN_COOLDOWN_MS) {
-          addPenPoint(h.x, h.y);
-          drawPenTrail();
-          if (now - penTrailStartAt > PEN_TIMEOUT_MS) {
-            // drawn too long without closing the loop — drop it, ready to pick up again
-            penPiece = null; clearPenTrail(); setLightPenCursor(false);
-          } else {
-            const closed = tryCloseLoop();
-            if (closed) {
-              const drawnRadius = Math.sqrt(closed.area / Math.PI);
-              const info = getPieceScreenInfo(penPiece);
-              const newScale = clamp(penPiece.group.scale.x * (drawnRadius / info.radius), PIECE_MIN_SCALE, PIECE_MAX_SCALE);
-              penPiece.group.scale.setScalar(newScale);
-              hudSelected.innerHTML = `<b>#${penPiece.index + 1}</b>`;
-              toast(`Resized piece #${penPiece.index + 1} to match your circle · ${newScale.toFixed(2)}×`);
-              lastInteractAt = performance.now();
-              lastCircleAt = now;
-              penPiece = null; clearPenTrail(); setLightPenCursor(false);
-            }
+        addPenPoint(h.x, h.y);
+        const info = getPieceScreenInfo(penPiece);
+        drawPenTrail({ x: info.cx, y: info.cy });
+
+        const r = Math.hypot(h.x - info.cx, h.y - info.cy);
+        if (penPrevRadius != null) {
+          const delta = r - penPrevRadius;
+          if (Math.abs(delta) > 0.5) {
+            const s = clamp(penPiece.group.scale.x * (1 + (delta / zone.radius) * PEN_SCALE_SENS), PIECE_MIN_SCALE, PIECE_MAX_SCALE);
+            penPiece.group.scale.setScalar(s);
+            hudSelected.innerHTML = `<b>#${penPiece.index + 1}</b>`;
+            lastInteractAt = performance.now();
+            penLastMoveAt = performance.now();
           }
+        }
+        penPrevRadius = r;
+
+        // Safety net: if it's sat untouched for a while (hand hovering but
+        // not really pulling), release it so a stray hand doesn't keep a
+        // piece locked forever.
+        if (performance.now() - penLastMoveAt > PEN_RELEASE_GAP_MS) {
+          penPiece = null; penPrevRadius = null; clearPenTrail(); setLightPenCursor(false);
         }
       } else {
         setLightPenCursor(false);
       }
     } else if (penPiece) {
-      penPiece = null; clearPenTrail(); setLightPenCursor(false);
+      penPiece = null; penPrevRadius = null; clearPenTrail(); setLightPenCursor(false);
     }
 
     if (pinching && !wasPinching) {
@@ -705,7 +709,7 @@ window.addEventListener("jarvis:handframe", e => {
     if (grabbedPiece) { setGrabbed(grabbedPiece, false); hudSelected.innerHTML = `<b>—</b>`; }
     singlePrev = null; twoPrev = null; pinching = false; grabbedPiece = null; grabPrevRadius = null;
     setHover(hoveredPiece, false); hoveredPiece = null;
-    if (penPiece) { penPiece = null; clearPenTrail(); setLightPenCursor(false); }
+    if (penPiece) { penPiece = null; penPrevRadius = null; clearPenTrail(); setLightPenCursor(false); }
   }
 });
 
@@ -762,7 +766,7 @@ document.getElementById("btnHands").onclick = async (e) => {
     handsEnabled = true;
     btn.textContent = "🖐 HAND CONTROL: ON";
     btn.classList.add("on");
-    toast("Pinch a piece to turn/grow it — or just hover a finger over it and draw a circle to resize it.");
+    toast("Pinch a piece to turn/grow it — or just touch it with a finger and pull away to grow it.");
   } catch (err) {
     console.warn("[hologram-build] camera access failed", err);
     btn.textContent = "🖐 HAND CONTROL: NO CAMERA";
