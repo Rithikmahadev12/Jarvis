@@ -1919,7 +1919,7 @@ async function executeAssistantTool(name, args, ctx) {
       return { reply: `Closing the camera feed, ${T}.`, action: "HIDE_CAMERA", intent: "camera" };
 
     case "mute_jarvis":
-      return { reply: `Muted, ${T}. Say "unmute" and I'll speak again.`, action: "MUTE_ON", intent: "mute" };
+      return { reply: `Muted, ${T}.`, action: "MUTE_ON", intent: "mute" };
 
     case "unmute_jarvis":
       return { reply: `Unmuted, ${T}.`, action: "MUTE_OFF", intent: "mute" };
@@ -2184,7 +2184,7 @@ app.post("/api/chat", async (req, res) => {
     return res.json({ reply: `Unmuted, ${T}.`, action: "MUTE_OFF", intent: "mute" });
   }
   if (MUTE_ON.test(message)) {
-    return res.json({ reply: `Muted, ${T}. Say "unmute" or "jarvis unmute" and I'll speak again.`, action: "MUTE_ON", intent: "mute" });
+    return res.json({ reply: `Muted, ${T}.`, action: "MUTE_ON", intent: "mute" });
   }
 
   // ── 1. Home commands ──
