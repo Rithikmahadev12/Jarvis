@@ -45,7 +45,7 @@ const state = window.state = {
   faceDescriptors: null,
   faceEnrolled: false,
   faceEnrollPending: false,
-  intruderDetectionEnabled: true,
+  intruderDetectionEnabled: false, // master switch — starts OFF; user turns it on in Settings
   intruderActive: false,
   intruderChunks: [],
   intruderRecorder: null,
@@ -73,7 +73,7 @@ const state = window.state = {
 // ═══════════════════════════════════════════════════════════════
 const notif = {
   perms: "default",
-  cfg: { intruder: true, away: true, return: true, system: false },
+  cfg: { intruder: false, away: false, return: false, system: false },
   _ctx: null,
 
   async init() {
@@ -861,18 +861,19 @@ function renderSavedAccounts(profiles) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// ── LOCK SCREEN — auto identity check, before login/create shows ──
-// Boots straight into an orb-style lock screen (no buttons yet).
-// It checks whether ANY account exists on the server:
-//   • no accounts        → hands off to the normal screen in
-//                           "create account" mode
-//   • accounts exist      → opens the camera immediately and scans
-//                           for a face. A match signs the person
-//                           straight in (skips the login screen
-//                           entirely). No match after a short
-//                           window falls back to the normal login
-//                           screen so they can rescan or pick a
-//                           saved profile manually.
+// ── LOCK SCREEN — identity check, before login/create shows ──
+// Boots straight into an orb-style lock screen. It checks whether ANY
+// account exists on the server:
+//   • no accounts   → hands off to the normal screen in
+//                     "create account" mode
+//   • accounts exist → waits for you to talk to JARVIS (say
+//                     "Jarvis…", or tap the orb) before it opens the
+//                     camera at all. Once triggered, it scans for a
+//                     face in the background (never shown on screen).
+//                     A match signs the person straight in. No match
+//                     — or no camera/face engine available — has
+//                     JARVIS say "Couldn't find user" and routes to
+//                     the Create Account panel.
 // ═══════════════════════════════════════════════════════════════
 let _lockClockTimer = null;
 function startLockClock() {
@@ -936,7 +937,55 @@ async function runLockScreen() {
     return;
   }
 
-  setLockStatus("SCANNING FACE…", "Look at the camera to sign in");
+  // Nothing scans yet — just wait for the person to talk to JARVIS.
+  // The camera never opens (and never shows in the middle of the orb)
+  // until a voice is actually heard, so this is a listening state, not
+  // a live camera preview.
+  waitForLockWakeWord();
+}
+
+// ── LOCK SCREEN — WAIT FOR VOICE ──
+// Sits quietly listening for the wake word ("Jarvis…"). The instant it
+// hears you, it hands off to the face-recognition step. Tapping the orb
+// does the same thing, as a fallback for browsers without speech
+// recognition (or if the mic is unavailable/denied).
+let _lockWakeHandled = false;
+function waitForLockWakeWord() {
+  _lockWakeHandled = false;
+  setLockStatus("SAY \"JARVIS\" TO BEGIN", "I'll verify you by voice, then by face");
+
+  const beginScan = () => {
+    if (_lockWakeHandled) return;
+    _lockWakeHandled = true;
+    mic.suspend();
+    runLockFaceScan();
+  };
+
+  const orbWrap = document.querySelector(".lock-orb-wrap");
+  if (orbWrap) orbWrap.onclick = beginScan;
+
+  if (!SR) {
+    // No speech recognition available in this browser — skip straight
+    // to face scanning instead of waiting forever for a wake word.
+    beginScan();
+    return;
+  }
+
+  mic.requestPerm().then(() => {
+    mic.start((text) => {
+      if (!$("lock-screen")?.classList.contains("active")) return;
+      if (hasWakeWord(text.toLowerCase())) beginScan();
+    }, null, true);
+  });
+}
+
+// ── LOCK SCREEN — FACE SCAN ──
+// Runs only after the wake word is heard. Camera feed is never shown
+// (opacity stays 0 — see #lock-face-video CSS) so this reads purely as
+// the orb "thinking", not a webcam preview in the middle of the screen.
+async function runLockFaceScan() {
+  const lock = $("lock-screen");
+  setLockStatus("VERIFYING…", "Scanning your face — hold still");
   const video = $("lock-face-video");
   const sweep = $("lock-scan-sweep");
   video?.classList.add("scanning");
@@ -947,17 +996,11 @@ async function runLockScreen() {
     await getAuthCameraStream(video);
     ok = await ensureFaceApiLoaded();
   } catch (e) {
-    setLockStatus("CAMERA UNAVAILABLE", "Opening manual sign-in…");
-    await delay(900);
-    exitLockScreen();
-    showAuthScreen();
+    await failLockScan();
     return;
   }
   if (!ok) {
-    setLockStatus("FACE ENGINE UNAVAILABLE", "Opening manual sign-in…");
-    await delay(900);
-    exitLockScreen();
-    showAuthScreen();
+    await failLockScan();
     return;
   }
 
@@ -989,23 +1032,52 @@ async function runLockScreen() {
           state.user      = data.profile.name;
           state.userTitle = data.profile.title;
           await delay(500);
-          lock.classList.remove("active");
+          lock?.classList.remove("active");
           speak(`Welcome back, ${data.profile.title}.`, launchMain);
           return;
         }
       }
     } catch (e) { /* keep scanning */ }
 
-    setLockStatus(`SCANNING FACE… (${attempt + 1}/${MAX_ATTEMPTS})`);
+    setLockStatus(`VERIFYING… (${attempt + 1}/${MAX_ATTEMPTS})`);
     await delay(700);
   }
 
-  setLockStatus("FACE NOT RECOGNIZED", "Opening manual sign-in…");
+  // Scanned the whole window and never matched a face on file.
+  setLockStatus("COULDN'T FIND USER", "Opening account setup…");
   sweep?.classList.remove("active");
   stopAuthCameraStream();
-  await delay(1000);
+  await new Promise((resolve) => {
+    speak("Couldn't find user.", resolve);
+    setTimeout(resolve, 2500); // safety net if TTS never resolves
+  });
   exitLockScreen();
-  showAuthScreen();
+  goToCreateAccount();
+}
+
+// Camera/face-engine failed outright (permissions, unsupported browser,
+// etc.) — same "couldn't find user" handoff to account setup, since
+// there's no way to verify identity without either.
+async function failLockScan() {
+  setLockStatus("COULDN'T FIND USER", "Opening account setup…");
+  stopAuthCameraStream();
+  await delay(1200);
+  exitLockScreen();
+  goToCreateAccount();
+}
+
+// Sends the person straight to the "Create Account" panel — used when
+// the lock screen couldn't match a face and needs to offer making a
+// new profile, rather than defaulting back to the login panel.
+async function goToCreateAccount() {
+  $("auth-screen")?.classList.add("active");
+  $("setup-screen")?.classList.remove("active");
+  $("main-screen")?.classList.remove("active");
+  await mic.requestPerm();
+  const profiles = await loadServerProfiles();
+  renderSavedAccounts(profiles);
+  switchAuthMode("create");
+  startAuthListening();
 }
 
 // ── SHOW AUTH SCREEN ──
@@ -3227,7 +3299,7 @@ function handleLogout() {
     state.phase = "idle"; state.user = null; state.userTitle = null;
     state.sessionId = crypto.randomUUID(); state.awayMode = false; state.intruderActive = false;
     state.faceEnrolled = false; state.faceDescriptors = null; state.faceEnrollPending = false;
-    state.intruderDetectionEnabled = true;
+    state.intruderDetectionEnabled = false;
     _selectedUser = null; _voiceSamples = []; _voiceSamplesDone = 0;
     $("transcript").innerHTML = "";
     $("main-screen").classList.remove("active");
