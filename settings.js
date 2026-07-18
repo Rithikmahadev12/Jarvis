@@ -24,7 +24,7 @@ const DATA_DIR      = path.join(__dirname, "data");
 const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 
 const DEFAULTS = {
-  faceDetection: true,
+  faceDetection: false,
   // add more toggles here as needed, e.g.:
   // notifications: true,
   // homeTalk: false,
