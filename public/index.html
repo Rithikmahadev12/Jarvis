@@ -199,10 +199,12 @@
   </div>
 
   <!-- LOCK SCREEN — plays first, before the login/create screen ever
-       shows. Auto-checks for an existing account, then scans your
-       face: a match signs you straight in, no account routes you to
-       Create Account, no match falls back to manual sign-in. Orb is
-       a rotating particle sphere (dots), matching the reference —
+       shows. Checks for an existing account, then waits for you to
+       talk to JARVIS (say "Jarvis…", or tap the orb) before it scans
+       your face — the camera is never shown, it's used only to match
+       your face in the background. A match signs you straight in; no
+       account, or no face match, routes to Create Account. Orb is a
+       rotating particle sphere (dots), matching the reference —
        tinted differently from the boot screen so they read as two
        distinct states. -->
   <div id="lock-screen">
