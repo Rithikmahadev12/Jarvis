@@ -1,0 +1,163 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — GRAPHITE HOME THEME
+   Re-skins the boot badge / home hero / mode dock from neon-blue to
+   a graphite/steel palette, and gives the badge orb real reactions
+   to state (idle / listening / thinking / speaking) so it visibly
+   "moves" instead of just sitting there.
+
+   Load this LAST (after home-ui.css). Colors here override the
+   inline SVG fill/stroke attributes and the blue tones baked into
+   glass-ui.css / home-ui.css — nothing else on the app is touched,
+   so side panels, settings, etc. keep their original blue accent.
+
+   State classes are mirrored onto .boot-badge-wrap by jarvis.js'
+   setOrb() (idle / listening / thinking / speaking) — see jarvis.js.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── base graphite palette (scoped, not global) ── */
+:root {
+  --jr-steel:      #aab4bc;
+  --jr-steel-dim:  rgba(170,180,188,0.16);
+  --jr-steel-glow: rgba(170,180,188,0.4);
+  --jr-ink:        #0a0c0e;
+  --jr-ink2:       #101315;
+}
+
+/* ── backdrop: neutral graphite instead of blue-black ── */
+.hud-home { background: var(--jr-ink); }
+#intro-screen { background: var(--jr-ink); }
+
+.intro-grid {
+  background-image:
+    linear-gradient(rgba(180,188,196,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(180,188,196,0.06) 1px, transparent 1px);
+}
+.intro-vignette {
+  background: radial-gradient(ellipse 900px 700px at 50% 45%, transparent 40%, rgba(6,7,9,0.88) 100%);
+}
+
+/* ── the badge itself: white/steel ring + graphite glow instead of blue ── */
+.jr-core-glow {
+  background: radial-gradient(circle, rgba(180,188,196,0.2) 0%, rgba(10,11,13,0) 70%);
+  box-shadow: 0 0 70px 25px var(--jr-steel-glow);
+  transform: translate(-50%, -50%) scale(1);
+  animation: jrBreathe 4.5s ease-in-out infinite;
+}
+
+.jr-inner-ring {
+  border-color: rgba(226,231,235,0.92);
+  box-shadow: inset 0 0 15px rgba(200,208,215,0.16), 0 0 15px rgba(200,208,215,0.16);
+}
+
+.jr-title {
+  color: #e9edf0;
+  text-shadow: 0 0 8px rgba(200,208,215,0.5);
+}
+
+/* dot ring + tick marks: steel gray instead of icy blue-white */
+.jr-hud-svg .jr-dot-ring circle { fill: #b6c0c7 !important; }
+.jr-hud-svg .jr-ticks line { stroke: rgba(196,204,211,0.55) !important; }
+
+/* the two spinning arcs: keep one subtly cooler so there's still a
+   flicker of "JARVIS blue" as an accent, just heavily muted */
+.jr-arc-white { stroke: rgba(222,228,233,0.55) !important; }
+.jr-arc-blue  { stroke: rgba(140,165,190,0.7) !important; }
+
+/* ── idle "breathing" — badge stays subtly alive even at rest ── */
+@keyframes jrBreathe {
+  0%, 100% { transform: translate(-50%, -50%) scale(1);     opacity: 0.88; }
+  50%      { transform: translate(-50%, -50%) scale(1.055); opacity: 1;    }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   STATE REACTIONS — mirrors setOrb()'s idle/listening/thinking/
+   speaking classes (added to .boot-badge-wrap by jarvis.js) so the
+   visible badge actually reacts when Jarvis talks / listens / moves,
+   the same way the old hidden #orb did.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* LISTENING — steady brighten + faster pulse, cool steel-blue tint */
+.boot-badge-wrap.listening .jr-core-glow {
+  animation: jrPulse 1.5s ease-in-out infinite;
+  box-shadow: 0 0 80px 28px rgba(150,185,215,0.5);
+}
+.boot-badge-wrap.listening .jr-inner-ring {
+  border-color: #ffffff;
+  animation: jrRingPulse 1.5s ease-in-out infinite;
+}
+.boot-badge-wrap.listening .jr-arc-blue  { animation-duration: 4s; }
+.boot-badge-wrap.listening .jr-arc-white { animation-duration: 9s; }
+.boot-badge-wrap.listening .jr-dot-ring  { animation-duration: 32s; }
+
+/* THINKING — quicker spin + faint amber-gray flicker, like it's processing */
+.boot-badge-wrap.thinking .jr-core-glow {
+  animation: jrPulse 0.9s ease-in-out infinite;
+  box-shadow: 0 0 70px 24px rgba(200,175,140,0.4);
+}
+.boot-badge-wrap.thinking .jr-arc-blue  { animation-duration: 2.4s; stroke: rgba(210,180,140,0.75) !important; }
+.boot-badge-wrap.thinking .jr-arc-white { animation-duration: 5s; }
+.boot-badge-wrap.thinking .jr-dot-ring  { animation-duration: 18s; }
+.boot-badge-wrap.thinking .jr-title     { animation: jrFlicker 1.1s steps(2, end) infinite; }
+
+/* SPEAKING — the strongest reaction: badge "talks" with a quick,
+   slightly irregular pulse (mimics a waveform), rings spin faster,
+   soft green-gray tint so it's clearly distinct from listening */
+.boot-badge-wrap.speaking .jr-core-glow {
+  animation: jrTalk 0.55s ease-in-out infinite alternate;
+  box-shadow: 0 0 85px 26px rgba(165,200,180,0.5);
+}
+.boot-badge-wrap.speaking .jr-inner-ring {
+  animation: jrTalkRing 0.55s ease-in-out infinite alternate;
+  border-color: #ffffff;
+}
+.boot-badge-wrap.speaking .jr-arc-white { animation-duration: 5s; }
+.boot-badge-wrap.speaking .jr-arc-blue  { animation-duration: 3.2s; stroke: rgba(160,205,180,0.8) !important; }
+.boot-badge-wrap.speaking .jr-dot-ring  { animation-duration: 16s; }
+
+@keyframes jrPulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1);    opacity: 0.9; }
+  50%      { transform: translate(-50%, -50%) scale(1.08); opacity: 1;   }
+}
+@keyframes jrRingPulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1);     }
+  50%      { transform: translate(-50%, -50%) scale(1.035); }
+}
+@keyframes jrTalk {
+  0%   { transform: translate(-50%, -50%) scale(0.92); opacity: 0.78; }
+  100% { transform: translate(-50%, -50%) scale(1.14); opacity: 1;    }
+}
+@keyframes jrTalkRing {
+  0%   { transform: translate(-50%, -50%) scale(0.985); }
+  100% { transform: translate(-50%, -50%) scale(1.04);  }
+}
+@keyframes jrFlicker {
+  0%, 100% { opacity: 1;    }
+  50%      { opacity: 0.55; }
+}
+
+/* smooth transitions between states so mood swaps ease in/out
+   rather than snapping */
+.jr-core-glow, .jr-inner-ring, .jr-title { transition: box-shadow 0.35s ease, border-color 0.35s ease; }
+
+/* ═══════════════════════════════════════════════════════════════
+   MODE DOCK + INPUT BAR — graphite instead of blue-glass
+   ═══════════════════════════════════════════════════════════════ */
+#main-screen.hud-minimal #mode-taskbar {
+  background: rgba(14,16,18,0.6);
+  border-color: rgba(180,188,196,0.16);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45), 0 0 18px rgba(170,180,190,0.05);
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+#main-screen.hud-minimal .taskbar-btn { transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease; }
+#main-screen.hud-minimal .taskbar-btn:hover { transform: translateY(-1px); background: rgba(180,188,196,0.08); }
+#main-screen.hud-minimal .taskbar-btn:active { transform: translateY(0) scale(0.94); }
+
+#main-screen.hud-minimal .input-bar {
+  background: rgba(12,14,16,0.6);
+  border-color: rgba(180,188,196,0.2);
+}
+#main-screen.hud-minimal .input-bar-prefix { border-right-color: rgba(180,188,196,0.14); }
+
+/* corner-mode mini badge keeps the same reactions, just scaled down
+   (transform composes fine — scale lives on the wrapper, the pulse
+   keyframes live on children) */
