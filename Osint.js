@@ -4,7 +4,6 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 
 function cleanPhoneNumber(phoneStr) {
-    // Strip everything except numbers to isolate the digits
     return ('' + phoneStr).replace(/\D/g, '');
 }
 
@@ -17,12 +16,11 @@ async function reversePhoneLookup(rawInput, passedName = '') {
     let phoneNumber = rawInput;
 
     // AUTOMATED QUERY SPLITTER
-    // If a name was accidentally passed in the phone field (e.g. "971-462-6355 Rithik Mahadev")
     const mixedInputMatch = rawInput.match(/^([\d\s\-()+][\d\s\-()]{6,})\s+(.+)$/);
     if (mixedInputMatch) {
         phoneNumber = mixedInputMatch[1].trim();
         if (!targetName) {
-            targetName = mixedInputMatch[2].trim(); // Extract the name automatically
+            targetName = mixedInputMatch[2].trim();
         }
     }
 
@@ -33,8 +31,7 @@ async function reversePhoneLookup(rawInput, passedName = '') {
 
     const formats = [
         cleanedRaw,                                      
-        `${cleanedRaw.slice(0, 3)}-${cleanedRaw.slice(3, 6)}-${cleanedRaw.slice(6)}`, 
-        `(${cleanedRaw.slice(0, 3)}) ${cleanedRaw.slice(3, 6)}-${cleanedRaw.slice(6)}`
+        `${cleanedRaw.slice(0, 3)}-${cleanedRaw.slice(3, 6)}-${cleanedRaw.slice(6)}`
     ];
 
     let browser;
@@ -55,7 +52,8 @@ async function reversePhoneLookup(rawInput, passedName = '') {
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
         await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
 
-        // --- PHASE 1: SEARCH BY EXTRACTED NAME ---
+        // --- PHASE 1: SEARCH NAME TO LOCATE INSTAGRAM HANDLE ---
+        let discoveredHandle = '';
         if (targetName.length > 0) {
             const nameDork = `site:instagram.com "${targetName}"`;
             const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(nameDork)}&hl=en`;
@@ -63,66 +61,79 @@ async function reversePhoneLookup(rawInput, passedName = '') {
             await page.goto(googleUrl, { waitUntil: 'networkidle2' });
             await new Promise(r => setTimeout(r, 1000));
 
-            socialMatches = await page.evaluate(() => {
-                const results = [];
-                const modules = document.querySelectorAll('#search .g');
-                
-                modules.forEach(mod => {
-                    const titleEl = mod.querySelector('h3');
-                    const linkEl = mod.querySelector('a');
-                    const snippetEl = mod.querySelector('[style*="-webkit-line-clamp"], .VwiC3b');
-                    
-                    if (titleEl && linkEl) {
-                        const linkText = linkEl.href || '';
-                        if (linkText.includes('instagram.com')) {
-                            results.push({
-                                platform: "Instagram",
-                                title: titleEl.innerText.trim(),
-                                snippet: snippetEl ? snippetEl.innerText.trim() : '',
-                                link: linkText
-                            });
-                        }
+            discoveredHandle = await page.evaluate(() => {
+                const modules = document.querySelectorAll('#search .g a');
+                for (let linkEl of modules) {
+                    const href = linkEl.href || '';
+                    // Extract handle pattern from standard instagram.com/username links
+                    const match = href.match(/instagram\.com\/([a-zA-Z0-9_\.]+)\/?/);
+                    if (match && !['p', 'explore', 'developer', 'tags'].includes(match[1])) {
+                        return match[1]; // Found target handle
                     }
-                });
-                return results;
+                }
+                return '';
             });
         }
 
-        // --- PHASE 2: FALLBACK TO PHONE NUMBER DORK IF NO NAME MATCHES ---
-        if (socialMatches.length === 0) {
-            const googleDork = `(site:instagram.com OR site:facebook.com OR site:linkedin.com) "${formats[1]}"`;
-            const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(googleDork)}&hl=en`;
-            
-            await page.goto(googleUrl, { waitUntil: 'networkidle2' });
-            await new Promise(r => setTimeout(r, 1000));
+        // --- PHASE 2: DEEP SCRAPE VIA UN-AUTHENTICATED MIRROR LAYER ---
+        if (discoveredHandle) {
+            // Using a highly resilient, public non-auth Instagram mirror layer
+            const mirrorUrl = `https://picuki.com/profile/${discoveredHandle}`;
+            try {
+                await page.goto(mirrorUrl, { waitUntil: 'networkidle2', timeout: 15000 });
+                
+                const profileData = await page.evaluate((handle) => {
+                    const nameEl = document.querySelector('.profile-name');
+                    const usernameEl = document.querySelector('.profile-username');
+                    const bioEl = document.querySelector('.profile-description');
+                    const avatarEl = document.querySelector('.profile-avatar img');
+                    
+                    return {
+                        platform: "Instagram",
+                        title: nameEl ? nameEl.innerText.trim() : handle,
+                        snippet: bioEl ? bioEl.innerText.trim() : 'No public biography configured.',
+                        link: `https://instagram.com/${handle}`,
+                        meta: {
+                            handle: usernameEl ? usernameEl.innerText.trim().replace('@', '') : handle,
+                            profilePic: avatarEl ? avatarEl.src : null
+                        }
+                    };
+                }, discoveredHandle);
 
-            const phoneMatches = await page.evaluate(() => {
+                if (profileData.title) {
+                    socialMatches.push(profileData);
+                }
+            } catch (mirrorError) {
+                console.log("Mirror layer parsing timed out or dropped. Falling back to search index index mapping...");
+            }
+        }
+
+        // --- FALLBACK INTERFACE: IF MIRROR PIPELINE WAS LOCKED OUT ---
+        if (socialMatches.length === 0 && targetName.length > 0) {
+            const nameDork = `site:instagram.com "${targetName}"`;
+            const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(nameDork)}&hl=en`;
+            await page.goto(googleUrl, { waitUntil: 'networkidle2' });
+            
+            const standardMatches = await page.evaluate(() => {
                 const results = [];
                 const modules = document.querySelectorAll('#search .g');
-                
                 modules.forEach(mod => {
                     const titleEl = mod.querySelector('h3');
                     const linkEl = mod.querySelector('a');
                     const snippetEl = mod.querySelector('[style*="-webkit-line-clamp"], .VwiC3b');
                     
-                    if (titleEl && linkEl) {
-                        const linkText = linkEl.href || '';
-                        let platform = "Social Profile";
-                        if (linkText.includes('instagram.com')) platform = "Instagram";
-                        else if (linkText.includes('facebook.com')) platform = "Facebook";
-                        else if (linkText.includes('linkedin.com')) platform = "LinkedIn";
-
+                    if (titleEl && linkEl && linkEl.href.includes('instagram.com')) {
                         results.push({
-                            platform: platform,
+                            platform: "Instagram",
                             title: titleEl.innerText.trim(),
                             snippet: snippetEl ? snippetEl.innerText.trim() : '',
-                            link: linkText
+                            link: linkEl.href
                         });
                     }
                 });
                 return results;
             });
-            socialMatches.push(...phoneMatches);
+            socialMatches.push(...standardMatches);
         }
 
         await browser.close();
@@ -133,17 +144,8 @@ async function reversePhoneLookup(rawInput, passedName = '') {
 
         if (socialMatches.length > 0) {
             classifications.push(`Social Footprints Isolated (${socialMatches.length})`);
-            
-            if (!targetName) {
-                let cleanedTitle = socialMatches[0].title
-                    .replace(/(@\w+)/g, '$1') 
-                    .split(/[|•\-(]/)[0]
-                    .trim();
-                
-                if (cleanedTitle && !/^(instagram|facebook|linkedin|login|sign up)/i.test(cleanedTitle)) {
-                    suspectedOwner = `${cleanedTitle} (${socialMatches[0].platform})`;
-                }
-            }
+            const topProfile = socialMatches[0];
+            suspectedOwner = `${topProfile.title} (@${discoveredHandle || 'profile'})`;
         }
 
         return {
