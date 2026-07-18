@@ -2123,21 +2123,19 @@ async function handleAction(action, meta, replyText) {
       break;
     }
     case "SHOW_NEWS_PAGE": {
+      // The full briefing is now narrated ON the news page itself (in the
+      // Camb voice, synced to the video mute/unmute) instead of being read
+      // out here first — reading it twice (once here, once on arrival) was
+      // why it played twice and the second pass used the wrong voice.
       const newsPayload = { newsData: meta?.newsData || null, briefing: replyText, label: meta?.label || "" };
-      speak(replyText, () => {
-        // Hand the fresh data to the news page via sessionStorage so it
-        // shows the exact same headlines/briefing JARVIS just spoke —
-        // this is a real same-tab navigation, not an iframe, so there's
-        // no postMessage channel to use instead.
-        try {
-          sessionStorage.setItem("jarvis_news_payload", JSON.stringify({ ts: Date.now(), ...newsPayload }));
-        } catch (e) {}
-        if (window.JarvisTransition) {
-          window.JarvisTransition.goTo("/news");
-        } else {
-          window.location.href = "/news";
-        }
-      });
+      try {
+        sessionStorage.setItem("jarvis_news_payload", JSON.stringify({ ts: Date.now(), ...newsPayload }));
+      } catch (e) {}
+      if (window.JarvisTransition) {
+        window.JarvisTransition.goTo("/news");
+      } else {
+        window.location.href = "/news";
+      }
       break;
     }
     case "SHOW_LINKS": {
