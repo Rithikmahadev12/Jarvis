@@ -1,0 +1,78 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — Nav Transition Overlay
+   Full-screen "JARVIS" loading ring shown briefly when a voice
+   command triggers a real page navigation (e.g. "jarvis, news").
+   ═══════════════════════════════════════════════════════════════ */
+
+.nav-transition-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(0,140,255,0.12), transparent 60%),
+    #030a14;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s ease;
+}
+.nav-transition-overlay.active { opacity: 1; pointer-events: all; }
+.nav-transition-overlay.no-fade-in { transition: none; }
+
+.nt-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,180,255,0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,180,255,0.07) 1px, transparent 1px);
+  background-size: 36px 36px;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, black 40%, transparent 78%);
+  mask-image: radial-gradient(circle at 50% 50%, black 40%, transparent 78%);
+}
+
+.nt-corner { position: absolute; width: 54px; height: 54px; border: 2px solid rgba(0,200,255,0.55); opacity: 0.85; }
+.nt-tl { top: 22px; left: 22px; border-right: none; border-bottom: none; }
+.nt-tr { top: 22px; right: 22px; border-left: none; border-bottom: none; }
+.nt-bl { bottom: 22px; left: 22px; border-right: none; border-top: none; }
+.nt-br { bottom: 22px; right: 22px; border-left: none; border-top: none; }
+
+.nt-ring-wrap {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nt-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 2px solid rgba(0,200,255,0.55);
+  box-shadow: 0 0 24px rgba(0,190,255,0.45);
+}
+.nt-r1 { inset: 0; border-top-color: transparent; border-bottom-color: transparent; animation: nt-spin 3.2s linear infinite; }
+.nt-r2 { inset: 22px; opacity: 0.6; animation: nt-spin 2.1s linear infinite reverse; }
+.nt-core {
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, rgba(0,220,255,0.9), rgba(0,60,120,0.55));
+  box-shadow: 0 0 40px rgba(0,190,255,0.7), inset 0 0 20px rgba(255,255,255,0.25);
+  animation: nt-pulse 1.6s ease-in-out infinite;
+}
+.nt-label {
+  position: absolute;
+  font-family: var(--hud, 'Orbitron', sans-serif);
+  font-size: 0.82rem;
+  letter-spacing: 0.25em;
+  color: #eaffff;
+  text-shadow: 0 0 12px rgba(0,220,255,0.9);
+}
+
+@keyframes nt-spin { to { transform: rotate(360deg); } }
+@keyframes nt-pulse {
+  0%, 100% { transform: scale(1);    opacity: 1; }
+  50%      { transform: scale(1.08); opacity: 0.85; }
+}
