@@ -598,16 +598,40 @@
   // ── LIVE BROADCAST VIDEO ──
   // Always the current live stream of the given channel (YouTube resolves
   // "live_stream?channel=..." to whatever that channel is broadcasting
-  // right now — no video ID to keep updating). Swap NEWS_CHANNEL_ID to
-  // point this at a different 24/7 news channel.
-  const NEWS_CHANNEL_ID = "UCBi2mrWuNuyYy4gbM6fU18Q"; // ABC News (US)
+  // right now — no video ID to keep updating).
+  //
+  // Several major broadcasters disable embedding of their *live* channel
+  // outside youtube.com — when that happens YouTube fails the embed
+  // silently (blank iframe, no console error you'd notice), which is why
+  // no video showed up at all. So instead of a single hardcoded channel,
+  // this tries a short list of channels in order and falls through to the
+  // next one if a channel errors out or never reports ready in time.
+  const NEWS_CHANNELS = [
+    { id: "UCBi2mrWuNuyYy4gbM6fU18Q", name: "ABC News" },
+    { id: "UCoMdktPbSTixAyNGwb-UYkQ", name: "Sky News" },
+    { id: "UCknLrEdhRCp1aegoMqRaCZg", name: "DW News" },
+  ];
   let ytPlayer = null;
   let ytReady = false;
+  let channelIdx = 0;
+  let readyTimeout = null;
 
   const videoFrame = $("broadcast-video-frame");
-  if (videoFrame) {
+
+  function loadChannel(idx) {
+    if (!videoFrame || idx >= NEWS_CHANNELS.length) {
+      // Every channel in the list failed — hide the video layer instead
+      // of leaving a dead, silently-broken iframe on screen.
+      const wrap = document.querySelector(".broadcast-video-wrap");
+      if (wrap) wrap.style.display = "none";
+      const tag = $("video-mute-tag");
+      if (tag) tag.style.display = "none";
+      return;
+    }
+    channelIdx = idx;
+    ytReady = false;
     const params = new URLSearchParams({
-      channel: NEWS_CHANNEL_ID,
+      channel: NEWS_CHANNELS[idx].id,
       autoplay: "1",
       mute: "1",
       controls: "0",
@@ -618,6 +642,14 @@
       origin: window.location.origin,
     });
     videoFrame.src = "https://www.youtube.com/embed/live_stream?" + params.toString();
+
+    clearTimeout(readyTimeout);
+    readyTimeout = setTimeout(() => {
+      if (!ytReady) {
+        console.warn(`[news] "${NEWS_CHANNELS[idx].name}" never became ready, trying next channel`);
+        loadChannel(idx + 1);
+      }
+    }, 6000);
   }
 
   function muteVideo() {
@@ -635,9 +667,18 @@
   // global function — that's how the API script calls back into us.
   window.onYouTubeIframeAPIReady = function () {
     if (!videoFrame) return;
+    // The iframe needs a real embed URL in place *before* the API wraps
+    // it (that's how the API knows what player it's attaching to).
+    loadChannel(0);
     ytPlayer = new YT.Player("broadcast-video-frame", {
       events: {
-        onReady: () => { ytReady = true; muteVideo(); },
+        onReady: () => { ytReady = true; clearTimeout(readyTimeout); muteVideo(); },
+        // Error codes 101/150 = the channel owner has embedding disabled
+        // for that video/stream — move on to the next channel in the list.
+        onError: () => {
+          console.warn(`[news] "${NEWS_CHANNELS[channelIdx].name}" refused embedding, trying next channel`);
+          loadChannel(channelIdx + 1);
+        },
       },
     });
   };
@@ -647,7 +688,11 @@
     document.head.appendChild(tag);
   })();
 
-  // ── VOICE (mirrors the main HUD's fixed browser voice) ──
+  // ── VOICE ──
+  // Uses the same Camb.ai voice backend as the main HUD (POST /api/tts),
+  // so JARVIS sounds the same here as everywhere else. Only falls back to
+  // the plain browser voice if Camb isn't configured/ready or the request
+  // fails — it's not the primary path anymore.
   const synth = window.speechSynthesis;
   const FIXED_VOICE_LANG = "en-AU";
   const FIXED_VOICE_NAME = "William";
@@ -678,12 +723,10 @@
     }
   }
 
-  function speakCommentary(text) {
+  let _currentAudio = null;
+
+  function _speakBrowser(clean) {
     if (!synth) { _finishedSpeaking = true; _maybeIdle(); unmuteVideo(); return; }
-    synth.cancel();
-    const clean = cleanForSpeech(text);
-    if (!clean) { _finishedSpeaking = true; _maybeIdle(); unmuteVideo(); return; }
-    muteVideo(); // keep the broadcast quiet while Jarvis is talking over it
     const utter = new SpeechSynthesisUtterance(clean);
     utter.rate = 0.93;
     utter.pitch = 0.8;
@@ -695,6 +738,44 @@
     utter.onend = done;
     utter.onerror = done;
     synth.speak(utter);
+  }
+
+  async function speakCommentary(text) {
+    if (synth) synth.cancel();
+    if (_currentAudio) { try { _currentAudio.pause(); } catch (e) {} _currentAudio = null; }
+    const clean = cleanForSpeech(text);
+    if (!clean) { _finishedSpeaking = true; _maybeIdle(); unmuteVideo(); return; }
+
+    muteVideo(); // keep the broadcast quiet while Jarvis is talking over it
+
+    try {
+      const res = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: clean }),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!res.ok) throw new Error("TTS " + res.status);
+      const contentType = res.headers.get("Content-Type") || "";
+      if (contentType.includes("application/json")) throw new Error("no local audio (Home Talk mode)");
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.volume = 1;
+      _currentAudio = audio;
+      const done = () => {
+        URL.revokeObjectURL(url);
+        if (_currentAudio === audio) _currentAudio = null;
+        _finishedSpeaking = true; _maybeIdle(); unmuteVideo();
+      };
+      audio.onended = done;
+      audio.onerror = () => { done(); _speakBrowser(clean); };
+      await audio.play();
+    } catch (e) {
+      console.warn("[news] Camb TTS unavailable, using browser voice:", e.message);
+      _speakBrowser(clean);
+    }
   }
 
   function fmtTime(iso) {
