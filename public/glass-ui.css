@@ -454,6 +454,7 @@ input[type="text"], input[type="password"], select, textarea,
   width: 210px; height: 210px;
   display: flex; align-items: center; justify-content: center;
   z-index: 2;
+  cursor: pointer; /* tap fallback if the browser can't hear the wake word */
 }
 .lock-orb {
   position: relative;
@@ -468,8 +469,10 @@ input[type="text"], input[type="password"], select, textarea,
   z-index: 2;
 }
 
-/* Camera feed sits *behind* the dot sphere so the scan reads as a
-   face inside the data-sphere, not a plain webcam preview. */
+/* Camera feed is used only for Face ID matching in the background —
+   it is never shown in the middle of the orb, scanning or not. Kept
+   in the DOM (not display:none) purely so the video element can still
+   receive frames for face-api to read. */
 #lock-face-video {
   position: absolute;
   top: 50%; left: 50%;
@@ -479,10 +482,10 @@ input[type="text"], input[type="password"], select, textarea,
   object-fit: cover;
   opacity: 0;
   z-index: 1;
-  transition: opacity 0.6s ease;
+  pointer-events: none;
   filter: saturate(1.2) brightness(0.8);
 }
-#lock-face-video.scanning { opacity: 0.4; }
+#lock-face-video.scanning { opacity: 0; }
 
 /* Thin ring outline around the sphere, matching the reference */
 .lock-ring {
