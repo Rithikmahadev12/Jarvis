@@ -541,6 +541,9 @@ function setOrb(s) {
   if (cfOrb) cfOrb.className = "orb" + (s !== "idle" ? " " + s : "");
   const labels = { idle: "STANDBY", listening: "LISTENING", thinking: "PROCESSING", speaking: "SPEAKING" };
   const st = $("status-text"); if (st) st.textContent = labels[s] || "STANDBY";
+  // Blue edge glow whenever we're actively talking with Jarvis
+  // (it's speaking, or listening to us) — off while idle/thinking.
+  document.body.classList.toggle("jarvis-glow", s === "speaking" || s === "listening");
 }
 // ═══════════════════════════════════════════════════════════════
 // ── CAMERA ──
@@ -2129,7 +2132,11 @@ async function handleAction(action, meta, replyText) {
         try {
           sessionStorage.setItem("jarvis_news_payload", JSON.stringify({ ts: Date.now(), ...newsPayload }));
         } catch (e) {}
-        window.location.href = "/news";
+        if (window.JarvisTransition) {
+          window.JarvisTransition.goTo("/news");
+        } else {
+          window.location.href = "/news";
+        }
       });
       break;
     }
