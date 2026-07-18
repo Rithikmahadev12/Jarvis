@@ -110,8 +110,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
   <div>While grabbed, move your hand — the hologram turns</div>
   <div>While grabbed, pull your fingers away from that piece — it grows (an outward circle works too, not just a straight pull)</div>
   <div>Let go of the pinch to release it</div>
-  <div><span class="g">Hover a finger over a piece (no pinch)</span> — it turns into a light pen</div>
-  <div>Draw a circle with it — the piece resizes to fit the circle you drew</div>
+  <div><span class="g">Touch a piece with a finger (no pinch)</span> — it turns into a light pen</div>
+  <div>Then draw a circle ANYWHERE on screen — the piece resizes to fit it</div>
   <div>(no camera? drag with mouse · scroll or ± to zoom)</div>
 </div>
 
@@ -445,11 +445,14 @@ function applyScale(relative) {
 //     distance from the piece matters, not the exact path.
 //   • let go of the pinch → releases it
 //
-// LIGHT PEN — hover a finger over a piece WITHOUT pinching and the
-// fingertip becomes a drawing tool (the cursor turns white). Trace a
-// circle over/around the piece; once the loop closes, that piece is
-// resized to match the exact size of the circle you drew — literally
-// "pull the piece bigger to fit the pen's circle."
+// LIGHT PEN — hover a finger over a piece WITHOUT pinching and it "picks
+// up" the pen for that piece (the cursor turns white). From then on you
+// can draw the circle ANYWHERE on screen — it doesn't have to stay over
+// the piece — and once the loop closes, that piece resizes to match the
+// exact size of the circle you drew. Literally "pull the piece bigger to
+// fit the pen's circle," even if the circle itself is drawn off to the
+// side. An unfinished circle drops after a few seconds so you can pick
+// up the pen again.
 //
 // Two (or more) hands in frame intentionally do nothing now — that used
 // to move/resize the WHOLE hologram just from having two open hands up,
@@ -470,13 +473,15 @@ const PEN_MIN_AREA_PX2  = 3200; // enclosed area floor — throws out thin back-
 const PEN_POINT_MIN_GAP_PX = 4; // drop points closer together than this so the trail doesn't clog
 const PEN_MAX_POINTS    = 260;  // safety cap on trail length
 const PEN_COOLDOWN_MS   = 500;  // pause after a resize before a new circle can trigger another
+const PEN_TIMEOUT_MS    = 4000; // drop an unfinished trail if the loop hasn't closed within this long
 
 let singlePrev = null;       // {x,y} of the grabbing hand, previous frame — drives rotation
 let twoPrev = null;          // {x,y,dist} of the midpoint + separation of two tracked hands, previous frame (unused for move/resize now, kept for future gestures)
 let pinching = false;
 let grabPrevRadius = null;   // previous frame's distance from the grabbed piece's center — drives scale
-let penPiece = null;         // the piece currently being "drawn on" with the light pen
-let penTrail = [];           // {x,y} points traced by the light pen for the current piece
+let penPiece = null;         // the piece currently "picked up" by the light pen (locked at first touch)
+let penTrail = [];           // {x,y} points traced by the light pen — can roam anywhere on screen
+let penTrailStartAt = 0;     // when the current trail started, for the timeout above
 let lastCircleAt = 0;        // timestamp of the last successful circle-resize, for cooldown
 
 function handSize(lm) {
@@ -615,32 +620,42 @@ window.addEventListener("jarvis:handframe", e => {
     const hoverPiece = pinching ? grabbedPiece : pickPieceAtScreen(h.x, h.y);
     if (hoveredPiece !== hoverPiece) { setHover(hoveredPiece, false); hoveredPiece = hoverPiece; setHover(hoveredPiece, true); }
 
-    // ── LIGHT PEN — only while NOT pinching. Hovering a piece turns the
-    // fingertip into a drawing tool; tracing a full circle over it resizes
-    // that piece to match the circle you drew. ──
+    // ── LIGHT PEN — only while NOT pinching. Touching a piece once "picks
+    // up" the pen for that piece; you can then draw the circle ANYWHERE
+    // on screen (not just on top of the piece) — only the piece touched
+    // first is what gets resized when the loop closes. ──
     if (!pinching) {
-      if (hoverPiece) {
-        if (penPiece !== hoverPiece) { penPiece = hoverPiece; clearPenTrail(); }
+      if (!penPiece && hoverPiece) {
+        penPiece = hoverPiece;
+        clearPenTrail();
+        penTrailStartAt = performance.now();
+      }
+      if (penPiece) {
         setLightPenCursor(true);
         const now = performance.now();
         if (now - lastCircleAt > PEN_COOLDOWN_MS) {
           addPenPoint(h.x, h.y);
           drawPenTrail();
-          const closed = tryCloseLoop();
-          if (closed) {
-            const drawnRadius = Math.sqrt(closed.area / Math.PI);
-            const info = getPieceScreenInfo(penPiece);
-            const newScale = clamp(penPiece.group.scale.x * (drawnRadius / info.radius), PIECE_MIN_SCALE, PIECE_MAX_SCALE);
-            penPiece.group.scale.setScalar(newScale);
-            hudSelected.innerHTML = `<b>#${penPiece.index + 1}</b>`;
-            toast(`Resized piece #${penPiece.index + 1} to match your circle · ${newScale.toFixed(2)}×`);
-            lastInteractAt = performance.now();
-            lastCircleAt = now;
-            clearPenTrail();
+          if (now - penTrailStartAt > PEN_TIMEOUT_MS) {
+            // drawn too long without closing the loop — drop it, ready to pick up again
+            penPiece = null; clearPenTrail(); setLightPenCursor(false);
+          } else {
+            const closed = tryCloseLoop();
+            if (closed) {
+              const drawnRadius = Math.sqrt(closed.area / Math.PI);
+              const info = getPieceScreenInfo(penPiece);
+              const newScale = clamp(penPiece.group.scale.x * (drawnRadius / info.radius), PIECE_MIN_SCALE, PIECE_MAX_SCALE);
+              penPiece.group.scale.setScalar(newScale);
+              hudSelected.innerHTML = `<b>#${penPiece.index + 1}</b>`;
+              toast(`Resized piece #${penPiece.index + 1} to match your circle · ${newScale.toFixed(2)}×`);
+              lastInteractAt = performance.now();
+              lastCircleAt = now;
+              penPiece = null; clearPenTrail(); setLightPenCursor(false);
+            }
           }
         }
-      } else if (penPiece) {
-        penPiece = null; clearPenTrail(); setLightPenCursor(false);
+      } else {
+        setLightPenCursor(false);
       }
     } else if (penPiece) {
       penPiece = null; clearPenTrail(); setLightPenCursor(false);
