@@ -30,7 +30,6 @@ const Proactive   = require("./proactive");
 const TTS = require("./tts");
 const Persistence = require("./persistence");
 const Settings    = require("./settings");
-const { reversePhoneLookup } = require('./Osint');
 
 const app        = express();
 
@@ -532,30 +531,6 @@ function euclideanDistance(a, b) {
 }
 
 app.get("/favicon.ico", (req, res) => res.status(204).end());
-
-// ═══════════════════════════════════════════════════════════════
-// ── GENUINELY FREE REVERSE PHONE LOOKUP API
-// ═══════════════════════════════════════════════════════════════
-/**
- * Genuinely Free Reverse Phone Lookup API Endpoint
- * Accessible by your local deployment or client UI hosted on Render
- */
-app.get('/api/lookup', async (req, res) => {
-    const { number } = req.query;
-    
-    if (!number) {
-        return res.status(400).json({ success: false, error: "Phone number parameter is required." });
-    }
-
-    // Trigger the real-time API simulation trace
-    const lookupResult = await reversePhoneLookup(number);
-    
-    if (lookupResult.success) {
-        return res.json(lookupResult);
-    } else {
-        return res.status(500).json(lookupResult);
-    }
-});
 
 // ═══════════════════════════════════════════════════════════════
 // ── HOME AUTOMATION
@@ -1606,20 +1581,6 @@ async function handlePersonFetch(message, meta, T) {
   }
 }
 
-async function handlePhoneLookupFetch(phoneNumber, T) {
-  try {
-    const result = await reversePhoneLookup(phoneNumber);
-    if (!result.success) {
-      return { reply: `Phone lookup failed, ${T}: ${result.error}`, action: "OSINT_LOOKUP", intent: "phone_lookup" };
-    }
-    const tagText = result.tags?.length ? ` Tags: ${result.tags.join(", ")}.` : "";
-    const reply = `Here's what I found on ${phoneNumber}, ${T}. Likely owner or listing: ${result.owner}. Spam risk: ${result.spamRisk}.${tagText}`;
-    return { reply, action: "OSINT_LOOKUP", intent: "phone_lookup", meta: { number: phoneNumber, raw: result } };
-  } catch (e) {
-    return { reply: `Phone lookup hit an error, ${T}. Try again.`, action: "OSINT_LOOKUP", intent: "phone_lookup" };
-  }
-}
-
 async function handleDIYFetch(message, userTitle) {
   const T = userTitle || "Sir";
   try {
@@ -2361,13 +2322,6 @@ app.post("/api/chat", async (req, res) => {
     if (hardCommandType === "newsPage") {
       return res.json(await handleNewsFetch(message, T, "page"));
     }
-    if (hardCommandType === "lookup") {
-      const phoneMatch = message.match(/(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}\b/);
-      if (phoneMatch) {
-        return res.json(await handlePhoneLookupFetch(phoneMatch[0], T));
-      }
-    }
-
     const linkSummary = getLinksSummary();
     const serverData  = { ...linkSummary, allLinks: getAllLinksFormatted(), ...lookupLink(message) };
 
