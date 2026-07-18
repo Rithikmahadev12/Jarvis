@@ -29,11 +29,7 @@ async function reversePhoneLookup(rawInput, passedName = '') {
         return { success: false, error: "Invalid phone number length." };
     }
 
-    const formats = [
-        cleanedRaw,                                      
-        `${cleanedRaw.slice(0, 3)}-${cleanedRaw.slice(3, 6)}-${cleanedRaw.slice(6)}`
-    ];
-
+    const formattedPhone = `${cleanedRaw.slice(0, 3)}-${cleanedRaw.slice(3, 6)}-${cleanedRaw.slice(6)}`;
     let browser;
     let socialMatches = [];
     
@@ -52,66 +48,51 @@ async function reversePhoneLookup(rawInput, passedName = '') {
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
         await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
 
-        // --- PHASE 1: SEARCH NAME TO LOCATE INSTAGRAM HANDLE ---
-        let discoveredHandle = '';
+        // --- PHASE 1: DIRECT INSTAGRAM LIVE NAME LOOKUP ---
         if (targetName.length > 0) {
-            const nameDork = `site:instagram.com "${targetName}"`;
-            const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(nameDork)}&hl=en`;
+            // Using a live-updating web directory search endpoint
+            const searchUrl = `https://picuki.com/search/?q=${encodeURIComponent(targetName)}`;
             
-            await page.goto(googleUrl, { waitUntil: 'networkidle2' });
-            await new Promise(r => setTimeout(r, 1000));
+            await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 20000 });
+            await new Promise(r => setTimeout(r, 1500)); // Allow DOM elements to fully populate
 
-            discoveredHandle = await page.evaluate(() => {
-                const modules = document.querySelectorAll('#search .g a');
-                for (let linkEl of modules) {
-                    const href = linkEl.href || '';
-                    // Extract handle pattern from standard instagram.com/username links
-                    const match = href.match(/instagram\.com\/([a-zA-Z0-9_\.]+)\/?/);
-                    if (match && !['p', 'explore', 'developer', 'tags'].includes(match[1])) {
-                        return match[1]; // Found target handle
-                    }
-                }
-                return '';
-            });
-        }
-
-        // --- PHASE 2: DEEP SCRAPE VIA UN-AUTHENTICATED MIRROR LAYER ---
-        if (discoveredHandle) {
-            // Using a highly resilient, public non-auth Instagram mirror layer
-            const mirrorUrl = `https://picuki.com/profile/${discoveredHandle}`;
-            try {
-                await page.goto(mirrorUrl, { waitUntil: 'networkidle2', timeout: 15000 });
+            const nameMatches = await page.evaluate((searchName) => {
+                const results = [];
+                // Target profile box items in the directory list layout
+                const boxes = document.querySelectorAll('.profile-item');
                 
-                const profileData = await page.evaluate((handle) => {
-                    const nameEl = document.querySelector('.profile-name');
-                    const usernameEl = document.querySelector('.profile-username');
-                    const bioEl = document.querySelector('.profile-description');
-                    const avatarEl = document.querySelector('.profile-avatar img');
+                boxes.forEach(box => {
+                    const nameEl = box.querySelector('.profile-name');
+                    const handleEl = box.querySelector('.profile-username');
+                    const linkEl = box.querySelector('a');
                     
-                    return {
-                        platform: "Instagram",
-                        title: nameEl ? nameEl.innerText.trim() : handle,
-                        snippet: bioEl ? bioEl.innerText.trim() : 'No public biography configured.',
-                        link: `https://instagram.com/${handle}`,
-                        meta: {
-                            handle: usernameEl ? usernameEl.innerText.trim().replace('@', '') : handle,
-                            profilePic: avatarEl ? avatarEl.src : null
-                        }
-                    };
-                }, discoveredHandle);
+                    const profileName = nameEl ? nameEl.innerText.trim() : '';
+                    const profileHandle = handleEl ? handleEl.innerText.trim().replace('@', '') : '';
+                    
+                    // Direct dynamic check: verify the target name matches what we typed in
+                    if (profileName.toLowerCase().includes(searchName.toLowerCase())) {
+                        results.push({
+                            platform: "Instagram",
+                            title: profileName,
+                            snippet: `Discovered live match via name index directory search.`,
+                            link: `https://instagram.com/${profileHandle}`,
+                            handle: profileHandle
+                        });
+                    }
+                });
+                return results;
+            }, targetName);
 
-                if (profileData.title) {
-                    socialMatches.push(profileData);
-                }
-            } catch (mirrorError) {
-                console.log("Mirror layer parsing timed out or dropped. Falling back to search index index mapping...");
+            if (nameMatches.length > 0) {
+                socialMatches.push(...nameMatches);
             }
         }
 
-        // --- FALLBACK INTERFACE: IF MIRROR PIPELINE WAS LOCKED OUT ---
+        // --- FALLBACK INTERFACE: IF DIRECT DIRECTORY FAILED ---
         if (socialMatches.length === 0 && targetName.length > 0) {
             const nameDork = `site:instagram.com "${targetName}"`;
             const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(nameDork)}&hl=en`;
+            
             await page.goto(googleUrl, { waitUntil: 'networkidle2' });
             
             const standardMatches = await page.evaluate(() => {
@@ -120,14 +101,18 @@ async function reversePhoneLookup(rawInput, passedName = '') {
                 modules.forEach(mod => {
                     const titleEl = mod.querySelector('h3');
                     const linkEl = mod.querySelector('a');
-                    const snippetEl = mod.querySelector('[style*="-webkit-line-clamp"], .VwiC3b');
                     
                     if (titleEl && linkEl && linkEl.href.includes('instagram.com')) {
+                        const href = linkEl.href;
+                        const match = href.match(/instagram\.com\/([a-zA-Z0-9_\.]+)\/?/);
+                        const handle = match ? match[1] : 'profile';
+                        
                         results.push({
                             platform: "Instagram",
                             title: titleEl.innerText.trim(),
-                            snippet: snippetEl ? snippetEl.innerText.trim() : '',
-                            link: linkEl.href
+                            snippet: "Extracted via historical index mapping.",
+                            link: href,
+                            handle: handle
                         });
                     }
                 });
@@ -145,12 +130,12 @@ async function reversePhoneLookup(rawInput, passedName = '') {
         if (socialMatches.length > 0) {
             classifications.push(`Social Footprints Isolated (${socialMatches.length})`);
             const topProfile = socialMatches[0];
-            suspectedOwner = `${topProfile.title} (@${discoveredHandle || 'profile'})`;
+            suspectedOwner = `${topProfile.title} (@${topProfile.handle})`;
         }
 
         return {
             success: true,
-            number: `${formats[1]}`,
+            number: formattedPhone,
             owner: suspectedOwner,
             spamRisk: "Low",
             tags: classifications.length > 0 ? classifications : ["Personal Line"],
