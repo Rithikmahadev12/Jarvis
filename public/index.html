@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="mode-picker.css"/>
   <link rel="stylesheet" href="board-widget.css"/>
   <link rel="stylesheet" href="simple-chat-mode.css"/>
+  <link rel="stylesheet" href="boot-reveal.css"/>
 
   <!-- PWA: lets this be "Added to Home Screen" as an app on a phone -->
   <link rel="manifest" href="manifest.json"/>
@@ -343,6 +344,8 @@
   <!-- MAIN SCREEN                                    -->
   <!-- ═══════════════════════════════════════════════ -->
   <div id="main-screen" class="screen hud-minimal">
+
+    <div id="main-reveal-wrap">
 
     <!-- TOP BAR (hidden in minimal mode via CSS — kept so existing JS
          that updates these fields doesn't need to change) -->
@@ -713,6 +716,11 @@
         allow="autoplay"
       ></iframe>
     </div>
+
+    </div><!-- /main-reveal-wrap -->
+
+    <!-- Sweeping reveal line, synced with #main-reveal-wrap's wipe-down animation -->
+    <div id="reveal-scanline"></div>
 
     <!-- ══ MODE TASKBAR — bottom dock, switch modes by tap or by voice ("Jarvis, switch to map") ══ -->
     <nav id="mode-taskbar">
