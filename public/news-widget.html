@@ -179,7 +179,79 @@
     color: rgba(0,200,255,0.05);
     font-family: var(--hud);
     pointer-events: none;
+    z-index: 2;
   }
+
+  /* ── LIVE VIDEO LAYER ──
+     Sits behind the headline text as a live broadcast backdrop, same
+     idea as a real news channel's "video with text overlay" look. */
+  .broadcast-video-wrap {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    background: #000;
+  }
+  .broadcast-video-wrap iframe {
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 100%; height: 100%;
+    /* Slightly oversize + center-crop so a 16:9 embed fills odd panel
+       aspect ratios without visible letterboxing. */
+    min-width: 115%; min-height: 115%;
+    transform: translate(-50%, -50%);
+    border: 0;
+    pointer-events: none; /* JARVIS drives mute state, not the viewer */
+  }
+  .broadcast-video-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: linear-gradient(0deg, rgba(1,8,14,0.92) 0%, rgba(1,8,14,0.55) 42%, rgba(1,8,14,0.15) 70%, rgba(1,8,14,0.4) 100%);
+  }
+  .broadcast-main > .broadcast-eyebrow,
+  .broadcast-main > .broadcast-headline,
+  .broadcast-main > .broadcast-src {
+    position: relative;
+    z-index: 2;
+  }
+  .live-video-tag {
+    position: absolute;
+    top: 14px; left: 14px;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,0,0,0.45);
+    border: 1px solid rgba(255,255,255,0.25);
+    padding: 4px 8px 4px 6px;
+    border-radius: 2px;
+    font-family: var(--hud);
+    font-size: 0.48rem;
+    letter-spacing: 0.12em;
+    color: #fff;
+  }
+  .live-video-tag .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--red);
+    box-shadow: 0 0 8px var(--red-glow);
+    animation: liveBlink 1.6s ease-in-out infinite;
+  }
+  .video-mute-tag {
+    position: absolute;
+    top: 14px; right: 14px;
+    z-index: 2;
+    background: rgba(0,0,0,0.45);
+    border: 1px solid rgba(255,255,255,0.25);
+    padding: 4px 8px;
+    border-radius: 2px;
+    font-family: var(--mono);
+    font-size: 0.46rem;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    transition: color 0.3s ease, border-color 0.3s ease;
+  }
+  .video-mute-tag.unmuted { color: #fff; border-color: rgba(0,255,136,0.5); }
 
   .broadcast-side {
     grid-row: 1;
@@ -411,8 +483,11 @@
 
   .loading-msg { font-family: var(--mono); font-size: 0.62rem; color: var(--text-dim); padding: 20px; }
 </style>
+<link rel="stylesheet" href="nav-transition.css"/>
+<link rel="stylesheet" href="jarvis-glow.css"/>
 </head>
 <body>
+<script src="nav-transition.js"></script>
 
   <div class="wrap">
 
@@ -434,6 +509,16 @@
       <div class="left-col">
         <div class="panel broadcast">
           <div class="broadcast-main">
+            <div class="broadcast-video-wrap">
+              <iframe
+                id="broadcast-video-frame"
+                allow="autoplay; encrypted-media"
+                title="Live news broadcast"
+              ></iframe>
+            </div>
+            <div class="broadcast-video-scrim"></div>
+            <div class="live-video-tag"><span class="dot"></span>LIVE BROADCAST</div>
+            <div class="video-mute-tag" id="video-mute-tag">MUTED — JARVIS NARRATING</div>
             <div class="broadcast-eyebrow" id="hero-eyebrow">TOP STORY</div>
             <div class="broadcast-headline" id="hero-headline">Pulling the latest, standby…</div>
             <div class="broadcast-src" id="hero-src"></div>
@@ -506,7 +591,61 @@
   function setOrb(state) {
     orb.classList.remove("idle", "thinking", "speaking");
     orb.classList.add(state);
+    // Blue edge glow whenever Jarvis is actively narrating.
+    document.body.classList.toggle("jarvis-glow", state === "speaking");
   }
+
+  // ── LIVE BROADCAST VIDEO ──
+  // Always the current live stream of the given channel (YouTube resolves
+  // "live_stream?channel=..." to whatever that channel is broadcasting
+  // right now — no video ID to keep updating). Swap NEWS_CHANNEL_ID to
+  // point this at a different 24/7 news channel.
+  const NEWS_CHANNEL_ID = "UCBi2mrWuNuyYy4gbM6fU18Q"; // ABC News (US)
+  let ytPlayer = null;
+  let ytReady = false;
+
+  const videoFrame = $("broadcast-video-frame");
+  if (videoFrame) {
+    const params = new URLSearchParams({
+      channel: NEWS_CHANNEL_ID,
+      autoplay: "1",
+      mute: "1",
+      controls: "0",
+      modestbranding: "1",
+      playsinline: "1",
+      rel: "0",
+      enablejsapi: "1",
+      origin: window.location.origin,
+    });
+    videoFrame.src = "https://www.youtube.com/embed/live_stream?" + params.toString();
+  }
+
+  function muteVideo() {
+    try { if (ytPlayer && ytReady) ytPlayer.mute(); } catch (e) {}
+    const tag = $("video-mute-tag");
+    if (tag) { tag.textContent = "MUTED — JARVIS NARRATING"; tag.classList.remove("unmuted"); }
+  }
+  function unmuteVideo() {
+    try { if (ytPlayer && ytReady) ytPlayer.unMute(); } catch (e) {}
+    const tag = $("video-mute-tag");
+    if (tag) { tag.textContent = "LIVE AUDIO"; tag.classList.add("unmuted"); }
+  }
+
+  // Loaded async by the YouTube iframe API script tag below. Must be a
+  // global function — that's how the API script calls back into us.
+  window.onYouTubeIframeAPIReady = function () {
+    if (!videoFrame) return;
+    ytPlayer = new YT.Player("broadcast-video-frame", {
+      events: {
+        onReady: () => { ytReady = true; muteVideo(); },
+      },
+    });
+  };
+  (function loadYouTubeAPI() {
+    const tag = document.createElement("script");
+    tag.src = "https://www.youtube.com/iframe_api";
+    document.head.appendChild(tag);
+  })();
 
   // ── VOICE (mirrors the main HUD's fixed browser voice) ──
   const synth = window.speechSynthesis;
@@ -540,10 +679,11 @@
   }
 
   function speakCommentary(text) {
-    if (!synth) { _finishedSpeaking = true; _maybeIdle(); return; }
+    if (!synth) { _finishedSpeaking = true; _maybeIdle(); unmuteVideo(); return; }
     synth.cancel();
     const clean = cleanForSpeech(text);
-    if (!clean) { _finishedSpeaking = true; _maybeIdle(); return; }
+    if (!clean) { _finishedSpeaking = true; _maybeIdle(); unmuteVideo(); return; }
+    muteVideo(); // keep the broadcast quiet while Jarvis is talking over it
     const utter = new SpeechSynthesisUtterance(clean);
     utter.rate = 0.93;
     utter.pitch = 0.8;
@@ -551,7 +691,7 @@
     const trySetVoice = () => { const v = pickVoice(); if (v) utter.voice = v; };
     trySetVoice();
     if (!utter.voice) setTimeout(trySetVoice, 150);
-    const done = () => { _finishedSpeaking = true; _maybeIdle(); };
+    const done = () => { _finishedSpeaking = true; _maybeIdle(); unmuteVideo(); };
     utter.onend = done;
     utter.onerror = done;
     synth.speak(utter);
