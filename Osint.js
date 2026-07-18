@@ -50,45 +50,80 @@ async function reversePhoneLookup(rawInput, passedName = '') {
 
         // --- PHASE 1: DIRECT INSTAGRAM LIVE NAME LOOKUP ---
         if (targetName.length > 0) {
-            // Using a live-updating web directory search endpoint
+            // Target the clean direct query endpoint directly
             const searchUrl = `https://picuki.com/search/?q=${encodeURIComponent(targetName)}`;
             
-            await page.goto(searchUrl, { waitUntil: 'networkidle2', timeout: 20000 });
-            await new Promise(r => setTimeout(r, 1500)); // Allow DOM elements to fully populate
-
-            const nameMatches = await page.evaluate((searchName) => {
-                const results = [];
-                // Target profile box items in the directory list layout
-                const boxes = document.querySelectorAll('.profile-item');
+            await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+            
+            try {
+                // FORCE THE ENGINE TO WAIT FOR DYNAMICALLY LOADED CARD COMPONENTS
+                // Works for both '.profile-item' and layout blocks
+                await page.waitForSelector('.profile-item, .profile-item-title, a[href*="/profile/"]', { timeout: 7000 });
                 
-                boxes.forEach(box => {
-                    const nameEl = box.querySelector('.profile-name');
-                    const handleEl = box.querySelector('.profile-username');
-                    const linkEl = box.querySelector('a');
+                // Extraction execution inside the rendered tree
+                const nameMatches = await page.evaluate((searchName) => {
+                    const results = [];
                     
-                    const profileName = nameEl ? nameEl.innerText.trim() : '';
-                    const profileHandle = handleEl ? handleEl.innerText.trim().replace('@', '') : '';
+                    // Look through both modern dynamic container classes and legacy structures
+                    const boxes = document.querySelectorAll('.profile-item, [class*="profile-item"]');
                     
-                    // Direct dynamic check: verify the target name matches what we typed in
-                    if (profileName.toLowerCase().includes(searchName.toLowerCase())) {
-                        results.push({
-                            platform: "Instagram",
-                            title: profileName,
-                            snippet: `Discovered live match via name index directory search.`,
-                            link: `https://instagram.com/${profileHandle}`,
-                            handle: profileHandle
+                    boxes.forEach(box => {
+                        const nameEl = box.querySelector('.profile-name, .profile-item-name, [class*="name"]');
+                        const handleEl = box.querySelector('.profile-username, .profile-item-title, [class*="username"]');
+                        const linkEl = box.querySelector('a');
+                        
+                        const profileName = nameEl ? nameEl.innerText.trim() : '';
+                        let profileHandle = handleEl ? handleEl.innerText.trim().replace('@', '') : '';
+                        
+                        // Fallback parsing if selectors are clean but text layout is clustered
+                        if (!profileHandle && linkEl && linkEl.href.includes('/profile/')) {
+                            profileHandle = linkEl.href.split('/profile/')[1].split('/')[0];
+                        }
+
+                        if (profileName.toLowerCase().includes(searchName.toLowerCase()) || profileHandle.toLowerCase().includes(searchName.toLowerCase().replace(/\s+/g, ''))) {
+                            results.push({
+                                platform: "Instagram",
+                                title: profileName || profileHandle,
+                                snippet: `Discovered live match via targeted execution profile match.`,
+                                link: `https://instagram.com/${profileHandle}`,
+                                handle: profileHandle
+                            });
+                        }
+                    });
+                    
+                    // Direct dynamic extraction block from standalone link nodes if the grid wrappers were compressed
+                    if (results.length === 0) {
+                        const backupLinks = document.querySelectorAll('a[href*="/profile/"]');
+                        backupLinks.forEach(link => {
+                            const handle = link.href.split('/profile/')[1].split('/')[0];
+                            const text = link.innerText.trim();
+                            if (handle.toLowerCase().includes(searchName.toLowerCase().replace(/\s+/g, '')) || text.toLowerCase().includes(searchName.toLowerCase())) {
+                                results.push({
+                                    platform: "Instagram",
+                                    title: text || handle,
+                                    snippet: `Discovered via secondary anchor parsing matrix.`,
+                                    link: `https://instagram.com/${handle}`,
+                                    handle: handle
+                                });
+                            }
                         });
                     }
-                });
-                return results;
-            }, targetName);
+                    
+                    return results;
+                }, targetName);
 
-            if (nameMatches.length > 0) {
-                socialMatches.push(...nameMatches);
+                if (nameMatches.length > 0) {
+                    // Filter arrays down to unique entry pairs to avoid repeating handles
+                    const uniqueMap = new Map();
+                    nameMatches.forEach(item => uniqueMap.set(item.handle, item));
+                    socialMatches.push(...Array.from(uniqueMap.values()));
+                }
+            } catch (timeoutErr) {
+                console.log("Live directory UI took too long to draw elements. Invoking search engine layer...");
             }
         }
 
-        // --- FALLBACK INTERFACE: IF DIRECT DIRECTORY FAILED ---
+        // --- FALLBACK INTERFACE: FIREWALL DEFEAT LAYER ---
         if (socialMatches.length === 0 && targetName.length > 0) {
             const nameDork = `site:instagram.com "${targetName}"`;
             const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(nameDork)}&hl=en`;
@@ -107,13 +142,15 @@ async function reversePhoneLookup(rawInput, passedName = '') {
                         const match = href.match(/instagram\.com\/([a-zA-Z0-9_\.]+)\/?/);
                         const handle = match ? match[1] : 'profile';
                         
-                        results.push({
-                            platform: "Instagram",
-                            title: titleEl.innerText.trim(),
-                            snippet: "Extracted via historical index mapping.",
-                            link: href,
-                            handle: handle
-                        });
+                        if (!['p', 'explore', 'tags', 'developer'].includes(handle)) {
+                            results.push({
+                                platform: "Instagram",
+                                title: titleEl.innerText.trim().split(/[|•\-()]/)[0].trim(),
+                                snippet: "Extracted via historical index mapping.",
+                                link: href,
+                                handle: handle
+                            });
+                        }
                     }
                 });
                 return results;
