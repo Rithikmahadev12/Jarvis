@@ -200,6 +200,7 @@ holoGroup.position.y = 1.6;
 scene.add(holoGroup);
 
 let baseScale = 1;
+let modelMaxDim = 1; // unscaled bounding size, used to project an on-screen hotzone
 const hudName = document.getElementById("hud-name");
 const hudCount = document.getElementById("hud-count");
 
@@ -211,12 +212,14 @@ function centerAndMount(objects, sourceLabel, count) {
   const size = box.getSize(new THREE.Vector3());
   inner.position.sub(center);
   const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  modelMaxDim = maxDim;
   baseScale = 3.2 / maxDim;
   holoGroup.scale.setScalar(baseScale);
   holoGroup.add(inner);
   hudName.innerHTML = `<b>${sourceLabel}</b>`;
   hudCount.innerHTML = `<b>${count}</b>`;
 }
+
 
 function loadFromBuildMode() {
   let raw;
@@ -338,73 +341,119 @@ function applyScale(relative) {
 
 // ═══════════════════════════════════════════════════════════════
 // HAND CONTROLS — reuses the shared HandTracking module (hand-tracking.js).
-// No grab gesture required at all: the instant a hand is visible and
-// moving, that motion drives the hologram directly — no pinch, no
-// fist, nothing to "try" to do. What happens is still inferred from
-// how the hand actually moves, not a preset command:
-//   • one hand, moving mostly sideways/up-down → turns it
-//   • one hand, staying in place but growing/shrinking in the frame
+//
+// Only hands near the hologram itself count — a hand off to the side
+// or resting somewhere else in frame is ignored, so it doesn't spin
+// just because a hand is visible somewhere in the camera. This zone
+// is a circle projected around the hologram's actual on-screen
+// position/size, so it tracks it as it moves, rotates, and scales.
+//
+// Within that zone:
+//   • open hand, moving mostly sideways/up-down → turns it
+//   • open hand, staying in place but growing/shrinking in the frame
 //     (pushing toward/pulling away from the camera) → zooms it
+//   • pinched on a piece, pulled away from the hologram's center
+//     (straight out, or in an expanding circle — any outward motion
+//     counts) → grows it; pulled back in → shrinks it
 //   • two hands, moving together → picks it up and moves it
 //   • two hands, moving apart/together → resizes it
-// All of these can blend in the same motion — e.g. two hands drifting
-// sideways while also spreading apart moves AND resizes at once.
 // ═══════════════════════════════════════════════════════════════
 const ROT_SENS_HAND = 0.012;
 const MOVE_SENS_HAND = 0.007;
-const PUSH_ZOOM_SENS = 2.2;     // how strongly apparent hand-size change zooms
-const PUSH_MOTION_GUARD = 22;   // px of lateral motion below which a size-change reads as a push, not a turn
+const PUSH_ZOOM_SENS = 2.2;      // how strongly apparent hand-size change zooms
+const PUSH_MOTION_GUARD = 22;    // px of lateral motion below which a size-change reads as a push, not a turn
+const PINCH_ON  = 0.05;          // normalized thumb-index distance to grab a piece
+const PINCH_OFF = 0.075;         // must open past this to release (hysteresis avoids flicker)
+const RADIAL_SCALE_SENS = 0.9;   // how strongly pulling a pinched piece outward grows it
+const HOTZONE_MARGIN = 1.9;      // hand can be this many hologram-radii away and still count
 
-let singlePrev = null;   // {x,y,size} of the one tracked hand, previous frame
-let twoPrev = null;      // {x,y,dist} of the midpoint + separation of two tracked hands, previous frame
+let singlePrev = null;       // {x,y,size} of the one tracked hand, previous frame
+let twoPrev = null;          // {x,y,dist} of the midpoint + separation of two tracked hands, previous frame
+let pinching = false;
+let pinchPrevRadius = null;  // previous frame's distance from the hologram's center, while pinched
 
-// Any tracked hand counts as "active" — no pinch/fist gesture needed.
-// Just being visible and moving is enough to drive the hologram.
-function isGrabbing(lm) {
+function handSize(lm) {
   const wrist = lm[0], palmRef = lm[9];
-  const palmSize = Math.hypot(wrist.x - palmRef.x, wrist.y - palmRef.y) || 0.001;
-  return { grabbed: true, palmSize };
+  return Math.hypot(wrist.x - palmRef.x, wrist.y - palmRef.y) || 0.001;
+}
+
+// Where the hologram actually sits on screen right now, and how big
+// it looks — recomputed every frame since move/rotate/scale all
+// change it. Hands outside this (with some margin) are ignored.
+function getHoloScreenHotzone() {
+  const worldRadius = (modelMaxDim / 2) * holoGroup.scale.x;
+  const center = holoGroup.position.clone();
+  const edge = center.clone().add(new THREE.Vector3(worldRadius, 0, 0));
+  const cProj = center.project(camera);
+  const eProj = edge.project(camera);
+  const cx = (cProj.x * 0.5 + 0.5) * window.innerWidth;
+  const cy = (-cProj.y * 0.5 + 0.5) * window.innerHeight;
+  const ex = (eProj.x * 0.5 + 0.5) * window.innerWidth;
+  const ey = (-eProj.y * 0.5 + 0.5) * window.innerHeight;
+  return { cx, cy, radius: Math.hypot(ex - cx, ey - cy) || 120 };
 }
 
 window.addEventListener("jarvis:handframe", e => {
   if (!handsEnabled) return;
   const all = (e.detail && e.detail.allLandmarks) || [];
-  const grabbed = [];
+  const zone = getHoloScreenHotzone();
+  const active = [];
   all.forEach(lm => {
-    const { grabbed: isG, palmSize } = isGrabbing(lm);
-    if (!isG) return;
     const thumb = lm[4], index = lm[8];
-    grabbed.push({
-      x: (1 - (thumb.x + index.x) / 2) * window.innerWidth,
-      y: ((thumb.y + index.y) / 2) * window.innerHeight,
-      size: palmSize,
+    const x = (1 - (thumb.x + index.x) / 2) * window.innerWidth;
+    const y = ((thumb.y + index.y) / 2) * window.innerHeight;
+    const distFromCenter = Math.hypot(x - zone.cx, y - zone.cy);
+    if (distFromCenter > zone.radius * HOTZONE_MARGIN) return; // off to the side — ignore
+    active.push({
+      x, y, size: handSize(lm), distFromCenter,
+      pinchDist: Math.hypot(thumb.x - index.x, thumb.y - index.y),
     });
   });
 
-  if (grabbed.length === 1) {
+  if (active.length === 1) {
     twoPrev = null;
-    const h = grabbed[0];
-    if (singlePrev) {
-      const dx = h.x - singlePrev.x, dy = h.y - singlePrev.y;
-      const lateral = Math.hypot(dx, dy);
-      const sizeRatio = h.size / (singlePrev.size || h.size);
-      const pushStrength = Math.abs(sizeRatio - 1);
+    const h = active[0];
+    const wasPinching = pinching;
+    pinching = wasPinching ? h.pinchDist < PINCH_OFF : h.pinchDist < PINCH_ON;
 
-      if (lateral < PUSH_MOTION_GUARD && pushStrength > 0.012) {
-        // hand mostly holding still but growing/shrinking → reading this
-        // as pushing the hologram away or pulling it closer, not a turn.
-        applyScale((holoGroup.scale.x / baseScale) * (1 + (sizeRatio - 1) * PUSH_ZOOM_SENS));
-      } else {
-        vel.rotY = dx * ROT_SENS_HAND; vel.rotX = dy * ROT_SENS_HAND;
-        holoGroup.rotation.y += vel.rotY;
-        holoGroup.rotation.x = clamp(holoGroup.rotation.x + vel.rotX, -1.1, 1.1);
+    if (pinching) {
+      // Grabbed a piece — pull it away from the hologram's center to
+      // grow it, push it back in to shrink it. Doesn't have to be a
+      // straight pull: an expanding circular motion works too, since
+      // only the growing distance from center matters.
+      if (wasPinching && pinchPrevRadius != null) {
+        const delta = h.distFromCenter - pinchPrevRadius;
+        if (Math.abs(delta) > 0.5) {
+          applyScale((holoGroup.scale.x / baseScale) * (1 + (delta / zone.radius) * RADIAL_SCALE_SENS));
+        }
+        lastInteractAt = lastGrabAt = performance.now();
       }
-      lastInteractAt = lastGrabAt = performance.now();
+      pinchPrevRadius = h.distFromCenter;
+      singlePrev = null; // don't also rotate while pinch-scaling
+    } else {
+      pinchPrevRadius = null;
+      if (singlePrev) {
+        const dx = h.x - singlePrev.x, dy = h.y - singlePrev.y;
+        const lateral = Math.hypot(dx, dy);
+        const sizeRatio = h.size / (singlePrev.size || h.size);
+        const pushStrength = Math.abs(sizeRatio - 1);
+
+        if (lateral < PUSH_MOTION_GUARD && pushStrength > 0.012) {
+          // hand mostly holding still but growing/shrinking → reading this
+          // as pushing the hologram away or pulling it closer, not a turn.
+          applyScale((holoGroup.scale.x / baseScale) * (1 + (sizeRatio - 1) * PUSH_ZOOM_SENS));
+        } else {
+          vel.rotY = dx * ROT_SENS_HAND; vel.rotX = dy * ROT_SENS_HAND;
+          holoGroup.rotation.y += vel.rotY;
+          holoGroup.rotation.x = clamp(holoGroup.rotation.x + vel.rotX, -1.1, 1.1);
+        }
+        lastInteractAt = lastGrabAt = performance.now();
+      }
+      singlePrev = h;
     }
-    singlePrev = h;
-  } else if (grabbed.length === 2) {
-    singlePrev = null;
-    const [a, b] = grabbed;
+  } else if (active.length === 2) {
+    singlePrev = null; pinching = false; pinchPrevRadius = null;
+    const [a, b] = active;
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     const dist = Math.hypot(a.x - b.x, a.y - b.y);
     if (twoPrev) {
@@ -421,7 +470,7 @@ window.addEventListener("jarvis:handframe", e => {
     }
     twoPrev = { x: mid.x, y: mid.y, dist };
   } else {
-    singlePrev = null; twoPrev = null;
+    singlePrev = null; twoPrev = null; pinching = false; pinchPrevRadius = null;
   }
 });
 
@@ -473,7 +522,7 @@ document.getElementById("btnHands").onclick = async (e) => {
     handsEnabled = true;
     btn.textContent = "🖐 HAND CONTROL: ON";
     btn.classList.add("on");
-    toast("Just move your hand — one or both. It figures out turn, move, or zoom from how you move it.");
+    toast("Move your hand near it to turn it. Pinch a piece and pull outward to grow it.");
   } catch (err) {
     console.warn("[hologram-build] camera access failed", err);
     btn.textContent = "🖐 HAND CONTROL: NO CAMERA";
