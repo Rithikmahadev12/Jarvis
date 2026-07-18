@@ -1315,6 +1315,20 @@ function launchMain() {
   loadServerSettings(); // restore saved toggles (face detection, etc.) — fire-and-forget, applies as soon as it resolves
   $("auth-screen").classList.remove("active");
   $("main-screen").classList.add("active");
+  // Wipe the HUD in top-to-bottom behind a glowing scan line instead of
+  // an instant cut — the taskbar (outside #main-reveal-wrap) is visible
+  // for the whole thing since it's never part of the clipped area.
+  const revealWrap = $("main-reveal-wrap");
+  const scanline = $("reveal-scanline");
+  if (revealWrap && scanline) {
+    // Force layout so re-adding the class on repeat logins retriggers
+    // the animation instead of a no-op.
+    revealWrap.classList.remove("revealing");
+    scanline.classList.remove("active");
+    void revealWrap.offsetWidth;
+    revealWrap.classList.add("revealing");
+    scanline.classList.add("active");
+  }
   const ud = $("user-display"); if (ud) ud.textContent = `${state.user} / ${state.userTitle}`;
   state.lastInteraction = Date.now(); updateMood(20);
 
