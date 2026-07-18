@@ -20,6 +20,23 @@
 
   function $(id) { return document.getElementById(id); }
 
+  // ── ONCE-PER-DAY GATE ──
+  // The boot intro (typed log + spoken self-introduction) should only
+  // play the first time JARVIS is opened on a given day. Every login
+  // after that, on the same day, skips straight to the main screen.
+  const LAST_INTRO_KEY = "jarvis_last_intro_date";
+  function todayKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  }
+  function introAlreadyShownToday() {
+    try { return localStorage.getItem(LAST_INTRO_KEY) === todayKey(); }
+    catch (e) { return false; }
+  }
+  function markIntroShownToday() {
+    try { localStorage.setItem(LAST_INTRO_KEY, todayKey()); } catch (e) {}
+  }
+
   function formatCountdown(totalSeconds) {
     const s = Math.max(0, Math.round(totalSeconds));
     const m = Math.floor(s / 60);
@@ -79,6 +96,11 @@
     const auth  = $("auth-screen");
     const main  = $("main-screen");
     if (!intro) { done(); return; }
+
+    // Already opened JARVIS today — skip the boot intro entirely and go
+    // straight to the main HUD.
+    if (introAlreadyShownToday()) { done(); return; }
+    markIntroShownToday();
 
     if (auth) auth.classList.remove("active");
     if (main) main.classList.remove("active");
