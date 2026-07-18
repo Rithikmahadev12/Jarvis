@@ -4,16 +4,33 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 
 function cleanPhoneNumber(phoneStr) {
+    // Strip everything except numbers to isolate the digits
     return ('' + phoneStr).replace(/\D/g, '');
 }
 
-// Updated function signature to accept an optional target name
-async function reversePhoneLookup(phoneNumber, targetName = '') {
-    if (!phoneNumber) {
-        return { success: false, error: "No phone number provided." };
+async function reversePhoneLookup(rawInput, passedName = '') {
+    if (!rawInput) {
+        return { success: false, error: "No input provided." };
+    }
+
+    let targetName = passedName.trim();
+    let phoneNumber = rawInput;
+
+    // AUTOMATED QUERY SPLITTER
+    // If a name was accidentally passed in the phone field (e.g. "971-462-6355 Rithik Mahadev")
+    const mixedInputMatch = rawInput.match(/^([\d\s\-()+][\d\s\-()]{6,})\s+(.+)$/);
+    if (mixedInputMatch) {
+        phoneNumber = mixedInputMatch[1].trim();
+        if (!targetName) {
+            targetName = mixedInputMatch[2].trim(); // Extract the name automatically
+        }
     }
 
     const cleanedRaw = cleanPhoneNumber(phoneNumber);
+    if (cleanedRaw.length < 7) {
+        return { success: false, error: "Invalid phone number length." };
+    }
+
     const formats = [
         cleanedRaw,                                      
         `${cleanedRaw.slice(0, 3)}-${cleanedRaw.slice(3, 6)}-${cleanedRaw.slice(6)}`, 
@@ -22,7 +39,6 @@ async function reversePhoneLookup(phoneNumber, targetName = '') {
 
     let browser;
     let socialMatches = [];
-    let generalResults = [];
     
     try {
         browser = await puppeteer.launch({
@@ -39,11 +55,9 @@ async function reversePhoneLookup(phoneNumber, targetName = '') {
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
         await page.setExtraHTTPHeaders({ 'Accept-Language': 'en-US,en;q=0.9' });
 
-        // --- OPTIMIZED PHASE 1: SEARCH BY NAME IF PROVIDED ---
-        if (targetName && targetName.trim().length > 0) {
-            const cleanName = targetName.trim();
-            // Target the name on Instagram specifically, using Google's broad index
-            const nameDork = `site:instagram.com "${cleanName}"`;
+        // --- PHASE 1: SEARCH BY EXTRACTED NAME ---
+        if (targetName.length > 0) {
+            const nameDork = `site:instagram.com "${targetName}"`;
             const googleUrl = `https://www.google.com/search?q=${encodeURIComponent(nameDork)}&hl=en`;
             
             await page.goto(googleUrl, { waitUntil: 'networkidle2' });
@@ -115,13 +129,11 @@ async function reversePhoneLookup(phoneNumber, targetName = '') {
 
         // --- PHASE 3: PARSING LOGIC ENGINE ---
         let suspectedOwner = targetName || "Unknown / Unlisted Name";
-        let riskScore = "Low";
         let classifications = [];
 
         if (socialMatches.length > 0) {
             classifications.push(`Social Footprints Isolated (${socialMatches.length})`);
             
-            // If we didn't have a name initially, extract it from the found profile
             if (!targetName) {
                 let cleanedTitle = socialMatches[0].title
                     .replace(/(@\w+)/g, '$1') 
@@ -136,9 +148,9 @@ async function reversePhoneLookup(phoneNumber, targetName = '') {
 
         return {
             success: true,
-            number: phoneNumber,
+            number: `${formats[1]}`,
             owner: suspectedOwner,
-            spamRisk: riskScore,
+            spamRisk: "Low",
             tags: classifications.length > 0 ? classifications : ["Personal Line"],
             socialMatches: socialMatches
         };
