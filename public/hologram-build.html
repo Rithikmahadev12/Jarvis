@@ -61,8 +61,8 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 #toast.show{opacity:1}
 
 /* Light-pen cursor look — swaps in over the normal hand-tracking cursor
-   while a finger hovers a piece (not pinching), so it's visually obvious
-   the finger is now "drawing" rather than grabbing. */
+   while a finger is armed on a piece (not pinching), so it's visually
+   obvious the finger is now "tethered" rather than grabbing. */
 #ht-cursor.ht-cursor-lightpen .ht-cursor-dot{
   background:#ffffff;
   box-shadow:0 0 14px rgba(255,255,255,0.95), 0 0 28px rgba(0,200,255,0.85);
@@ -108,10 +108,11 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
 <div id="legend">
   <div><span class="g">Pinch (thumb + index) on top of a piece</span> to grab it</div>
   <div>While grabbed, move your hand — the hologram turns</div>
-  <div>While grabbed, pull your fingers away from that piece — it grows (an outward circle works too, not just a straight pull)</div>
+  <div>While grabbed, pull your fingers away from that piece — it grows</div>
   <div>Let go of the pinch to release it</div>
-  <div><span class="g">Touch a piece with a finger (no pinch)</span> — it turns into a light pen</div>
-  <div>Then pull your finger away from it — it grows the further you pull (move back in to shrink)</div>
+  <div><span class="g">Hold a finger still on a piece for 5 seconds</span> to arm the light pen</div>
+  <div>Then bring your <span class="g">other hand</span> in too — tether lines appear on both</div>
+  <div>Pull both hands back from the piece — it grows the further you pull (move back in to shrink)</div>
   <div>(no camera? drag with mouse · scroll or ± to zoom)</div>
 </div>
 
@@ -435,28 +436,29 @@ function applyScale(relative) {
 // circle projected around the hologram's actual on-screen
 // position/size, so it tracks it as it moves, rotates, and scales.
 //
-// Nothing moves just from an open hand being in frame anymore — you
-// have to actually pinch (thumb + index) ON TOP OF a piece to grab
-// it. Once grabbed, holding the pinch:
+// PINCH-GRAB — pinch (thumb + index) ON TOP OF a piece to grab it.
+// Once grabbed, holding the pinch:
 //   • move your hand → rotates the whole hologram
 //   • pull your pinched fingers away from that piece → grows IT
-//     (pulling in shrinks it). Doesn't have to be a straight pull —
-//     an outward circle/spiral works too, since only the growing
-//     distance from the piece matters, not the exact path.
+//     (pulling in shrinks it)
 //   • let go of the pinch → releases it
 //
-// LIGHT PEN — hover a finger over a piece WITHOUT pinching and it "picks
-// up" the pen for that piece (the cursor turns white, a glowing tether
-// line appears from the piece to your fingertip). From then on, pulling
-// your finger AWAY from the piece grows it continuously the further you
-// pull — exactly like the pinch-pull-to-grow below, just without needing
-// to pinch first. Bringing your finger back in shrinks it back down. It
-// releases automatically if left untouched for a few seconds.
+// LIGHT PEN — a deliberate, two-handed "Tony Stark" gesture, on a
+// delay so it never fires by accident:
+//   1. Hold ONE finger still on a piece (no pinch) for 5 full
+//      seconds. Nothing grows yet — this just ARMS the pen on that
+//      piece.
+//   2. Once armed, bring your OTHER hand in too. Glowing tether
+//      lines are drawn from the piece to each fingertip.
+//   3. Pull BOTH hands back away from the piece and it grows the
+//      further you pull; move them back in and it shrinks. A single
+//      hand, even once armed, never grows anything on its own.
+//   4. It releases automatically if left untouched for a few
+//      seconds, or the moment you pinch.
 //
-// Two (or more) hands in frame intentionally do nothing now — that used
-// to move/resize the WHOLE hologram just from having two open hands up,
-// which fired constantly and unpredictably. Resize is now always a
-// deliberate, single-hand action (pinch-pull or light-pen circle).
+// Any other hand count (zero hands, or two hands before a piece is
+// armed) intentionally does nothing to the hologram — resize/rotate
+// is always a deliberate, explicit gesture.
 // ═══════════════════════════════════════════════════════════════
 const ROT_SENS_HAND = 0.012;
 const HOTZONE_MARGIN = 1.9;         // hand can be this many hologram-radii away and still count
@@ -464,20 +466,20 @@ const PINCH_ON = 0.05, PINCH_OFF = 0.08; // hysteresis so the pinch doesn't flic
 const RADIAL_SCALE_SENS = 1.1;      // how strongly pulling a grabbed piece outward grows it
 const PIECE_MIN_SCALE = 0.2, PIECE_MAX_SCALE = 5;
 
-// ── LIGHT PEN (pull-to-grow) TUNING ──
-const PEN_POINT_MIN_GAP_PX = 4;   // drop trail points closer together than this so it doesn't clog
-const PEN_MAX_POINTS    = 260;    // safety cap on trail length (visual only)
-const PEN_SCALE_SENS    = 1.1;    // how strongly pulling away from the piece grows it (matches pinch-pull)
-const PEN_RELEASE_GAP_MS = 5000;  // let go automatically if it's sat idle this long (safety net)
+// ── LIGHT PEN (two-hand pull-to-grow) TUNING ──
+const PEN_ARM_DELAY_MS   = 5000; // must hold a finger still on a piece this long before the pen arms
+const PEN_SCALE_SENS     = 1.1;  // how strongly pulling both hands back from the piece grows it
+const PEN_RELEASE_GAP_MS = 4000; // auto-release if the armed piece sits untouched this long
 
-let singlePrev = null;       // {x,y} of the grabbing hand, previous frame — drives rotation
-let twoPrev = null;          // {x,y,dist} of the midpoint + separation of two tracked hands, previous frame (unused for move/resize now, kept for future gestures)
+let singlePrev = null;        // {x,y} of the pinch-grabbing hand, previous frame — drives rotation
 let pinching = false;
-let grabPrevRadius = null;   // previous frame's distance from the grabbed piece's center — drives scale
-let penPiece = null;         // the piece currently "picked up" by the light pen (locked at touch)
-let penPrevRadius = null;    // previous frame's distance from penPiece's center — drives its growth
-let penTrail = [];           // {x,y} points traced by the light pen — purely visual feedback
-let penLastMoveAt = 0;       // last time the pen actually moved/resized something, for the idle release
+let grabPrevRadius = null;    // previous frame's distance from the grabbed piece's center — drives scale
+
+let penHoverCandidate = null; // piece currently being touched by one still finger, pre-arm
+let penHoverStart = 0;        // timestamp continuous hover on that piece began
+let penPiece = null;          // the armed piece (only set after the 5s dwell)
+let penPrevAvgRadius = null;  // previous frame's avg distance of both hands from penPiece's center
+let penLastActiveAt = 0;      // last time the pen was touched/used, for the idle auto-release
 
 function handSize(lm) {
   const wrist = lm[0], palmRef = lm[9];
@@ -501,8 +503,8 @@ function getHoloScreenHotzone() {
 }
 
 // Same idea as getHoloScreenHotzone but for a single piece: where it
-// sits on screen right now and how big it looks, so a drawn circle's
-// pixel size can be compared against it.
+// sits on screen right now and how big it looks, so a pull distance
+// can be compared against it.
 function getPieceScreenInfo(piece) {
   const worldPos = piece.group.getWorldPosition(new THREE.Vector3());
   if (!piece.solid.geometry.boundingSphere) piece.solid.geometry.computeBoundingSphere();
@@ -513,7 +515,7 @@ function getPieceScreenInfo(piece) {
   return { cx: c.x, cy: c.y, radius: Math.hypot(e.x - c.x, e.y - c.y) || 40 };
 }
 
-// ── LIGHT PEN — overlay canvas the pull trail is rendered on ──
+// ── LIGHT PEN — overlay canvas the tether lines are rendered on ──
 const penCanvas = document.createElement("canvas");
 penCanvas.id = "pen-canvas";
 document.body.appendChild(penCanvas);
@@ -525,8 +527,8 @@ window.addEventListener("resize", resizePenCanvas);
 // The visible fingertip cursor (#ht-cursor, built by hand-tracking.js) is
 // positioned from the SMOOTHED index-fingertip point, not the raw landmark
 // math — reading its actual on-screen position (rather than recomputing our
-// own from landmarks) guarantees the pen trail is drawn exactly where the
-// cursor appears, instead of drifting off to the side of it.
+// own from landmarks) guarantees a single-hand tether is drawn exactly
+// where the cursor appears, instead of drifting off to the side of it.
 function getSharedCursorPos() {
   const cur = document.getElementById("ht-cursor");
   if (!cur) return null;
@@ -535,56 +537,45 @@ function getSharedCursorPos() {
   return { x: left, y: top };
 }
 
-function addPenPoint(x, y) {
-  const last = penTrail[penTrail.length - 1];
-  if (last && Math.hypot(x - last.x, y - last.y) < PEN_POINT_MIN_GAP_PX) return;
-  penTrail.push({ x, y });
-  if (penTrail.length > PEN_MAX_POINTS) penTrail.shift();
-}
+function clearPenCanvas() { penCtx.clearRect(0, 0, penCanvas.width, penCanvas.height); }
 
-// Draws a glowing "stretch" line from the piece being pulled to the current
-// fingertip, plus the recent trail — like it's tethered to your hand.
-function drawPenTrail(anchor) {
-  penCtx.clearRect(0, 0, penCanvas.width, penCanvas.height);
-  if (!penTrail.length) return;
-  const tip = penTrail[penTrail.length - 1];
+// Draws a glowing tether line from the armed piece to EACH hand
+// currently touching it (one line for a single hand mid-arm-check,
+// two lines once the second hand joins in) — the "finger lines"
+// look from image 1.
+function drawTethers(anchor, hands) {
+  clearPenCanvas();
   penCtx.save();
   penCtx.lineJoin = "round";
   penCtx.lineCap = "round";
-  penCtx.shadowBlur = 12;
-  penCtx.shadowColor = "rgba(0,200,255,0.85)";
-  if (anchor) {
-    penCtx.strokeStyle = "rgba(120,220,255,0.55)";
-    penCtx.lineWidth = 1.5;
+  penCtx.shadowBlur = 14;
+  penCtx.shadowColor = "rgba(0,200,255,0.9)";
+  penCtx.strokeStyle = "rgba(150,235,255,0.9)";
+  penCtx.lineWidth = 2;
+  hands.forEach(h => {
     penCtx.beginPath();
-    penCtx.moveTo(anchor.x, anchor.y);
-    penCtx.lineTo(tip.x, tip.y);
+    penCtx.moveTo(anchor.cx, anchor.cy);
+    penCtx.lineTo(h.x, h.y);
     penCtx.stroke();
-  }
-  if (penTrail.length > 1) {
-    penCtx.strokeStyle = "rgba(150,235,255,0.9)";
-    penCtx.lineWidth = 2.5;
-    penCtx.beginPath();
-    penCtx.moveTo(penTrail[0].x, penTrail[0].y);
-    for (let i = 1; i < penTrail.length; i++) penCtx.lineTo(penTrail[i].x, penTrail[i].y);
-    penCtx.stroke();
-  }
+  });
   penCtx.shadowBlur = 20;
   penCtx.fillStyle = "rgba(255,255,255,0.95)";
-  penCtx.beginPath();
-  penCtx.arc(tip.x, tip.y, 4, 0, Math.PI * 2);
-  penCtx.fill();
+  hands.forEach(h => {
+    penCtx.beginPath();
+    penCtx.arc(h.x, h.y, 4, 0, Math.PI * 2);
+    penCtx.fill();
+  });
   penCtx.restore();
-}
-
-function clearPenTrail() {
-  penTrail = [];
-  penCtx.clearRect(0, 0, penCanvas.width, penCanvas.height);
 }
 
 function setLightPenCursor(on) {
   const cur = document.getElementById("ht-cursor");
   if (cur) cur.classList.toggle("ht-cursor-lightpen", on);
+}
+
+function releasePen() {
+  penPiece = null; penPrevAvgRadius = null; penHoverCandidate = null;
+  clearPenCanvas(); setLightPenCursor(false);
 }
 
 window.addEventListener("jarvis:handframe", e => {
@@ -595,10 +586,7 @@ window.addEventListener("jarvis:handframe", e => {
   all.forEach(lm => {
     const thumb = lm[4], index = lm[8];
     // Index fingertip only (matches the visible cursor's tracking point in
-    // hand-tracking.js) — NOT the thumb+index midpoint. Using the midpoint
-    // here was why the pen trail drew off to the side of the visible cursor:
-    // thumb and index sit apart whenever the hand isn't pinched, which is
-    // exactly when the light pen is active.
+    // hand-tracking.js), not the thumb+index midpoint.
     const x = (1 - index.x) * window.innerWidth;
     const y = index.y * window.innerHeight;
     const distFromCenter = Math.hypot(x - zone.cx, y - zone.cy);
@@ -606,110 +594,125 @@ window.addEventListener("jarvis:handframe", e => {
     active.push({ x, y, size: handSize(lm), pinchDist: Math.hypot(thumb.x - index.x, thumb.y - index.y) });
   });
 
+  // ── PINCH always takes priority: on a single hand, pinching grabs,
+  // rotates and radially scales a piece exactly as before, and it
+  // immediately cancels any in-progress light-pen state. ──
+  let isPinchFrame = false;
   if (active.length === 1) {
-    twoPrev = null;
     const h = active[0];
-    // When there's exactly one hand, snap to the exact pixel the visible
-    // cursor is drawn at (it's smoothed; our landmark math isn't), so the
-    // pen trail can never visibly drift from the cursor.
     const shared = getSharedCursorPos();
     if (shared) { h.x = shared.x; h.y = shared.y; }
     const wasPinching = pinching;
-    pinching = wasPinching ? h.pinchDist < PINCH_OFF : h.pinchDist < PINCH_ON;
+    const nowPinching = wasPinching ? h.pinchDist < PINCH_OFF : h.pinchDist < PINCH_ON;
 
-    // show what you'd grab, even before you pinch
-    const hoverPiece = pinching ? grabbedPiece : pickPieceAtScreen(h.x, h.y);
-    if (hoveredPiece !== hoverPiece) { setHover(hoveredPiece, false); hoveredPiece = hoverPiece; setHover(hoveredPiece, true); }
+    if (nowPinching) {
+      isPinchFrame = true;
+      pinching = true;
+      if (penPiece || penHoverCandidate) releasePen();
 
-    // ── LIGHT PEN — only while NOT pinching. Touching a piece once "picks
-    // up" the pen for that piece (locks it in). From then on, pulling your
-    // finger AWAY from that piece grows it, continuously, the further away
-    // you pull — same feel as the pinch-pull-to-grow below, just without
-    // needing to pinch first. Moving back in shrinks it back down. ──
-    if (!pinching) {
-      if (hoverPiece && penPiece !== hoverPiece) {
-        penPiece = hoverPiece;
-        penPrevRadius = null;
-        penLastMoveAt = performance.now();
-        clearPenTrail();
+      if (!wasPinching) {
+        const target = pickPieceAtScreen(h.x, h.y);
+        grabbedPiece = target || null;
+        singlePrev = grabbedPiece ? h : null;
+        grabPrevRadius = null;
+        if (grabbedPiece) { lastGrabAt = performance.now(); hudSelected.innerHTML = `<b>#${grabbedPiece.index + 1}</b>`; }
       }
-      if (penPiece) {
-        setLightPenCursor(true);
-        addPenPoint(h.x, h.y);
-        const info = getPieceScreenInfo(penPiece);
-        drawPenTrail({ x: info.cx, y: info.cy });
 
-        const r = Math.hypot(h.x - info.cx, h.y - info.cy);
-        if (penPrevRadius != null) {
-          const delta = r - penPrevRadius;
+      if (grabbedPiece) {
+        if (singlePrev) {
+          const dx = h.x - singlePrev.x, dy = h.y - singlePrev.y;
+          vel.rotY = dx * ROT_SENS_HAND; vel.rotX = dy * ROT_SENS_HAND;
+          holoGroup.rotation.y += vel.rotY;
+          holoGroup.rotation.x = clamp(holoGroup.rotation.x + vel.rotX, -1.1, 1.1);
+        }
+        singlePrev = h;
+        const c = worldToScreen(grabbedPiece.group.getWorldPosition(new THREE.Vector3()));
+        const r = Math.hypot(h.x - c.x, h.y - c.y);
+        if (grabPrevRadius != null) {
+          const delta = r - grabPrevRadius;
           if (Math.abs(delta) > 0.5) {
-            const s = clamp(penPiece.group.scale.x * (1 + (delta / zone.radius) * PEN_SCALE_SENS), PIECE_MIN_SCALE, PIECE_MAX_SCALE);
-            penPiece.group.scale.setScalar(s);
-            hudSelected.innerHTML = `<b>#${penPiece.index + 1}</b>`;
-            lastInteractAt = performance.now();
-            penLastMoveAt = performance.now();
+            const s = clamp(grabbedPiece.group.scale.x * (1 + (delta / zone.radius) * RADIAL_SCALE_SENS), PIECE_MIN_SCALE, PIECE_MAX_SCALE);
+            grabbedPiece.group.scale.setScalar(s);
           }
         }
-        penPrevRadius = r;
-
-        // Safety net: if it's sat untouched for a while (hand hovering but
-        // not really pulling), release it so a stray hand doesn't keep a
-        // piece locked forever.
-        if (performance.now() - penLastMoveAt > PEN_RELEASE_GAP_MS) {
-          penPiece = null; penPrevRadius = null; clearPenTrail(); setLightPenCursor(false);
-        }
-      } else {
-        setLightPenCursor(false);
+        grabPrevRadius = r;
+        lastInteractAt = lastGrabAt = performance.now();
       }
-    } else if (penPiece) {
-      penPiece = null; penPrevRadius = null; clearPenTrail(); setLightPenCursor(false);
-    }
-
-    if (pinching && !wasPinching) {
-      // pinch just started — only grabs if you're actually touching a piece
-      const target = pickPieceAtScreen(h.x, h.y);
-      grabbedPiece = target || null;
-      singlePrev = grabbedPiece ? h : null;
-      grabPrevRadius = null;
-      if (grabbedPiece) { lastGrabAt = performance.now(); hudSelected.innerHTML = `<b>#${grabbedPiece.index + 1}</b>`; }
-    }
-
-    if (pinching && grabbedPiece) {
-      if (singlePrev) {
-        const dx = h.x - singlePrev.x, dy = h.y - singlePrev.y;
-        vel.rotY = dx * ROT_SENS_HAND; vel.rotX = dy * ROT_SENS_HAND;
-        holoGroup.rotation.y += vel.rotY;
-        holoGroup.rotation.x = clamp(holoGroup.rotation.x + vel.rotX, -1.1, 1.1);
-      }
-      singlePrev = h;
-
-      const c = worldToScreen(grabbedPiece.group.getWorldPosition(new THREE.Vector3()));
-      const r = Math.hypot(h.x - c.x, h.y - c.y);
-      if (grabPrevRadius != null) {
-        const delta = r - grabPrevRadius;
-        if (Math.abs(delta) > 0.5) {
-          const s = clamp(grabbedPiece.group.scale.x * (1 + (delta / zone.radius) * RADIAL_SCALE_SENS), PIECE_MIN_SCALE, PIECE_MAX_SCALE);
-          grabbedPiece.group.scale.setScalar(s);
-        }
-      }
-      grabPrevRadius = r;
-      lastInteractAt = lastGrabAt = performance.now();
-    }
-
-    if (!pinching) {
-      if (wasPinching && grabbedPiece) { setGrabbed(grabbedPiece, false); hudSelected.innerHTML = `<b>—</b>`; }
+    } else if (wasPinching) {
+      pinching = false;
+      if (grabbedPiece) { setGrabbed(grabbedPiece, false); hudSelected.innerHTML = `<b>—</b>`; }
       grabbedPiece = null; singlePrev = null; grabPrevRadius = null;
     }
-  } else {
-    // Zero hands, or two-plus hands, in the hotzone: intentionally does
-    // nothing to the hologram's position/scale. (Two open hands used to
-    // move/resize the whole thing here — removed because it fired
-    // constantly and unpredictably. Rotate via pinch-grab; resize a piece
-    // via pinch-pull or the light-pen circle-draw.)
-    if (grabbedPiece) { setGrabbed(grabbedPiece, false); hudSelected.innerHTML = `<b>—</b>`; }
-    singlePrev = null; twoPrev = null; pinching = false; grabbedPiece = null; grabPrevRadius = null;
-    setHover(hoveredPiece, false); hoveredPiece = null;
-    if (penPiece) { penPiece = null; penPrevRadius = null; clearPenTrail(); setLightPenCursor(false); }
+  }
+
+  if (!isPinchFrame) {
+    if (pinching) {
+      // pinch was mid-grab but the hand count just changed under it — release cleanly
+      pinching = false;
+      if (grabbedPiece) { setGrabbed(grabbedPiece, false); hudSelected.innerHTML = `<b>—</b>`; }
+      grabbedPiece = null; singlePrev = null; grabPrevRadius = null;
+    }
+
+    if (active.length === 1) {
+      // ── ONE HAND, NOT PINCHING: hover + 5s dwell arms the pen on a
+      // piece; once armed a single hand just shows its tether and
+      // waits — it never grows anything alone. ──
+      const h = active[0];
+      const hoverPiece = pickPieceAtScreen(h.x, h.y);
+      if (hoveredPiece !== hoverPiece) { setHover(hoveredPiece, false); hoveredPiece = hoverPiece; setHover(hoveredPiece, true); }
+
+      if (penPiece) {
+        setLightPenCursor(true);
+        penPrevAvgRadius = null; // reset so re-entering two-hand mode doesn't jump-scale
+        const info = getPieceScreenInfo(penPiece);
+        drawTethers(info, [h]);
+        penLastActiveAt = performance.now();
+      } else if (hoverPiece) {
+        if (penHoverCandidate !== hoverPiece) { penHoverCandidate = hoverPiece; penHoverStart = performance.now(); }
+        if (performance.now() - penHoverStart >= PEN_ARM_DELAY_MS) {
+          penPiece = hoverPiece;
+          penPrevAvgRadius = null;
+          penLastActiveAt = performance.now();
+          toast("Piece armed — bring in your other hand and pull back to grow it.");
+        }
+      } else {
+        penHoverCandidate = null;
+      }
+    } else if (active.length === 2 && penPiece) {
+      // ── TWO HANDS on an armed piece: tether both, grow/shrink by
+      // how far you pull them back from it, together. ──
+      setHover(hoveredPiece, false); hoveredPiece = null;
+      penHoverCandidate = null;
+      setLightPenCursor(true);
+      const info = getPieceScreenInfo(penPiece);
+      drawTethers(info, active);
+      const dists = active.map(h => Math.hypot(h.x - info.cx, h.y - info.cy));
+      const avg = (dists[0] + dists[1]) / 2;
+      if (penPrevAvgRadius != null) {
+        const delta = avg - penPrevAvgRadius;
+        if (Math.abs(delta) > 0.5) {
+          const s = clamp(penPiece.group.scale.x * (1 + (delta / zone.radius) * PEN_SCALE_SENS), PIECE_MIN_SCALE, PIECE_MAX_SCALE);
+          penPiece.group.scale.setScalar(s);
+          hudSelected.innerHTML = `<b>#${penPiece.index + 1}</b>`;
+          lastInteractAt = performance.now();
+        }
+      }
+      penPrevAvgRadius = avg;
+      penLastActiveAt = performance.now();
+    } else {
+      // Zero hands, or two-plus hands with nothing armed yet — do
+      // nothing to the hologram. An already-armed piece stays armed
+      // (see the idle release check below) so briefly dropping to
+      // zero hands mid-gesture doesn't cancel it outright.
+      setHover(hoveredPiece, false); hoveredPiece = null;
+      penHoverCandidate = null;
+      penPrevAvgRadius = null;
+      if (active.length === 0) clearPenCanvas();
+    }
+  }
+
+  if (penPiece && performance.now() - penLastActiveAt > PEN_RELEASE_GAP_MS) {
+    releasePen();
   }
 });
 
@@ -733,6 +736,7 @@ document.getElementById("btnReset").onclick = () => {
   pieces.forEach(p => p.group.scale.setScalar(1));
   if (grabbedPiece) setGrabbed(grabbedPiece, false);
   if (hoveredPiece) setHover(hoveredPiece, false);
+  releasePen();
   grabbedPiece = null; hoveredPiece = null; pinching = false; grabPrevRadius = null;
   hudSelected.innerHTML = `<b>—</b>`;
   toast("Position, rotation and size reset.");
@@ -751,6 +755,7 @@ document.getElementById("btnHands").onclick = async (e) => {
     handsEnabled = false;
     window.HandTracking?.stop();
     if (cameraStream) { cameraStream.getTracks().forEach(t => t.stop()); cameraStream = null; }
+    releasePen();
     btn.textContent = "🖐 HAND CONTROL: OFF";
     btn.classList.remove("on");
     return;
@@ -766,7 +771,7 @@ document.getElementById("btnHands").onclick = async (e) => {
     handsEnabled = true;
     btn.textContent = "🖐 HAND CONTROL: ON";
     btn.classList.add("on");
-    toast("Pinch a piece to turn/grow it — or just touch it with a finger and pull away to grow it.");
+    toast("Pinch a piece to turn/grow it — or hold a finger on it 5s, add your other hand, then pull back to grow it.");
   } catch (err) {
     console.warn("[hologram-build] camera access failed", err);
     btn.textContent = "🖐 HAND CONTROL: NO CAMERA";
