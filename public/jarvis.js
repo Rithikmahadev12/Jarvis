@@ -539,6 +539,12 @@ function setOrb(s) {
   orb.className = "orb" + (s !== "idle" ? " " + s : "");
   const cfOrb = $("cf-orb");
   if (cfOrb) cfOrb.className = "orb" + (s !== "idle" ? " " + s : "");
+  // Mirror the mood onto the visible badge(s) — boot screen + home hero
+  // both use .boot-badge-wrap, so this drives the talk/listen/think
+  // animations defined in jarvis-gray-theme.css.
+  document.querySelectorAll(".boot-badge-wrap").forEach(w => {
+    w.className = "boot-badge-wrap" + (s !== "idle" ? " " + s : "");
+  });
   const labels = { idle: "STANDBY", listening: "LISTENING", thinking: "PROCESSING", speaking: "SPEAKING" };
   const st = $("status-text"); if (st) st.textContent = labels[s] || "STANDBY";
   // Blue edge glow whenever we're actively talking with Jarvis
