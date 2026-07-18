@@ -88,13 +88,15 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000508;font-family:
   <div class="lbl">MODEL</div><div id="hud-name"><b>—</b></div>
   <div class="lbl">SOLIDS</div><div id="hud-count"><b>—</b></div>
   <div class="lbl">SCALE</div><div id="hud-scale"><b>1.00×</b></div>
+  <div class="lbl">SELECTED</div><div id="hud-selected"><b>—</b></div>
 </div>
 
 <div id="legend">
-  <div><span class="g">Grab it</span> (pinch, or just close your hand) with <span class="g">one hand</span> and move — it turns</div>
+  <div>Move <span class="g">one hand</span> near it — it turns</div>
   <div>Hold one hand still and <span class="g">push it toward/away</span> from the camera — it zooms</div>
-  <div><span class="g">Grab with both hands</span> and move together — it moves with you</div>
-  <div><span class="g">Grab with both hands</span> and pull apart / bring together — it resizes</div>
+  <div><span class="g">Point at a piece and circle it</span> with your finger — it locks on</div>
+  <div>With a piece locked, <span class="g">spread both hands</span> apart / together — that piece resizes</div>
+  <div>Circle a locked piece again to unlock it · no piece locked → spreading resizes everything</div>
   <div>(no camera? drag with mouse · scroll or ± to zoom)</div>
 </div>
 
@@ -203,10 +205,32 @@ let baseScale = 1;
 let modelMaxDim = 1; // unscaled bounding size, used to project an on-screen hotzone
 const hudName = document.getElementById("hud-name");
 const hudCount = document.getElementById("hud-count");
+const hudSelected = document.getElementById("hud-selected");
 
-function centerAndMount(objects, sourceLabel, count) {
+// A "piece" is one selectable part of the model: its solid + wireframe
+// mesh pair, wrapped in a group so both move/highlight/resize together.
+let pieces = [];
+const raycaster = new THREE.Raycaster();
+
+function makePiece(geo, colorHex, index) {
+  const solidMaterial = holoMat(colorHex);
+  const wireMaterial = wireMat(colorHex);
+  const solid = new THREE.Mesh(geo, solidMaterial);
+  const wire = new THREE.Mesh(geo, wireMaterial);
+  const group = new THREE.Group();
+  group.add(solid, wire);
+  return {
+    group, solid, wire, index,
+    baseEmissive: solidMaterial.emissiveIntensity,
+    baseWireOpacity: wireMaterial.opacity,
+    baseScale: 1,
+  };
+}
+
+function centerAndMount(newPieces, sourceLabel, count) {
+  pieces = newPieces;
   const inner = new THREE.Group();
-  objects.forEach(o => inner.add(o));
+  pieces.forEach(p => inner.add(p.group));
   const box = new THREE.Box3().setFromObject(inner);
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
@@ -215,11 +239,11 @@ function centerAndMount(objects, sourceLabel, count) {
   modelMaxDim = maxDim;
   baseScale = 3.2 / maxDim;
   holoGroup.scale.setScalar(baseScale);
+  holoGroup.clear();
   holoGroup.add(inner);
   hudName.innerHTML = `<b>${sourceLabel}</b>`;
   hudCount.innerHTML = `<b>${count}</b>`;
 }
-
 
 function loadFromBuildMode() {
   let raw;
@@ -230,28 +254,74 @@ function loadFromBuildMode() {
   if (!data.meshes || !data.meshes.length) return false;
 
   const loader = new THREE.BufferGeometryLoader();
-  const objs = [];
-  data.meshes.forEach(m => {
+  const newPieces = [];
+  data.meshes.forEach((m, i) => {
     let geo;
     try { geo = loader.parse(m.geometry); } catch (e) { return; }
-    const solid = new THREE.Mesh(geo, holoMat(m.color || "#00c8ff"));
-    const wire = new THREE.Mesh(geo, wireMat(m.color || "#00c8ff"));
-    objs.push(solid, wire);
+    newPieces.push(makePiece(geo, m.color || "#00c8ff", i));
   });
-  if (!objs.length) return false;
-  centerAndMount(objs, "YOUR CAD BUILD", data.meshes.length);
+  if (!newPieces.length) return false;
+  centerAndMount(newPieces, "YOUR CAD BUILD", data.meshes.length);
   return true;
 }
 
 function loadPlaceholder() {
   document.getElementById("empty").classList.add("show");
   const geo = new THREE.TorusKnotGeometry(1, 0.32, 140, 20);
-  const solid = new THREE.Mesh(geo, holoMat("#00c8ff"));
-  const wire = new THREE.Mesh(geo, wireMat("#00c8ff"));
-  centerAndMount([solid, wire], "PLACEHOLDER", 1);
+  centerAndMount([makePiece(geo, "#00c8ff", 0)], "PLACEHOLDER", 1);
 }
 
+
 if (!loadFromBuildMode()) loadPlaceholder();
+
+// ═══════════════════════════════════════════════════════════════
+// PIECE SELECTION — point at a piece and trace a circle around it to
+// lock onto it (see the jarvis:handframe listener below for the
+// circle-tracking gesture logic). Once locked, spreading two hands
+// resizes just that piece instead of the whole hologram.
+// ═══════════════════════════════════════════════════════════════
+let hoveredPiece = null;
+let selectedPiece = null;
+
+function worldToScreen(vec3) {
+  const p = vec3.clone().project(camera);
+  return { x: (p.x * 0.5 + 0.5) * window.innerWidth, y: (-p.y * 0.5 + 0.5) * window.innerHeight };
+}
+
+function pickPieceAtScreen(sx, sy) {
+  const ndc = new THREE.Vector2((sx / window.innerWidth) * 2 - 1, -(sy / window.innerHeight) * 2 + 1);
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects(pieces.map(p => p.solid), false);
+  if (!hits.length) return null;
+  return pieces.find(p => p.solid === hits[0].object) || null;
+}
+
+function setHover(piece, on) {
+  if (!piece || piece === selectedPiece) return;
+  piece.solid.material.emissiveIntensity = on ? Math.min(1, piece.baseEmissive + 0.4) : piece.baseEmissive;
+  piece.wire.material.opacity = on ? Math.min(1, piece.baseWireOpacity + 0.3) : piece.baseWireOpacity;
+}
+
+function selectPiece(piece) {
+  if (selectedPiece && selectedPiece !== piece) {
+    selectedPiece.solid.material.emissiveIntensity = selectedPiece.baseEmissive;
+    selectedPiece.wire.material.opacity = selectedPiece.baseWireOpacity;
+  }
+  selectedPiece = piece;
+  hudSelected.innerHTML = `<b>#${piece.index + 1}</b>`;
+  toast("Piece locked — spread your hands to resize it. Circle it again to unlock.");
+}
+
+function deselectPiece(silent) {
+  if (!selectedPiece) return;
+  selectedPiece.solid.material.emissiveIntensity = selectedPiece.baseEmissive;
+  selectedPiece.wire.material.opacity = selectedPiece.baseWireOpacity;
+  selectedPiece = null;
+  hudSelected.innerHTML = `<b>—</b>`;
+  if (!silent) toast("Piece unlocked.");
+}
+
+window.addEventListener("keydown", e => { if (e.key === "Escape") deselectPiece(); });
 
 // ═══════════════════════════════════════════════════════════════
 // ANIMATE — also carries momentum: whatever velocity your last hand
@@ -286,6 +356,13 @@ function animate() {
   const idleFor = now - lastInteractAt;
   if (autoRotate && idleFor > 1200) holoGroup.rotation.y += 0.0035;
   pedestal.rotation.z += 0.0015;
+
+  if (selectedPiece) {
+    const pulse = 0.5 + Math.sin(now * 0.006) * 0.5;
+    selectedPiece.solid.material.emissiveIntensity = selectedPiece.baseEmissive + 0.6 + pulse * 0.4;
+    selectedPiece.wire.material.opacity = 0.8 + pulse * 0.2;
+  }
+
   renderer.render(scene, camera);
 }
 animate();
@@ -352,25 +429,31 @@ function applyScale(relative) {
 //   • open hand, moving mostly sideways/up-down → turns it
 //   • open hand, staying in place but growing/shrinking in the frame
 //     (pushing toward/pulling away from the camera) → zooms it
-//   • pinched on a piece, pulled away from the hologram's center
-//     (straight out, or in an expanding circle — any outward motion
-//     counts) → grows it; pulled back in → shrinks it
+//   • point at one piece and trace a circle around it → locks onto
+//     that piece (traces the finger's angle around it; a full loop
+//     locks it, and pauses the whole-hologram turning while you're
+//     doing it, so drawing the circle doesn't also spin everything)
 //   • two hands, moving together → picks it up and moves it
-//   • two hands, moving apart/together → resizes it
+//   • two hands, pulled apart/together → resizes the LOCKED piece if
+//     one is selected, otherwise resizes the whole hologram like
+//     before. Circling a locked piece again unlocks it.
 // ═══════════════════════════════════════════════════════════════
 const ROT_SENS_HAND = 0.012;
 const MOVE_SENS_HAND = 0.007;
 const PUSH_ZOOM_SENS = 2.2;      // how strongly apparent hand-size change zooms
 const PUSH_MOTION_GUARD = 22;    // px of lateral motion below which a size-change reads as a push, not a turn
-const PINCH_ON  = 0.05;          // normalized thumb-index distance to grab a piece
-const PINCH_OFF = 0.075;         // must open past this to release (hysteresis avoids flicker)
-const RADIAL_SCALE_SENS = 0.9;   // how strongly pulling a pinched piece outward grows it
 const HOTZONE_MARGIN = 1.9;      // hand can be this many hologram-radii away and still count
+const CIRCLE_COMPLETE = Math.PI * 2 * 0.82; // ~295° — forgiving "full loop" threshold
+const CIRCLE_TIMEOUT = 3500;     // ms — abandon a slow/stalled circle attempt
+const CIRCLE_MIN_RADIUS = 16;    // px — ignore tiny jitter right on top of the piece
+const PIECE_MIN_SCALE = 0.2, PIECE_MAX_SCALE = 5;
 
 let singlePrev = null;       // {x,y,size} of the one tracked hand, previous frame
 let twoPrev = null;          // {x,y,dist} of the midpoint + separation of two tracked hands, previous frame
-let pinching = false;
-let pinchPrevRadius = null;  // previous frame's distance from the hologram's center, while pinched
+let circleTrackPiece = null; // piece currently being circled
+let circleAngleAccum = 0;
+let circleLastAngle = null;
+let circleStartAt = 0;
 
 function handSize(lm) {
   const wrist = lm[0], palmRef = lm[9];
@@ -393,6 +476,10 @@ function getHoloScreenHotzone() {
   return { cx, cy, radius: Math.hypot(ex - cx, ey - cy) || 120 };
 }
 
+function resetCircleTracking() {
+  circleTrackPiece = null; circleAngleAccum = 0; circleLastAngle = null;
+}
+
 window.addEventListener("jarvis:handframe", e => {
   if (!handsEnabled) return;
   const all = (e.detail && e.detail.allLandmarks) || [];
@@ -402,36 +489,55 @@ window.addEventListener("jarvis:handframe", e => {
     const thumb = lm[4], index = lm[8];
     const x = (1 - (thumb.x + index.x) / 2) * window.innerWidth;
     const y = ((thumb.y + index.y) / 2) * window.innerHeight;
+    const ix = (1 - index.x) * window.innerWidth;   // index fingertip alone — used for pointing/circling
+    const iy = index.y * window.innerHeight;
     const distFromCenter = Math.hypot(x - zone.cx, y - zone.cy);
     if (distFromCenter > zone.radius * HOTZONE_MARGIN) return; // off to the side — ignore
-    active.push({
-      x, y, size: handSize(lm), distFromCenter,
-      pinchDist: Math.hypot(thumb.x - index.x, thumb.y - index.y),
-    });
+    active.push({ x, y, ix, iy, size: handSize(lm) });
   });
 
   if (active.length === 1) {
     twoPrev = null;
     const h = active[0];
-    const wasPinching = pinching;
-    pinching = wasPinching ? h.pinchDist < PINCH_OFF : h.pinchDist < PINCH_ON;
+    const hoverPiece = pickPieceAtScreen(h.ix, h.iy);
 
-    if (pinching) {
-      // Grabbed a piece — pull it away from the hologram's center to
-      // grow it, push it back in to shrink it. Doesn't have to be a
-      // straight pull: an expanding circular motion works too, since
-      // only the growing distance from center matters.
-      if (wasPinching && pinchPrevRadius != null) {
-        const delta = h.distFromCenter - pinchPrevRadius;
-        if (Math.abs(delta) > 0.5) {
-          applyScale((holoGroup.scale.x / baseScale) * (1 + (delta / zone.radius) * RADIAL_SCALE_SENS));
-        }
-        lastInteractAt = lastGrabAt = performance.now();
+    if (hoverPiece) {
+      // Pointing at a specific piece — track a circling motion around
+      // it instead of also spinning the whole hologram.
+      if (hoveredPiece !== hoverPiece) {
+        setHover(hoveredPiece, false);
+        hoveredPiece = hoverPiece;
+        setHover(hoveredPiece, true);
       }
-      pinchPrevRadius = h.distFromCenter;
-      singlePrev = null; // don't also rotate while pinch-scaling
+      const c = worldToScreen(hoverPiece.group.getWorldPosition(new THREE.Vector3()));
+      const dx = h.ix - c.x, dy = h.iy - c.y;
+      const r = Math.hypot(dx, dy);
+      const now2 = performance.now();
+
+      if (circleTrackPiece !== hoverPiece) { circleTrackPiece = hoverPiece; circleAngleAccum = 0; circleLastAngle = null; circleStartAt = now2; }
+      if (now2 - circleStartAt > CIRCLE_TIMEOUT) { circleAngleAccum = 0; circleLastAngle = null; circleStartAt = now2; }
+
+      if (r > CIRCLE_MIN_RADIUS) {
+        const ang = Math.atan2(dy, dx);
+        if (circleLastAngle != null) {
+          let d = ang - circleLastAngle;
+          while (d > Math.PI) d -= Math.PI * 2;
+          while (d < -Math.PI) d += Math.PI * 2;
+          circleAngleAccum += d;
+        }
+        circleLastAngle = ang;
+        if (Math.abs(circleAngleAccum) >= CIRCLE_COMPLETE) {
+          if (selectedPiece === hoverPiece) deselectPiece(); else selectPiece(hoverPiece);
+          resetCircleTracking();
+        }
+      }
+      singlePrev = null;
     } else {
-      pinchPrevRadius = null;
+      setHover(hoveredPiece, false);
+      hoveredPiece = null;
+      resetCircleTracking();
+
+      // normal open-hand turn / push-to-zoom, exactly as before
       if (singlePrev) {
         const dx = h.x - singlePrev.x, dy = h.y - singlePrev.y;
         const lateral = Math.hypot(dx, dy);
@@ -439,8 +545,6 @@ window.addEventListener("jarvis:handframe", e => {
         const pushStrength = Math.abs(sizeRatio - 1);
 
         if (lateral < PUSH_MOTION_GUARD && pushStrength > 0.012) {
-          // hand mostly holding still but growing/shrinking → reading this
-          // as pushing the hologram away or pulling it closer, not a turn.
           applyScale((holoGroup.scale.x / baseScale) * (1 + (sizeRatio - 1) * PUSH_ZOOM_SENS));
         } else {
           vel.rotY = dx * ROT_SENS_HAND; vel.rotX = dy * ROT_SENS_HAND;
@@ -452,25 +556,41 @@ window.addEventListener("jarvis:handframe", e => {
       singlePrev = h;
     }
   } else if (active.length === 2) {
-    singlePrev = null; pinching = false; pinchPrevRadius = null;
+    singlePrev = null;
+    setHover(hoveredPiece, false);
+    hoveredPiece = null;
+    resetCircleTracking();
+
     const [a, b] = active;
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
     const dist = Math.hypot(a.x - b.x, a.y - b.y);
     if (twoPrev) {
-      const dx = mid.x - twoPrev.x, dy = mid.y - twoPrev.y;
-      vel.posX = dx * MOVE_SENS_HAND; vel.posY = -dy * MOVE_SENS_HAND;
-      holoGroup.position.x += vel.posX;
-      holoGroup.position.y += vel.posY;
-
       const distRatio = dist / (twoPrev.dist || dist);
-      if (Math.abs(distRatio - 1) > 0.003) {
-        applyScale((holoGroup.scale.x / baseScale) * distRatio);
+
+      if (selectedPiece) {
+        // resize just the locked piece, in place — the rest of the
+        // hologram stays put.
+        if (Math.abs(distRatio - 1) > 0.003) {
+          const s = clamp(selectedPiece.group.scale.x * distRatio, PIECE_MIN_SCALE, PIECE_MAX_SCALE);
+          selectedPiece.group.scale.setScalar(s);
+        }
+        lastInteractAt = performance.now();
+      } else {
+        const dx = mid.x - twoPrev.x, dy = mid.y - twoPrev.y;
+        vel.posX = dx * MOVE_SENS_HAND; vel.posY = -dy * MOVE_SENS_HAND;
+        holoGroup.position.x += vel.posX;
+        holoGroup.position.y += vel.posY;
+        if (Math.abs(distRatio - 1) > 0.003) {
+          applyScale((holoGroup.scale.x / baseScale) * distRatio);
+        }
+        lastInteractAt = lastGrabAt = performance.now();
       }
-      lastInteractAt = lastGrabAt = performance.now();
     }
     twoPrev = { x: mid.x, y: mid.y, dist };
   } else {
-    singlePrev = null; twoPrev = null; pinching = false; pinchPrevRadius = null;
+    singlePrev = null; twoPrev = null;
+    setHover(hoveredPiece, false); hoveredPiece = null;
+    resetCircleTracking();
   }
 });
 
@@ -491,6 +611,8 @@ document.getElementById("btnReset").onclick = () => {
   holoGroup.rotation.set(0, 0, 0);
   holoGroup.position.set(0, 1.6, 0);
   applyScale(1);
+  pieces.forEach(p => p.group.scale.setScalar(1));
+  deselectPiece(true);
   toast("Position, rotation and size reset.");
 };
 
@@ -522,7 +644,7 @@ document.getElementById("btnHands").onclick = async (e) => {
     handsEnabled = true;
     btn.textContent = "🖐 HAND CONTROL: ON";
     btn.classList.add("on");
-    toast("Move your hand near it to turn it. Pinch a piece and pull outward to grow it.");
+    toast("Move your hand near it to turn it. Point at a piece and circle it to lock on, then spread your hands to resize it.");
   } catch (err) {
     console.warn("[hologram-build] camera access failed", err);
     btn.textContent = "🖐 HAND CONTROL: NO CAMERA";
