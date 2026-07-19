@@ -521,6 +521,22 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "scan_for_threats",
+      description: "Run a security sweep of the user's own computer for viruses/malware/suspicious activity — e.g. 'scan my computer for viruses', 'is there a hacker on my machine', 'check for threats', 'am I infected'. Only works when Jarvis is running locally (not the hosted site). Checks the OS's own built-in protection where available (e.g. Windows Defender) and flags suspicious-looking processes/connections. If it finds something, Jarvis will report it and ask whether to neutralize it — the user's next 'yes' handles that automatically, so don't also call neutralize_threat immediately after this in the same turn.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "neutralize_threat",
+      description: "Act on a threat scan_for_threats just flagged and asked about — e.g. user says 'neutralize it', 'get rid of it', 'kill it', 'remove the threat' as a direct instruction rather than a plain 'yes'. Terminates the flagged process or quarantines the flagged file. Only call this when a scan_for_threats result is what's being reacted to; there must have been a recent threat report to act on.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "mute_jarvis",
       description: "Silence Jarvis's spoken voice output — e.g. 'mute', 'jarvis mute', 'stop talking', 'be quiet', 'keep it down', 'shut up'. Jarvis keeps listening and responding in text; only speech is silenced until unmute_jarvis is called.",
       parameters: { type: "object", properties: {} },
@@ -551,7 +567,7 @@ async function chatWithTools({ message, userTitle = "Sir", memories = [], contex
 
   const systemPrompt = getSystemPrompt(T, memories, context, []) + `
 
-You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, reading a specific email in full once they pick one, checking their real Google Calendar, showing/hiding the live camera feed fullscreen, starting/stopping a downloadable screen/tab/webcam recording, instantly clipping the last N seconds of screen or webcam activity, noticing when the user needs a break, and (when Jarvis is running on the user's own computer) opening apps/files/URLs, checking disk space, running shell commands, and typing text into the active window. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. COMPOUND REQUESTS matter here: if the user asks for more than one thing in the same message (e.g. "open VS Code and type a flappy bird script"), call ALL the relevant tools in that SAME response — do not stop after the first one. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. After check_email lists unread emails and the user replies with something like "read the first one" or "the one from Sarah", call read_email with the right index or sender. If nothing calls for a tool, just answer normally in plain text.
+You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, reading a specific email in full once they pick one, checking their real Google Calendar, showing/hiding the live camera feed fullscreen, starting/stopping a downloadable screen/tab/webcam recording, instantly clipping the last N seconds of screen or webcam activity, noticing when the user needs a break, and (when Jarvis is running on the user's own computer) opening apps/files/URLs, checking disk space, running shell commands, typing text into the active window, and scanning for/neutralizing security threats. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. COMPOUND REQUESTS matter here: if the user asks for more than one thing in the same message (e.g. "open VS Code and type a flappy bird script"), call ALL the relevant tools in that SAME response — do not stop after the first one. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. After check_email lists unread emails and the user replies with something like "read the first one" or "the one from Sarah", call read_email with the right index or sender. If nothing calls for a tool, just answer normally in plain text.
 
 Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use this to compute datetime_iso for reminders.`;
 
