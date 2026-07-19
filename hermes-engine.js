@@ -273,7 +273,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "play_music",
-      description: "Play a song in the on-screen now-playing widget (audio pulled from YouTube in the background — not Spotify, Jarvis doesn't use Spotify for playback, and it never opens a browser tab for this). Call this whenever the user asks to play music or a song, named or not. If they don't name a song, leave query empty so Jarvis asks what to play. If they respond with something like 'you pick', 'surprise me', 'whatever you think', or 'play something good', set pick_for_me to true so Jarvis chooses based on the conversation's mood.",
+      description: "Play a song in the on-screen now-playing widget (audio pulled from YouTube in the background — not Spotify, Jarvis doesn't use Spotify for playback, and it never opens a browser tab for this). Call this whenever the user asks to play music or a song, named or not. If they don't name a song, leave query empty so Jarvis asks what to play. If they respond with something like 'you pick', 'surprise me', 'whatever you think', or 'play something good', set pick_for_me to true so Jarvis chooses based on the conversation's mood. IMPORTANT: 'jarvis play <anything>' is ALWAYS this tool, even if the name sounds unusual or could be misread as referring to video/recording — Jarvis has no tool that plays back a saved recording or clip, so never route a 'play' request to start_recording, stop_recording, or clip_recording instead. This includes phrases like 'play back in black' or 'play back <song>' — 'back' there is normally just part of the song title (e.g. AC/DC's 'Back in Black') or filler word, NOT the verb 'play back' meaning review old footage; treat the whole phrase after 'play' as the song query (e.g. query: 'back in black') and call play_music, not stop_recording.",
       parameters: {
         type: "object",
         properties: {
@@ -486,7 +486,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "start_recording",
-      description: "Begin recording video to a downloadable file — e.g. 'start recording this tab', 'record my screen', 'jarvis start recording', 'record my webcam'. Recording continues until stop_recording is called, at which point the file downloads. If Jarvis is running locally on the user's own computer, 'record my screen' or an unspecified 'start recording' should default to source 'screen' (the whole desktop); if Jarvis is being used on the hosted site, default to 'tab' instead, since a bare browser tab can't capture the whole desktop the same way. Always use 'tab' when the user specifically says 'this tab' or 'my tab', 'screen' when they say 'my screen'/'whole screen'/'desktop', and 'webcam' when they say 'webcam'/'camera' recording (as a saved file, not the live camera feed toggled by show_camera).",
+      description: "Begin recording video to a downloadable file — e.g. 'start recording this tab', 'record my screen', 'jarvis start recording', 'record my webcam'. Recording continues until stop_recording is called, at which point the file downloads. If Jarvis is running locally on the user's own computer, 'record my screen' or an unspecified 'start recording' should default to source 'screen' (the whole desktop); if Jarvis is being used on the hosted site, default to 'tab' instead, since a bare browser tab can't capture the whole desktop the same way. Always use 'tab' when the user specifically says 'this tab' or 'my tab', 'screen' when they say 'my screen'/'whole screen'/'desktop', and 'webcam' when they say 'webcam'/'camera' recording (as a saved file, not the live camera feed toggled by show_camera). NEVER call this for a 'play <song/artist>' request — that always means play_music, regardless of what the song/artist name sounds like.",
       parameters: {
         type: "object",
         properties: {
@@ -500,7 +500,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "stop_recording",
-      description: "Stop whatever recording start_recording began, and download the finished video file — e.g. 'stop recording', 'end recording', 'jarvis stop recording', 'that's enough, save it'.",
+      description: "Stop whatever recording start_recording began, and download the finished video file. Only call this when the message explicitly says to STOP or END a recording — e.g. 'stop recording', 'end recording', 'jarvis stop recording', 'that's enough, save it'. Do NOT call this just because the words 'play', 'back', or 'recording' appear somewhere in the message — e.g. 'play back in black' is a song request (play_music), not this tool. If there's no clear stop/end instruction, don't call this.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -508,7 +508,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "clip_recording",
-      description: "Instantly save and download the last N seconds of screen/webcam activity that already happened, WITHOUT needing start_recording first — e.g. 'jarvis clip the last 30 seconds', 'clip that', 'save the last minute', 'grab the last 20 seconds of my webcam'. Jarvis keeps a short rolling buffer running in the background (up to about 60 seconds) whenever screen sharing and/or the webcam are active, so this works retroactively. Default to source 'screen' and 30 seconds if the user just says 'clip that' with no detail.",
+      description: "Instantly save and download the last N seconds of screen/webcam activity that already happened, WITHOUT needing start_recording first — e.g. 'jarvis clip the last 30 seconds', 'clip that', 'save the last minute', 'grab the last 20 seconds of my webcam'. Jarvis keeps a short rolling buffer running in the background (up to about 60 seconds) whenever screen sharing and/or the webcam are active, so this works retroactively. Default to source 'screen' and 30 seconds if the user just says 'clip that' with no detail. This tool only SAVES a clip to a file — it never plays anything back. NEVER call this for a 'play <song/artist>' request — that always means play_music.",
       parameters: {
         type: "object",
         properties: {
