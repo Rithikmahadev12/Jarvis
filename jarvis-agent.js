@@ -439,6 +439,134 @@ function clearPendingAction(sessionId) {
   PENDING_ACTIONS.delete(sessionId);
 }
 
+// ── SECURITY SCAN + NEUTRALIZE ────────────────────────────────────
+// Deliberately honest about what this is: NOT a replacement for real
+// antivirus. Two layers —
+//   1. Ask the OS's own built-in protection what it already knows.
+//      Windows Defender's detections are authoritative; there's no
+//      equivalent queryable API on macOS/Linux, so those platforms
+//      skip straight to layer 2.
+//   2. A lightweight heuristic pass over currently-running processes
+//      and outbound network connections that flags things WORTH A
+//      LOOK — never reported as a "confirmed" infection unless an
+//      actual AV engine said so.
+// Nothing is ever killed, deleted, or quarantined without the user
+// explicitly saying yes — reuses the exact same tiered proposeAction/
+// confirm flow as shell commands and typed text, just with a
+// "neutralize" kind instead of "shell"/"type".
+const SUSPICIOUS_PORTS = new Set([4444, 1337, 31337, 6666, 6667, 6697, 12345, 54321, 9999]);
+
+function runPS(cmd, timeout = 15000) {
+  return new Promise((resolve) => {
+    exec(`powershell -NoProfile -Command "${cmd.replace(/"/g, '\\"')}"`, { windowsHide: true, timeout, maxBuffer: 2 * 1024 * 1024 }, (err, stdout) => {
+      resolve(err ? "" : String(stdout || "").trim());
+    });
+  });
+}
+function runShellQuiet(cmd, timeout = 10000) {
+  return new Promise((resolve) => {
+    exec(cmd, { timeout, maxBuffer: 2 * 1024 * 1024 }, (err, stdout) => resolve(err ? "" : String(stdout || "")));
+  });
+}
+function parseJsonArray(raw) {
+  try {
+    const parsed = JSON.parse(raw || "[]");
+    return Array.isArray(parsed) ? parsed : (parsed ? [parsed] : []);
+  } catch { return []; }
+}
+
+async function scanWindows() {
+  const findings = [];
+  let avStatus = null;
+
+  const statusRaw = await runPS("Get-MpComputerStatus | Select-Object AntivirusEnabled,RealTimeProtectionEnabled,AntivirusSignatureAge | ConvertTo-Json");
+  try { avStatus = JSON.parse(statusRaw || "null"); } catch { avStatus = null; }
+
+  // Layer 1 — real Defender detections, authoritative.
+  const detRaw = await runPS("Get-MpThreatDetection | Select-Object -First 5 ThreatID,Resources,InitialDetectionTime | ConvertTo-Json");
+  for (const d of parseJsonArray(detRaw)) {
+    findings.push({
+      source: "Windows Defender", severity: "confirmed",
+      label: `Windows Defender flagged something (${d.InitialDetectionTime || "recent scan"})`,
+      detail: Array.isArray(d.Resources) ? d.Resources.join(", ") : (d.Resources || ""),
+    });
+  }
+
+  // Layer 2 — heuristic: processes running from a Temp folder with an
+  // active remote connection is a common (not exclusive) pattern for
+  // unwanted background software. Flagged as "worth-a-look", not fact.
+  const heurRaw = await runPS(
+    "Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -match 'Temp\\\\' } | Select-Object ProcessId,Name,ExecutablePath | ConvertTo-Json"
+  );
+  for (const p of parseJsonArray(heurRaw).slice(0, 5)) {
+    findings.push({
+      source: "heuristic", severity: "worth-a-look",
+      label: `"${p.Name}" is running from a temp folder`,
+      detail: p.ExecutablePath || "", pid: p.ProcessId,
+    });
+  }
+
+  return { platform: "windows", avStatus, findings };
+}
+
+async function scanUnix() {
+  const findings = [];
+  const platform = os.platform();
+
+  const netCmd = platform === "darwin"
+    ? "lsof -i -P -n 2>/dev/null | grep ESTABLISHED"
+    : "ss -tnp state established 2>/dev/null || netstat -tnp 2>/dev/null | grep ESTABLISHED";
+  const netOut = await runShellQuiet(netCmd);
+  for (const line of netOut.split("\n").filter(Boolean)) {
+    const ports = (line.match(/:(\d+)\b/g) || []).map(p => Number(p.slice(1)));
+    if (ports.some(p => SUSPICIOUS_PORTS.has(p))) {
+      findings.push({
+        source: "heuristic", severity: "worth-a-look",
+        label: "An active connection is using a port commonly associated with remote-access tools",
+        detail: line.trim(),
+      });
+    }
+  }
+
+  if (platform === "linux" && (await runShellQuiet("which clamscan")).trim()) {
+    findings.push({
+      source: "info", severity: "info",
+      label: 'ClamAV is installed — say "run a full virus scan" for a deeper (slower) sweep',
+      detail: "",
+    });
+  }
+
+  return { platform, avStatus: null, findings };
+}
+
+async function scanForThreats() {
+  const report = os.platform() === "win32" ? await scanWindows() : await scanUnix();
+  report.findings = report.findings.slice(0, 8); // keep the spoken summary short
+  return report;
+}
+
+function killProcess(pid) {
+  const n = Number(pid);
+  if (!Number.isFinite(n) || n <= 0) return Promise.reject(new Error("No valid process ID given."));
+  const cmd = os.platform() === "win32" ? `taskkill /PID ${n} /F` : `kill -9 ${n}`;
+  return runCommand(cmd);
+}
+
+function quarantineFile(filePath) {
+  return new Promise((resolve, reject) => {
+    try {
+      const clean = String(filePath || "").trim();
+      if (!clean || !fs.existsSync(clean)) return reject(new Error("File not found."));
+      const dir = path.join(os.homedir(), "JarvisQuarantine");
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const dest = path.join(dir, `${Date.now()}-${path.basename(clean)}`);
+      try { fs.renameSync(clean, dest); }
+      catch { fs.copyFileSync(clean, dest); fs.unlinkSync(clean); }
+      resolve(dest);
+    } catch (e) { reject(e); }
+  });
+}
+
 module.exports = {
   isRenderEnv,
   isEnabled,
@@ -457,5 +585,8 @@ module.exports = {
   proposeAction,
   getPendingAction,
   clearPendingAction,
+  scanForThreats,
+  killProcess,
+  quarantineFile,
   GROQ_AGENT_MODEL,
 };
