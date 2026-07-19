@@ -1918,6 +1918,36 @@ async function executeAssistantTool(name, args, ctx) {
     case "hide_camera":
       return { reply: `Closing the camera feed, ${T}.`, action: "HIDE_CAMERA", intent: "camera" };
 
+    case "start_recording": {
+      const local = JarvisAgent.isEnabled();
+      let source = args.source === "webcam" ? "webcam" : args.source === "screen" ? "screen" : args.source === "tab" ? "tab" : "";
+      if (!source) source = local ? "screen" : "tab"; // local desktop defaults to whole screen, hosted site defaults to the tab
+      const label = source === "webcam" ? "your webcam" : source === "screen" ? "your whole screen" : "this tab";
+      return {
+        reply: `Starting a recording of ${label}, ${T}. Say "stop recording" when you're done and I'll save it.`,
+        action: "START_RECORDING",
+        intent: "recording",
+        meta: { source, local },
+      };
+    }
+
+    case "stop_recording":
+      return { reply: `Stopping the recording, ${T} — saving it now.`, action: "STOP_RECORDING", intent: "recording" };
+
+    case "clip_recording": {
+      let seconds = Number(args.seconds);
+      if (!Number.isFinite(seconds) || seconds <= 0) seconds = 30;
+      seconds = Math.max(5, Math.min(60, Math.round(seconds)));
+      const clipType = args.source === "webcam" || args.source === "camera" ? "camera" : args.source === "both" ? "both" : "screen";
+      const label = clipType === "camera" ? "webcam" : clipType === "both" ? "screen and webcam" : "screen";
+      return {
+        reply: `Here's the last ${seconds} seconds of your ${label}, ${T}.`,
+        action: "CLIP_SAVE",
+        intent: "recording",
+        meta: { clipType, seconds },
+      };
+    }
+
     case "mute_jarvis":
       return { reply: `Muted, ${T}.`, action: "MUTE_ON", intent: "mute" };
 
