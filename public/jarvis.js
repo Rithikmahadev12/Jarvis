@@ -40,6 +40,13 @@ const state = window.state = {
   cameraRecorder: null,
   cameraClipChunks: [],
   cameraClipTimestamps: [],
+  // ── Explicit "start recording" / "stop recording" (full session,
+  // unbounded — separate from the ~65s rolling clip buffer above) ──
+  fullRecorder: null,
+  fullRecorderChunks: [],
+  fullRecorderSource: null,   // "screen" | "tab" | "webcam"
+  fullRecorderStream: null,
+  fullRecorderOwnsStream: false, // true if we opened this stream just for the recording (so we know to close it on stop)
   voiceSamples: [],
   // ── Face recognition ──
   faceDescriptors: null,
@@ -2360,22 +2367,24 @@ async function handleAction(action, meta, replyText) {
     }
     case "CLIP_SAVE": {
       speak(replyText, () => {
-        const clipType = meta.clipType || "both";
+        const clipType = meta.clipType || "screen";
+        const seconds  = Number(meta.seconds) > 0 ? Number(meta.seconds) : 30;
         let saved = 0;
         if ((clipType === "both" || clipType === "screen") && state.clipChunks.length) {
-          const blob = new Blob(state.clipChunks, { type: getSupportedMime() || "video/webm" });
-          downloadClipBlob(blob, `jarvis-screen-${Date.now()}.webm`); saved++;
+          const blob = buildClipBlob(state.clipChunks, state.clipTimestamps, seconds);
+          if (blob) { downloadClipBlob(blob, `jarvis-screen-${Date.now()}.webm`); saved++; }
         }
         if ((clipType === "both" || clipType === "camera") && state.cameraClipChunks.length) {
-          const blob = new Blob(state.cameraClipChunks, { type: getSupportedMime() || "video/webm" });
-          downloadClipBlob(blob, `jarvis-camera-${Date.now()}.webm`); saved++;
+          const blob = buildClipBlob(state.cameraClipChunks, state.cameraClipTimestamps, seconds);
+          if (blob) { downloadClipBlob(blob, `jarvis-camera-${Date.now()}.webm`); saved++; }
         }
         if (!saved) {
-          const noBufferMsg = `No buffer available yet, ${T}. The rolling buffer needs a moment to fill — try again in a few seconds.`;
+          const missing = clipType === "camera" ? "webcam" : clipType === "both" ? "screen or webcam" : "screen";
+          const noBufferMsg = `Nothing to clip yet, ${T} — ${missing} sharing isn't active, or the buffer just started filling. Try again in a few seconds.`;
           addMsg("jarvis", noBufferMsg); speak(noBufferMsg, () => mic.resume()); return;
         }
         const toast = $("clip-toast");
-        if (toast) { toast.classList.remove("hidden"); setTimeout(() => toast.classList.add("hidden"), 3500); }
+        if (toast) { toast.textContent = `✂ Clip saved — last ${seconds} seconds`; toast.classList.remove("hidden"); setTimeout(() => toast.classList.add("hidden"), 3500); }
         updateMood(3); mic.resume();
       });
       break;
@@ -2472,6 +2481,14 @@ async function handleAction(action, meta, replyText) {
     }
     case "HIDE_CAMERA": {
       speak(replyText, () => { closeCameraFullscreen(); mic.resume(); });
+      break;
+    }
+    case "START_RECORDING": {
+      speak(replyText, () => { startFullRecording(meta?.source || "screen", !!meta?.local); });
+      break;
+    }
+    case "STOP_RECORDING": {
+      speak(replyText, () => { stopFullRecording(); });
       break;
     }
     case "SHOW_HUD": {
@@ -3236,7 +3253,9 @@ function startCameraBuffer(stream) {
       if (!e.data || e.data.size === 0) return;
       const now = Date.now(); state.cameraClipChunks.push(e.data); state.cameraClipTimestamps.push(now);
       const cutoff = now - 65000;
-      while (state.cameraClipTimestamps[0] < cutoff) { state.cameraClipChunks.shift(); state.cameraClipTimestamps.shift(); }
+      while (state.cameraClipChunks.length > 1 && state.cameraClipTimestamps[1] < cutoff) {
+        state.cameraClipChunks.splice(1, 1); state.cameraClipTimestamps.splice(1, 1);
+      }
     };
     rec.start(1000);
   } catch {}
@@ -3269,9 +3288,28 @@ function startRollingBuffer(stream) {
     if (!e.data || e.data.size === 0) return;
     const now = Date.now(); state.clipChunks.push(e.data); state.clipTimestamps.push(now);
     const cutoff = now - 65000;
-    while (state.clipTimestamps[0] < cutoff) { state.clipChunks.shift(); state.clipTimestamps.shift(); }
+    // Index 0 carries the WebM header (EBML/Segment info) — evicting it
+    // would leave a headerless stream that many players can't open, so
+    // it's kept forever and only chunks after it age out.
+    while (state.clipChunks.length > 1 && state.clipTimestamps[1] < cutoff) {
+      state.clipChunks.splice(1, 1); state.clipTimestamps.splice(1, 1);
+    }
   };
   rec.start(1000);
+}
+
+// Builds a downloadable Blob from a rolling chunk buffer, keeping the
+// header chunk (index 0) plus whichever recent chunks fall inside the
+// requested window — used by the CLIP_SAVE action for "clip the last
+// N seconds" requests.
+function buildClipBlob(chunks, timestamps, seconds) {
+  if (!chunks.length) return null;
+  const cutoff = Date.now() - Math.max(5, Math.min(65, seconds || 30)) * 1000;
+  const picked = [chunks[0]];
+  for (let i = 1; i < chunks.length; i++) {
+    if (timestamps[i] >= cutoff) picked.push(chunks[i]);
+  }
+  return new Blob(picked, { type: getSupportedMime() || "video/webm" });
 }
 
 function getSupportedMime() {
@@ -3284,6 +3322,101 @@ function stopScreenRecord() {
   state.screenStream?.getTracks().forEach(t => t.stop());
   state.mediaRecorder = null; state.screenStream = null; state.clipChunks = []; state.clipTimestamps = [];
   $("clip-indicator")?.classList.add("hidden");
+}
+
+// ── FULL RECORDING (start_recording / stop_recording tools) ──
+// Unlike the rolling clip buffer, this records everything from the
+// moment it starts until stop_recording is called, then downloads the
+// whole thing as one file. Reuses the already-shared screen/camera
+// streams when available so the user isn't asked to share twice.
+function setRecordIndicator(on, label) {
+  const el = $("record-indicator"); if (!el) return;
+  if (on) { el.querySelector(".ri-label")?.replaceChildren(document.createTextNode(label || "RECORDING")); el.classList.remove("hidden"); }
+  else el.classList.add("hidden");
+}
+
+async function startFullRecording(source, isLocal) {
+  if (state.fullRecorder && state.fullRecorder.state !== "inactive") {
+    addMsg("system", "Already recording — say \"stop recording\" first if you want to start a new one.");
+    return;
+  }
+
+  let stream = null, ownsStream = false;
+
+  try {
+    if (source === "webcam") {
+      // Dedicated stream (with mic audio) rather than reusing the silent,
+      // low-res face-recognition camera feed used elsewhere in the app.
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      ownsStream = true;
+    } else {
+      // "screen" or "tab" — reuse the already-active shared display stream
+      // if the user granted it at login, otherwise ask for a fresh one.
+      if (state.screenStream && state.screenStream.getVideoTracks()[0]?.readyState === "live") {
+        stream = state.screenStream;
+        ownsStream = false;
+      } else {
+        const displayOpts = {
+          video: { frameRate: 30, displaySurface: source === "tab" ? "browser" : "monitor" },
+          audio: true,
+        };
+        if (source === "tab") displayOpts.preferCurrentTab = true; // Chrome-only hint, ignored elsewhere
+        stream = await navigator.mediaDevices.getDisplayMedia(displayOpts);
+        ownsStream = true;
+      }
+    }
+  } catch {
+    const reply = `Recording request declined, ${state.userTitle} — I need permission to capture that before I can record it.`;
+    addMsg("jarvis", reply); speak(reply, () => mic.resume());
+    return;
+  }
+
+  const mime = getSupportedMime();
+  const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : {});
+  state.fullRecorder = rec;
+  state.fullRecorderChunks = [];
+  state.fullRecorderSource = source;
+  state.fullRecorderStream = stream;
+  state.fullRecorderOwnsStream = ownsStream;
+
+  rec.ondataavailable = (e) => { if (e.data && e.data.size > 0) state.fullRecorderChunks.push(e.data); };
+
+  // If the user stops sharing from the browser's own "Stop sharing" bar
+  // (screen/tab captures only) instead of saying "stop recording", finish
+  // and download automatically rather than losing the footage.
+  if (ownsStream && source !== "webcam") {
+    const track = stream.getVideoTracks()[0];
+    if (track) track.onended = () => { if (state.fullRecorder === rec && rec.state !== "inactive") rec.stop(); };
+  }
+
+  rec.start(1000);
+  setRecordIndicator(true, source === "webcam" ? "RECORDING WEBCAM" : source === "tab" ? "RECORDING TAB" : "RECORDING SCREEN");
+  mic.resume();
+}
+
+function stopFullRecording() {
+  const rec = state.fullRecorder;
+  if (!rec || rec.state === "inactive") {
+    const reply = `Nothing's currently recording, ${state.userTitle}.`;
+    addMsg("jarvis", reply); speak(reply, () => mic.resume());
+    return;
+  }
+
+  const source = state.fullRecorderSource || "screen";
+  const ownsStream = state.fullRecorderOwnsStream;
+  const stream = state.fullRecorderStream;
+
+  rec.onstop = () => {
+    const blob = new Blob(state.fullRecorderChunks, { type: getSupportedMime() || "video/webm" });
+    downloadClipBlob(blob, `jarvis-${source}-recording-${Date.now()}.webm`);
+    if (ownsStream) stream?.getTracks().forEach(t => t.stop());
+    state.fullRecorder = null; state.fullRecorderChunks = []; state.fullRecorderStream = null; state.fullRecorderSource = null; state.fullRecorderOwnsStream = false;
+    setRecordIndicator(false);
+    const toast = $("clip-toast");
+    if (toast) { toast.textContent = "⬇ Recording saved"; toast.classList.remove("hidden"); setTimeout(() => toast.classList.add("hidden"), 3500); }
+    updateMood(3); mic.resume();
+  };
+  rec.stop();
 }
 
 // ── LOGOUT ──
