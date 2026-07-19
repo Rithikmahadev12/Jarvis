@@ -1464,6 +1464,24 @@ async function resolvePendingAgentAction(message, T, sessionId) {
     }
   }
 
+  if (pending.kind === "neutralize") {
+    try {
+      let reply;
+      if (pending.payload.pid) {
+        await JarvisAgent.killProcess(pending.payload.pid);
+        reply = `Done, ${T} — process terminated.`;
+      } else if (pending.payload.filePath) {
+        const dest = await JarvisAgent.quarantineFile(pending.payload.filePath);
+        reply = `Done, ${T} — quarantined to ${dest}.`;
+      } else {
+        reply = `Noted, ${T} — flagged, though there's nothing automatic I can remove for that one.`;
+      }
+      return { reply, action: "THREAT_NEUTRALIZED", intent: "security" };
+    } catch (e) {
+      return { reply: `Couldn't neutralize that, ${T}. ${e.message}`, action: "THREAT_NEUTRALIZED", intent: "security" };
+    }
+  }
+
   return null;
 }
 
@@ -1946,6 +1964,59 @@ async function executeAssistantTool(name, args, ctx) {
         intent: "recording",
         meta: { clipType, seconds },
       };
+    }
+
+    case "scan_for_threats": {
+      if (!JarvisAgent.isEnabled()) {
+        return { reply: `Can't scan this machine from here, ${T} — this instance is running in the cloud, not on your computer.`, action: "THREAT_SCAN", intent: "security" };
+      }
+      try {
+        const report = await JarvisAgent.scanForThreats();
+        JarvisAgent.showTextResult("threat-scan", JSON.stringify(report, null, 2)).catch(() => {});
+
+        const actionable = report.findings.find(f => f.severity === "confirmed" || f.severity === "worth-a-look");
+        if (!actionable) {
+          const avNote = report.avStatus?.AntivirusEnabled === false ? " Also worth knowing — your antivirus looks disabled." : "";
+          return { reply: `All clear, ${T}. Nothing suspicious found.${avNote}`, action: "THREAT_SCAN", intent: "security", meta: { report } };
+        }
+
+        JarvisAgent.proposeAction(sessionId, "neutralize", {
+          pid: actionable.pid, filePath: actionable.filePath, label: actionable.label,
+        });
+        const certainty = actionable.severity === "confirmed" ? "" : " — worth a look, though not a confirmed infection";
+        const extra = report.findings.length > 1 ? ` There were ${report.findings.length - 1} other item${report.findings.length - 1 === 1 ? "" : "s"} too — I'll flag those once this one's handled.` : "";
+        return {
+          reply: `Sir, there seems to be a threat on your computer${certainty}: ${actionable.label}. Do you want me to neutralize it?${extra}`,
+          action: "THREAT_FOUND",
+          intent: "security",
+          meta: { report, actionable },
+        };
+      } catch (e) {
+        return { reply: `Scan failed, ${T}. ${e.message}`, action: "THREAT_SCAN", intent: "security" };
+      }
+    }
+
+    case "neutralize_threat": {
+      const pending = JarvisAgent.getPendingAction(sessionId);
+      if (!pending || pending.kind !== "neutralize") {
+        return { reply: `Nothing's currently flagged to neutralize, ${T} — run a scan first.`, action: "THREAT_NEUTRALIZED", intent: "security" };
+      }
+      JarvisAgent.clearPendingAction(sessionId);
+      try {
+        let reply;
+        if (pending.payload.pid) {
+          await JarvisAgent.killProcess(pending.payload.pid);
+          reply = `Done, ${T} — process terminated.`;
+        } else if (pending.payload.filePath) {
+          const dest = await JarvisAgent.quarantineFile(pending.payload.filePath);
+          reply = `Done, ${T} — quarantined to ${dest}.`;
+        } else {
+          reply = `Noted, ${T} — flagged, though there's nothing automatic I can remove for that one.`;
+        }
+        return { reply, action: "THREAT_NEUTRALIZED", intent: "security" };
+      } catch (e) {
+        return { reply: `Couldn't neutralize that, ${T}. ${e.message}`, action: "THREAT_NEUTRALIZED", intent: "security" };
+      }
     }
 
     case "mute_jarvis":
