@@ -115,7 +115,23 @@ async function tryRoute(text, opts = {}) {
         ? sayMatch[1].trim().replace(/^["']|["']$/g, "").replace(/[.!]+$/, "")
         : null;
 
-      await teams.joinMeetingByLink(url);
+      // Contained here on purpose: if this throws and nothing catches
+      // it, tryRoute never returns a result, and server.js falls
+      // through to the general AI pipeline with the raw message —
+      // URL and all — still in it. That pipeline doesn't know to keep
+      // links out of spoken replies, so the link itself could end up
+      // getting read back letter-by-letter over TTS. Catching it here
+      // means this command always ends in a normal, link-free reply.
+      try {
+        await teams.joinMeetingByLink(url);
+      } catch (err) {
+        console.error("[COMMS] joinMeetingByLink failed:", err.message);
+        return {
+          reply: `I couldn't get all the way into that meeting on my own, ${opts.T || "Sir"} — it got stuck partway through the join screen. You may need to finish that one manually this time.`,
+          action: "JOIN_LINK_FAILED",
+          meta: { url, error: err.message },
+        };
+      }
 
       if (lineToSpeak) {
         return {
