@@ -1213,7 +1213,14 @@ function isHardCommand(message) {
 // dedicated "Jarvis — Speaking" window, share it into the call with
 // audio, stop sharing after) so nothing beyond Teams itself needs
 // installing. Set CALL_VOICE_METHOD=cable in .env to use VB-CABLE
-// instead.
+// instead (mic gets switched via Teams' own in-app device picker —
+// see call-voice.js / teams-control.js's switchTeamsMicTo).
+//
+// speakAfterDialing() below actually confirms the call connected
+// (teams-control.js's waitForCallConnected) before doing anything —
+// mic switching and speaking only happen once someone's genuinely
+// picked up, not on a blind timer. If nobody answers, it throws and
+// the caller below logs that instead of silently trying anyway.
 async function handleCallAndSpeak(meta) {
   const lineToSpeak = meta && meta.lineToSpeak;
   if (!lineToSpeak) return;
@@ -1270,7 +1277,12 @@ async function handleJoinLinkAndSpeak(meta) {
   const mediaUrl = Cast.publishAudio(result.buffer, PORT);
   const filePath = path.join(__dirname, "public", "tts-cache", path.basename(new URL(mediaUrl).pathname));
 
-  await CallVoice.speakAfterDialing({ filePath, mediaUrl }, 1500);
+  // skipConnectCheck: joinMeetingByLink already confirmed we're in the
+  // meeting (its own IN_MEETING/WAITING_ROOM screen check) before this
+  // function is ever called — speakAfterDialing's connected check is
+  // phrased around Teams' 1:1 call toolbar, not a meeting room, so
+  // re-running it here would just be redundant and less accurate.
+  await CallVoice.speakAfterDialing({ filePath, mediaUrl, skipConnectCheck: true }, 1500);
 }
 
 // ═══════════════════════════════════════════════════════════════
