@@ -317,6 +317,101 @@ async function closeSpeakTab() {
   } catch { /* leaving the window open is harmless, just untidy */ }
 }
 
+// ── VERIFY A CALL IS ACTUALLY CONNECTED ───────────────────────────
+// callOnTeams() only clicks the call button — it can't tell whether
+// the other person actually picked up. Speaking (or switching mics)
+// into a call that's still ringing is pointless at best, and rude
+// silence at worst. This polls the screen until it looks like a
+// connected call (mute/camera/hang-up controls plus either their
+// video or a running call timer) rather than a "Calling…"/ringing
+// screen, up to timeoutMs. Returns false — not a throw — on timeout,
+// so callers can decide what "never picked up" should mean for them.
+async function waitForCallConnected(timeoutMs = 25000, pollMs = 2000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const status = (await vision.lookAtScreen(
+      `Look at this Microsoft Teams call screen. Has the other person actually picked up? Reply with exactly one word: ` +
+      `CONNECTED if you can see live in-call controls (mute/camera/hang-up) together with either their video feed or a running call duration timer — meaning the call is actually live; ` +
+      `or RINGING if it still shows "Calling…", "Ringing…", a dialing animation, or otherwise no sign anyone has answered yet.`
+    )).trim().toUpperCase();
+    if (status.includes("CONNECTED")) return true;
+    await sleep(pollMs);
+  }
+  return false;
+}
+
+// ── IN-APP MICROPHONE DEVICE SWITCHING ────────────────────────────
+// For the "cable" call-voice method: rather than relying on Windows'
+// default-communications-device setting (which only works if Teams
+// is set to "Same as System" and can silently stop working if that
+// setting drifts), this drives Teams' OWN device picker directly —
+// the panel opened by the little chevron next to the Mic button in
+// the in-call toolbar (not Teams' separate Settings > Devices page).
+// More clicks, but it's exactly what you'd do by hand, so it's not
+// depending on anything outside Teams itself.
+async function openMicPicker() {
+  const opened = await vision.findAndClick(
+    `the small dropdown chevron/arrow immediately next to the "Mic" button in the Teams in-call toolbar — NOT the Mic button itself (that toggles mute), and NOT the similar chevron next to the Camera button. It's the one that opens a Speaker/Microphone device list.`
+  );
+  if (!opened) throw new Error("Couldn't find the mic device dropdown in the Teams call toolbar — is a call actually active and connected?");
+  await sleep(500);
+  return true;
+}
+
+// Reads whichever microphone option is currently selected (its radio
+// button filled in) so it can be restored later — read straight off
+// the screen rather than assumed, so it's correct even if you'd
+// changed it by hand since Jarvis last touched it.
+async function readCurrentMicName() {
+  const name = (await vision.lookAtScreen(
+    `This is Teams' Speaker/Microphone device picker panel. Under the "Microphone" section specifically, which one option has its radio button filled in/selected right now? Reply with ONLY that option's exact visible label text and nothing else.`
+  )).trim().replace(/^["']|["']$/g, "");
+  return name;
+}
+
+async function selectMicByLabel(micLabel) {
+  return vision.findAndClick(
+    `the radio button next to the microphone option in Teams' Microphone device list whose label matches or contains "${micLabel}"`
+  );
+}
+
+// Best-effort dismiss of the device picker panel once a selection's
+// been made — clicks empty space near the toolbar rather than
+// assuming Escape behaves consistently across Teams builds.
+async function closeDevicePicker() {
+  await vision.findAndClick(
+    `an empty, non-interactive area near the Teams call toolbar, used just to close/dismiss the currently-open device picker panel — anywhere that isn't one of the panel's own options`
+  ).catch(() => {});
+  await sleep(300);
+}
+
+// Switches Teams' in-call microphone to micLabel (fuzzy-matched —
+// doesn't need to be the exact full label). Returns the name of
+// whichever mic was selected BEFORE the switch, so the caller can
+// pass that straight to switchTeamsMicBack() afterward.
+async function switchTeamsMicTo(micLabel) {
+  await openMicPicker();
+  const previous = await readCurrentMicName();
+  const switched = await selectMicByLabel(micLabel);
+  await closeDevicePicker();
+  if (!switched) {
+    throw new Error(`Couldn't find a microphone matching "${micLabel}" in Teams' device list — is it actually connected and showing up as a device?`);
+  }
+  return previous;
+}
+
+// Switches back to whatever mic was active before — same mechanics,
+// opposite direction. Non-throwing on failure to find the old option
+// (best-effort restore beats leaving the caller mid-error), but
+// returns false so callers can log/notify if it didn't take.
+async function switchTeamsMicBack(previousMicLabel) {
+  if (!previousMicLabel) return false;
+  await openMicPicker();
+  const switched = await selectMicByLabel(previousMicLabel).catch(() => false);
+  await closeDevicePicker();
+  return !!switched;
+}
+
 // mediaUrl: HTTP URL to the rendered TTS clip, servable to a local
 // browser (server.js publishes this via cast.js's publishAudio()).
 // durationMs: how long the clip actually runs, so Jarvis knows how
@@ -433,4 +528,10 @@ module.exports = {
   openSpeakTab,
   closeSpeakTab,
   JARVIS_SPEAK_TITLE,
+  waitForCallConnected,
+  openMicPicker,
+  readCurrentMicName,
+  selectMicByLabel,
+  switchTeamsMicTo,
+  switchTeamsMicBack,
 };
