@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!--
+  Title must exactly match JARVIS_SPEAK_TITLE in teams-control.js —
+  that's the string vision.findAndClick looks for in Teams' share
+  picker to identify this window among everything else open.
+-->
+<title>Jarvis — Speaking</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body {
+    margin: 0; height: 100%;
+    background: #05070a;
+    color: #7fd7ff;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
+  }
+  .wrap { text-align: center; }
+  h1 {
+    font-size: 1.3rem; letter-spacing: .4em; text-transform: uppercase;
+    color: #9fe8ff; margin: 0 0 30px;
+    text-shadow: 0 0 18px rgba(90, 210, 255, .55);
+  }
+  #playBtn {
+    width: 150px; height: 150px; border-radius: 50%;
+    border: 2px solid #4fc3f7;
+    background: radial-gradient(circle at 35% 30%, rgba(90,210,255,.35), rgba(10,20,30,.9));
+    color: #eafcff; font-size: .95rem; letter-spacing: .1em; text-transform: uppercase;
+    cursor: pointer;
+    box-shadow: 0 0 30px rgba(60, 180, 255, .35);
+    transition: transform .1s ease;
+  }
+  #playBtn:active { transform: scale(0.96); }
+  #playBtn:disabled { cursor: default; opacity: .55; }
+  #status {
+    margin-top: 22px; font-size: .85rem; color: #5fa9c4;
+    min-height: 1.2em; letter-spacing: .05em;
+  }
+  .pulsing { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 30px rgba(60,180,255,.35); }
+    50%      { box-shadow: 0 0 55px rgba(90,210,255,.8); }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Jarvis</h1>
+    <button id="playBtn">&#9654; Speak</button>
+    <div id="status">Share this window into the call (with audio), then press Speak.</div>
+  </div>
+  <audio id="audioEl" preload="auto"></audio>
+
+<script>
+  // ?src= is the HTTP URL of the rendered TTS clip, provided by
+  // teams-control.js when it opens this page.
+  const params  = new URLSearchParams(location.search);
+  const src     = params.get("src");
+  const audioEl = document.getElementById("audioEl");
+  const btn     = document.getElementById("playBtn");
+  const statusEl = document.getElementById("status");
+
+  if (src) {
+    audioEl.src = src;
+  } else {
+    statusEl.textContent = "No audio source given (missing ?src=).";
+    btn.disabled = true;
+  }
+
+  // Deliberately NOT autoplaying. Waiting for this click is what
+  // makes browsers treat the playback as a real user gesture, which
+  // is what lets audio actually play (and therefore be captured by
+  // Teams' "include audio" screen share) instead of being silently
+  // blocked by autoplay policy.
+  btn.addEventListener("click", () => {
+    if (!src) return;
+    audioEl.currentTime = 0;
+    audioEl.play().catch((err) => {
+      statusEl.textContent = "Playback failed: " + err.message;
+    });
+    btn.classList.add("pulsing");
+    btn.disabled = true;
+    statusEl.textContent = "Speaking…";
+  });
+
+  audioEl.addEventListener("ended", () => {
+    btn.classList.remove("pulsing");
+    btn.disabled = false;
+    statusEl.textContent = "Done — Jarvis will stop sharing shortly.";
+  });
+
+  audioEl.addEventListener("error", () => {
+    statusEl.textContent = "Couldn't load the audio clip.";
+  });
+</script>
+</body>
+</html>
