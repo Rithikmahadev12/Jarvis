@@ -58,6 +58,9 @@ async function openWhatsApp() {
 // desktop versions (confirmed on both classic and new Teams as of
 // this writing) — used here as the one hardcoded hotkey in this
 // file, everything after it is vision-guided.
+// Returns the name Jarvis actually opened a chat with — usually just
+// personName echoed back, but see the closest-match fallback below,
+// where it can differ from what was asked for.
 async function openChatWith(personName) {
   await openTeams();
   await agent.runCommand(isWindows()
@@ -67,12 +70,36 @@ async function openChatWith(personName) {
   await agent.typeText(personName);
   await sleep(1200); // let search results render
 
-  const clicked = await vision.findAndClick(`the search result for a person or chat named "${personName}" in the Teams search dropdown`);
+  let clicked = await vision.findAndClick(`the search result for a person or chat named exactly "${personName}" in the Teams search dropdown`);
+  let matchedName = personName;
+
+  // ── CLOSEST-MATCH FALLBACK ───────────────────────────────────
+  // No exact hit — rather than give up, ask the vision model to
+  // read whatever names ARE actually showing in the dropdown and
+  // pick whichever one is closest to what was asked for (nickname,
+  // misspelling, partial name, contact saved under a different
+  // display name, etc.), then click that instead. One extra
+  // screenshot round-trip, only spent when the exact match already
+  // missed.
+  if (!clicked) {
+    const closest = (await vision.lookAtScreen(
+      `This is a Microsoft Teams search dropdown that should be listing people/chats matching "${personName}", but nothing matched exactly. ` +
+      `Look at the actual names visible in the dropdown right now and tell me ONLY the single closest matching name to "${personName}" ` +
+      `(could be a nickname, a misspelling, a first-name-only match, or a saved display name that's just different). ` +
+      `Reply with just that name and nothing else. If genuinely nothing in the list is a plausible match, reply exactly: NONE.`
+    )).trim().replace(/^["']|["']$/g, "");
+
+    if (closest && !/^none$/i.test(closest)) {
+      clicked = await vision.findAndClick(`the search result for a person or chat named "${closest}" in the Teams search dropdown`);
+      if (clicked) matchedName = closest;
+    }
+  }
+
   if (!clicked) {
     throw new Error(`Couldn't find "${personName}" in the Teams search results, ${await friendlyReason()}`);
   }
   await sleep(1500); // let the chat pane load
-  return true;
+  return matchedName;
 }
 
 async function friendlyReason() {
@@ -90,8 +117,10 @@ async function checkChatWith(personName) {
 }
 
 // ── SEND A TEXT MESSAGE ───────────────────────────────────────────
+// Returns the matched contact name (see openChatWith's closest-match
+// fallback — may differ from personName if the exact text didn't hit).
 async function messageOnTeams(personName, text) {
-  await openChatWith(personName);
+  const matchedName = await openChatWith(personName);
   const clicked = await vision.findAndClick(`the message compose text box at the bottom of the Teams chat window`);
   if (!clicked) throw new Error("Couldn't find the message box in this chat.");
   await sleep(300);
@@ -104,17 +133,19 @@ async function messageOnTeams(personName, text) {
   await agent.runCommand(isWindows()
     ? `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`
     : `osascript -e 'tell application "System Events" to key code 36'`);
-  return true;
+  return matchedName;
 }
 
 // ── PLACE A CALL ──────────────────────────────────────────────────
 // callType: "audio" | "video"
+// Returns the matched contact name (see openChatWith's closest-match
+// fallback — may differ from personName if the exact text didn't hit).
 async function callOnTeams(personName, callType = "audio") {
-  await openChatWith(personName);
+  const matchedName = await openChatWith(personName);
   const label = callType === "video" ? "video call button (camera icon)" : "audio call button (phone icon)";
   const clicked = await vision.findAndClick(`the ${label} in the top-right toolbar of this Teams chat window`);
   if (!clicked) throw new Error(`Couldn't find the ${callType} call button in this chat's toolbar.`);
-  return true;
+  return matchedName;
 }
 
 // ── JOIN TODAY'S MEETING ─────────────────────────────────────────
@@ -137,6 +168,43 @@ async function joinMeeting(meetingHint) {
   await sleep(1500);
   // Pre-join screen usually needs a second confirm click.
   await vision.findAndClick(`the "Join now" button on the meeting pre-join screen`).catch(() => {});
+  return true;
+}
+
+// ── JOIN A MEETING VIA A DIRECT LINK (any platform) ────────────────
+// Unlike joinMeeting() above (which needs Teams already open, with a
+// matching meeting visible in the Calendar tab), this takes any
+// meeting URL you were sent — a Teams "join a meeting" link, a Zoom
+// link, a Google Meet link, whatever — opens it in the default
+// browser, and vision-guides through that platform's join flow.
+// Deliberately generic (not hardcoded to Teams' button labels) since
+// every platform's pre-join screen looks different; each click below
+// is best-effort and skipped if it doesn't apply to the page shown.
+async function joinMeetingByLink(url) {
+  const clean = String(url || "").trim();
+  if (!/^https?:\/\//i.test(clean)) {
+    throw new Error(`"${clean}" doesn't look like a meeting link — expected it to start with http:// or https://.`);
+  }
+
+  await agent.openTarget(clean);
+  await sleep(4000); // give the browser + meeting page time to load
+
+  // Teams especially likes to interstitial-prompt "Open in the Teams
+  // app?" — staying in-browser keeps this simple (one window to look
+  // at) instead of Jarvis having to track a hand-off to the desktop app.
+  await vision.findAndClick(`a "Continue on this browser", "Use the web app instead", or "Join on the web" link or button, if one is visible`).catch(() => {});
+  await sleep(1000);
+
+  // Some platforms ask for a display name before showing the actual
+  // join button — best-effort, silently skipped if there isn't one.
+  await vision.findAndClick(`a text field asking for your name to join the meeting, if one is visible`).catch(() => {});
+  await sleep(300);
+
+  const joined = await vision.findAndClick(`the button to actually join or enter the meeting now (commonly labeled "Join now", "Join meeting", or "Ask to join")`);
+  if (!joined) {
+    throw new Error("Opened the link but couldn't find a Join button on screen — the page may still be loading, or this platform's join flow isn't one Jarvis recognizes yet.");
+  }
+  await sleep(2500); // let the meeting room itself load
   return true;
 }
 
@@ -296,6 +364,7 @@ module.exports = {
   messageOnTeams,
   callOnTeams,
   joinMeeting,
+  joinMeetingByLink,
   respondToIncomingCall,
   startIncomingCallWatch,
   stopIncomingCallWatch,
