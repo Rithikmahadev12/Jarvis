@@ -29,6 +29,7 @@
 
 const { exec } = require("child_process");
 const os = require("os");
+const { URL } = require("url");
 const vision = require("./screen-vision");
 const agent = require("./jarvis-agent");
 
@@ -139,6 +140,109 @@ async function joinMeeting(meetingHint) {
   return true;
 }
 
+// ── SPEAK INTO A LIVE CALL VIA SCREEN SHARE (no VB-CABLE needed) ──
+// The alternative to call-voice.js's virtual-cable routing: instead
+// of redirecting audio devices, Jarvis opens a small dedicated
+// browser window that plays the TTS clip, shares THAT WINDOW (with
+// audio) into the active Teams call, waits for the clip to finish,
+// then stops sharing. Nothing to install beyond Teams and a browser.
+//
+// This window's title has to match JARVIS_SPEAK_TITLE exactly — it's
+// how the later vision.findAndClick call tells Teams' share picker
+// which thumbnail is "the Jarvis one" out of everything else open on
+// the screen. Keep it in sync with public/call-speak.html's <title>.
+const JARVIS_SPEAK_TITLE = "Jarvis — Speaking";
+
+// Opens the speak page in its own app-mode window (not just a tab in
+// whatever browser window is already open) so it shows up in Teams'
+// share picker as a single, unambiguous, easy-to-spot entry.
+async function openSpeakTab(mediaUrl) {
+  const origin = new URL(mediaUrl).origin;
+  const pageUrl = `${origin}/call-speak.html?src=${encodeURIComponent(mediaUrl)}`;
+
+  const command = isWindows()
+    ? `start "" /B msedge --new-window --app="${pageUrl}"`
+    : `open -na "Google Chrome" --args --new-window --app="${pageUrl}"`;
+
+  try {
+    await agent.runCommand(command);
+  } catch {
+    // Edge/Chrome app mode not available for some reason — fall back
+    // to whatever the default browser does with a plain URL. Less
+    // identifiable in the share picker, but still functional.
+    await agent.openTarget(pageUrl);
+  }
+  await sleep(2000); // let the window actually open and the page load
+  return pageUrl;
+}
+
+// Best-effort close of the dedicated speak window once Jarvis is done
+// with it. Non-fatal if it misses — a leftover window is untidy, not
+// broken.
+async function closeSpeakTab() {
+  if (!isWindows()) return;
+  try {
+    await agent.runCommand(
+      `powershell -NoProfile -Command "Get-Process | Where-Object {$_.MainWindowTitle -eq '${JARVIS_SPEAK_TITLE}'} | Stop-Process -Force"`
+    );
+  } catch { /* leaving the window open is harmless, just untidy */ }
+}
+
+// mediaUrl: HTTP URL to the rendered TTS clip, servable to a local
+// browser (server.js publishes this via cast.js's publishAudio()).
+// durationMs: how long the clip actually runs, so Jarvis knows how
+// long to keep sharing before stopping.
+async function speakOnScreenShare(mediaUrl, durationMs) {
+  if (!isWindows()) {
+    throw new Error("Screen-share speaking is only wired up for Windows right now.");
+  }
+
+  await openSpeakTab(mediaUrl);
+
+  // Click the on-page "Speak" button ourselves rather than relying on
+  // autoplay — this IS the user gesture browsers' autoplay policies
+  // want, and it means Jarvis controls exactly when the clip starts.
+  const played = await vision.findAndClick(`the "Speak" play button in the center of this page`);
+  if (!played) throw new Error(`Couldn't find the Speak button on the "${JARVIS_SPEAK_TITLE}" page.`);
+  await sleep(300);
+
+  const shareOpened = await vision.findAndClick(`the "Share content" or "Share screen" button in the Microsoft Teams in-call toolbar`);
+  if (!shareOpened) throw new Error("Couldn't find Teams' Share content button — is a call actually active and connected?");
+  await sleep(1000);
+
+  // Some Teams versions default the picker to a "Screen" tab — make
+  // sure we're looking at the per-window list instead. Best-effort:
+  // if there's no such tab (already on the right view), that's fine.
+  await vision.findAndClick(`the "Window" tab in the Teams share picker`).catch(() => {});
+  await sleep(300);
+
+  const windowPicked = await vision.findAndClick(`the thumbnail for the browser window titled "${JARVIS_SPEAK_TITLE}" in the Teams share picker`);
+  if (!windowPicked) throw new Error(`Couldn't find the "${JARVIS_SPEAK_TITLE}" window in Teams' share picker.`);
+  await sleep(300);
+
+  // "Include audio" isn't always on by default — the whole point of
+  // this method is that the audio actually reaches the call, so check
+  // it explicitly rather than assuming. Best-effort: if it's already
+  // checked, clicking again would toggle it off, but findAndClick
+  // only fires on a genuine match, so an already-checked toggle
+  // described this way should be a no-op miss rather than a false
+  // click in practice.
+  await vision.findAndClick(`the unchecked "Include audio" toggle in the Teams share picker`).catch(() => {});
+  await sleep(200);
+
+  const shared = await vision.findAndClick(`the "Share" button that confirms sharing the selected window`);
+  if (!shared) throw new Error("Couldn't confirm the share — Teams' picker may not have opened as expected.");
+
+  // Let the clip actually finish, plus a small buffer so the tail
+  // isn't cut off by stopping the share a beat too early.
+  await sleep(Math.max(1000, durationMs) + 800);
+
+  await vision.findAndClick(`the "Stop presenting" or "Stop sharing" button in the Teams call toolbar`).catch(() => {});
+  await closeSpeakTab();
+
+  return true;
+}
+
 // ── INCOMING CALL: ACCEPT / DECLINE ───────────────────────────────
 async function respondToIncomingCall(accept) {
   const label = accept ? `the green "Accept" call button` : `the red "Decline" call button`;
@@ -195,4 +299,8 @@ module.exports = {
   respondToIncomingCall,
   startIncomingCallWatch,
   stopIncomingCallWatch,
+  speakOnScreenShare,
+  openSpeakTab,
+  closeSpeakTab,
+  JARVIS_SPEAK_TITLE,
 };
