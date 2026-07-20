@@ -1243,6 +1243,37 @@ async function handleCallAndSpeak(meta) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ── COMMS: SPEAK A RELAYED LINE INTO A MEETING JOINED VIA LINK
+// ═══════════════════════════════════════════════════════════════
+// Same idea as handleCallAndSpeak above, but for comms-router.js's
+// JOIN_LINK_AND_SPEAK action — Jarvis has already joined the meeting
+// (synchronously, before replying to the user) via
+// teams.joinMeetingByLink(), so there's no "wait for pickup" delay to
+// add here, just a short settle beat before speaking.
+async function handleJoinLinkAndSpeak(meta) {
+  const lineToSpeak = meta && meta.lineToSpeak;
+  if (!lineToSpeak) return;
+
+  if (!TTS.isReady()) {
+    console.warn("[COMMS] TTS isn't configured (CAMB_API_KEY missing) — can't speak into the meeting.");
+    return;
+  }
+  const result = await TTS.synthesize(lineToSpeak);
+  if (!result) {
+    console.warn("[COMMS] TTS synthesis failed — can't speak into the meeting.");
+    return;
+  }
+
+  const CallVoice = require("./call-voice");
+  const Cast = require("./cast");
+
+  const mediaUrl = Cast.publishAudio(result.buffer, PORT);
+  const filePath = path.join(__dirname, "public", "tts-cache", path.basename(new URL(mediaUrl).pathname));
+
+  await CallVoice.speakAfterDialing({ filePath, mediaUrl }, 1500);
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ── SHARED FETCH HANDLERS
 // ═══════════════════════════════════════════════════════════════
 async function handleWeatherFetch(message, T) {
@@ -2458,6 +2489,10 @@ app.post("/api/chat", async (req, res) => {
       // happens in the background once it (hopefully) connects.
       handleCallAndSpeak(commsResult.meta).catch((err) =>
         console.error("[COMMS] speak-into-call failed:", err.message)
+      );
+    } else if (commsResult.action === "JOIN_LINK_AND_SPEAK") {
+      handleJoinLinkAndSpeak(commsResult.meta).catch((err) =>
+        console.error("[COMMS] speak-into-meeting failed:", err.message)
       );
     }
     return res.json(commsResult);
