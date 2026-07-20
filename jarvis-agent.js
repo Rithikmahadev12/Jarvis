@@ -128,6 +128,9 @@ const APP_ALIASES = {
     firefox: "firefox", edge: "msedge", browser: "msedge",
     spotify: "spotify:", word: "winword", excel: "excel",
     settings: "ms-settings:",
+    teams: "ms-teams:", "microsoft teams": "ms-teams:",
+    whatsapp: "whatsapp:",
+    discord: "discord:",
   },
   darwin: {
     "vs code": "Visual Studio Code", "vscode": "Visual Studio Code",
@@ -138,6 +141,9 @@ const APP_ALIASES = {
     firefox: "Firefox", edge: "Microsoft Edge", safari: "Safari", browser: "Safari",
     spotify: "Spotify", word: "Microsoft Word", excel: "Microsoft Excel",
     settings: "System Settings",
+    teams: "Microsoft Teams", "microsoft teams": "Microsoft Teams",
+    whatsapp: "WhatsApp",
+    discord: "Discord",
   },
   linux: {
     "vs code": "code", "vscode": "code", "visual studio code": "code", "code editor": "code",
@@ -146,6 +152,9 @@ const APP_ALIASES = {
     terminal: "x-terminal-emulator", chrome: "google-chrome",
     "google chrome": "google-chrome", firefox: "firefox",
     spotify: "spotify", browser: "xdg-open about:blank",
+    teams: "teams", "microsoft teams": "teams",
+    whatsapp: "whatsapp-for-linux",
+    discord: "discord",
   },
 };
 
