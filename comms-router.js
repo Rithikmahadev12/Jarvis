@@ -38,17 +38,34 @@ function extractNote(text) {
   return m ? m[1].trim().replace(/[.!]+$/, "") : null;
 }
 
-function noteToStatus(note) {
-  if (!note) return { status: "back_shortly", note: null };
-  if (/\bback\s+shortly\b|\bback\s+soon\b|\bbe\s+right\s+back\b/i.test(note)) {
-    return { status: "back_shortly", note: note.replace(/i('ll| will)\s+be\s+back\s+shortly/i, "").trim() || null };
+function noteToStatus(note, ownerName = "the owner") {
+  if (!note) return { status: "back_shortly" };
+
+  // "tell him I'll be back shortly" / "let her know I'm not available" —
+  // these ARE the availability line, not a separate note on top of one.
+  if (/\bi('ll| will)\s+be\s+back\s+shortly\b|\bback\s+shortly\b|\bback\s+soon\b|\bbe\s+right\s+back\b/i.test(note)) {
+    return { status: "back_shortly" };
   }
   if (/\bnot\s+avail|\bunavailable|\bcan'?t\s+(talk|come)|\bbusy\b/i.test(note)) {
-    return { status: "unavailable", note };
+    return { status: "unavailable" };
   }
-  // Otherwise treat the whole thing as a note to relay verbatim,
-  // with a default back-shortly availability line ahead of it.
-  return { status: "back_shortly", note };
+
+  // "tell him to get on fortnite" — extractNote captures "to get on
+  // fortnite" (an instruction FOR the recipient), not a statement about
+  // the owner. Frame it as a request, not first-person speech.
+  if (/^to\s+/i.test(note)) {
+    return { status: `${ownerName} wants you ${note}.` };
+  }
+
+  // Anything else ("I'll be there in a sec") is a genuine statement to
+  // relay — personalize into third person, since Jarvis is speaking
+  // ABOUT the owner, not AS the owner.
+  const personalized = note
+    .replace(/^i('ll| will)\b/i, `${ownerName} will`)
+    .replace(/^i('m| am)\b/i, `${ownerName} is`)
+    .replace(/^i\b(?!'ll|'m)/i, ownerName);
+  const capitalized = personalized.charAt(0).toUpperCase() + personalized.slice(1);
+  return { status: `${ownerName} wanted me to let you know: ${capitalized}.` };
 }
 
 async function tryRoute(text, opts = {}) {
@@ -105,15 +122,15 @@ async function tryRoute(text, opts = {}) {
     const person = m[2].trim();
     const rest = m[3] || "";
     const note = extractNote(rest);
-    const { status, note: cleanNote } = noteToStatus(note);
+    const { status } = noteToStatus(note, ownerName);
 
     await teams.callOnTeams(person, isVideo ? "video" : "audio");
 
     // If there's something to relay, hand off to call-voice.js
     // (real TTS spoken into the live call) rather than texting it —
     // per the "talk, don't just message" preference.
-    if (cleanNote || status !== "back_shortly") {
-      const line = craftAgentIntro({ ownerName, status, note: cleanNote });
+    if (note) {
+      const line = craftAgentIntro({ ownerName, status });
       return {
         reply: `Calling ${person} now, ${opts.T || "Sir"}. Once they pick up I'll tell them: "${line}"`,
         action: "CALL_AND_SPEAK",
