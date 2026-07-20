@@ -189,6 +189,17 @@ async function joinMeetingByLink(url) {
   await agent.openTarget(clean);
   await sleep(4000); // give the browser + meeting page time to load
 
+  // Chromium browsers (Edge/Chrome) show a native "This site is
+  // trying to open Microsoft Teams/Zoom/etc." dialog for these
+  // protocol-handoff links — it's browser chrome, not part of the
+  // webpage, and it sits on top blocking clicks on anything
+  // underneath (like "Continue on this browser") until it's
+  // dismissed. Cancel it, not Open — Jarvis wants to stay in-browser
+  // rather than hand off to a desktop app that may not even be
+  // signed into the same account.
+  await vision.findAndClick(`the "Cancel" button on a native browser dialog saying "This site is trying to open [some app]"`).catch(() => {});
+  await sleep(600);
+
   // Teams especially likes to interstitial-prompt "Open in the Teams
   // app?" — staying in-browser keeps this simple (one window to look
   // at) instead of Jarvis having to track a hand-off to the desktop app.
