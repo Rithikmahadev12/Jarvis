@@ -68,9 +68,21 @@ async function openChatWith(personName) {
     : `osascript -e 'tell application "System Events" to keystroke "e" using command down'`);
   await sleep(500);
   await agent.typeText(personName);
-  await sleep(1200); // let search results render
+  await sleep(1600); // let search results render (bumped from 1200ms — a too-early screenshot on slower machines was part of what caused the stall)
 
-  let clicked = await vision.findAndClick(`the search result for a person or chat named exactly "${personName}" in the Teams search dropdown`);
+  // Prefer a "People" section entry over "Group Chats"/"Meeting with X"
+  // entries — the dropdown often lists the same name multiple times
+  // (a 1:1 person AND one or more meeting/group chats that happen to
+  // mention them), and a bare "named exactly X" description leaves the
+  // vision model to guess between them, which is how this used to stall
+  // with the dropdown just sitting there. Being explicit about section
+  // priority removes that ambiguity.
+  let clicked = await vision.findAndClick(
+    `In this Microsoft Teams search dropdown, find the result for "${personName}". ` +
+    `If there is an entry under a "People" section heading whose name matches "${personName}", click THAT one — ` +
+    `prefer it over any "Group Chats" or "Meeting with ${personName}" entries even if those also contain the name. ` +
+    `Only click a Group Chats/meeting entry if no plain "People" entry for this name exists.`
+  );
   let matchedName = personName;
 
   // ── CLOSEST-MATCH FALLBACK ───────────────────────────────────
@@ -84,13 +96,17 @@ async function openChatWith(personName) {
   if (!clicked) {
     const closest = (await vision.lookAtScreen(
       `This is a Microsoft Teams search dropdown that should be listing people/chats matching "${personName}", but nothing matched exactly. ` +
-      `Look at the actual names visible in the dropdown right now and tell me ONLY the single closest matching name to "${personName}" ` +
-      `(could be a nickname, a misspelling, a first-name-only match, or a saved display name that's just different). ` +
+      `Look at the actual names visible in the dropdown right now, under the "People" section specifically if one exists, and tell me ONLY ` +
+      `the single closest matching name to "${personName}" (could be a nickname, a misspelling, a first-name-only match, or a saved display ` +
+      `name that's just different). Ignore "Group Chats"/"Meeting with X" entries unless there is no People entry at all. ` +
       `Reply with just that name and nothing else. If genuinely nothing in the list is a plausible match, reply exactly: NONE.`
     )).trim().replace(/^["']|["']$/g, "");
 
     if (closest && !/^none$/i.test(closest)) {
-      clicked = await vision.findAndClick(`the search result for a person or chat named "${closest}" in the Teams search dropdown`);
+      clicked = await vision.findAndClick(
+        `the "People" section search result whose name is "${closest}" in the Teams search dropdown — ` +
+        `not a "Group Chats" or "Meeting with" entry, the plain person entry`
+      );
       if (clicked) matchedName = closest;
     }
   }
