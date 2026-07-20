@@ -100,6 +100,34 @@ async function tryRoute(text, opts = {}) {
     return { reply: `WhatsApp is open, ${opts.T || "Sir"}.`, action: "OPEN_WHATSAPP" };
   }
 
+  // ── JOIN A MEETING VIA A LINK ─────────────────────────────────
+  // "join this meeting link https://... and say I'll be there in 5"
+  // "join https://meet.google.com/xyz-abcd" (no message — just join)
+  // Checked BEFORE the calendar-based "join the meeting" check below
+  // — a URL in the message means this is the link flow regardless of
+  // whether "the meeting" also happens to appear in the sentence.
+  {
+    const urlMatch = /https?:\/\/\S+/i.exec(t);
+    if (urlMatch && /\bjoin\b/i.test(t)) {
+      const url = urlMatch[0].replace(/[.,)\]]+$/, ""); // trim trailing sentence punctuation
+      const sayMatch = /\b(?:and\s+)?(?:say|tell them|tell the meeting)\s*[:,]?\s*(.+)$/i.exec(t);
+      const lineToSpeak = sayMatch
+        ? sayMatch[1].trim().replace(/^["']|["']$/g, "").replace(/[.!]+$/, "")
+        : null;
+
+      await teams.joinMeetingByLink(url);
+
+      if (lineToSpeak) {
+        return {
+          reply: `Joined, ${opts.T || "Sir"}. Once things settle I'll say: "${lineToSpeak}"`,
+          action: "JOIN_LINK_AND_SPEAK",
+          meta: { url, lineToSpeak },
+        };
+      }
+      return { reply: `Joined the meeting, ${opts.T || "Sir"}.`, action: "JOIN_LINK", meta: { url } };
+    }
+  }
+
   // ── JOIN A MEETING ───────────────────────────────────────────
   if (/\bjoin\s+(the\s+)?meeting\b/i.test(lower)) {
     const hintMatch = /join\s+(?:the\s+)?meeting\s*(?:called|named|for|with)?\s*(.*)$/i.exec(t);
