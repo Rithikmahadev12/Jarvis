@@ -2419,6 +2419,38 @@ app.post("/api/chat", async (req, res) => {
   // the whole request. The old regex path still exists as a fallback
   // further down, for when Groq is unconfigured or its call throws.
 
+  // ── 2.4 Comms — Teams/WhatsApp calls, messages, meetings ──
+  // MUST run before the AI tool-calling block below. chatWithTools
+  // has no "place a call" tool of its own — when it doesn't recognize
+  // something as one of its registered tools, it just answers in
+  // plain text (e.g. claiming it can't place calls and offering to
+  // draft a message to the clipboard instead), and that text reply
+  // short-circuits the whole handler before Comms.tryRoute — which
+  // does the real vision-guided Teams call — ever gets a turn. This
+  // used to sit after the AI block, which meant it was effectively
+  // unreachable for almost any "call X on teams" phrasing.
+  let commsResult = null;
+  try {
+    commsResult = await Comms.tryRoute(message, { T, ownerName: userName });
+  } catch (err) {
+    console.error("[COMMS] tryRoute failed:", err.message);
+  }
+  if (commsResult) {
+    if (commsResult.action === "CALL_AND_SPEAK") {
+      // Fire-and-forget: the reply below ("Calling X now...") already
+      // goes back to the user immediately. Speaking into the call
+      // happens in the background once it (hopefully) connects.
+      handleCallAndSpeak(commsResult.meta).catch((err) =>
+        console.error("[COMMS] speak-into-call failed:", err.message)
+      );
+    } else if (commsResult.action === "JOIN_LINK_AND_SPEAK") {
+      handleJoinLinkAndSpeak(commsResult.meta).catch((err) =>
+        console.error("[COMMS] speak-into-meeting failed:", err.message)
+      );
+    }
+    return res.json(commsResult);
+  }
+
   // ── 2.5 AI decides + acts — replaces regex command matching ──
   // Groq reads the message and either calls a real tool (reminder,
   // timer, weather, Spotify, home control) or just answers in text.
@@ -2469,33 +2501,6 @@ app.post("/api/chat", async (req, res) => {
   const scheduleResult = Schedule.route(message, T, userTimezone, sessionId);
   if (scheduleResult) {
     return res.json(scheduleResult);
-  }
-
-  // ── 2.7 Comms — Teams/WhatsApp calls, messages, meetings ──
-  // Checked before the hard-command regex table below so "call X on
-  // teams and tell him Y" is handled by comms-router.js's real Teams
-  // control instead of falling into the generic AI pipeline, which
-  // doesn't know how to place a call.
-  let commsResult = null;
-  try {
-    commsResult = await Comms.tryRoute(message, { T, ownerName: userName });
-  } catch (err) {
-    console.error("[COMMS] tryRoute failed:", err.message);
-  }
-  if (commsResult) {
-    if (commsResult.action === "CALL_AND_SPEAK") {
-      // Fire-and-forget: the reply below ("Calling X now...") already
-      // goes back to the user immediately. Speaking into the call
-      // happens in the background once it (hopefully) connects.
-      handleCallAndSpeak(commsResult.meta).catch((err) =>
-        console.error("[COMMS] speak-into-call failed:", err.message)
-      );
-    } else if (commsResult.action === "JOIN_LINK_AND_SPEAK") {
-      handleJoinLinkAndSpeak(commsResult.meta).catch((err) =>
-        console.error("[COMMS] speak-into-meeting failed:", err.message)
-      );
-    }
-    return res.json(commsResult);
   }
 
   // ── 3. Hard commands ──
