@@ -182,6 +182,24 @@ function buildJarvisResponse(context) {
 function routeSmallTalk(text, T, tz) {
   const lower = text.toLowerCase().trim();
 
+  // Identity — who/what Jarvis is. This response already existed
+  // (buildJarvisResponse's "identity" case) but nothing ever routed
+  // to it, so it never fired. Fixed here.
+  if (/\b(who|what)\s+(are\s+you|r\s+u)\b/i.test(lower) ||
+      /\bare\s+you\s+(an?\s+)?(ai|a\s?i|assistant|bot|robot|human|real\s+person)\b/i.test(lower) ||
+      /^(who|what)\s+is\s+jarvis\??$/i.test(lower) ||
+      /\btell\s+me\s+about\s+yourself\b/i.test(lower)) {
+    return buildJarvisResponse({ type: "identity", T, tz });
+  }
+
+  // Capabilities — "what can you do" was the same kind of dead-end:
+  // the response existed, nothing triggered it.
+  if (/\bwhat\s+can\s+you\s+do\b/i.test(lower) ||
+      /\bwhat\s+(are\s+your|do\s+you\s+have)\s+capabilities\b/i.test(lower) ||
+      /\bwhat\s+(are\s+you\s+capable\s+of|do\s+you\s+know\s+how\s+to\s+do)\b/i.test(lower)) {
+    return buildJarvisResponse({ type: "capabilities", T, tz });
+  }
+
   // "Shut up" / "be quiet" / "stop talking" — a hard silence command.
   // Answer ONLY with a curt acknowledgment, no explanation, no apology.
   // This must stay ahead of every other branch (including the AI engine)
@@ -449,12 +467,36 @@ function shouldSpeakProactively(state) {
   return null;
 }
 
+// ── OUTWARD-FACING INTRO (spoken/typed to a THIRD PARTY) ──────────
+// Used by comms-router.js/teams-control.js when Jarvis contacts
+// someone on the owner's behalf. Distinct from buildJarvisResponse
+// above, which always talks TO the owner — this talks to whoever
+// Jarvis just called or messaged, and should introduce itself so
+// the other person isn't confused about who/what they're talking to.
+//
+// status:
+//   "back_shortly" -> ownerName will be back shortly
+//   "unavailable"  -> ownerName isn't available right now
+//   custom string  -> used verbatim as the availability line
+// note: an optional extra line the owner asked Jarvis to relay
+//       (e.g. "get on fortnite")
+function craftAgentIntro({ ownerName = "Jay", status = "back_shortly", note = null } = {}) {
+  const availability =
+    status === "back_shortly"  ? `${ownerName} will be back shortly.` :
+    status === "unavailable"   ? `${ownerName} isn't available right now.` :
+    status;
+
+  const noteLine = note ? ` ${note}` : "";
+  return `Hey, this is Jarvis — ${ownerName}'s personal assistant. ${availability}${noteLine}`;
+}
+
 module.exports = {
   routeSmallTalk,
   routePersonalNews,
   getCameraComment,
   shouldSpeakProactively,
   buildJarvisResponse,
+  craftAgentIntro,
   getTimeContext,
   getHourInTZ,
 };
