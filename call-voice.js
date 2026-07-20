@@ -19,7 +19,7 @@
 // few seconds on your screen, and if Microsoft reflows Teams' UI this
 // is the path most likely to need a description tweak.
 //
-// ── METHOD 2: "cable" (opt-in, unchanged from v1.0) ────────────────
+// ── METHOD 2: "cable" (opt-in) ──────────────────────────────────────
 // YES — Jarvis switches audio back to your own mic/speakers the
 // moment it's done talking. Here's exactly how, so it's not a black
 // box:
@@ -30,36 +30,42 @@
 //      device) and "CABLE Output" (a recording device) — anything
 //      played into CABLE Input is instantly readable from CABLE
 //      Output, like a wire between them.
-//   2. In Windows Sound settings, set Teams' microphone to
-//      "Same as System" / default communications device (Teams
-//      Settings > Devices > Microphone). This is the key step: it
-//      means Teams' mic follows whatever Windows' default
-//      COMMUNICATIONS recording device is set to, so Jarvis can
-//      redirect it in real time instead of you having to manually
-//      flip it in Teams every time.
-//   3. Install the AudioDeviceCmdlets PowerShell module (one time,
+//   2. Install the AudioDeviceCmdlets PowerShell module (one time,
 //      run as admin): Install-Module -Name AudioDeviceCmdlets
-//      This is what actually lets Jarvis switch default audio
-//      devices from Node.
+//      This is what lets Jarvis switch your default PLAYBACK device
+//      from Node — the speaker/headphones half of the routing.
+//   Nothing else — no "Same as System" setting needed in Teams. See
+//   point 3 below for why.
 //
 // RUNTIME, every time Jarvis speaks into a call via the cable method:
-//   1. Remember your CURRENT default playback device and CURRENT
-//      default communications recording device (your real
-//      speakers/headphones and your real mic).
-//   2. Switch default playback -> "CABLE Input" and default
-//      communications recording -> "CABLE Output".
-//   3. Play the TTS audio (through the now-redirected default
+//   1. Confirm the call actually connected (teams-control.js's
+//      waitForCallConnected) — no point doing any of this into a call
+//      that's still ringing.
+//   2. Remember your CURRENT default playback device (real
+//      speakers/headphones) AND whichever microphone is currently
+//      selected inside Teams itself — read straight off Teams' own
+//      device picker, not assumed.
+//   3. Switch default playback -> "CABLE Input", AND switch Teams'
+//      OWN in-app microphone selection (via its device-picker
+//      dropdown, the little chevron next to the Mic button in the
+//      call toolbar — teams-control.js's switchTeamsMicTo) -> "CABLE
+//      Output". Driving Teams' own picker directly, instead of
+//      relying on Windows' default-communications-device setting,
+//      means this doesn't depend on a "Same as System" setting inside
+//      Teams that could silently drift.
+//   4. Play the TTS audio (through the now-redirected default
 //      playback device, so it flows into the cable -> Teams mic).
-//   4. The MOMENT playback finishes, switch both back to what you
-//      had in step 1 — your own mic and speakers are live again and
-//      you can talk normally. This is not "eventually" or "on a
-//      timer" — it's driven directly off the audio file's actual
-//      duration, so it's back to you as fast as the audio itself.
+//   5. The MOMENT playback finishes, switch playback back to your
+//      real speakers AND switch Teams' mic picker back to whatever it
+//      actually had selected in step 2 — not a guessed default. This
+//      is not "eventually" or "on a timer" — it's driven directly off
+//      the audio file's actual duration, so it's back to you as fast
+//      as the audio itself.
 //
-// TIMING CAVEAT (applies to both methods): Jarvis can't detect the
-// exact moment someone picks up a call, so CALL_SPEAK_DELAY_MS
-// (default 6000ms) is how long it waits after dialing before
-// speaking. Tune it in .env if that's off for you.
+// TIMING CAVEAT (applies to both methods): CALL_SPEAK_DELAY_MS
+// (default 6000ms) is now a settle beat AFTER the call is confirmed
+// connected (see step 1), not a blind guess at when someone might
+// pick up — tune it down if that still feels slow.
 // ═══════════════════════════════════════════════════════════════
 
 const { exec } = require("child_process");
@@ -67,10 +73,14 @@ const os = require("os");
 const fs = require("fs");
 const path = require("path");
 
-const CALL_SPEAK_DELAY_MS = Number(process.env.CALL_SPEAK_DELAY_MS) || 6000;
+const CALL_SPEAK_DELAY_MS = Number(process.env.CALL_SPEAK_DELAY_MS) || 1500;
 const CALL_VOICE_METHOD = String(process.env.CALL_VOICE_METHOD || "screenshare").trim().toLowerCase();
 const CABLE_PLAYBACK_NAME = process.env.VB_CABLE_PLAYBACK_NAME || "CABLE Input";
 const CABLE_RECORDING_NAME = process.env.VB_CABLE_RECORDING_NAME || "CABLE Output";
+// What Jarvis looks for inside TEAMS' OWN mic picker (fuzzy-matched —
+// doesn't need Teams' full parenthetical, e.g. "CABLE Output (VB-Audio
+// Virtual Cable)" — just enough to be unambiguous).
+const TEAMS_CABLE_MIC_LABEL = process.env.TEAMS_CABLE_MIC_LABEL || CABLE_RECORDING_NAME;
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
@@ -119,7 +129,17 @@ function playAndWait(filePath) {
 // ── MAIN: SPEAK A LINE INTO THE ACTIVE CALL ───────────────────────
 // audioFilePath: a WAV/MP3 already rendered by tts.js — this module
 // doesn't do text-to-speech itself, it just routes and plays it.
-async function speakIntoCall(audioFilePath) {
+//
+// Two devices get switched here, by two different mechanisms:
+//   - PLAYBACK (speakers/headphones -> CABLE Input): switched via
+//     Windows' AudioDeviceCmdlets, same as before — Jarvis's TTS
+//     playback has to leave your machine's audio output somehow, and
+//     that's a Windows-level default, not something Teams exposes.
+//   - MICROPHONE (-> CABLE Output): switched via Teams' OWN in-app
+//     device picker (teams-control.js's switchTeamsMicTo), not a
+//     Windows default — this is what makes it not depend on Teams
+//     being set to "Same as System".
+async function speakIntoCall(audioFilePath, opts = {}) {
   if (!isWindows()) {
     throw new Error("Speaking into a live call via a virtual cable is only wired up for Windows right now.");
   }
@@ -130,24 +150,36 @@ async function speakIntoCall(audioFilePath) {
   if (!cableReady) {
     throw new Error(
       `VB-CABLE devices ("${CABLE_PLAYBACK_NAME}" / "${CABLE_RECORDING_NAME}") weren't found. ` +
-      `Install VB-CABLE and the AudioDeviceCmdlets PowerShell module first — see call-voice.js setup notes.`
+      `Install VB-CABLE first — see call-voice.js setup notes.`
     );
   }
 
-  const original = await getCurrentDevices();
+  const teams = require("./teams-control"); // required lazily — keeps this file's own require list to what the cable method needs
+
+  const micLabel = opts.micLabel || TEAMS_CABLE_MIC_LABEL;
+  const originalPlayback = (await getCurrentDevices()).playback;
+  let previousMicLabel = null;
 
   try {
-    await setDevices(CABLE_PLAYBACK_NAME, CABLE_RECORDING_NAME);
+    // Mic first (via Teams' own picker), then playback (via Windows) —
+    // order doesn't functionally matter, but doing the Teams-UI step
+    // first means if it throws (mic option not found, call not
+    // active), Jarvis never touches your speakers at all.
+    previousMicLabel = await teams.switchTeamsMicTo(micLabel);
+    await setDevices(CABLE_PLAYBACK_NAME, null); // playback only — recording is handled inside Teams now, not via Windows default
     await sleep(150); // let Windows settle the device switch before playing
     await playAndWait(audioFilePath);
   } finally {
-    // ALWAYS restore, even if playback threw — this is the "switch
-    // back to my mic" guarantee. Runs whether speech succeeded,
-    // failed partway, or ffplay errored out.
-    await setDevices(original.playback, original.recording);
+    // ALWAYS restore both, even if something above threw — this is
+    // the "switch back to my mic and speakers" guarantee. Runs
+    // whether speech succeeded, failed partway, or ffplay errored out.
+    await setDevices(originalPlayback, null);
+    if (previousMicLabel) {
+      await teams.switchTeamsMicBack(previousMicLabel).catch(() => {});
+    }
   }
 
-  return { restoredTo: original };
+  return { restoredPlaybackTo: originalPlayback, restoredMicTo: previousMicLabel };
 }
 
 // ── AUDIO DURATION (used to time the screen-share method) ─────────
@@ -188,13 +220,29 @@ async function speakIntoCallViaScreenShare(audioFilePath, mediaUrl) {
 }
 
 // Convenience wrapper matching the "call X and tell them Y" flow:
-// waits the post-dial delay, then speaks — via whichever method
-// CALL_VOICE_METHOD selects.
+// confirms the call actually connected, waits a short settle delay,
+// then speaks — via whichever method CALL_VOICE_METHOD selects.
 //   opts.filePath: local path to the rendered TTS audio (both methods need this)
 //   opts.mediaUrl: HTTP URL to that same audio (screenshare method only)
+//   opts.skipConnectCheck: set true for flows that already verified
+//     connection themselves (e.g. joining a meeting via link, where
+//     "in the meeting" was already confirmed before this is called).
 async function speakAfterDialing(opts = {}, delayMs = CALL_SPEAK_DELAY_MS) {
   const filePath = typeof opts === "string" ? opts : opts.filePath; // tolerate the old string-arg call shape
-  await sleep(delayMs);
+  const skipConnectCheck = typeof opts === "object" && opts.skipConnectCheck;
+
+  if (!skipConnectCheck) {
+    // Neither method should switch mics or start playing into a call
+    // that's still ringing — check first, rather than just guessing
+    // off a timer whether anyone's actually picked up yet.
+    const teams = require("./teams-control");
+    const connected = await teams.waitForCallConnected();
+    if (!connected) {
+      throw new Error("Nobody appears to have picked up the call — never saw it connect, so Jarvis didn't switch mics or try to speak.");
+    }
+  }
+
+  await sleep(delayMs); // short settle beat after connecting, before speaking
 
   if (CALL_VOICE_METHOD === "cable") {
     if (!filePath) throw new Error("speakAfterDialing needs opts.filePath for the cable method.");
