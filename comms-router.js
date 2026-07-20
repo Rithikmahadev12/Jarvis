@@ -69,12 +69,29 @@ function noteToStatus(note, ownerName = "the owner") {
 }
 
 async function tryRoute(text, opts = {}) {
-  const t = String(text || "").trim();
-  const lower = t.toLowerCase();
+  let t = String(text || "").trim();
   const ownerName = opts.ownerName || defaultOwnerName();
 
-  // ── OPEN APPS ────────────────────────────────────────────────
-  if (/^(open|launch|start)\s+teams\b/i.test(lower)) {
+  // ── COMPOUND: "open teams and <do something>" ─────────────────
+  // Every branch below already opens Teams itself (via
+  // openChatWith -> openTeams()), so if the message is "open teams"
+  // PLUS a trailing instruction, strip that leading "open teams
+  // and/," off and keep routing on what's left instead of stopping
+  // dead after just opening the app. teamsImplied tracks that we did
+  // this, so the call/message/check-chat matchers below know they
+  // can accept the leftover text even without an explicit "on teams"
+  // in it (e.g. "message rithik hi" instead of "message rithik on
+  // teams: hi").
+  let teamsImplied = false;
+  const openPrefix = /^(?:open|launch|start)\s+teams\b\s*(?:and\s+|,\s*|\s+)?(.*)$/i.exec(t);
+  if (openPrefix && openPrefix[1] && openPrefix[1].trim()) {
+    t = openPrefix[1].trim();
+    teamsImplied = true;
+  }
+  const lower = t.toLowerCase();
+
+  // ── OPEN APPS (bare — nothing else was asked) ──────────────────
+  if (!teamsImplied && /^(open|launch|start)\s+teams\b/i.test(lower)) {
     await teams.openTeams();
     return { reply: `Teams is open, ${opts.T || "Sir"}.`, action: "OPEN_TEAMS" };
   }
@@ -104,9 +121,12 @@ async function tryRoute(text, opts = {}) {
   // ── CHECK A CHAT ─────────────────────────────────────────────
   // "check teams if I have a chat with rithik" / "check teams if I
   // have any messages from rithik" / "any messages from rithik on teams"
+  // — plus, when teamsImplied, the bare "check chat with rithik" left
+  // over after stripping "open teams and ".
   let m = /check\s+teams\s+(?:if\s+(?:i\s+have\s+)?(?:a\s+)?chat|for\s+(?:messages|chats))\s+(?:with|from)\s+(\w[\w .'-]*)/i.exec(t)
        || /(?:any\s+)?messages?\s+from\s+(\w[\w .'-]*)\s+on\s+teams/i.exec(t)
-       || /check\s+(?:my\s+)?teams\s+chat\s+with\s+(\w[\w .'-]*)/i.exec(t);
+       || /check\s+(?:my\s+)?teams\s+chat\s+with\s+(\w[\w .'-]*)/i.exec(t)
+       || (teamsImplied && /^check\s+(?:if\s+(?:i\s+have\s+)?(?:a\s+)?)?chat\s+with\s+(\w[\w .'-]*)/i.exec(t));
   if (m) {
     const person = m[1].trim();
     const summary = await teams.checkChatWith(person);
@@ -115,8 +135,11 @@ async function tryRoute(text, opts = {}) {
 
   // ── CALL SOMEONE ON TEAMS ────────────────────────────────────
   // "call rithik on teams and tell him to get on fortnite, I'll be
-  // back shortly" / "video call sarah on teams"
-  m = /(video\s+)?call\s+(\w[\w .'-]*?)\s+on\s+teams\b(.*)$/i.exec(t);
+  // back shortly" / "video call sarah on teams" — plus, when
+  // teamsImplied, "call rithik" / "call rithik and tell him ..."
+  // left over after stripping "open teams and ".
+  m = /(video\s+)?call\s+(\w[\w .'-]*?)\s+on\s+teams\b(.*)$/i.exec(t)
+    || (teamsImplied && /^(video\s+)?call\s+(\w[\w .'-]*?)((?:\s+(?:and\s+)?tell\s+.+)|(?:\s+(?:and\s+)?let\s+(?:him|her|them)\s+know\s+.+))?$/i.exec(t));
   if (m) {
     const isVideo = !!m[1];
     const person = m[2].trim();
@@ -124,7 +147,13 @@ async function tryRoute(text, opts = {}) {
     const note = extractNote(rest);
     const { status } = noteToStatus(note, ownerName);
 
-    await teams.callOnTeams(person, isVideo ? "video" : "audio");
+    const matchedName = await teams.callOnTeams(person, isVideo ? "video" : "audio");
+    // openChatWith's closest-match fallback means matchedName can differ
+    // from what was actually asked for (nickname, misspelling, etc.) —
+    // flag that in the reply so it's not silently calling the wrong person.
+    const matchNote = matchedName.toLowerCase() !== person.toLowerCase()
+      ? ` (closest match to "${person}" I found was "${matchedName}")`
+      : "";
 
     // If there's something to relay, hand off to call-voice.js
     // (real TTS spoken into the live call) rather than texting it —
@@ -132,23 +161,42 @@ async function tryRoute(text, opts = {}) {
     if (note) {
       const line = craftAgentIntro({ ownerName, status });
       return {
-        reply: `Calling ${person} now, ${opts.T || "Sir"}. Once they pick up I'll tell them: "${line}"`,
+        reply: `Calling ${matchedName} now${matchNote}, ${opts.T || "Sir"}. Once they pick up I'll tell them: "${line}"`,
         action: "CALL_AND_SPEAK",
-        meta: { person, lineToSpeak: line, callType: isVideo ? "video" : "audio" },
+        meta: { person: matchedName, lineToSpeak: line, callType: isVideo ? "video" : "audio" },
       };
     }
-    return { reply: `Calling ${person} on Teams now, ${opts.T || "Sir"}.`, action: "CALL", meta: { person, callType: isVideo ? "video" : "audio" } };
+    return { reply: `Calling ${matchedName} on Teams now${matchNote}, ${opts.T || "Sir"}.`, action: "CALL", meta: { person: matchedName, callType: isVideo ? "video" : "audio" } };
   }
 
   // ── MESSAGE (TEXT) SOMEONE ON TEAMS ──────────────────────────
   // "message rithik on teams: get on fortnite" — the explicit,
-  // still-supported texting path (calls no longer default to this).
-  m = /message\s+(\w[\w .'-]*?)\s+on\s+teams\s*[:,]?\s*(.+)$/i.exec(t);
+  // still-supported texting path — plus, when teamsImplied, the
+  // bare "message rithik hi" / "message rithik: hi" / "message
+  // rithik, hi" left over after stripping "open teams and ". The
+  // bare form only captures a single-word name before the message
+  // body (no unambiguous delimiter otherwise) — use a colon or comma
+  // after the name if it's more than one word.
+  m = /message\s+(\w[\w .'-]*?)\s+on\s+teams\s*[:,]?\s*(.+)$/i.exec(t)
+    || (teamsImplied && (
+         /^message\s+(\w[\w .'-]*?)\s*[:,]\s*(.+)$/i.exec(t) ||
+         /^message\s+(\w[\w'-]*)\s+(.+)$/i.exec(t)
+       ));
   if (m) {
     const person = m[1].trim();
     const body = m[2].trim();
-    await teams.messageOnTeams(person, body);
-    return { reply: `Sent to ${person} on Teams, ${opts.T || "Sir"}.`, action: "MESSAGE", meta: { person, body } };
+    const matchedName = await teams.messageOnTeams(person, body);
+    const matchNote = matchedName.toLowerCase() !== person.toLowerCase()
+      ? ` (closest match to "${person}" I found was "${matchedName}")`
+      : "";
+    return { reply: `Sent to ${matchedName} on Teams${matchNote}, ${opts.T || "Sir"}.`, action: "MESSAGE", meta: { person: matchedName, body } };
+  }
+
+  // Bare "open teams and" with nothing recognizable after it still
+  // opens Teams rather than falling through as "not a comms request".
+  if (teamsImplied) {
+    await teams.openTeams();
+    return { reply: `Teams is open, ${opts.T || "Sir"}.`, action: "OPEN_TEAMS" };
   }
 
   return null; // not a comms request — caller falls through to normal routing
