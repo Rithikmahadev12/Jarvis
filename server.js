@@ -30,6 +30,7 @@ const Proactive   = require("./proactive");
 const TTS = require("./tts");
 const Persistence = require("./persistence");
 const Settings    = require("./settings");
+const Comms       = require("./comms-router");
 
 const app        = express();
 
@@ -1200,6 +1201,45 @@ function isHardCommand(message) {
     if (pattern.test(message)) return type;
   }
   return null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── COMMS: SPEAK A RELAYED LINE INTO A LIVE TEAMS CALL
+// ═══════════════════════════════════════════════════════════════
+// Runs in the background after comms-router.js has already replied
+// to the user ("Calling X now..."). Synthesizes the relayed line,
+// publishes it as a URL a local browser can open, then hands off to
+// call-voice.js — which defaults to the screen-share method (open a
+// dedicated "Jarvis — Speaking" window, share it into the call with
+// audio, stop sharing after) so nothing beyond Teams itself needs
+// installing. Set CALL_VOICE_METHOD=cable in .env to use VB-CABLE
+// instead.
+async function handleCallAndSpeak(meta) {
+  const lineToSpeak = meta && meta.lineToSpeak;
+  if (!lineToSpeak) return;
+
+  if (!TTS.isReady()) {
+    console.warn("[COMMS] TTS isn't configured (CAMB_API_KEY missing) — can't speak into the call.");
+    return;
+  }
+  const result = await TTS.synthesize(lineToSpeak);
+  if (!result) {
+    console.warn("[COMMS] TTS synthesis failed — can't speak into the call.");
+    return;
+  }
+
+  const CallVoice = require("./call-voice");
+  const Cast = require("./cast");
+
+  // Cast.publishAudio() both writes the clip to public/tts-cache and
+  // returns the URL it's servable at — reusing it here instead of a
+  // second write avoids the two ending up out of sync (it also prunes
+  // older cached clips each call, so a second manual write would just
+  // get deleted out from under us).
+  const mediaUrl = Cast.publishAudio(result.buffer, PORT);
+  const filePath = path.join(__dirname, "public", "tts-cache", path.basename(new URL(mediaUrl).pathname));
+
+  await CallVoice.speakAfterDialing({ filePath, mediaUrl });
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2398,6 +2438,29 @@ app.post("/api/chat", async (req, res) => {
   const scheduleResult = Schedule.route(message, T, userTimezone, sessionId);
   if (scheduleResult) {
     return res.json(scheduleResult);
+  }
+
+  // ── 2.7 Comms — Teams/WhatsApp calls, messages, meetings ──
+  // Checked before the hard-command regex table below so "call X on
+  // teams and tell him Y" is handled by comms-router.js's real Teams
+  // control instead of falling into the generic AI pipeline, which
+  // doesn't know how to place a call.
+  let commsResult = null;
+  try {
+    commsResult = await Comms.tryRoute(message, { T, ownerName: userName });
+  } catch (err) {
+    console.error("[COMMS] tryRoute failed:", err.message);
+  }
+  if (commsResult) {
+    if (commsResult.action === "CALL_AND_SPEAK") {
+      // Fire-and-forget: the reply below ("Calling X now...") already
+      // goes back to the user immediately. Speaking into the call
+      // happens in the background once it (hopefully) connects.
+      handleCallAndSpeak(commsResult.meta).catch((err) =>
+        console.error("[COMMS] speak-into-call failed:", err.message)
+      );
+    }
+    return res.json(commsResult);
   }
 
   // ── 3. Hard commands ──
