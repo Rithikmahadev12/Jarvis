@@ -177,46 +177,96 @@ async function joinMeeting(meetingHint) {
 // meeting URL you were sent — a Teams "join a meeting" link, a Zoom
 // link, a Google Meet link, whatever — opens it in the default
 // browser, and vision-guides through that platform's join flow.
-// Deliberately generic (not hardcoded to Teams' button labels) since
-// every platform's pre-join screen looks different; each click below
-// is best-effort and skipped if it doesn't apply to the page shown.
-async function joinMeetingByLink(url) {
+//
+// v2: this used to be a single fixed pass (dismiss dialog -> click
+// continue -> click name field -> click join), each step best-effort
+// and skipped on a miss. The problem: real join flows don't always
+// show those screens in that order, or at all, or on the first
+// screenshot (something can still be animating in) — so a one-shot
+// pass could sail past a screen that hadn't rendered yet and then
+// have nothing left to try, leaving Jarvis stuck. This version
+// re-screenshots after every click and keeps going — asking the
+// vision model both "are we in yet?" and "what's the one most
+// important thing to click right now?" — for up to maxSteps rounds,
+// so it can work through dialogs however many there are and in
+// whatever order they actually show up.
+async function joinMeetingByLink(url, opts = {}) {
   const clean = String(url || "").trim();
   if (!/^https?:\/\//i.test(clean)) {
-    throw new Error(`"${clean}" doesn't look like a meeting link — expected it to start with http:// or https://.`);
+    throw new Error(`That doesn't look like a meeting link — expected it to start with http:// or https://.`);
   }
 
   await agent.openTarget(clean);
   await sleep(4000); // give the browser + meeting page time to load
 
-  // Chromium browsers (Edge/Chrome) show a native "This site is
-  // trying to open Microsoft Teams/Zoom/etc." dialog for these
-  // protocol-handoff links — it's browser chrome, not part of the
-  // webpage, and it sits on top blocking clicks on anything
-  // underneath (like "Continue on this browser") until it's
-  // dismissed. Cancel it, not Open — Jarvis wants to stay in-browser
-  // rather than hand off to a desktop app that may not even be
-  // signed into the same account.
-  await vision.findAndClick(`the "Cancel" button on a native browser dialog saying "This site is trying to open [some app]"`).catch(() => {});
-  await sleep(600);
+  const maxSteps = opts.maxSteps || 10;
+  const stepDelayMs = opts.stepDelayMs || 1200;
+  let namedTyped = false;
 
-  // Teams especially likes to interstitial-prompt "Open in the Teams
-  // app?" — staying in-browser keeps this simple (one window to look
-  // at) instead of Jarvis having to track a hand-off to the desktop app.
-  await vision.findAndClick(`a "Continue on this browser", "Use the web app instead", or "Join on the web" link or button, if one is visible`).catch(() => {});
-  await sleep(1000);
+  for (let step = 0; step < maxSteps; step++) {
+    // First question every round: did the last click already get us
+    // in? Checked before trying to click anything else so Jarvis
+    // stops the moment it's actually done instead of clicking around
+    // inside a meeting it already joined.
+    const status = (await vision.lookAtScreen(
+      `This is a browser mid-flow for joining an online meeting (Teams, Zoom, or Google Meet — could be any of them). ` +
+      `Reply with exactly ONE of these words, nothing else: ` +
+      `IN_MEETING if this already looks like the live meeting room (camera preview or other participants' video, a mic/camera toolbar, a "leave call" button); ` +
+      `WAITING_ROOM if this is a lobby/waiting-room screen saying something like "waiting for host to let you in"; ` +
+      `or NOT_YET if there's still a dialog, prompt, or pre-join screen standing between us and the meeting.`
+    )).trim().toUpperCase();
 
-  // Some platforms ask for a display name before showing the actual
-  // join button — best-effort, silently skipped if there isn't one.
-  await vision.findAndClick(`a text field asking for your name to join the meeting, if one is visible`).catch(() => {});
-  await sleep(300);
+    if (status.includes("IN_MEETING") || status.includes("WAITING_ROOM")) {
+      return true; // joined, or successfully waiting to be let in — Jarvis's job here is done either way
+    }
 
-  const joined = await vision.findAndClick(`the button to actually join or enter the meeting now (commonly labeled "Join now", "Join meeting", or "Ask to join")`);
-  if (!joined) {
-    throw new Error("Opened the link but couldn't find a Join button on screen — the page may still be loading, or this platform's join flow isn't one Jarvis recognizes yet.");
+    // Not in yet — ask what the single most-blocking clickable thing
+    // is right now, rather than guessing a fixed order. This covers
+    // native "this site is trying to open X app" dialogs, "continue
+    // on this browser" links, cookie/permission popups, name fields,
+    // and the actual join button, whichever one is actually on
+    // screen this round.
+    const next = await vision.locateElement(
+      `The single most important clickable UI element to move toward joining this online meeting, given everything currently visible. ` +
+      `In priority order, if more than one thing is visible: (1) the "Cancel" or "Close" button on a native browser popup asking to open a desktop app — dismiss it, don't click "Open", Jarvis wants to stay in-browser; ` +
+      `(2) a "Continue on this browser", "Use the web app instead", or "Join on the web" link/button; ` +
+      `(3) a cookie-consent or permissions dialog's dismiss/allow button if it's covering the page; ` +
+      `(4) a text field asking for a display name to join, IF it does not already have text typed into it; ` +
+      `(5) the button to actually join or enter the meeting now (commonly "Join now", "Join meeting", or "Ask to join"). ` +
+      `Pick whichever ONE of these is actually visible and highest in that priority order.`
+    );
+
+    if (!next || !next.found) {
+      // Nothing obviously clickable this round — could just be a
+      // beat where the page is still loading between screens. Wait
+      // and look again rather than giving up on the first blank read.
+      await sleep(stepDelayMs);
+      continue;
+    }
+
+    await vision.clickAt(next.x, next.y);
+    await sleep(400);
+
+    // If what got clicked looks like it was a name field, type the
+    // owner's name into it once (not every round, in case the click
+    // above wasn't actually the name field this time).
+    if (!namedTyped) {
+      const looksLikeNameField = (await vision.lookAtScreen(
+        `Does the screen right now show a text input field that's focused/has a text cursor in it, specifically one asking for a name to join a meeting? Reply with only YES or NO.`
+      )).trim().toUpperCase();
+      if (looksLikeNameField.startsWith("YES")) {
+        let ownerName = "Jay";
+        try { ownerName = require("./config.json")?.owner?.username || ownerName; } catch { /* fall back to default */ }
+        await agent.typeText(ownerName);
+        namedTyped = true;
+        await sleep(300);
+      }
+    }
+
+    await sleep(stepDelayMs);
   }
-  await sleep(2500); // let the meeting room itself load
-  return true;
+
+  throw new Error(`Tried for a while but couldn't get all the way into the meeting — the join flow on this page had something Jarvis couldn't work through (maybe a waiting room, a sign-in wall, or an unusual layout). It may need to be finished manually this time.`);
 }
 
 // ── SPEAK INTO A LIVE CALL VIA SCREEN SHARE (no VB-CABLE needed) ──
