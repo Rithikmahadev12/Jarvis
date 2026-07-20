@@ -191,7 +191,26 @@ async function tryRoute(text, opts = {}) {
     const note = extractNote(rest);
     const { status } = noteToStatus(note, ownerName);
 
-    const matchedName = await teams.callOnTeams(person, isVideo ? "video" : "audio");
+    // Caught locally (rather than left to throw out of tryRoute) so a
+    // failure here — dropdown didn't render in time, ambiguous match,
+    // vision API hiccup, call button not found — comes back as an
+    // honest "I couldn't do that" reply. Left uncaught, this used to
+    // throw all the way out of tryRoute, get swallowed by server.js's
+    // catch (console.error only), and fall through to the generic AI
+    // text pipeline, which would just answer in plain text as if
+    // nothing had gone wrong — the "does nothing after, but Jarvis
+    // still talks like it worked" symptom.
+    let matchedName;
+    try {
+      matchedName = await teams.callOnTeams(person, isVideo ? "video" : "audio");
+    } catch (err) {
+      console.error("[COMMS] callOnTeams failed:", err.message);
+      return {
+        reply: `I couldn't get that call going, ${opts.T || "Sir"} — ${err.message}`,
+        action: "CALL_FAILED",
+        meta: { person, error: err.message },
+      };
+    }
     // openChatWith's closest-match fallback means matchedName can differ
     // from what was actually asked for (nickname, misspelling, etc.) —
     // flag that in the reply so it's not silently calling the wrong person.
@@ -229,7 +248,17 @@ async function tryRoute(text, opts = {}) {
   if (m) {
     const person = m[1].trim();
     const body = m[2].trim();
-    const matchedName = await teams.messageOnTeams(person, body);
+    let matchedName;
+    try {
+      matchedName = await teams.messageOnTeams(person, body);
+    } catch (err) {
+      console.error("[COMMS] messageOnTeams failed:", err.message);
+      return {
+        reply: `Couldn't send that, ${opts.T || "Sir"} — ${err.message}`,
+        action: "MESSAGE_FAILED",
+        meta: { person, error: err.message },
+      };
+    }
     const matchNote = matchedName.toLowerCase() !== person.toLowerCase()
       ? ` (closest match to "${person}" I found was "${matchedName}")`
       : "";
