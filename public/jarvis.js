@@ -1964,7 +1964,8 @@ async function sendToAI(message, attachments) {
         userTitle:   state.userTitle,
         memories,
         moodContext: moodCtx,
-        cameraActive: !!state.cameraStream,   // tell the AI camera is already online
+        cameraActive: !!state.cameraStream,   // tell the AI camera hardware/permission is already online
+        cameraViewOpen: !!state.cameraViewOpen, // whether camera mode's fullscreen view is actually showing right now (stream can stay warm after the view is closed — these aren't the same thing)
         screenActive: !!state.screenStream,   // and whether screen share is active
         userTimezone: getUserTimezone(),      // so JARVIS knows YOUR local time, not the server's
         // Only name/type/text ride to the server — data URLs stay client-side
@@ -2922,6 +2923,7 @@ function openCameraFullscreen() {
   const feed = $("camera-fullscreen-feed");
   if (feed) feed.srcObject = state.cameraStream;
   wrap.classList.add("active");
+  state.cameraViewOpen = true; // distinct from state.cameraStream — the stream can stay warm (face recognition) after this view is closed
   const badge = $("camera-fullscreen-badge");
   if (badge && !badge._cfBound) {
     badge._cfBound = true;
@@ -2931,6 +2933,7 @@ function openCameraFullscreen() {
 function closeCameraFullscreen() {
   const wrap = $("camera-fullscreen"); if (!wrap) return;
   wrap.classList.remove("active");
+  state.cameraViewOpen = false;
 }
 
 // ═══════════════════════════════════════════════════════════════
