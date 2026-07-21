@@ -2277,7 +2277,7 @@ async function executeAssistantTool(name, args, ctx) {
 }
 
 app.post("/api/chat", async (req, res) => {
-  let { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, screenActive, userTimezone, attachments } = req.body;
+  let { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, cameraViewOpen, screenActive, userTimezone, attachments } = req.body;
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
 
   // Fix likely speech-to-text mishearings (e.g. "tired" heard as "tarot")
@@ -2286,9 +2286,18 @@ app.post("/api/chat", async (req, res) => {
   message = correctMishearings(message);
   if (message !== heardMessage) console.log(`[VOICE-CORRECT] "${heardMessage}" -> "${message}"`);
 
-  // Inject camera/screen context into the message if relevant so AI knows they're already active
+  // Inject camera/screen context into the message if relevant so AI knows they're already active.
+  // IMPORTANT: cameraActive reflects whether the camera STREAM/permission
+  // is still granted (kept warm for face recognition even after the
+  // fullscreen view is closed) — it does NOT mean camera mode's fullscreen
+  // view is currently showing. cameraViewOpen is the real signal for that.
+  // Older clients that don't send cameraViewOpen fall back to the phrasing
+  // check below so this doesn't silently break for them.
   let enrichedMessage = message;
-  if (cameraActive && /\b(camera|see|look|watch|analyze|analyse|fighting|style|face|visual)\b/i.test(message) && !/permission|access|grant/i.test(message)) {
+  const askingToOpenCamera = /\b(open|show|turn on|switch on|enable|activate|reopen|re-open|pull up|full ?screen)\b[\s\S]*\bcamera\b/i.test(message);
+  const cameraViewKnown = cameraViewOpen !== undefined;
+  const treatCameraAsShowing = cameraViewKnown ? !!cameraViewOpen : !askingToOpenCamera;
+  if (cameraActive && treatCameraAsShowing && /\b(camera|see|look|watch|analyze|analyse|fighting|style|face|visual)\b/i.test(message) && !/permission|access|grant/i.test(message)) {
     enrichedMessage = `[Camera is already active and online] ${message}`;
   }
 
