@@ -123,8 +123,23 @@ async function captureScreenshot() {
 function getPrimaryDisplaySize() {
   return new Promise((resolve) => {
     if (os.platform() === "win32") {
+      // Without declaring DPI awareness first, PowerShell reports
+      // Screen.PrimaryScreen.Bounds in Windows' virtualized LOGICAL
+      // resolution (e.g. 2560x1440 on a 3840x2160 physical monitor
+      // running 150% scaling) — but screenshot-desktop captures the
+      // real PHYSICAL pixel buffer (3840x2160). Telling the vision
+      // model "this screenshot is 2560x1440" when it's actually
+      // 3840x2160 throws every coordinate it returns off by the
+      // scaling factor, worse the further from the top-left corner
+      // the target is — which matches "mouse moved, but not quite to
+      // the right spot." Declaring PER_MONITOR_AWARE_V2 here makes
+      // Bounds report the same physical pixels the screenshot uses.
       exec(
-        `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $s=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; Write-Output \\"$($s.Width)x$($s.Height)\\""`,
+        `powershell -NoProfile -Command "` +
+          `Add-Type -AssemblyName System.Windows.Forms; ` +
+          `Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public class DpiHelper { [DllImport(\\"user32.dll\\")] public static extern bool SetProcessDpiAwarenessContext(int value); }'; ` +
+          `[DpiHelper]::SetProcessDpiAwarenessContext(-4) | Out-Null; ` +
+          `$s=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; Write-Output \\"$($s.Width)x$($s.Height)\\""`,
         { windowsHide: true },
         (err, stdout) => {
           const m = /(\d+)x(\d+)/.exec(stdout || "");
@@ -488,7 +503,9 @@ using System.Runtime.InteropServices;
 public class MouseSim {
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint dwFlags, uint dx, uint dy, uint dwData, int dwExtraInfo);
+  [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(int value);
 }';
+[MouseSim]::SetProcessDpiAwarenessContext(-4) | Out-Null;
 [MouseSim]::SetCursorPos(${Math.round(x)}, ${Math.round(y)});
 Start-Sleep -Milliseconds 80;
 [MouseSim]::mouse_event(0x0002, 0, 0, 0, 0);
