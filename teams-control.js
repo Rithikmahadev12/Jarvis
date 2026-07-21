@@ -185,9 +185,41 @@ async function handlePreCallScreen() {
 // Launches Teams via its own URI protocol where possible (fast,
 // reliable, and it's what Windows itself uses for Teams links), and
 // falls back to the plain app-alias launch on other platforms.
+// Forces the Teams window into a genuine maximized state via Win32
+// ShowWindow — launching via the ms-teams: protocol brings the
+// window to the foreground but does NOT control its size/state, so
+// Teams stays wherever it was last left: minimized, a small floating
+// window, snapped to half the screen, whatever. Vision models are
+// trained on overwhelmingly full-screen Teams screenshots, so when
+// the real window is smaller or positioned differently, they tend to
+// answer with where the sidebar icon "normally" sits in a maximized
+// layout instead of carefully grounding in the actual (differently
+// shaped) screenshot — which looks exactly like "it clicked where
+// the icon would be if this were full-screened." Forcing a real
+// maximize here removes that whole failure mode instead of trying to
+// out-prompt it.
+function ensureTeamsMaximized() {
+  if (!isWindows()) return Promise.resolve();
+  const ps = `
+$p = Get-Process | Where-Object { $_.MainWindowTitle -like '*Teams*' -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1;
+if ($p) {
+  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32Show { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); }';
+  [Win32Show]::ShowWindow($p.MainWindowHandle, 9) | Out-Null;
+  Start-Sleep -Milliseconds 150;
+  [Win32Show]::ShowWindow($p.MainWindowHandle, 3) | Out-Null;
+  [Win32Show]::SetForegroundWindow($p.MainWindowHandle) | Out-Null;
+}
+`.replace(/\r?\n/g, " ");
+  return new Promise((resolve) => {
+    exec(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"')}"`, { windowsHide: true, timeout: 10000 }, () => resolve());
+  });
+}
+
 async function openTeams() {
   await agent.openTarget(isWindows() ? "ms-teams:" : "teams");
   await sleep(2500); // give the window time to come to the foreground
+  await ensureTeamsMaximized();
+  await sleep(400); // let the maximize animation actually finish before any screenshot
   return true;
 }
 
