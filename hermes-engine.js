@@ -409,6 +409,52 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "call_on_teams",
+      description: "Place a real audio or video call to a person over Microsoft Teams (vision-guided UI automation on the user's real Teams desktop app — not Graph API). Call this for ANY phrasing that means 'get this person on a call' — 'call X', 'call X on teams', 'can you call X for me', 'give X a call', 'dial X', 'video call X', 'ring X on teams', etc. Do NOT use open_on_computer for this — that only launches the Teams app window and does nothing else, it can't find the person or press Call. If the user also wants a message relayed once connected (e.g. 'call X and tell them I'll join soon'), pass that in note_to_relay.",
+      parameters: {
+        type: "object",
+        properties: {
+          person: { type: "string", description: "The name of the person to call, as the user said it." },
+          video: { type: "boolean", description: "True if they asked for a video call specifically; false/omit for a plain audio call." },
+          note_to_relay: { type: "string", description: "Anything the user wants said to the person once the call connects, e.g. \"I'll join soon\" / \"I'll be back shortly\". Omit if nothing to relay." },
+        },
+        required: ["person"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "message_on_teams",
+      description: "Send a real chat message to a person on Microsoft Teams (vision-guided — opens the actual chat and types/sends it). Call this for phrasing like 'message X on teams', 'text X on teams', 'tell X ... on teams', 'let X know ... on teams'.",
+      parameters: {
+        type: "object",
+        properties: {
+          person: { type: "string", description: "The name of the person to message." },
+          text: { type: "string", description: "The exact message to send." },
+        },
+        required: ["person", "text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "join_teams_meeting",
+      description: "Join an online meeting. If the user gave a link (Teams/Zoom/Google Meet), pass it in link and Jarvis opens it directly and works through the join flow. Otherwise pass meeting_hint (e.g. 'the standup') to find it in today's Teams calendar, or omit it to join whatever meeting is currently live/starting soonest. If the user also wants something relayed once they're in, pass note_to_relay.",
+      parameters: {
+        type: "object",
+        properties: {
+          link: { type: "string", description: "A meeting URL, if the user provided one." },
+          meeting_hint: { type: "string", description: "Which meeting to join by name/topic, when no link was given." },
+          note_to_relay: { type: "string", description: "Anything to say once joined, e.g. \"I'll join soon\". Omit if nothing to relay." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "open_on_computer",
       description: "Open an application, file, folder, or URL on the user's own computer — e.g. 'open VS Code', 'launch chrome', 'open my resume'. Only works when Jarvis is running locally, not in the cloud. IMPORTANT: for compound requests like 'open VS Code and type a flappy bird script', call THIS tool AND type_text in the SAME response — don't stop after just opening. IMPORTANT: never use this for camera requests ('open camera', 'open the camera', 'show camera') — those mean the on-screen webcam feed, not launching an OS camera app. Use show_camera for those instead.",
       parameters: {
