@@ -83,7 +83,38 @@ const GROQ_TEXT_MODEL = process.env.GROQ_TEXT_MODEL || process.env.GROQ_MODEL_FA
 // answers and the vision fallback; Groq is only used if
 // GEMINI_API_KEY is absent, so nothing breaks for anyone who hasn't
 // added it yet.
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+// Multiple keys, so a 429 on one rotates to the next instead of
+// dying. Accepts either GEMINI_API_KEY="key1,key2,key3" (comma-
+// separated in one var) or the numbered style already used
+// elsewhere in this .env (GEMINI_API_KEY, GEMINI_API_KEY2,
+// GEMINI_API_KEY3, ...) — whichever's easier to paste keys into.
+function loadGeminiKeys() {
+  const keys = [];
+  const primary = process.env.GEMINI_API_KEY || "";
+  for (const k of primary.split(",")) {
+    const trimmed = k.trim();
+    if (trimmed) keys.push(trimmed);
+  }
+  for (let i = 2; ; i++) {
+    const k = process.env[`GEMINI_API_KEY${i}`];
+    if (!k) break;
+    const trimmed = k.trim();
+    if (trimmed) keys.push(trimmed);
+  }
+  return keys;
+}
+const GEMINI_API_KEYS = loadGeminiKeys();
+// Points at whichever key is "current" — sticks there across calls
+// (doesn't reset to key 0 every time) so a key that's out of quota
+// stays skipped until IT rotates back around, instead of getting
+// retried first on every single request.
+let geminiKeyIndex = 0;
+function currentGeminiKey() {
+  return GEMINI_API_KEYS[geminiKeyIndex % GEMINI_API_KEYS.length];
+}
+function rotateGeminiKey() {
+  geminiKeyIndex = (geminiKeyIndex + 1) % GEMINI_API_KEYS.length;
+}
 // "gemini-flash-latest" is Google's own auto-updating alias — it
 // always points at whatever their current GA Flash model is (as of
 // this writing that's gemini-3.6-flash), so it doesn't go stale the
@@ -98,7 +129,7 @@ function geminiUrlFor(model) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
 const GEMINI_API_URL = geminiUrlFor(GEMINI_MODEL);
-const USE_GEMINI = !!GEMINI_API_KEY;
+const USE_GEMINI = GEMINI_API_KEYS.length > 0;
 
 // OCR words below this confidence (tesseract's 0-100 scale) are
 // dropped — low-confidence hits are usually icon fragments or noise
@@ -107,7 +138,7 @@ const USE_GEMINI = !!GEMINI_API_KEY;
 const OCR_MIN_CONFIDENCE = 40;
 
 function isConfigured() {
-  return !!(GROQ_API_KEY || GEMINI_API_KEY);
+  return !!(GROQ_API_KEY || GEMINI_API_KEYS.length);
 }
 
 // ── CAPTURE ─────────────────────────────────────────────────────
@@ -280,13 +311,16 @@ async function groqChatRequest(model, messages) {
 // function handles both, unlike the Groq path above which needs two
 // different message shapes for text vs. image).
 async function geminiRequest(prompt, base64Image = null) {
+  if (!GEMINI_API_KEYS.length) throw new Error("GEMINI_API_KEY isn't set in .env.");
+
   const parts = [{ text: prompt }];
   if (base64Image) parts.push({ inline_data: { mime_type: "image/png", data: base64Image } });
+  const body = JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0 } });
 
-  const doFetch = () => fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+  const doFetch = (key, model = GEMINI_MODEL) => fetch(`${geminiUrlFor(model)}?key=${key}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0 } }),
+    body,
     signal: AbortSignal.timeout(30000),
   });
 
@@ -301,34 +335,50 @@ async function geminiRequest(prompt, base64Image = null) {
     return (cause && cause.message) || e.message || "unknown network error";
   }
 
-  let res;
-  try {
-    res = await doFetch();
-  } catch (e1) {
-    await new Promise(r => setTimeout(r, 800));
+  async function fetchWithRetry(key, model) {
     try {
-      res = await doFetch();
-    } catch (e2) {
-      throw new Error(`Could not reach Gemini API: ${describeNetworkError(e2)}`);
+      return await doFetch(key, model);
+    } catch (e1) {
+      await new Promise(r => setTimeout(r, 800));
+      try {
+        return await doFetch(key, model);
+      } catch (e2) {
+        throw new Error(`Could not reach Gemini API: ${describeNetworkError(e2)}`);
+      }
     }
   }
 
-  // Retry on 429 (rate limit) once with a short fixed backoff — Gemini's
-  // free tier gives a "retryDelay" hint in the error body when it has one.
-  if (res.status === 429) {
+  // Try the current key. If it's out of quota (429), rotate to the
+  // next configured key and try again immediately — no backoff needed,
+  // a different key isn't rate-limited by the first one's usage. Keeps
+  // going until either a key works or every configured key has been
+  // tried once this call, at which point we back off and retry the
+  // current (now rotated) key like before, so a single-key setup keeps
+  // its old behavior exactly.
+  let res;
+  let lastErrBody = "";
+  const attempts = GEMINI_API_KEYS.length;
+  for (let i = 0; i < attempts; i++) {
+    const key = currentGeminiKey();
+    res = await fetchWithRetry(key);
+    if (res.status !== 429) break;
     const errBody = await res.json().catch(() => ({}));
-    const detail = errBody.error?.details?.find(d => d["@type"]?.includes("RetryInfo"));
+    lastErrBody = JSON.stringify(errBody).slice(0, 300);
+    console.error(`[VISION] Gemini key #${geminiKeyIndex + 1} hit its quota (429), rotating to the next key.`);
+    rotateGeminiKey();
+  }
+
+  // Every key came back 429 — fall back to Gemini's own suggested
+  // wait (if any) and retry the current key once more before giving up.
+  if (res.status === 429) {
+    const detail = lastErrBody && JSON.parse(lastErrBody || "{}").error?.details?.find(d => d["@type"]?.includes("RetryInfo"));
     const waitSecs = detail?.retryDelay ? parseFloat(detail.retryDelay) : 5;
     await new Promise(r => setTimeout(r, Math.ceil(waitSecs * 1000) + 250));
-    try {
-      res = await doFetch();
-    } catch (e) {
-      throw new Error(`Could not reach Gemini API: ${describeNetworkError(e)}`);
-    }
+    res = await fetchWithRetry(currentGeminiKey());
   }
 
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
+    const bodyText = await res.text().catch(() => "");
     // A 404 here specifically means "this model string doesn't exist
     // or was retired" (not a network problem) — Google has been
     // retiring specific versions abruptly, so on a 404 for the
@@ -336,19 +386,15 @@ async function geminiRequest(prompt, base64Image = null) {
     // before giving up entirely, in case that happens again.
     if (res.status === 404 && GEMINI_MODEL !== "gemini-3.6-flash") {
       try {
-        const fallbackRes = await fetch(`${geminiUrlFor("gemini-3.6-flash")}?key=${GEMINI_API_KEY}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0 } }),
-          signal: AbortSignal.timeout(30000),
-        });
+        const fallbackRes = await doFetch(currentGeminiKey(), "gemini-3.6-flash");
         if (fallbackRes.ok) {
           const data = await fallbackRes.json();
           return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
         }
       } catch { /* fall through to the original error below */ }
     }
-    throw new Error(`Gemini request failed (${res.status}): ${body.slice(0, 300)}`);
+    const quotaNote = res.status === 429 && attempts > 1 ? ` (all ${attempts} configured Gemini keys are currently rate-limited)` : "";
+    throw new Error(`Gemini request failed (${res.status})${quotaNote}: ${bodyText.slice(0, 300)}`);
   }
   const data = await res.json();
   return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
