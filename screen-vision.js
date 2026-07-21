@@ -356,14 +356,13 @@ async function geminiRequest(prompt, base64Image = null) {
   // current (now rotated) key like before, so a single-key setup keeps
   // its old behavior exactly.
   let res;
-  let lastErrBody = "";
+  let lastErrObj = null;
   const attempts = GEMINI_API_KEYS.length;
   for (let i = 0; i < attempts; i++) {
     const key = currentGeminiKey();
     res = await fetchWithRetry(key);
     if (res.status !== 429) break;
-    const errBody = await res.json().catch(() => ({}));
-    lastErrBody = JSON.stringify(errBody).slice(0, 300);
+    lastErrObj = await res.json().catch(() => ({}));
     console.error(`[VISION] Gemini key #${geminiKeyIndex + 1} hit its quota (429), rotating to the next key.`);
     rotateGeminiKey();
   }
@@ -371,7 +370,7 @@ async function geminiRequest(prompt, base64Image = null) {
   // Every key came back 429 — fall back to Gemini's own suggested
   // wait (if any) and retry the current key once more before giving up.
   if (res.status === 429) {
-    const detail = lastErrBody && JSON.parse(lastErrBody || "{}").error?.details?.find(d => d["@type"]?.includes("RetryInfo"));
+    const detail = lastErrObj?.error?.details?.find(d => d["@type"]?.includes("RetryInfo"));
     const waitSecs = detail?.retryDelay ? parseFloat(detail.retryDelay) : 5;
     await new Promise(r => setTimeout(r, Math.ceil(waitSecs * 1000) + 250));
     res = await fetchWithRetry(currentGeminiKey());
