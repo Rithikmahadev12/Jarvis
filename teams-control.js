@@ -455,8 +455,9 @@ async function joinMeetingByLink(url, opts = {}) {
       `This is a browser mid-flow for joining an online meeting (Teams, Zoom, or Google Meet — could be any of them). ` +
       `Reply with exactly ONE of these words, nothing else: ` +
       `IN_MEETING if this already looks like the live meeting room (camera preview or other participants' video, a mic/camera toolbar, a "leave call" button); ` +
-      `WAITING_ROOM if this is a lobby/waiting-room screen saying something like "waiting for host to let you in"; ` +
-      `or NOT_YET if there's still a dialog, prompt, or pre-join screen standing between us and the meeting.`
+      `WAITING_ROOM if this is a lobby/waiting-room screen saying something like "waiting for host to let you in" or "someone will let you in shortly", AFTER a name/join step has already been completed; ` +
+      `or NOT_YET for anything else — including a native "this site is trying to open [app]" popup, an "Open"/"Cancel" dialog, a "Continue on this browser" / "Join on the Teams app" choice screen, a "Join your Teams meeting" pre-join page, a cookie/permissions prompt, or a name-entry field. ` +
+      `If you see ANY popup, dialog, or button still asking to be clicked or dismissed, that is NOT_YET — do not answer IN_MEETING or WAITING_ROOM just because the page title or heading mentions "meeting" or "Teams".`
     )).trim().toUpperCase();
 
     if (status.includes("IN_MEETING") || status.includes("WAITING_ROOM")) {
