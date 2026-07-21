@@ -15,8 +15,10 @@
 //      when Microsoft renames a shortcut.
 //
 // REQUIRES: GROQ_API_KEY (already used elsewhere in this repo) +
-// a vision-capable Groq model. Set GROQ_VISION_MODEL in .env if
-// the default below has been retired — check https://console.groq.com/docs/models
+// a vision-capable Groq model (currently qwen/qwen3.6-27b — Groq
+// retired the old meta-llama/llama-4-scout-17b-16e-instruct default
+// on 2026-06-17). Set GROQ_VISION_MODEL in .env if the default below
+// has since been retired too — check https://console.groq.com/docs/models
 // for the current vision-capable model list.
 //
 // REQUIRES the "screenshot-desktop" npm package (added to
@@ -37,10 +39,15 @@ const screenshot = require("screenshot-desktop");
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-// Groq's current vision-capable chat models live under the llama-4
-// family. If this specific name has been deprecated by the time
-// you're reading this, `GROQ_VISION_MODEL` in .env overrides it.
-const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
+// NOTE: meta-llama/llama-4-scout-17b-16e-instruct (the old default
+// here) was deprecated by Groq on 2026-06-17. Their recommended
+// replacement for vision/multimodal use is qwen/qwen3.6-27b
+// (openai/gpt-oss-120b is text-only, so it won't work for this file's
+// screenshot-reading use case). If qwen/qwen3.6-27b is itself
+// deprecated by the time you're reading this, set GROQ_VISION_MODEL
+// in .env to override — check https://console.groq.com/docs/models
+// for the current vision-capable model list.
+const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || "qwen/qwen3.6-27b";
 
 function isConfigured() {
   return !!GROQ_API_KEY;
