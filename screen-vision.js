@@ -60,7 +60,6 @@
 const { exec } = require("child_process");
 const os = require("os");
 const screenshot = require("screenshot-desktop");
-const groqLimiter = require("./groq-rate-limiter");
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
@@ -159,8 +158,8 @@ async function ocrScreen() {
   return { text, words, base64, width, height };
 }
 
-// ── SHARED GROQ REQUEST (throttled + retried) ───────────────────
-async function groqChatRequest(model, messages, estimatedTokens) {
+// ── SHARED GROQ REQUEST (retried on 429) ────────────────────────
+async function groqChatRequest(model, messages) {
   if (!isConfigured()) throw new Error("GROQ_API_KEY isn't set in .env, so Jarvis can't look at the screen yet.");
 
   const doFetch = () => fetch(GROQ_API_URL, {
@@ -170,36 +169,37 @@ async function groqChatRequest(model, messages, estimatedTokens) {
     signal: AbortSignal.timeout(30000),
   });
 
-  return groqLimiter.schedule(model, estimatedTokens, async () => {
-    let res;
+  let res;
+  try {
+    res = await doFetch();
+  } catch (e) {
+    throw new Error(`Could not reach Groq API: ${e.message}`);
+  }
+
+  // Retry on 429 using Groq's own stated wait time (from the error
+  // message, e.g. "Please try again in 29.145s") instead of giving up
+  // on the first hit — capped at 45s, up to 2 attempts.
+  let attempt = 0;
+  while (res.status === 429 && attempt < 2) {
+    attempt++;
+    const errBody = await res.json().catch(() => ({}));
+    const msg = errBody.error?.message || "";
+    const waitMatch = msg.match(/try again in ([\d.]+)s/i);
+    const waitSecs = waitMatch ? Math.min(parseFloat(waitMatch[1]), 45) : 5 * attempt;
+    await new Promise(r => setTimeout(r, Math.ceil(waitSecs * 1000) + 250));
     try {
       res = await doFetch();
     } catch (e) {
       throw new Error(`Could not reach Groq API: ${e.message}`);
     }
+  }
 
-    let attempt = 0;
-    while (res.status === 429 && attempt < 2) {
-      attempt++;
-      const errBody = await res.json().catch(() => ({}));
-      const msg = errBody.error?.message || "";
-      const waitMatch = msg.match(/try again in ([\d.]+)s/i);
-      const waitSecs = waitMatch ? Math.min(parseFloat(waitMatch[1]), 45) : 5 * attempt;
-      await new Promise(r => setTimeout(r, Math.ceil(waitSecs * 1000) + 250));
-      try {
-        res = await doFetch();
-      } catch (e) {
-        throw new Error(`Could not reach Groq API: ${e.message}`);
-      }
-    }
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => "");
-      throw new Error(`Groq vision request failed (${res.status}): ${body.slice(0, 300)}`);
-    }
-    const data = await res.json();
-    return data?.choices?.[0]?.message?.content || "";
-  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Groq vision request failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return data?.choices?.[0]?.message?.content || "";
 }
 
 // Text-only Groq call — used to answer questions from OCR'd text.
@@ -207,8 +207,7 @@ async function groqChatRequest(model, messages, estimatedTokens) {
 // screenshot image costs through the vision model.
 async function askText(prompt) {
   const messages = [{ role: "user", content: prompt }];
-  const estimatedTokens = groqLimiter.estimateMessagesTokens(messages) + 400;
-  return groqChatRequest(GROQ_TEXT_MODEL, messages, estimatedTokens);
+  return groqChatRequest(GROQ_TEXT_MODEL, messages);
 }
 
 // Vision-model call — kept as the fallback for screens/elements OCR
@@ -223,8 +222,7 @@ async function askVision(base64Image, prompt) {
       ],
     },
   ];
-  const estimatedTokens = groqLimiter.estimateMessagesTokens(messages, { hasImage: true });
-  return groqChatRequest(GROQ_VISION_MODEL, messages, estimatedTokens);
+  return groqChatRequest(GROQ_VISION_MODEL, messages);
 }
 
 // ── "LOOK AT MY SCREEN" ─────────────────────────────────────────
