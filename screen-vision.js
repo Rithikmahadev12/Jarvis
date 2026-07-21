@@ -70,6 +70,24 @@ const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || "qwen/qwen3.6-27b";
 // rather than opening up a third one.
 const GROQ_TEXT_MODEL = process.env.GROQ_TEXT_MODEL || process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b";
 
+// ── GEMINI (preferred provider when configured) ──────────────────
+// Groq's vision model is the actual bottleneck here — it's the free
+// tier that keeps running out, and it's what "fetch failed"/429s
+// have been hitting. Google AI Studio's free tier is far more
+// generous for this exact use case (a handful of screenshot calls
+// per command), and Gemini's vision models are specifically good at
+// "find this element, give me its pixel coordinates" grounding
+// tasks. Get a free key at https://aistudio.google.com/apikey — no
+// credit card required for the free tier — then set GEMINI_API_KEY
+// in .env. When it's set, Gemini is used for BOTH the text-only OCR
+// answers and the vision fallback; Groq is only used if
+// GEMINI_API_KEY is absent, so nothing breaks for anyone who hasn't
+// added it yet.
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const USE_GEMINI = !!GEMINI_API_KEY;
+
 // OCR words below this confidence (tesseract's 0-100 scale) are
 // dropped — low-confidence hits are usually icon fragments or noise
 // misread as letters, and matching against them just produces false
@@ -77,7 +95,7 @@ const GROQ_TEXT_MODEL = process.env.GROQ_TEXT_MODEL || process.env.GROQ_MODEL_FA
 const OCR_MIN_CONFIDENCE = 40;
 
 function isConfigured() {
-  return !!GROQ_API_KEY;
+  return !!(GROQ_API_KEY || GEMINI_API_KEY);
 }
 
 // ── CAPTURE ─────────────────────────────────────────────────────
@@ -169,11 +187,39 @@ async function groqChatRequest(model, messages) {
     signal: AbortSignal.timeout(30000),
   });
 
+  // Node's fetch() always throws a TypeError whose .message is the
+  // generic literal "fetch failed" — the real reason (DNS lookup
+  // failure, connection refused, TLS error, our own 30s timeout
+  // above firing) lives in .cause and was previously being thrown
+  // away, which is why every network hiccup surfaced as the same
+  // useless "Could not reach Groq API: fetch failed" with no way to
+  // tell a dead wifi connection apart from a DNS block apart from a
+  // slow response. Surfacing .cause turns that into something you
+  // can actually act on.
+  function describeNetworkError(e) {
+    const cause = e && e.cause;
+    const code = cause && cause.code;
+    if (e.name === "TimeoutError" || code === "UND_ERR_CONNECT_TIMEOUT") return "timed out connecting to Groq (30s) — check your internet connection";
+    if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "DNS lookup for api.groq.com failed — check your internet/DNS connection";
+    if (code === "ECONNREFUSED") return "connection refused — a firewall, proxy, or VPN may be blocking outbound HTTPS";
+    if (code === "ECONNRESET" || code === "EPIPE") return "connection was reset mid-request — likely a flaky network, not Jarvis";
+    if (code && /CERT|SSL|TLS/i.test(code)) return `TLS/certificate error (${code}) — a corporate proxy or antivirus may be intercepting HTTPS`;
+    return (cause && cause.message) || e.message || "unknown network error";
+  }
+
+  // One retry for connection-level failures (not HTTP error codes,
+  // those are handled below) — covers a single dropped packet/DNS
+  // blip without giving up on the whole vision call over it.
   let res;
   try {
     res = await doFetch();
-  } catch (e) {
-    throw new Error(`Could not reach Groq API: ${e.message}`);
+  } catch (e1) {
+    await new Promise(r => setTimeout(r, 800));
+    try {
+      res = await doFetch();
+    } catch (e2) {
+      throw new Error(`Could not reach Groq API: ${describeNetworkError(e2)}`);
+    }
   }
 
   // Retry on 429 using Groq's own stated wait time (from the error
@@ -190,7 +236,7 @@ async function groqChatRequest(model, messages) {
     try {
       res = await doFetch();
     } catch (e) {
-      throw new Error(`Could not reach Groq API: ${e.message}`);
+      throw new Error(`Could not reach Groq API: ${describeNetworkError(e)}`);
     }
   }
 
@@ -202,10 +248,71 @@ async function groqChatRequest(model, messages) {
   return data?.choices?.[0]?.message?.content || "";
 }
 
+// ── GEMINI REQUEST (text and/or image in one call) ────────────────
+// base64Image is optional — omit it for a text-only ask (same
+// function handles both, unlike the Groq path above which needs two
+// different message shapes for text vs. image).
+async function geminiRequest(prompt, base64Image = null) {
+  const parts = [{ text: prompt }];
+  if (base64Image) parts.push({ inline_data: { mime_type: "image/png", data: base64Image } });
+
+  const doFetch = () => fetch(`${GEMINI_API_URL}?key=${GEMINI_API_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0 } }),
+    signal: AbortSignal.timeout(30000),
+  });
+
+  function describeNetworkError(e) {
+    const cause = e && e.cause;
+    const code = cause && cause.code;
+    if (e.name === "TimeoutError" || code === "UND_ERR_CONNECT_TIMEOUT") return "timed out connecting to Gemini (30s) — check your internet connection";
+    if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "DNS lookup for generativelanguage.googleapis.com failed — check your internet/DNS connection";
+    if (code === "ECONNREFUSED") return "connection refused — a firewall, proxy, or VPN may be blocking outbound HTTPS";
+    if (code === "ECONNRESET" || code === "EPIPE") return "connection was reset mid-request — likely a flaky network, not Jarvis";
+    if (code && /CERT|SSL|TLS/i.test(code)) return `TLS/certificate error (${code}) — a corporate proxy or antivirus may be intercepting HTTPS`;
+    return (cause && cause.message) || e.message || "unknown network error";
+  }
+
+  let res;
+  try {
+    res = await doFetch();
+  } catch (e1) {
+    await new Promise(r => setTimeout(r, 800));
+    try {
+      res = await doFetch();
+    } catch (e2) {
+      throw new Error(`Could not reach Gemini API: ${describeNetworkError(e2)}`);
+    }
+  }
+
+  // Retry on 429 (rate limit) once with a short fixed backoff — Gemini's
+  // free tier gives a "retryDelay" hint in the error body when it has one.
+  if (res.status === 429) {
+    const errBody = await res.json().catch(() => ({}));
+    const detail = errBody.error?.details?.find(d => d["@type"]?.includes("RetryInfo"));
+    const waitSecs = detail?.retryDelay ? parseFloat(detail.retryDelay) : 5;
+    await new Promise(r => setTimeout(r, Math.ceil(waitSecs * 1000) + 250));
+    try {
+      res = await doFetch();
+    } catch (e) {
+      throw new Error(`Could not reach Gemini API: ${describeNetworkError(e)}`);
+    }
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`Gemini request failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
 // Text-only Groq call — used to answer questions from OCR'd text.
 // Costs a few hundred tokens instead of the ~1500-2000 a full
 // screenshot image costs through the vision model.
 async function askText(prompt) {
+  if (USE_GEMINI) return geminiRequest(prompt);
   const messages = [{ role: "user", content: prompt }];
   return groqChatRequest(GROQ_TEXT_MODEL, messages);
 }
@@ -213,6 +320,7 @@ async function askText(prompt) {
 // Vision-model call — kept as the fallback for screens/elements OCR
 // genuinely can't handle (graphical content, unlabeled icons).
 async function askVision(base64Image, prompt) {
+  if (USE_GEMINI) return geminiRequest(prompt, base64Image);
   const messages = [
     {
       role: "user",
@@ -395,4 +503,6 @@ module.exports = {
   findAndClick,
   GROQ_VISION_MODEL,
   GROQ_TEXT_MODEL,
+  GEMINI_MODEL,
+  usingGemini: USE_GEMINI,
 };
