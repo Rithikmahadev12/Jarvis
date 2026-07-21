@@ -37,6 +37,98 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 function isWindows() { return os.platform() === "win32"; }
 
+// ── CONTACTS PAGE LOOKUP ───────────────────────────────────────────
+// Rather than a separate names→emails file to keep in sync by hand,
+// this reads Teams' own People > All Contacts list directly off the
+// screen — it's already the current, authoritative list of who you
+// actually have added, so there's nothing else to maintain.
+//
+// Flow: open Teams -> click the Contacts/People icon in the left
+// rail -> make sure "All contacts" is the selected tab -> scan down
+// the rows for a name match -> click the chat or call icon on THAT
+// row. If a full pass through the list finds nobody, wait a moment
+// and check again once (covers a contact added recently that hadn't
+// rendered into the list yet), then give up and fall back to the old
+// search-box flow.
+async function openContactsPage() {
+  await openTeams();
+  await vision.findAndClick(
+    `the Contacts/People icon in the left sidebar of Teams — a small person/ID-card icon, ` +
+    `part of a vertical stack of icons that also includes Chat, Video meetings, an app icon, Teams/community, and Calendar`,
+    { forceVision: true }
+  );
+  await sleep(1500);
+  // Make sure "All contacts" is the selected tab, not "Active now".
+  await vision.findAndClick(`the "All contacts" tab/button in the People panel, if it isn't already the selected/highlighted one`).catch(() => {});
+  await sleep(800);
+  return true;
+}
+
+// Page Down to scroll further into the list, Home to jump back to
+// the top for a fresh pass.
+function scrollContactsList(direction) {
+  const key = direction === "top" ? "{HOME}" : "{PGDN}";
+  return agent.runCommand(isWindows()
+    ? `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${key}')"`
+    : `osascript -e 'tell application "System Events" to key code ${direction === "top" ? 115 : 121}'`
+  ).catch(() => {});
+}
+
+// Scans the "All contacts" list for personName and clicks that row's
+// chat/call/more-options icon. action: "chat" | "call" | "more".
+// Scrolls down a few screens for long lists; does a second full pass
+// after a short pause if nothing hits the first time (recently-added
+// contact that hadn't synced into view yet). Returns true/false —
+// never throws — so callers can decide whether to fall back.
+async function findContactRowAndClick(personName, action) {
+  const iconLabel = action === "chat" ? `the chat/message bubble icon`
+    : action === "more" ? `the "..." (more options) icon`
+    : `the phone/call icon`;
+  const maxScrolls = 6;
+
+  for (let pass = 0; pass < 2; pass++) {
+    await scrollContactsList("top");
+    await sleep(300);
+    for (let i = 0; i <= maxScrolls; i++) {
+      const clicked = await vision.findAndClick(
+        `In this Microsoft Teams "All contacts" list, find the row for the contact named "${personName}" ` +
+        `(or the single closest visible match to that name if there's no exact hit), then click ${iconLabel} ` +
+        `that appears on THAT SPECIFIC row — the icons sit to the right of the name. Don't click the name/avatar ` +
+        `itself, and don't click an icon belonging to a different row.`,
+        { forceVision: true }
+      );
+      if (clicked) return true;
+      await scrollContactsList("down");
+      await sleep(500);
+    }
+    // Nobody matched anywhere in the list this pass — give Teams a
+    // moment in case the contact was just added and re-check once.
+    if (pass === 0) await sleep(1500);
+  }
+  return false;
+}
+
+// After clicking a call icon, some Teams builds land on a pre-call
+// screen (device picker + "Join now") instead of dialing immediately.
+// Make sure computer audio/mic is actually on there before confirming.
+async function handlePreCallScreen() {
+  const onPreCallScreen = (await vision.lookAtScreen(
+    `Does this look like a Teams pre-call/lobby screen — camera preview, audio device options, a "Join now" or "Call" button? Reply with only YES or NO.`
+  )).trim().toUpperCase();
+  if (!onPreCallScreen.startsWith("YES")) return;
+
+  await vision.findAndClick(`the "Computer audio" option on this pre-call screen, if it isn't already selected`).catch(() => {});
+  await sleep(200);
+  const micLooksOff = (await vision.lookAtScreen(
+    `On this Teams pre-call screen, does the microphone toggle look OFF/muted (crossed-out mic icon, or a toggle in the off position)? Reply with only YES or NO.`
+  )).trim().toUpperCase();
+  if (micLooksOff.startsWith("YES")) {
+    await vision.findAndClick(`the muted microphone toggle on this pre-call screen, to turn it on`).catch(() => {});
+    await sleep(200);
+  }
+  await vision.findAndClick(`the "Join now" or "Call" button to start the call`).catch(() => {});
+}
+
 // ── OPEN ────────────────────────────────────────────────────────
 // Launches Teams via its own URI protocol where possible (fast,
 // reliable, and it's what Windows itself uses for Teams links), and
@@ -61,7 +153,7 @@ async function openWhatsApp() {
 // Returns the name Jarvis actually opened a chat with — usually just
 // personName echoed back, but see the closest-match fallback below,
 // where it can differ from what was asked for.
-async function openChatWith(personName) {
+async function openChatViaSearchBox(personName) {
   await openTeams();
   await agent.runCommand(isWindows()
     ? `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^e')"`
@@ -128,6 +220,18 @@ async function openChatWith(personName) {
   return matchedName;
 }
 
+// Public entry point: try the Contacts page first (reliable — a real
+// list of actual contacts, no dropdown ambiguity), and only fall back
+// to the search-box flow if they genuinely aren't in Contacts yet.
+async function openChatWith(personName) {
+  await openContactsPage();
+  if (await findContactRowAndClick(personName, "chat")) {
+    await sleep(1500); // let the chat pane load
+    return personName;
+  }
+  return openChatViaSearchBox(personName);
+}
+
 async function friendlyReason() {
   return "either the name didn't match anyone or the search dropdown wasn't visible when Jarvis looked.";
 }
@@ -167,10 +271,36 @@ async function messageOnTeams(personName, text) {
 // Returns the matched contact name (see openChatWith's closest-match
 // fallback — may differ from personName if the exact text didn't hit).
 async function callOnTeams(personName, callType = "audio") {
-  const matchedName = await openChatWith(personName);
+  await openContactsPage();
+
+  if (callType === "video") {
+    // The contacts row only shows a plain phone icon directly — video
+    // call lives one level in, behind "..." (more options).
+    if (await findContactRowAndClick(personName, "more")) {
+      await sleep(500);
+      const videoClicked = await vision.findAndClick(
+        `the "Video call" option in the menu that just opened`,
+        { forceVision: true }
+      );
+      if (videoClicked) {
+        await sleep(1500);
+        await handlePreCallScreen();
+        return personName;
+      }
+    }
+  } else if (await findContactRowAndClick(personName, "call")) {
+    await sleep(1500);
+    await handlePreCallScreen();
+    return personName;
+  }
+
+  // Not found in Contacts (or the video submenu didn't work out) —
+  // fall back to opening the chat and using the toolbar call button.
+  const matchedName = await openChatViaSearchBox(personName);
   const label = callType === "video" ? "video call button (camera icon)" : "audio call button (phone icon)";
   const clicked = await vision.findAndClick(`the ${label} in the top-right toolbar of this Teams chat window`);
   if (!clicked) throw new Error(`Couldn't find the ${callType} call button in this chat's toolbar.`);
+  await handlePreCallScreen();
   return matchedName;
 }
 
@@ -228,6 +358,8 @@ async function joinMeetingByLink(url, opts = {}) {
   const maxSteps = opts.maxSteps || 10;
   const stepDelayMs = opts.stepDelayMs || 1200;
   let namedTyped = false;
+  let lastClickKey = null;
+  let repeatCount = 0;
 
   for (let step = 0; step < maxSteps; step++) {
     // First question every round: did the last click already get us
@@ -277,6 +409,22 @@ async function joinMeetingByLink(url, opts = {}) {
       // and look again rather than giving up on the first blank read.
       await sleep(stepDelayMs);
       continue;
+    }
+
+    // Stuck-loop guard: if Jarvis keeps getting told to click the
+    // same spot (within a small tolerance) round after round, the
+    // click isn't actually progressing the page — clicking it again
+    // won't help. Bail with a clear error instead of burning through
+    // maxSteps clicking the same dead button.
+    const clickKey = `${Math.round(next.x / 15)},${Math.round(next.y / 15)}`;
+    if (clickKey === lastClickKey) {
+      repeatCount++;
+      if (repeatCount >= 2) {
+        throw new Error(`Got stuck repeatedly clicking the same spot trying to join this meeting — that click isn't moving the page forward, so it needs to be finished manually this time.`);
+      }
+    } else {
+      repeatCount = 0;
+      lastClickKey = clickKey;
     }
 
     await vision.clickAt(next.x, next.y);
