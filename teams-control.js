@@ -108,25 +108,52 @@ async function findContactRowAndClick(personName, action) {
   return false;
 }
 
-// After clicking a call icon, some Teams builds land on a pre-call
-// screen (device picker + "Join now") instead of dialing immediately.
-// Make sure computer audio/mic is actually on there before confirming.
+// After clicking a call icon, Teams can land on one of two different
+// screens depending on how the call was placed — this handles both:
+//
+//   1. A pre-call LOBBY screen (camera preview, device picker, a
+//      "Join now"/"Call" button) — seen before the call is placed.
+//   2. Already dialing — a "Calling..." screen with the in-call
+//      toolbar visible at the top (Chat / View / More / Camera / Mic /
+//      Share), no lobby step at all. This is what calling straight
+//      from a Contacts row actually does — there's no "Join now" to
+//      click here, so the old lobby-only check silently did nothing
+//      and a muted mic would stay muted for the whole call.
+//
+// Note: the dropdown arrow next to the in-call Mic button opens a
+// device picker (which mic/speaker to USE — see openMicPicker below);
+// the plain Mic button itself is mute/unmute. This function only
+// handles mute/unmute — switching to a specific device is what
+// switchTeamsMicTo() further down is for.
 async function handlePreCallScreen() {
-  const onPreCallScreen = (await vision.lookAtScreen(
+  const onLobbyScreen = (await vision.lookAtScreen(
     `Does this look like a Teams pre-call/lobby screen — camera preview, audio device options, a "Join now" or "Call" button? Reply with only YES or NO.`
   )).trim().toUpperCase();
-  if (!onPreCallScreen.startsWith("YES")) return;
 
-  await vision.findAndClick(`the "Computer audio" option on this pre-call screen, if it isn't already selected`).catch(() => {});
-  await sleep(200);
-  const micLooksOff = (await vision.lookAtScreen(
-    `On this Teams pre-call screen, does the microphone toggle look OFF/muted (crossed-out mic icon, or a toggle in the off position)? Reply with only YES or NO.`
-  )).trim().toUpperCase();
-  if (micLooksOff.startsWith("YES")) {
-    await vision.findAndClick(`the muted microphone toggle on this pre-call screen, to turn it on`).catch(() => {});
+  if (onLobbyScreen.startsWith("YES")) {
+    await vision.findAndClick(`the "Computer audio" option on this pre-call screen, if it isn't already selected`).catch(() => {});
     await sleep(200);
+    const micLooksOff = (await vision.lookAtScreen(
+      `On this Teams pre-call screen, does the microphone toggle look OFF/muted (crossed-out mic icon, or a toggle in the off position)? Reply with only YES or NO.`
+    )).trim().toUpperCase();
+    if (micLooksOff.startsWith("YES")) {
+      await vision.findAndClick(`the muted microphone toggle on this pre-call screen, to turn it on`).catch(() => {});
+      await sleep(200);
+    }
+    await vision.findAndClick(`the "Join now" or "Call" button to start the call`).catch(() => {});
+    return;
   }
-  await vision.findAndClick(`the "Join now" or "Call" button to start the call`).catch(() => {});
+
+  // Not a lobby — most likely already dialing/live (a "Calling..."
+  // screen or an already-connected call), with the in-call toolbar
+  // showing at the top. No confirm button to click here, just make
+  // sure the Mic button itself isn't muted.
+  const micMuted = (await vision.lookAtScreen(
+    `Look at the "Mic" button in the Teams in-call toolbar at the top of the screen (next to the Camera button). Does it look muted/crossed-out? Reply with only YES or NO.`
+  )).trim().toUpperCase();
+  if (micMuted.startsWith("YES")) {
+    await vision.findAndClick(`the "Mic" button itself (not its small dropdown arrow) in the Teams in-call toolbar, to unmute it`).catch(() => {});
+  }
 }
 
 // ── OPEN ────────────────────────────────────────────────────────
