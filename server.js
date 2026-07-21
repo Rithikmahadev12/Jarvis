@@ -2013,6 +2013,107 @@ async function executeAssistantTool(name, args, ctx) {
     case "get_agenda":
       return Reminders.buildAgendaReply(T, userTimezone, args.scope === "today" ? "today" : "");
 
+    // ── call_on_teams / message_on_teams / join_teams_meeting ──
+    // These exist because comms-router.js's regexes are a hard
+    // gatekeeper BEFORE this tool-calling block ever runs (see the
+    // 2.4 comment above) — if a phrasing doesn't match one of those
+    // regexes exactly (e.g. "can you call X for me" instead of
+    // "call X on teams"), tryRoute returns null and control falls
+    // through to here. Before these tools existed, this block had
+    // no calling/messaging/joining capability of its own — the only
+    // Teams-shaped tool available was open_on_computer, which just
+    // launches the app window and stops. That's the "opens Teams and
+    // does nothing" symptom: the model reached for the only tool it
+    // had. Registering these as real tools means any natural
+    // phrasing the regex misses still actually places the call.
+    case "call_on_teams": {
+      const Comms = require("./comms-router");
+      const Teams = require("./teams-control");
+      const { craftAgentIntro } = require("./personality");
+      const person = String(args.person || "").trim();
+      if (!person) return { reply: `Who should I call, ${T}?` };
+      const isVideo = !!args.video;
+      const note = args.note_to_relay ? String(args.note_to_relay).trim() : null;
+      const ownerName = userName || Comms.defaultOwnerName();
+      const { status } = Comms.noteToStatus(note, ownerName);
+
+      let matchedName;
+      try {
+        matchedName = await Teams.callOnTeams(person, isVideo ? "video" : "audio");
+      } catch (err) {
+        console.error("[TOOLS] call_on_teams failed:", err.message);
+        return { reply: `I couldn't get that call going, ${T} — ${err.message}`, action: "CALL_FAILED", intent: "comms", meta: { person, error: err.message } };
+      }
+      const matchNote = matchedName.toLowerCase() !== person.toLowerCase()
+        ? ` (closest match to "${person}" I found was "${matchedName}")`
+        : "";
+
+      if (note) {
+        const line = craftAgentIntro({ ownerName, status });
+        handleCallAndSpeak({ lineToSpeak: line }).catch((err) => console.error("[TOOLS] speak-into-call failed:", err.message));
+        return {
+          reply: `Calling ${matchedName} now${matchNote}, ${T}. Once they pick up I'll tell them: "${line}"`,
+          action: "CALL_AND_SPEAK", intent: "comms",
+          meta: { person: matchedName, lineToSpeak: line, callType: isVideo ? "video" : "audio" },
+        };
+      }
+      return { reply: `Calling ${matchedName} on Teams now${matchNote}, ${T}.`, action: "CALL", intent: "comms", meta: { person: matchedName, callType: isVideo ? "video" : "audio" } };
+    }
+
+    case "message_on_teams": {
+      const Teams = require("./teams-control");
+      const person = String(args.person || "").trim();
+      const text = String(args.text || "").trim();
+      if (!person || !text) return { reply: `Who should I message, and what should it say, ${T}?` };
+
+      let matchedName;
+      try {
+        matchedName = await Teams.messageOnTeams(person, text);
+      } catch (err) {
+        console.error("[TOOLS] message_on_teams failed:", err.message);
+        return { reply: `Couldn't send that, ${T} — ${err.message}`, action: "MESSAGE_FAILED", intent: "comms", meta: { person, error: err.message } };
+      }
+      const matchNote = matchedName.toLowerCase() !== person.toLowerCase()
+        ? ` (closest match to "${person}" I found was "${matchedName}")`
+        : "";
+      return { reply: `Sent to ${matchedName} on Teams${matchNote}, ${T}.`, action: "MESSAGE", intent: "comms", meta: { person: matchedName, body: text } };
+    }
+
+    case "join_teams_meeting": {
+      const Teams = require("./teams-control");
+      const { craftAgentIntro } = require("./personality");
+      const Comms = require("./comms-router");
+      const link = args.link ? String(args.link).trim() : null;
+      const note = args.note_to_relay ? String(args.note_to_relay).trim() : null;
+
+      if (link) {
+        try {
+          await Teams.joinMeetingByLink(link);
+        } catch (err) {
+          console.error("[TOOLS] join_teams_meeting (link) failed:", err.message);
+          return {
+            reply: `I couldn't get all the way into that meeting on my own, ${T} — it got stuck partway through the join screen. You may need to finish that one manually this time.`,
+            action: "JOIN_LINK_FAILED", intent: "comms", meta: { url: link, error: err.message },
+          };
+        }
+        if (note) {
+          const ownerName = userName || Comms.defaultOwnerName();
+          const line = craftAgentIntro({ ownerName, status: note });
+          handleJoinLinkAndSpeak({ lineToSpeak: line }).catch((err) => console.error("[TOOLS] speak-into-meeting failed:", err.message));
+          return { reply: `Joined, ${T}. Once things settle I'll say: "${line}"`, action: "JOIN_LINK_AND_SPEAK", intent: "comms", meta: { url: link, lineToSpeak: line } };
+        }
+        return { reply: `Joined the meeting, ${T}.`, action: "JOIN_LINK", intent: "comms", meta: { url: link } };
+      }
+
+      try {
+        await Teams.joinMeeting(args.meeting_hint || null);
+      } catch (err) {
+        console.error("[TOOLS] join_teams_meeting failed:", err.message);
+        return { reply: `Couldn't find a joinable meeting, ${T} — ${err.message}`, action: "JOIN_MEETING_FAILED", intent: "comms", meta: { error: err.message } };
+      }
+      return { reply: `Joining now, ${T}.`, action: "JOIN_MEETING", intent: "comms" };
+    }
+
     case "show_camera":
       return { reply: `Bringing up the camera feed, ${T}.`, action: "SHOW_CAMERA", intent: "camera" };
 
