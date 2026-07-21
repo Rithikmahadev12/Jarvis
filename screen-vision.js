@@ -84,8 +84,20 @@ const GROQ_TEXT_MODEL = process.env.GROQ_TEXT_MODEL || process.env.GROQ_MODEL_FA
 // GEMINI_API_KEY is absent, so nothing breaks for anyone who hasn't
 // added it yet.
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+// "gemini-flash-latest" is Google's own auto-updating alias — it
+// always points at whatever their current GA Flash model is (as of
+// this writing that's gemini-3.6-flash), so it doesn't go stale the
+// way a hardcoded version does. Google has been rotating/retiring
+// specific version numbers (like gemini-2.5-flash) with little
+// warning — sometimes ahead of their own published shutdown dates —
+// which is exactly the 404 this was hitting. Set GEMINI_MODEL in
+// .env only if you specifically need a pinned version instead of
+// always-latest.
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
+function geminiUrlFor(model) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+}
+const GEMINI_API_URL = geminiUrlFor(GEMINI_MODEL);
 const USE_GEMINI = !!GEMINI_API_KEY;
 
 // OCR words below this confidence (tesseract's 0-100 scale) are
@@ -302,6 +314,25 @@ async function geminiRequest(prompt, base64Image = null) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
+    // A 404 here specifically means "this model string doesn't exist
+    // or was retired" (not a network problem) — Google has been
+    // retiring specific versions abruptly, so on a 404 for the
+    // configured model, try one hardcoded known-current fallback
+    // before giving up entirely, in case that happens again.
+    if (res.status === 404 && GEMINI_MODEL !== "gemini-3.6-flash") {
+      try {
+        const fallbackRes = await fetch(`${geminiUrlFor("gemini-3.6-flash")}?key=${GEMINI_API_KEY}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0 } }),
+          signal: AbortSignal.timeout(30000),
+        });
+        if (fallbackRes.ok) {
+          const data = await fallbackRes.json();
+          return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        }
+      } catch { /* fall through to the original error below */ }
+    }
     throw new Error(`Gemini request failed (${res.status}): ${body.slice(0, 300)}`);
   }
   const data = await res.json();
