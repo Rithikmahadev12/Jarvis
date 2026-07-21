@@ -299,12 +299,23 @@ function locateFromOcrWords(description, words) {
 // pixels — that mapping breaks if Windows display scaling (e.g.
 // 125%/150%) differs from what PrimaryScreen.Bounds reports, which
 // is rare but worth knowing if clicks land slightly off.
-async function locateElement(description) {
+// forceVision: true skips the OCR fast-path entirely. Use this for
+// any description that depends on LAYOUT/SECTION context (e.g. "the
+// entry under the People heading, not the one under Group Chats") or
+// that names something the model should specifically AVOID clicking
+// (e.g. "don't click Open"). The OCR path below only does dumb
+// literal substring matching on quoted phrases — it has no concept
+// of on-screen sections or negation, so it can silently click the
+// wrong occurrence of a repeated phrase, or click the exact thing
+// the prompt said not to. Only the vision model actually reads the
+// prompt's reasoning.
+async function locateElement(description, opts = {}) {
   const { base64, width, height, words } = await ocrScreen();
 
   // Try the free, local OCR match first — covers anything with a
-  // visible text label (buttons, menu items, tabs, window titles).
-  const ocrHit = locateFromOcrWords(description, words);
+  // visible text label (buttons, menu items, tabs, window titles) —
+  // but only when the caller hasn't asked for vision-only reasoning.
+  const ocrHit = opts.forceVision ? null : locateFromOcrWords(description, words);
   if (ocrHit) return ocrHit;
 
   // No literal on-screen text matched this description — it's
@@ -367,8 +378,8 @@ function runCmd(cmd) {
 // Returns true if it found + clicked, false if it couldn't find it
 // (caller should fall back to telling the user rather than silently
 // failing).
-async function findAndClick(description) {
-  const loc = await locateElement(description);
+async function findAndClick(description, opts = {}) {
+  const loc = await locateElement(description, opts);
   if (!loc || !loc.found) return false;
   await clickAt(loc.x, loc.y);
   return true;
