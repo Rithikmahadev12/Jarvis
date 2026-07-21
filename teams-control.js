@@ -77,11 +77,20 @@ async function openChatWith(personName) {
   // vision model to guess between them, which is how this used to stall
   // with the dropdown just sitting there. Being explicit about section
   // priority removes that ambiguity.
+  // forceVision: the same name legitimately appears multiple times in
+  // this dropdown (the typed query itself, a "People" entry, one or
+  // more "Meeting with X" / Group Chats entries) — telling them apart
+  // requires reading WHICH SECTION each occurrence sits under, which
+  // is exactly what the OCR fast-path can't do (it just grabs the
+  // first literal text match top-to-bottom, which is often the
+  // search box itself). This needs the vision model every time.
   let clicked = await vision.findAndClick(
     `In this Microsoft Teams search dropdown, find the result for "${personName}". ` +
     `If there is an entry under a "People" section heading whose name matches "${personName}", click THAT one — ` +
     `prefer it over any "Group Chats" or "Meeting with ${personName}" entries even if those also contain the name. ` +
-    `Only click a Group Chats/meeting entry if no plain "People" entry for this name exists.`
+    `Only click a Group Chats/meeting entry if no plain "People" entry for this name exists. ` +
+    `Do not click the search box or the "Press enter to view all results" row at the top — only an actual result entry lower in the list.`,
+    { forceVision: true }
   );
   let matchedName = personName;
 
@@ -105,7 +114,8 @@ async function openChatWith(personName) {
     if (closest && !/^none$/i.test(closest)) {
       clicked = await vision.findAndClick(
         `the "People" section search result whose name is "${closest}" in the Teams search dropdown — ` +
-        `not a "Group Chats" or "Meeting with" entry, the plain person entry`
+        `not a "Group Chats" or "Meeting with" entry, the plain person entry`,
+        { forceVision: true }
       );
       if (clicked) matchedName = closest;
     }
@@ -242,6 +252,14 @@ async function joinMeetingByLink(url, opts = {}) {
     // on this browser" links, cookie/permission popups, name fields,
     // and the actual join button, whichever one is actually on
     // screen this round.
+    // forceVision: this prompt names "Open" specifically as something
+    // NOT to click (right next to "Cancel", which the user DOES want
+    // clicked). The OCR fast-path treats every quoted phrase as an
+    // equally valid click target with no concept of negation or
+    // priority order — it's how Jarvis was ending up clicking "Open"
+    // on the native "trying to open Microsoft Teams" dialog instead
+    // of "Cancel", re-triggering that same dialog in a loop. Only the
+    // vision model actually reads "don't click Open".
     const next = await vision.locateElement(
       `The single most important clickable UI element to move toward joining this online meeting, given everything currently visible. ` +
       `In priority order, if more than one thing is visible: (1) the "Cancel" or "Close" button on a native browser popup asking to open a desktop app — dismiss it, don't click "Open", Jarvis wants to stay in-browser; ` +
@@ -249,7 +267,8 @@ async function joinMeetingByLink(url, opts = {}) {
       `(3) a cookie-consent or permissions dialog's dismiss/allow button if it's covering the page; ` +
       `(4) a text field asking for a display name to join, IF it does not already have text typed into it; ` +
       `(5) the button to actually join or enter the meeting now (commonly "Join now", "Join meeting", or "Ask to join"). ` +
-      `Pick whichever ONE of these is actually visible and highest in that priority order.`
+      `Pick whichever ONE of these is actually visible and highest in that priority order.`,
+      { forceVision: true }
     );
 
     if (!next || !next.found) {
