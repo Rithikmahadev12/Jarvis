@@ -59,9 +59,25 @@ async function openContactsPage() {
   );
   if (!clicked) return false;
   await sleep(1500);
-  // Make sure "All contacts" is the selected tab, not "Active now".
-  await vision.findAndClick(`the "All contacts" tab/button in the People panel, if it isn't already the selected/highlighted one`).catch(() => {});
-  await sleep(800);
+
+  // Teams lands on "Active now" by default when you open Contacts —
+  // that list only shows people currently online/active, it's NOT the
+  // full contacts list, and its rows don't lay out the same way. If
+  // Jarvis proceeds to scan for a name here instead of on "All
+  // contacts", it ends up clicking around inside "Active now" (wrong
+  // list, sometimes no call icon on the row at all, sometimes a
+  // different person entirely) instead of the actual call icon on the
+  // right contact. So: click "All contacts", then VERIFY it actually
+  // became the selected tab before doing anything else — don't just
+  // assume the click landed.
+  const switchedToAllContacts = await ensureAllContactsTabSelected();
+  if (!switchedToAllContacts) {
+    // Couldn't confirm "All contacts" is selected — don't let a
+    // caller scan "Active now" thinking it's the full list. Bail out
+    // to the search-box flow instead, which doesn't depend on this
+    // tab at all.
+    return false;
+  }
 
   // Confirm we're actually looking at the People/Contacts list before
   // handing back to a caller that's about to spend up to ~2 full
@@ -76,6 +92,28 @@ async function openContactsPage() {
     `Does this look like Microsoft Teams' Contacts/People page — a list of contact names, with tabs like "All contacts" / "Active now" near the top? Reply with only YES or NO.`
   )).trim().toUpperCase();
   return onContactsPage.startsWith("YES");
+}
+
+// Clicks the "All contacts" tab and re-checks the screen afterward to
+// confirm it actually became the selected tab — "Active now" is
+// Teams' default landing tab, so a click that missed (wrong pixel, a
+// flyout still animating in, etc.) used to silently leave the caller
+// on "Active now" with no error to show for it. One retry before
+// giving up, since a missed click on the first try is usually just
+// timing (panel still rendering).
+async function ensureAllContactsTabSelected() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await vision.findAndClick(
+      `the "All contacts" tab/button near the top of the Teams People panel — NOT the "Active now" tab, even though "Active now" may currently be the selected/highlighted one`,
+      { forceVision: true }
+    ).catch(() => {});
+    await sleep(700);
+    const state = (await vision.lookAtScreen(
+      `In this Microsoft Teams People/Contacts panel, which tab is currently selected/highlighted — "All contacts" or "Active now"? Reply with only ALL_CONTACTS or ACTIVE_NOW or NEITHER.`
+    )).trim().toUpperCase();
+    if (state.includes("ALL_CONTACTS")) return true;
+  }
+  return false;
 }
 
 // Page Down to scroll further into the list, Home to jump back to
@@ -105,13 +143,20 @@ async function findContactRowAndClick(personName, action) {
     await sleep(300);
     for (let i = 0; i <= maxScrolls; i++) {
       const clicked = await vision.findAndClick(
-        `In this Microsoft Teams "All contacts" list, find the row for the contact named "${personName}" ` +
-        `(or the single closest visible match to that name if there's no exact hit), then click ${iconLabel} ` +
-        `that appears on THAT SPECIFIC row — the icons sit to the right of the name. Don't click the name/avatar ` +
-        `itself, and don't click an icon belonging to a different row.`,
+        `In this Microsoft Teams "All contacts" list (this must be the "All contacts" tab, NOT the "Active now" tab — ` +
+        `if what's on screen is actually "Active now", do not click anything, this is the wrong list), find the row ` +
+        `for the contact named "${personName}" (or the single closest visible match to that name if there's no exact ` +
+        `hit), then click ${iconLabel} that appears on THAT SPECIFIC row — the icons sit to the right of the name. ` +
+        `Don't click the name/avatar itself, and don't click an icon belonging to a different row.`,
         { forceVision: true }
       );
-      if (clicked) return true;
+      // A reported click isn't proof it hit the right target — verify
+      // the screen actually changed the way this action should change
+      // it before counting it as a hit. Without this, a click that
+      // landed on the row itself (opening a profile card) or on
+      // "Active now" content used to get reported back as a working
+      // call/chat/menu when nothing of the sort had actually happened.
+      if (clicked && (await verifyRowActionTookEffect(action))) return true;
       await scrollContactsList("down");
       await sleep(500);
     }
@@ -120,6 +165,32 @@ async function findContactRowAndClick(personName, action) {
     if (pass === 0) await sleep(1500);
   }
   return false;
+}
+
+// After clicking a row's chat/call/more icon, confirm the screen
+// actually reflects that action before trusting the click. If it
+// doesn't, whatever got clicked wasn't the right target (a profile
+// card, a no-op tap on "Active now", a miss) — worth another scan
+// pass rather than reporting a false success.
+async function verifyRowActionTookEffect(action) {
+  await sleep(600);
+  if (action === "chat") {
+    const opened = (await vision.lookAtScreen(
+      `Does this look like an open Microsoft Teams 1:1 chat conversation — a message compose box at the bottom, and either past messages or an empty conversation area? Reply with only YES or NO.`
+    )).trim().toUpperCase();
+    return opened.startsWith("YES");
+  }
+  if (action === "more") {
+    const menuOpen = (await vision.lookAtScreen(
+      `Does this look like a small context/dropdown menu is currently open in Microsoft Teams (options like "Video call", "Chat", "Remove from contacts", etc.)? Reply with only YES or NO.`
+    )).trim().toUpperCase();
+    return menuOpen.startsWith("YES");
+  }
+  // action === "call"
+  const callStarting = (await vision.lookAtScreen(
+    `Does this look like a Teams pre-call/lobby screen (camera preview, "Join now"/"Call" button) OR an active call already dialing/connected (a "Calling..." screen or an in-call toolbar with Mic/Camera/hang-up)? Reply with only YES or NO.`
+  )).trim().toUpperCase();
+  return callStarting.startsWith("YES");
 }
 
 // After clicking a call icon, Teams can land on one of two different
@@ -367,13 +438,19 @@ async function callOnTeams(personName, callType = "audio") {
       );
       if (videoClicked) {
         await sleep(1500);
-        if (await handlePreCallScreen()) return personName;
+        if (await handlePreCallScreen()) {
+          await ensureRealMicSelected().catch(() => {});
+          return personName;
+        }
         throw new Error(`Clicked to call ${personName} on Teams, but the call never actually started — no lobby or dialing screen appeared. It's possible the click landed in the wrong place.`);
       }
     }
   } else if (onContacts && await findContactRowAndClick(personName, "call")) {
     await sleep(1500);
-    if (await handlePreCallScreen()) return personName;
+    if (await handlePreCallScreen()) {
+      await ensureRealMicSelected().catch(() => {});
+      return personName;
+    }
     throw new Error(`Clicked to call ${personName} on Teams, but the call never actually started — no lobby or dialing screen appeared. It's possible the click landed in the wrong place.`);
   }
 
@@ -386,6 +463,7 @@ async function callOnTeams(personName, callType = "audio") {
   if (!(await handlePreCallScreen())) {
     throw new Error(`Clicked the ${callType} call button for ${matchedName}, but the call never actually started — no lobby or dialing screen appeared. It's possible the click landed in the wrong place.`);
   }
+  await ensureRealMicSelected().catch(() => {});
   return matchedName;
 }
 
@@ -681,6 +759,48 @@ async function switchTeamsMicBack(previousMicLabel) {
   return !!switched;
 }
 
+// ── MAKE SURE A REAL MICROPHONE IS ACTUALLY SELECTED ───────────────
+// call-voice.js's cable method switches Teams' in-call mic to the
+// virtual "CABLE Output" device while Jarvis is speaking, then
+// switches it back once done (see switchTeamsMicBack above) — but if
+// that ever gets interrupted partway (a crash, a call that dropped
+// mid-speech, the app being killed), Teams can be left with the
+// virtual cable still selected as the mic for the NEXT call, which
+// means the person on that next call can't hear anything from the
+// real microphone at all.
+//
+// This is the safety net: right after a normal call connects, open
+// the same device-picker chevron next to the in-call Mic button (NOT
+// the Mic button itself, which only mutes) and check what's actually
+// selected. If it's a virtual-cable device, switch to a real one —
+// preferring TEAMS_DEFAULT_MIC_LABEL from .env if set, otherwise the
+// first non-cable option Teams shows. If a real mic is already
+// selected, this is a no-op past the one read.
+async function ensureRealMicSelected() {
+  await openMicPicker();
+  const current = await readCurrentMicName();
+  const looksVirtual = !current || /cable|virtual/i.test(current);
+
+  if (!looksVirtual) {
+    await closeDevicePicker();
+    return current; // already on a real device, nothing to do
+  }
+
+  const preferred = (process.env.TEAMS_DEFAULT_MIC_LABEL || "").trim();
+  let switched = preferred ? await selectMicByLabel(preferred) : false;
+
+  if (!switched) {
+    switched = await vision.findAndClick(
+      `the radio button for a microphone option in Teams' Microphone device list that is a REAL physical microphone — ` +
+      `NOT anything with "CABLE" or "Virtual" in its name. Prefer an option containing "Headset" or "Microphone Array" ` +
+      `if one is visible; otherwise pick the first option in the list that isn't a CABLE/virtual device.`,
+      { forceVision: true }
+    );
+  }
+  await closeDevicePicker();
+  return switched ? (preferred || "a physical microphone") : current;
+}
+
 // mediaUrl: HTTP URL to the rendered TTS clip, servable to a local
 // browser (server.js publishes this via cast.js's publishAudio()).
 // durationMs: how long the clip actually runs, so Jarvis knows how
@@ -803,4 +923,5 @@ module.exports = {
   selectMicByLabel,
   switchTeamsMicTo,
   switchTeamsMicBack,
+  ensureRealMicSelected,
 };
