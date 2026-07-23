@@ -10,10 +10,17 @@
 
 const fs   = require("fs");
 const path = require("path");
+const Local = require("./local-llm");
 
 // ── CONFIG ─────────────────────────────────────────────────────
 // GROQ_API_KEY → your key from console.groq.com
 // GROQ_MODEL   → optional override; sensible Groq defaults below otherwise
+//
+// LOCAL MODE: when Jarvis is running on the user's own machine (i.e.
+// NOT on Render — see local-llm.js's isLocalMode()), every call below
+// is transparently routed to a local Ollama model instead, and Groq
+// is never contacted and GROQ_API_KEY is never read. Cloud deploys
+// keep using Groq exactly as before.
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -123,6 +130,14 @@ async function groqFetchRaw(messages, options = {}) {
     reasoning_effort = null,   // "low" | "medium" | "high" — reasoning models only (gpt-oss, qwen3.x)
     reasoning_format = null,   // "parsed" | "raw" | "hidden"
   } = options;
+
+  // ── LOCAL MODE: never touch Groq — use the local Ollama model. ──
+  // reasoning_effort/reasoning_format are Groq-only and simply don't
+  // apply here; everything else (messages, tools, temperature,
+  // maxTokens) passes straight through unchanged.
+  if (Local.isLocalMode()) {
+    return Local.ollamaChat(messages, { model: Local.OLLAMA_MODEL, temperature, maxTokens, tools, tool_choice });
+  }
 
   if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY not set in .env");
 
@@ -1048,7 +1063,11 @@ async function summarizeNewsSarcastically(articles, userTitle = "Sir", categoryL
   }
 }
 
-function isConfigured() { return !!GROQ_API_KEY; }
+// Locally, the "brain" is always considered configured — Ollama needs
+// no API key, just the app to be installed and `ollama serve` running
+// (ollamaChat() surfaces a clear error at call time if it isn't).
+// Only on a cloud deploy does this actually depend on GROQ_API_KEY.
+function isConfigured() { return Local.isLocalMode() ? true : !!GROQ_API_KEY; }
 
 module.exports = {
   chat,
