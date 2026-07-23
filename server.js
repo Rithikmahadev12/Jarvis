@@ -15,6 +15,7 @@ const Google      = require("./google");
 const DIY         = require("./diy-builder");
 const Build       = require("./build-engine");
 const BuildAI     = require("./build-ai");
+const Studio      = require("./studio");
 const Home        = require("./home");
 const Groq        = require("./hermes-engine");
 const JarvisAgent = require("./jarvis-agent");
@@ -245,6 +246,106 @@ app.post("/api/build/generate", async (req, res) => {
   try {
     const plan = await BuildAI.generateBuildPlan(prompt);
     res.json({ plan });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── PROJECT STUDIO — "Jarvis, start a project" ────────────────
+// Coding / Building / Hybrid projects: real file tree, save,
+// AI code assist (Groq), sandboxed "Run Script", and ZIP export.
+// See studio.js for the implementation; studio.html/js is the UI.
+// ═══════════════════════════════════════════════════════════════
+app.get("/studio", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "studio.html"));
+});
+
+app.get("/api/studio/projects", (req, res) => {
+  try { res.json({ projects: Studio.listProjects() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/studio/projects", (req, res) => {
+  try {
+    const { name, type } = req.body || {};
+    res.json({ project: Studio.createProject({ name, type }) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/studio/projects/:id", (req, res) => {
+  try { res.json({ project: Studio.getProject(req.params.id) }); }
+  catch (e) { res.status(404).json({ error: e.message }); }
+});
+
+app.delete("/api/studio/projects/:id", (req, res) => {
+  try { Studio.deleteProject(req.params.id); res.json({ ok: true }); }
+  catch (e) { res.status(404).json({ error: e.message }); }
+});
+
+app.get("/api/studio/projects/:id/file", (req, res) => {
+  try {
+    const p = (req.query.path || "").toString();
+    res.json({ path: p, content: Studio.readFile(req.params.id, p) });
+  } catch (e) { res.status(404).json({ error: e.message }); }
+});
+
+app.post("/api/studio/projects/:id/file", (req, res) => {
+  try {
+    const { path: p, content } = req.body || {};
+    if (!p) return res.status(400).json({ error: "Missing 'path'." });
+    res.json({ project: Studio.saveFile(req.params.id, p, content) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.post("/api/studio/projects/:id/file/rename", (req, res) => {
+  try {
+    const { from, to } = req.body || {};
+    if (!from || !to) return res.status(400).json({ error: "Missing 'from'/'to'." });
+    res.json({ project: Studio.renameFile(req.params.id, from, to) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.delete("/api/studio/projects/:id/file", (req, res) => {
+  try {
+    const p = (req.query.path || "").toString();
+    res.json({ project: Studio.deleteFile(req.params.id, p) });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.get("/api/studio/projects/:id/download", (req, res) => {
+  try { Studio.streamZip(req.params.id, res); }
+  catch (e) { res.status(404).json({ error: e.message }); }
+});
+
+app.post("/api/studio/projects/:id/run", async (req, res) => {
+  try {
+    const p = (req.body?.path || "").toString();
+    if (!p) return res.status(400).json({ error: "Missing 'path'." });
+    const result = await Studio.runScript(req.params.id, p);
+    res.json(result);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// AI code assist inside the editor — reuses the same Groq "elite
+// coding engine" the rest of Jarvis uses (hermes-engine.js), fed
+// with the currently open file as context so answers are specific
+// to what's on screen instead of generic.
+app.post("/api/studio/projects/:id/ai", async (req, res) => {
+  try {
+    const { message, activeFile, activeFileContent, history } = req.body || {};
+    if (!message || !message.trim()) return res.status(400).json({ error: "Missing 'message'." });
+    if (!Groq.isConfigured || !Groq.isConfigured()) {
+      return res.status(503).json({ error: "No AI key configured on the server (GROQ_API_KEY). Add one in .env to enable the code assistant." });
+    }
+    const context = activeFile
+      ? `Currently open file: ${activeFile}\n\n\`\`\`\n${(activeFileContent || "").slice(0, 6000)}\n\`\`\``
+      : "";
+    const result = await Groq.codeChat(message, {
+      context,
+      conversationHistory: Array.isArray(history) ? history.slice(-8) : [],
+    });
+    res.json({ reply: result.reply });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
