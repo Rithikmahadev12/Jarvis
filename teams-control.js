@@ -199,7 +199,7 @@ async function findContactRowAndClick(personName, action) {
         `the contact name ${JSON.stringify(personName)} (or the single closest visible match) as it appears in ` +
         `the row/list of actual contacts in this Teams People page — the name text itself, not any icon, and NOT ` +
         `the "All contacts" or "Active now" navigation items in the left sidebar.`,
-        { forceVision: true }
+        { forceVision: true, skipCache: true }
       );
       if (!rowLoc || !rowLoc.found) {
         await scrollContactsList("down");
@@ -209,15 +209,14 @@ async function findContactRowAndClick(personName, action) {
       await vision.moveMouseTo(rowLoc.x, rowLoc.y);
       await sleep(400); // let the row's hover-reveal icons actually render
 
-      const clicked = await vision.findAndClick(
+      const iconClickDescription =
         `In this Microsoft Teams "All contacts" list, the mouse is currently hovering the row for "${personName}" ` +
         `(or the closest match), which should now be showing its hover icons. Click ${iconLabel} that appears on ` +
         `THAT SPECIFIC hovered row — the icons sit to the right of the name, roughly level with it vertically. ` +
         `Don't click the name/avatar itself, and don't click an icon belonging to a different row. ` +
         `IMPORTANT: do NOT click the "All contacts" or "Active now" tab buttons near the top of this panel — those ` +
-        `are page tabs, not contact rows, even if the hovered row sits close beneath them.`,
-        { forceVision: true, skipCache: true }
-      );
+        `are page tabs, not contact rows, even if the hovered row sits close beneath them.`;
+      const clicked = await vision.findAndClick(iconClickDescription, { forceVision: true, skipCache: true });
       // A reported click isn't proof it hit the right target — verify
       // the screen actually changed the way this action should change
       // it before counting it as a hit. Without this, a click that
@@ -226,6 +225,14 @@ async function findContactRowAndClick(personName, action) {
       // call/chat/menu when nothing of the sort had actually happened.
       const doneCheck = () => verifyRowActionTookEffect(action);
       if (clicked && (await doneCheck())) return true;
+
+      // Whatever just got clicked was wrong — purge any cached
+      // coordinate under this exact description so nothing (this run
+      // or a future one) can replay that same bad click again. This
+      // matters even with skipCache above, because skipCache only
+      // stops READING the cache — a stale entry from a run before this
+      // fix could still be sitting in the persisted cache file.
+      vision.forgetElement(iconClickDescription);
 
       // The scripted click missed — retrying the exact same coordinate
       // logic just repeats the same mistake (e.g. a click that landed
