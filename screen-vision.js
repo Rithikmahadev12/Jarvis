@@ -59,9 +59,71 @@
 
 const { exec } = require("child_process");
 const os = require("os");
+const fs = require("fs");
+const path = require("path");
 const screenshot = require("screenshot-desktop");
+const GroqKeys = require("./groq-keys");
 
-const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
+// ── ELEMENT-LOCATION CACHE ─────────────────────────────────────
+// The single biggest source of vision-model calls (and the thing
+// actually burning through Gemini's/Groq's free-tier quota) isn't
+// "look at my screen" — it's locateElement() being asked to find the
+// SAME static piece of UI chrome over and over: the Contacts icon in
+// Teams' left rail, the "All contacts" tab, the in-call Mic/Camera
+// buttons, the lobby's "Join now" button, etc. Those sit in the
+// exact same pixel position every time Teams is maximized at the
+// same screen resolution — there's no reason to pay a vision-model
+// round trip to re-discover them each time.
+//
+// This cache stores {x, y, ts} per (screen resolution + description)
+// the first time the vision model successfully locates something,
+// and locateElement() checks it BEFORE calling the model again. A
+// TTL (default 12h, override with VISION_CACHE_TTL_MS) guards against
+// a stale entry surviving a Teams UI update forever; forgetElement()
+// lets a caller explicitly invalidate one the moment a click turns
+// out not to have done what it should have (see teams-control.js).
+const DATA_DIR = path.join(__dirname, "data");
+const ELEMENT_CACHE_FILE = path.join(DATA_DIR, "vision_element_cache.json");
+const ELEMENT_CACHE_TTL_MS = parseInt(process.env.VISION_CACHE_TTL_MS, 10) || 12 * 60 * 60 * 1000;
+
+function loadElementCache() {
+  try { return JSON.parse(fs.readFileSync(ELEMENT_CACHE_FILE, "utf8")); }
+  catch { return {}; }
+}
+function saveElementCache(cache) {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(ELEMENT_CACHE_FILE, JSON.stringify(cache, null, 2));
+  } catch (e) { console.error("[VISION] Failed to persist element cache:", e.message); }
+}
+function elementCacheKey(description, width, height) {
+  return `${width}x${height}::${description}`;
+}
+function getElementCache(description, width, height) {
+  const cache = loadElementCache();
+  const hit = cache[elementCacheKey(description, width, height)];
+  if (!hit) return null;
+  if (Date.now() - hit.ts > ELEMENT_CACHE_TTL_MS) return null;
+  return hit;
+}
+function setElementCache(description, width, height, x, y) {
+  const cache = loadElementCache();
+  cache[elementCacheKey(description, width, height)] = { x, y, ts: Date.now() };
+  saveElementCache(cache);
+}
+// Invalidates every cached entry whose description matches (regardless
+// of resolution) — call this the moment a click that used a cached
+// position turns out not to have worked, so the NEXT attempt re-locates
+// via the vision model instead of clicking the same wrong spot forever.
+function forgetElement(description) {
+  const cache = loadElementCache();
+  let changed = false;
+  for (const key of Object.keys(cache)) {
+    if (key.endsWith(`::${description}`)) { delete cache[key]; changed = true; }
+  }
+  if (changed) saveElementCache(cache);
+}
+
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || "qwen/qwen3.6-27b";
 // Cheap text-only model for answering questions from OCR'd text —
@@ -138,7 +200,7 @@ const USE_GEMINI = GEMINI_API_KEYS.length > 0;
 const OCR_MIN_CONFIDENCE = 40;
 
 function isConfigured() {
-  return !!(GROQ_API_KEY || GEMINI_API_KEYS.length);
+  return !!(GroqKeys.hasGroqKey() || GEMINI_API_KEYS.length);
 }
 
 // ── CAPTURE ─────────────────────────────────────────────────────
@@ -234,13 +296,27 @@ async function ocrScreen() {
   return { text, words, base64, width, height };
 }
 
-// ── SHARED GROQ REQUEST (retried on 429) ────────────────────────
+// Cheap local presence check — no model call at all, just OCR. Used
+// as a pre-filter before an expensive forceVision locate-and-click:
+// if the text we're hunting for isn't even visible on screen right
+// now (e.g. scanning a scrolling contacts list for a name), there is
+// no point paying a vision-model round trip to confirm that — skip
+// straight to scrolling further and check again next screen.
+function pageContainsText(candidateText) {
+  return ocrScreen().then(({ text }) => {
+    const needle = String(candidateText || "").trim().toLowerCase();
+    if (!needle) return true; // nothing to filter on, don't block the caller
+    return text.toLowerCase().includes(needle);
+  });
+}
+
+// ── SHARED GROQ REQUEST (multi-key failover + retried on 429) ───
 async function groqChatRequest(model, messages) {
   if (!isConfigured()) throw new Error("GROQ_API_KEY isn't set in .env, so Jarvis can't look at the screen yet.");
 
-  const doFetch = () => fetch(GROQ_API_URL, {
+  const doFetch = (key) => fetch(GROQ_API_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${GROQ_API_KEY}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({ model, temperature: 0, messages }),
     signal: AbortSignal.timeout(30000),
   });
@@ -265,37 +341,67 @@ async function groqChatRequest(model, messages) {
     return (cause && cause.message) || e.message || "unknown network error";
   }
 
-  // One retry for connection-level failures (not HTTP error codes,
-  // those are handled below) — covers a single dropped packet/DNS
-  // blip without giving up on the whole vision call over it.
-  let res;
-  try {
-    res = await doFetch();
-  } catch (e1) {
-    await new Promise(r => setTimeout(r, 800));
+  // Runs the existing single-key logic (one retry for connection-level
+  // failures, up to two retries on 429 using Groq's own stated wait
+  // time) against ONE key. Returns the Response, or throws.
+  async function attemptWithKey(key) {
+    let res;
     try {
-      res = await doFetch();
-    } catch (e2) {
-      throw new Error(`Could not reach Groq API: ${describeNetworkError(e2)}`);
+      res = await doFetch(key);
+    } catch (e1) {
+      await new Promise(r => setTimeout(r, 800));
+      try {
+        res = await doFetch(key);
+      } catch (e2) {
+        throw new Error(`Could not reach Groq API: ${describeNetworkError(e2)}`);
+      }
     }
+
+    let attempt = 0;
+    while (res.status === 429 && attempt < 2) {
+      attempt++;
+      const errBody = await res.json().catch(() => ({}));
+      const msg = errBody.error?.message || "";
+      const waitMatch = msg.match(/try again in ([\d.]+)s/i);
+      const waitSecs = waitMatch ? Math.min(parseFloat(waitMatch[1]), 45) : 5 * attempt;
+      await new Promise(r => setTimeout(r, Math.ceil(waitSecs * 1000) + 250));
+      try {
+        res = await doFetch(key);
+      } catch (e) {
+        throw new Error(`Could not reach Groq API: ${describeNetworkError(e)}`);
+      }
+    }
+    return res;
   }
 
-  // Retry on 429 using Groq's own stated wait time (from the error
-  // message, e.g. "Please try again in 29.145s") instead of giving up
-  // on the first hit — capped at 45s, up to 2 attempts.
-  let attempt = 0;
-  while (res.status === 429 && attempt < 2) {
-    attempt++;
-    const errBody = await res.json().catch(() => ({}));
-    const msg = errBody.error?.message || "";
-    const waitMatch = msg.match(/try again in ([\d.]+)s/i);
-    const waitSecs = waitMatch ? Math.min(parseFloat(waitMatch[1]), 45) : 5 * attempt;
-    await new Promise(r => setTimeout(r, Math.ceil(waitSecs * 1000) + 250));
+  // ── MULTI-KEY FAILOVER ──────────────────────────────────────────
+  // If more than one GROQ_API_KEY(2,3...) is configured (see
+  // groq-keys.js), a key that still fails after its own retries above
+  // (network trouble, still rate-limited, revoked/invalid, or a
+  // Groq-side 5xx) rotates to the next key and starts fresh, instead
+  // of giving up. With only one key configured, behavior is identical
+  // to before this existed.
+  const totalKeys = GroqKeys.groqKeyCount();
+  let res, lastError = null;
+
+  for (let i = 0; i < totalKeys; i++) {
+    const key = GroqKeys.currentGroqKey();
+    const isLastKey = i === totalKeys - 1;
     try {
-      res = await doFetch();
+      res = await attemptWithKey(key);
     } catch (e) {
-      throw new Error(`Could not reach Groq API: ${describeNetworkError(e)}`);
+      lastError = e;
+      if (isLastKey) throw e;
+      GroqKeys.rotateGroqKey();
+      continue;
     }
+    if (!res.ok && (res.status === 429 || res.status === 401 || res.status === 403 || res.status >= 500) && !isLastKey) {
+      const body = await res.text().catch(() => "");
+      lastError = new Error(`Groq vision request failed (${res.status}): ${body.slice(0, 300)}`);
+      GroqKeys.rotateGroqKey();
+      continue;
+    }
+    break;
   }
 
   if (!res.ok) {
@@ -403,7 +509,19 @@ async function geminiRequest(prompt, base64Image = null) {
 // Costs a few hundred tokens instead of the ~1500-2000 a full
 // screenshot image costs through the vision model.
 async function askText(prompt) {
-  if (USE_GEMINI) return geminiRequest(prompt);
+  if (USE_GEMINI) {
+    try {
+      return await geminiRequest(prompt);
+    } catch (e) {
+      // Gemini failed for ANY reason (quota exhausted across every
+      // configured key, network issue, retired model, whatever) —
+      // rather than let the whole request die when a second free
+      // provider is sitting right there, fall through to Groq. Only
+      // actually useful if GROQ_API_KEY is set; if it isn't,
+      // groqChatRequest below throws its own clear error anyway.
+      console.error("[VISION] Gemini request failed, falling back to Groq:", e.message);
+    }
+  }
   const messages = [{ role: "user", content: prompt }];
   return groqChatRequest(GROQ_TEXT_MODEL, messages);
 }
@@ -411,7 +529,13 @@ async function askText(prompt) {
 // Vision-model call — kept as the fallback for screens/elements OCR
 // genuinely can't handle (graphical content, unlabeled icons).
 async function askVision(base64Image, prompt) {
-  if (USE_GEMINI) return geminiRequest(prompt, base64Image);
+  if (USE_GEMINI) {
+    try {
+      return await geminiRequest(prompt, base64Image);
+    } catch (e) {
+      console.error("[VISION] Gemini vision request failed, falling back to Groq:", e.message);
+    }
+  }
   const messages = [
     {
       role: "user",
@@ -517,6 +641,17 @@ async function locateElement(description, opts = {}) {
   const ocrHit = opts.forceVision ? null : locateFromOcrWords(description, words);
   if (ocrHit) return ocrHit;
 
+  // Next, the cache — a previous vision-model call already found
+  // this exact description at this exact screen resolution, and it's
+  // still within its TTL. This is what makes repeated clicks on
+  // Teams' static chrome (sidebar icons, in-call toolbar buttons,
+  // lobby buttons) free after the very first time. Skipped when the
+  // caller explicitly wants a fresh read (opts.skipCache).
+  if (!opts.skipCache) {
+    const cached = getElementCache(description, width, height);
+    if (cached) return { found: true, x: cached.x, y: cached.y, source: "cache" };
+  }
+
   // No literal on-screen text matched this description — it's
   // probably an icon-only target (a bare toggle, an unlabeled icon)
   // that OCR fundamentally can't see. This is the one case that
@@ -534,6 +669,7 @@ async function locateElement(description, opts = {}) {
   } catch {
     parsed = { found: false };
   }
+  if (parsed && parsed.found) setElementCache(description, width, height, parsed.x, parsed.y);
   return parsed;
 }
 
@@ -590,8 +726,10 @@ module.exports = {
   isConfigured,
   captureScreenshot,
   ocrScreen,
+  pageContainsText,
   lookAtScreen,
   locateElement,
+  forgetElement,
   clickAt,
   findAndClick,
   GROQ_VISION_MODEL,
