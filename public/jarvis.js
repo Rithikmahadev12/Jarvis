@@ -1786,6 +1786,44 @@ function handleChatCommand(text, attachments) {
     return;
   }
 
+  // ── PROJECT STUDIO — "Jarvis, start a project" ──
+  // Fully client-side (no server round-trip) so it works instantly and
+  // never collides with the NLU pipeline: ask coding/building/both,
+  // then hand off to /studio which does the actual work.
+  const PROJECT_TYPE_RE = /\b(coding|code|software|program(?:ming)?)\b|\b(building|build|physical|hardware|cad)\b|\b(both|hybrid|combo|combination)\b/;
+  if (state.pendingProjectType) {
+    const m = cleanedLower.match(PROJECT_TYPE_RE);
+    if (m) {
+      const type = m[1] ? "coding" : m[2] ? "building" : "hybrid";
+      state.pendingProjectType = false;
+      const r = `Right away, ${state.userTitle}. Opening the Studio now.`;
+      addMsg("jarvis", r);
+      speak(r, () => { window.location.href = `/studio?type=${type}`; });
+      return;
+    }
+    // Didn't understand — ask again instead of silently falling through.
+    const r = `Coding, building, or both, ${state.userTitle}?`;
+    addMsg("jarvis", r); speak(r);
+    return;
+  }
+  const PROJECT_START_RE = /\b(start|begin|create|open)\s+(?:a\s+|the\s+|new\s+)*project\b|\bnew\s+project\b|\blet'?s\s+build\s+something\b/;
+  const directTypeMatch = cleanedLower.match(/\bstart\s+(?:a\s+)?(coding|building|build|hybrid)\s+project\b/);
+  if (directTypeMatch) {
+    const map = { coding: "coding", building: "building", build: "building", hybrid: "hybrid" };
+    const type = map[directTypeMatch[1]] || "coding";
+    const r = `Right away, ${state.userTitle}. Opening the Studio now.`;
+    addMsg("jarvis", r);
+    speak(r, () => { window.location.href = `/studio?type=${type}`; });
+    return;
+  }
+  if (PROJECT_START_RE.test(cleanedLower)) {
+    state.pendingProjectType = true;
+    const r = `Certainly, ${state.userTitle}. Will this be a coding project, a physical build, or both?`;
+    addMsg("jarvis", r);
+    speak(r, () => mic.resume());
+    return;
+  }
+
   // ── Mode switching: "Jarvis switch to map/chat/3d/build" ──
   const switchMatch = cleanedLower.match(/\bswitch(?:\s+(?:to|into))?\s+(map|chat|3d|hologram|holo|build|blueprint|cad)\s*(?:mode)?\b/);
   if (switchMatch) {
