@@ -708,7 +708,13 @@ async function chatWithTools({ message, userTitle = "Sir", memories = [], contex
     } catch { return new Date().toString(); }
   })();
 
-  const systemPrompt = getSystemPrompt(T, memories, context, []) + `
+  const localMode = Local.isLocalMode();
+
+  const systemPrompt = localMode
+    ? getSystemPrompt(T, memories, context, [], true) + `
+
+You have tools for real actions (timers, reminders, weather, music, research, smart home, email, calendar, camera, recording, opening apps, running commands, typing text, security scans). Call the right tool when the user is asking you to DO something; otherwise just answer in plain text. Current date/time: ${nowStr}${tz ? ` (${tz})` : ""}.`
+    : getSystemPrompt(T, memories, context, []) + `
 
 You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, reading a specific email in full once they pick one, checking their real Google Calendar, showing/hiding the live camera feed fullscreen, starting/stopping a downloadable screen/tab/webcam recording, instantly clipping the last N seconds of screen or webcam activity, noticing when the user needs a break, and (when Jarvis is running on the user's own computer) opening apps/files/URLs, checking disk space, running shell commands, typing text into the active window, and scanning for/neutralizing security threats. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. COMPOUND REQUESTS matter here: if the user asks for more than one thing in the same message (e.g. "open VS Code and type a flappy bird script"), call ALL the relevant tools in that SAME response — do not stop after the first one. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. After check_email lists unread emails and the user replies with something like "read the first one" or "the one from Sarah", call read_email with the right index or sender. If nothing calls for a tool, just answer normally in plain text.
 
@@ -741,7 +747,7 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
   const looksCompoundGenerate = /\b(type|write)\b/i.test(message) &&
     /\b(script|code|program|game|function|poem|essay|story|paragraph|text|snippet|class|component)\b/i.test(message);
 
-  const isLocal = Local.isLocalMode();
+  const isLocal = localMode;
   // Local: trimmed tool schema (short descriptions, see LOCAL_TOOLS
   // above) and a much smaller max_tokens — CPU prefill/generation is
   // slow enough that the cloud budgets (900/2048) can push a single
@@ -835,7 +841,7 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
 }
 
 // ── JARVIS SYSTEM PROMPT ──────────────────────────────────────
-function getSystemPrompt(userTitle, memories, context, learnedExamples) {
+function getSystemPrompt(userTitle, memories, context, learnedExamples, compact = false) {
   const T = userTitle || "Sir";
 
   let examplesBlock = "";
@@ -843,6 +849,16 @@ function getSystemPrompt(userTitle, memories, context, learnedExamples) {
     examplesBlock = `\n\nPreviously learned responses (use these as style/format reference):\n${
       learnedExamples.map(e => `User: ${e.exampleInput}\nJARVIS: ${e.exampleOutput}`).join("\n\n---\n\n")
     }`;
+  }
+
+  // ── COMPACT VARIANT (local mode) ──────────────────────────────
+  // Same voice/rules, condensed to roughly a third of the token
+  // count. On a CPU-only local model this system prompt gets
+  // prefixed to EVERY single request, so trimming it is one of the
+  // cheapest wins available for cutting response latency — it costs
+  // nothing in capability, just verbosity.
+  if (compact) {
+    return `You are J.A.R.V.I.S, Tony Stark's AI — formal, precise, dry British wit, address the user as "${T}" (not every line), never starts a reply with "I", never gushing or using exclamation points. Answer directly and usefully — you can handle anything (questions, code, math, advice). Keep replies under 3 sentences unless the request needs more.${memories && memories.length > 0 ? ` Known facts: ${memories.join(", ")}.` : ""}${context ? ` Context: ${context}.` : ""}${examplesBlock}`;
   }
 
   return `You are J.A.R.V.I.S (Just A Rather Very Intelligent System) — Tony Stark's AI, exactly as characterized in the Iron Man films. You are the PRIMARY BRAIN of this assistant system, running on Groq.
@@ -927,14 +943,15 @@ async function chat(message, options = {}) {
     .sort((a, b) => (b.hitCount || 1) - (a.hitCount || 1))
     .slice(0, 2);
 
-  const systemPrompt = getSystemPrompt(userTitle, memories, context, relevantLearned);
+  const localMode = Local.isLocalMode();
+  const systemPrompt = getSystemPrompt(userTitle, memories, context, relevantLearned, localMode);
   const messages = [
     { role: "system", content: systemPrompt },
     ...conversationHistory.slice(-8),
     { role: "user", content: message },
   ];
 
-  const reply = await groqFetch(messages, MODELS.smart, 0.75, 768);
+  const reply = await groqFetch(messages, MODELS.smart, 0.75, localMode ? 300 : 768);
   const trimmedReply = reply.trim();
 
   if (!trimmedReply) throw new Error("Empty response from Groq");
