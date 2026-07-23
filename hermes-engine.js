@@ -613,6 +613,63 @@ const TOOLS = [
   },
 ];
 
+// ── LOCAL-MODE LIGHTWEIGHT ROUTING ─────────────────────────────
+// A CPU-only local Ollama model has two problems the cloud path
+// doesn't: (1) the full 24-tool schema above is thousands of tokens
+// to prefill on every single message, and (2) a general chat
+// finetune like zarigata/unfiltered-llama3 was never specifically
+// trained on OpenAI-style tool-calling JSON, so it can ramble or
+// never emit a clean call, burning the whole token budget instead
+// of a few dozen tokens.
+//
+// Fix, two parts:
+//   1. LOCAL_QUICK_PATTERNS — a short list of unambiguous keyword
+//      matches for the commands people actually say most often.
+//      When one hits, we skip the model AND tool-calling entirely
+//      and just run the tool directly. Instant, no LLM round trip.
+//   2. LOCAL_TOOLS — everything else still goes to the model, but
+//      with descriptions trimmed to their first sentence (the bulk
+//      of each tool's token cost) instead of the full multi-
+//      paragraph versions above, and a much smaller max_tokens.
+const LOCAL_QUICK_PATTERNS = [
+  { name: "show_camera",     test: m => /\b(show|open|turn on|activate|enable|pull up)\b.*\bcamera\b/i.test(m) && !/\b(off|stop|disable|close|exit|hide|deactivate)\b/i.test(m) },
+  { name: "hide_camera",     test: m => /\bcamera\b/i.test(m) && /\b(off|stop|disable|close|exit|hide|deactivate)\b/i.test(m) },
+  { name: "mute_jarvis",     test: m => /^(jarvis[, ]+)?(mute|be quiet|shut up|stop talking|keep it down)\b/i.test(m.trim()) },
+  { name: "unmute_jarvis",   test: m => /^(jarvis[, ]+)?(unmute|speak again|you can talk again)\b/i.test(m.trim()) },
+  { name: "check_disk_space",test: m => /\b(disk space|storage space|how full is my (drive|hard drive))\b/i.test(m) },
+  { name: "scan_for_threats",test: m => /\b(scan .*(virus|threat|malware)|am i infected|check for threats)\b/i.test(m) },
+  { name: "stop_recording",  test: m => /\b(stop|end)\b.*\brecording\b/i.test(m) },
+  { name: "get_agenda",      test: m => /\b(what'?s on my agenda|what do i have today|anything coming up)\b/i.test(m) },
+  {
+    name: "set_timer",
+    test: m => /\b(set|start)?\s*(a\s*)?timer\b/i.test(m) && /\d+\s*(sec|second|min|minute|hour)/i.test(m),
+    args: m => {
+      const match = m.match(/(\d+)\s*(sec|second|min|minute|hour)/i);
+      const n = parseInt(match[1], 10);
+      const unit = match[2].toLowerCase();
+      const mult = unit.startsWith("hour") ? 3600 : unit.startsWith("min") ? 60 : 1;
+      return { duration_seconds: n * mult };
+    },
+  },
+];
+
+function matchLocalQuickTool(message) {
+  for (const p of LOCAL_QUICK_PATTERNS) {
+    if (p.test(message)) return { name: p.name, args: p.args ? p.args(message) : {} };
+  }
+  return null;
+}
+
+// Trim every tool's description down to its first sentence for the
+// local prompt — cuts the schema from thousands of tokens to a few
+// hundred while keeping every tool name/parameter fully intact, so
+// the model can still pick correctly, it just costs far less to
+// prefill on CPU.
+const LOCAL_TOOLS = TOOLS.map(t => {
+  const firstSentence = (t.function.description || "").split(/(?<=[.!?])\s/)[0].slice(0, 160);
+  return { ...t, function: { ...t.function, description: firstSentence } };
+});
+
 // ── TOOL-CALLING CHAT ──────────────────────────────────────────
 // The replacement for regex command routing: Groq reads the message,
 // decides for itself whether an action is needed and which one, and
@@ -620,6 +677,30 @@ const TOOLS = [
 // tool fits, it just answers normally — same call either way.
 async function chatWithTools({ message, userTitle = "Sir", memories = [], context = "", conversationHistory = [], executeTool, tz }) {
   const T = userTitle || "Sir";
+
+  // ── LOCAL FAST PATH ─────────────────────────────────────────
+  // If we're local and the message unambiguously matches one of the
+  // common commands, skip the model entirely — no prompt to prefill,
+  // no tool-calling JSON to parse, just run the tool. This is the
+  // difference between an instant response and a multi-second CPU
+  // generation for the commands people say most.
+  if (Local.isLocalMode()) {
+    const quick = matchLocalQuickTool(message);
+    if (quick) {
+      let result;
+      try { result = await executeTool(quick.name, quick.args); }
+      catch (e) { result = { reply: `That didn't go through, ${T}. ${e.message || ""}`.trim() }; }
+      return {
+        reply: result?.reply || "",
+        action: result?.action,
+        intent: result?.intent,
+        meta: result?.meta,
+        toolCalls: [{ name: quick.name, args: quick.args, result }],
+        usedTool: true,
+      };
+    }
+  }
+
   const nowStr = (() => {
     try {
       return new Intl.DateTimeFormat("en-US", { timeZone: tz || undefined, dateStyle: "full", timeStyle: "short" }).format(new Date());
@@ -658,7 +739,18 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
   // per-minute cap).
   const looksCompoundGenerate = /\b(type|write)\b/i.test(message) &&
     /\b(script|code|program|game|function|poem|essay|story|paragraph|text|snippet|class|component)\b/i.test(message);
-  const assistantMsg = await groqFetchRaw(messages, {
+
+  const isLocal = Local.isLocalMode();
+  // Local: trimmed tool schema (short descriptions, see LOCAL_TOOLS
+  // above) and a much smaller max_tokens — CPU prefill/generation is
+  // slow enough that the cloud budgets (900/2048) can push a single
+  // request well past a minute. reasoning_effort is a Groq-only
+  // concept the local model doesn't understand, so it's omitted here.
+  const assistantMsg = await groqFetchRaw(messages, isLocal ? {
+    tools: LOCAL_TOOLS,
+    tool_choice: "auto",
+    maxTokens: looksCompoundGenerate ? 700 : 300,
+  } : {
     tools: TOOLS,
     tool_choice: "auto",
     maxTokens: looksCompoundGenerate ? 2048 : 900,
@@ -690,7 +782,11 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
   // on the message, not a regex router intercepting it beforehand.
   const calledNames = results.map(r => r.name);
 
-  if (calledNames.includes("open_on_computer") && !calledNames.includes("type_text") && looksCompoundGenerate) {
+  // Skipped entirely in local mode — a second forced round-trip would
+  // double an already-slow CPU generation for what's a rare edge case
+  // (compound "open X and type Y" where the model dropped the second
+  // call). Cloud keeps the safety net since Groq responses are fast.
+  if (!isLocal && calledNames.includes("open_on_computer") && !calledNames.includes("type_text") && looksCompoundGenerate) {
     try {
       const followupMessages = [
         ...messages,
