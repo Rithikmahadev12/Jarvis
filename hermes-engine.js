@@ -614,13 +614,14 @@ const TOOLS = [
 ];
 
 // ── LOCAL-MODE LIGHTWEIGHT ROUTING ─────────────────────────────
-// A CPU-only local Ollama model has two problems the cloud path
-// doesn't: (1) the full 24-tool schema above is thousands of tokens
-// to prefill on every single message, and (2) a general chat
-// finetune like zarigata/unfiltered-llama3 was never specifically
-// trained on OpenAI-style tool-calling JSON, so it can ramble or
-// never emit a clean call, burning the whole token budget instead
-// of a few dozen tokens.
+// A CPU-only local Ollama model still has two problems the cloud
+// path doesn't, even with an official tool-calling-capable model
+// like the default llama3.1:8b: (1) the full 24-tool schema above is
+// thousands of tokens to prefill on every single message on CPU, and
+// (2) an 8B local model is simply slower and less consistent at
+// emitting clean tool-calling JSON than Groq's hosted models, so it
+// can still occasionally ramble or malform a call, burning the whole
+// token budget instead of a few dozen tokens.
 //
 // Fix, two parts:
 //   1. LOCAL_QUICK_PATTERNS — a short list of unambiguous keyword
