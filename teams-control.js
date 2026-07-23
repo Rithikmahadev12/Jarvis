@@ -537,6 +537,24 @@ async function messageOnTeams(personName, text) {
 // Returns the matched contact name (see openChatWith's closest-match
 // fallback — may differ from personName if the exact text didn't hit).
 async function callOnTeams(personName, callType = "audio") {
+  // Search-box flow FIRST. It's a completely different mechanism from
+  // the Contacts-page row scan below — no scrolling, no hovering, no
+  // needing to tell "All contacts" apart from "Active now" at all,
+  // just Ctrl+E, type the name, click the "People" result. For a
+  // small contacts list especially, this is the more reliable path,
+  // so it's the primary one now rather than a fallback.
+  try {
+    const matchedName = await openChatViaSearchBox(personName);
+    const label = callType === "video" ? "video call button (camera icon)" : "audio call button (phone icon)";
+    const clicked = await vision.findAndClick(`the ${label} in the top-right toolbar of this Teams chat window`);
+    if (clicked && (await handlePreCallScreen())) {
+      await ensureRealMicSelected().catch(() => {});
+      return matchedName;
+    }
+  } catch { /* fall through to the Contacts-page path below */ }
+
+  // Search box didn't work out — fall back to the Contacts page's
+  // per-row call icon.
   const onContacts = await openContactsPage();
 
   if (onContacts && callType === "video") {
@@ -566,17 +584,7 @@ async function callOnTeams(personName, callType = "audio") {
     throw new Error(`Clicked to call ${personName} on Teams, but the call never actually started — no lobby or dialing screen appeared. It's possible the click landed in the wrong place.`);
   }
 
-  // Not found in Contacts (or the video submenu didn't work out) —
-  // fall back to opening the chat and using the toolbar call button.
-  const matchedName = await openChatViaSearchBox(personName);
-  const label = callType === "video" ? "video call button (camera icon)" : "audio call button (phone icon)";
-  const clicked = await vision.findAndClick(`the ${label} in the top-right toolbar of this Teams chat window`);
-  if (!clicked) throw new Error(`Couldn't find the ${callType} call button in this chat's toolbar.`);
-  if (!(await handlePreCallScreen())) {
-    throw new Error(`Clicked the ${callType} call button for ${matchedName}, but the call never actually started — no lobby or dialing screen appeared. It's possible the click landed in the wrong place.`);
-  }
-  await ensureRealMicSelected().catch(() => {});
-  return matchedName;
+  throw new Error(`Couldn't get a call started for "${personName}" — neither the Teams search box nor the Contacts page got a call dialing.`);
 }
 
 // ── JOIN TODAY'S MEETING ─────────────────────────────────────────
