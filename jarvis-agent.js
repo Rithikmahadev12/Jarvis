@@ -30,14 +30,14 @@ const { exec } = require("child_process");
 const os       = require("os");
 const fs       = require("fs");
 const path     = require("path");
+const GroqKeys = require("./groq-keys");
 
 // ── CONFIG ──────────────────────────────────────────────────────
-// Reuses the exact same GROQ_API_KEY / model conventions as
-// hermes-engine.js. GROQ_AGENT_MODEL lets you pin a different
+// Reuses the exact same GROQ_API_KEY(2,3...) pool as hermes-engine.js
+// (see groq-keys.js). GROQ_AGENT_MODEL lets you pin a different
 // (e.g. faster/cheaper) model for this small classification task
 // than whatever the main chat brain uses, but defaults to a sane
 // Groq model if unset.
-const GROQ_API_KEY   = process.env.GROQ_API_KEY || "";
 const GROQ_API_URL   = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_AGENT_MODEL = process.env.GROQ_AGENT_MODEL || process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b";
 
@@ -59,7 +59,7 @@ function isEnabled() {
 }
 
 function isConfigured() {
-  return !!GROQ_API_KEY;
+  return GroqKeys.hasGroqKey();
 }
 
 // ── REASONING: ask Groq what "open X" means ─────────────────────
@@ -75,13 +75,13 @@ const SYSTEM_PROMPT =
 // Asks Groq what the user's "open X" message actually means.
 // Returns { "target": "<string>" | null } (parsed from JSON).
 async function askGroq(userMessage) {
-  if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY not set in .env");
+  if (!GroqKeys.hasGroqKey()) throw new Error("GROQ_API_KEY not set in .env");
 
-  const res = await fetch(GROQ_API_URL, {
+  const doFetch = (key) => fetch(GROQ_API_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${GROQ_API_KEY}`,
+      "Authorization": `Bearer ${key}`,
     },
     body: JSON.stringify({
       model: GROQ_AGENT_MODEL,
@@ -97,6 +97,32 @@ async function askGroq(userMessage) {
     // "open X" flow with a network blip.
     signal: AbortSignal.timeout(20000),
   });
+
+  // Same multi-key failover as hermes-engine.js's groqFetchRaw: a
+  // network failure, timeout, 429, 401/403, or 5xx rotates to the
+  // next configured key (if any) and retries immediately.
+  const totalKeys = GroqKeys.groqKeyCount();
+  let res, lastError = null;
+
+  for (let attempt = 0; attempt < totalKeys; attempt++) {
+    const key = GroqKeys.currentGroqKey();
+    const isLastKey = attempt === totalKeys - 1;
+    try {
+      res = await doFetch(key);
+    } catch (e) {
+      lastError = new Error(`Could not reach Groq API: ${e.message}`);
+      if (isLastKey) throw lastError;
+      GroqKeys.rotateGroqKey();
+      continue;
+    }
+    if (!res.ok && (res.status === 429 || res.status === 401 || res.status === 403 || res.status >= 500) && !isLastKey) {
+      const body = await res.text().catch(() => "");
+      lastError = new Error(`Groq request failed (${res.status}): ${body.slice(0, 200)}`);
+      GroqKeys.rotateGroqKey();
+      continue;
+    }
+    break;
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
