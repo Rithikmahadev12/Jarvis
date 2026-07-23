@@ -11,11 +11,13 @@
 
 const fs   = require("fs");
 const path = require("path");
+const GroqKeys = require("./groq-keys");
 
 // ── CONFIG ─────────────────────────────────────────────────────
-// GROQ_API_KEY → your key from console.groq.com
+// GROQ_API_KEY → your key from console.groq.com. Add GROQ_API_KEY2,
+// GROQ_API_KEY3, etc. in .env for automatic failover — see
+// groq-keys.js for details.
 // GROQ_MODEL   → optional override; sensible Groq defaults below otherwise
-const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 // NOTE: Groq deprecated llama-3.1-8b-instant and llama-3.3-70b-versatile
@@ -125,62 +127,103 @@ async function groqFetchRaw(messages, options = {}) {
     reasoning_format = null,   // "parsed" | "raw" | "hidden"
   } = options;
 
-  if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY not set in .env");
+  if (!GroqKeys.hasGroqKey()) throw new Error("GROQ_API_KEY not set in .env");
 
   const body = { model, messages, temperature, max_tokens: maxTokens, stream: false };
   if (tools && tools.length) { body.tools = tools; body.tool_choice = tool_choice; }
   if (reasoning_effort) body.reasoning_effort = reasoning_effort;
   if (reasoning_format) body.reasoning_format = reasoning_format;
 
-  const doFetch = () => fetch(GROQ_API_URL, {
+  const doFetch = (key) => fetch(GROQ_API_URL, {
     method:  "POST",
     headers: {
-      "Authorization": `Bearer ${GROQ_API_KEY}`,
+      "Authorization": `Bearer ${key}`,
       "Content-Type":  "application/json",
     },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(30000),
   });
 
-  let res;
-  try {
-    res = await doFetch();
-  } catch (e) {
-    throw new Error(`Could not reach Groq API: ${e.message}`);
-  }
+  // ── MULTI-KEY FAILOVER ────────────────────────────────────────
+  // If only GROQ_API_KEY is set, behavior is unchanged from before.
+  // If GROQ_API_KEY2 (etc.) is also set, a network failure, timeout,
+  // rate limit (429), auth problem (401/403 — e.g. a revoked key), or
+  // Groq-side error (5xx) on the current key rotates to the next key
+  // and retries immediately instead of surfacing the failure. Each
+  // key is tried at most once per call; if every key fails, the last
+  // error encountered is what gets thrown.
+  const totalKeys = GroqKeys.groqKeyCount();
+  let lastError = null;
 
-  // ── 429 RETRY ────────────────────────────────────────────────────
-  // The account's TPM (tokens-per-minute) limit is small enough that a
-  // single request with tools + a big generated code block can bump
-  // into it, and Groq's error message tells us exactly how long to
-  // wait ("Please try again in 29.145s"). Rather than surface that as
-  // a failure, parse the wait time and retry once — capped at 15s so
-  // a genuinely long wait still fails fast instead of hanging the
-  // chat request.
-  if (res.status === 429) {
-    const err = await res.json().catch(() => ({}));
-    const msg = err.error?.message || "";
-    const waitMatch = msg.match(/try again in ([\d.]+)s/i);
-    const waitSecs = waitMatch ? Math.min(parseFloat(waitMatch[1]), 15) : null;
-    if (waitSecs !== null) {
-      await new Promise(r => setTimeout(r, Math.ceil(waitSecs * 1000) + 250));
-      try {
-        res = await doFetch();
-      } catch (e) {
-        throw new Error(`Could not reach Groq API: ${e.message}`);
-      }
-    } else {
-      throw new Error(`Groq API error 429: ${msg || "rate limit reached"}`);
+  for (let attempt = 0; attempt < totalKeys; attempt++) {
+    const key = GroqKeys.currentGroqKey();
+    const keyLabel = totalKeys > 1 ? ` (key ${attempt + 1}/${totalKeys})` : "";
+    const isLastKey = attempt === totalKeys - 1;
+
+    let res;
+    try {
+      res = await doFetch(key);
+    } catch (e) {
+      lastError = new Error(`Could not reach Groq API${keyLabel}: ${e.message}`);
+      if (isLastKey) throw lastError;
+      console.warn(`[GROQ]${keyLabel} network failure: ${e.message} — rotating to next key...`);
+      GroqKeys.rotateGroqKey();
+      continue;
     }
+
+    // ── 429 (RATE LIMIT) ──────────────────────────────────────────
+    // With only one key: wait out Groq's own stated cooldown and
+    // retry the SAME key once, same as before multi-key support
+    // existed. With more than one key: skip the wait and rotate to
+    // the next key immediately instead — strictly faster when a
+    // fallback is available.
+    if (res.status === 429) {
+      if (totalKeys > 1) {
+        const errBody = await res.json().catch(() => ({}));
+        lastError = new Error(`Groq API error 429${keyLabel}: ${errBody.error?.message || "rate limit reached"}`);
+        if (isLastKey) throw lastError;
+        console.warn(`[GROQ]${keyLabel} hit its rate limit — rotating to next key...`);
+        GroqKeys.rotateGroqKey();
+        continue;
+      }
+      const err = await res.json().catch(() => ({}));
+      const msg = err.error?.message || "";
+      const waitMatch = msg.match(/try again in ([\d.]+)s/i);
+      const waitSecs = waitMatch ? Math.min(parseFloat(waitMatch[1]), 15) : null;
+      if (waitSecs !== null) {
+        await new Promise(r => setTimeout(r, Math.ceil(waitSecs * 1000) + 250));
+        try {
+          res = await doFetch(key);
+        } catch (e) {
+          throw new Error(`Could not reach Groq API: ${e.message}`);
+        }
+      } else {
+        throw new Error(`Groq API error 429: ${msg || "rate limit reached"}`);
+      }
+    }
+
+    // ── AUTH / SERVER ERRORS ───────────────────────────────────────
+    // 401/403 (bad or revoked key) and 5xx (Groq-side trouble) are
+    // worth trying the next key for; anything else (400 bad request,
+    // etc.) fails immediately since another key wouldn't fix it.
+    if (!res.ok && (res.status === 401 || res.status === 403 || res.status >= 500) && !isLastKey) {
+      const errBody = await res.json().catch(() => ({}));
+      lastError = new Error(`Groq API error ${res.status}${keyLabel}: ${errBody.error?.message || res.statusText}`);
+      console.warn(`[GROQ]${keyLabel} failed with ${res.status} — rotating to next key...`);
+      GroqKeys.rotateGroqKey();
+      continue;
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`Groq API error ${res.status}: ${err.error?.message || res.statusText}`);
+    }
+
+    const data = await res.json();
+    return data.choices?.[0]?.message || {};
   }
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(`Groq API error ${res.status}: ${err.error?.message || res.statusText}`);
-  }
-
-  const data = await res.json();
-  return data.choices?.[0]?.message || {};
+  throw lastError || new Error("All configured Groq API keys failed.");
 }
 
 // ── TOOL DEFINITIONS ───────────────────────────────────────────
@@ -1031,7 +1074,7 @@ function clearLearnedIntents() {
 // spoken briefing in JARVIS's voice. Falls back to null (caller supplies
 // a canned template) if Groq isn't configured or the call fails.
 async function summarizeNewsSarcastically(articles, userTitle = "Sir", categoryLabel = "the world") {
-  if (!GROQ_API_KEY) return null;
+  if (!GroqKeys.hasGroqKey()) return null;
   const T = userTitle || "Sir";
   const headlineList = (articles || [])
     .slice(0, 6)
@@ -1059,7 +1102,7 @@ async function summarizeNewsSarcastically(articles, userTitle = "Sir", categoryL
   }
 }
 
-function isConfigured() { return !!GROQ_API_KEY; }
+function isConfigured() { return GroqKeys.hasGroqKey(); }
 
 module.exports = {
   chat,
