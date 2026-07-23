@@ -2,25 +2,19 @@
 // ═══════════════════════════════════════════════════════════════
 // J.A.R.V.I.S — Groq Engine v2.0
 // Talks DIRECTLY to Groq's cloud API (api.groq.com) — no local
-// gateway process, no separate agent to install/launch/babysit.
-// Exports the same interface the rest of the app expects
+// gateway process, no separate agent to install/launch/babysit, and
+// no local Ollama model to install/run. Exports the same interface
+// the rest of the app expects
 // (brain.js / server.js / ai-engine.js all require("./hermes-engine")
 // and call these functions), so nothing else needed to change.
 // ═══════════════════════════════════════════════════════════════
 
 const fs   = require("fs");
 const path = require("path");
-const Local = require("./local-llm");
 
 // ── CONFIG ─────────────────────────────────────────────────────
 // GROQ_API_KEY → your key from console.groq.com
 // GROQ_MODEL   → optional override; sensible Groq defaults below otherwise
-//
-// LOCAL MODE: when Jarvis is running on the user's own machine (i.e.
-// NOT on Render — see local-llm.js's isLocalMode()), every call below
-// is transparently routed to a local Ollama model instead, and Groq
-// is never contacted and GROQ_API_KEY is never read. Cloud deploys
-// keep using Groq exactly as before.
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
@@ -130,14 +124,6 @@ async function groqFetchRaw(messages, options = {}) {
     reasoning_effort = null,   // "low" | "medium" | "high" — reasoning models only (gpt-oss, qwen3.x)
     reasoning_format = null,   // "parsed" | "raw" | "hidden"
   } = options;
-
-  // ── LOCAL MODE: never touch Groq — use the local Ollama model. ──
-  // reasoning_effort/reasoning_format are Groq-only and simply don't
-  // apply here; everything else (messages, tools, temperature,
-  // maxTokens) passes straight through unchanged.
-  if (Local.isLocalMode()) {
-    return Local.ollamaChat(messages, { model: Local.OLLAMA_MODEL, temperature, maxTokens, tools, tool_choice });
-  }
 
   if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY not set in .env");
 
@@ -613,64 +599,6 @@ const TOOLS = [
   },
 ];
 
-// ── LOCAL-MODE LIGHTWEIGHT ROUTING ─────────────────────────────
-// A CPU-only local Ollama model still has two problems the cloud
-// path doesn't, even with an official tool-calling-capable model
-// like the default llama3.1:8b: (1) the full 24-tool schema above is
-// thousands of tokens to prefill on every single message on CPU, and
-// (2) an 8B local model is simply slower and less consistent at
-// emitting clean tool-calling JSON than Groq's hosted models, so it
-// can still occasionally ramble or malform a call, burning the whole
-// token budget instead of a few dozen tokens.
-//
-// Fix, two parts:
-//   1. LOCAL_QUICK_PATTERNS — a short list of unambiguous keyword
-//      matches for the commands people actually say most often.
-//      When one hits, we skip the model AND tool-calling entirely
-//      and just run the tool directly. Instant, no LLM round trip.
-//   2. LOCAL_TOOLS — everything else still goes to the model, but
-//      with descriptions trimmed to their first sentence (the bulk
-//      of each tool's token cost) instead of the full multi-
-//      paragraph versions above, and a much smaller max_tokens.
-const LOCAL_QUICK_PATTERNS = [
-  { name: "show_camera",     test: m => /\b(show|open|turn on|activate|enable|pull up)\b.*\bcamera\b/i.test(m) && !/\b(off|stop|disable|close|exit|hide|deactivate)\b/i.test(m) },
-  { name: "hide_camera",     test: m => /\bcamera\b/i.test(m) && /\b(off|stop|disable|close|exit|hide|deactivate)\b/i.test(m) },
-  { name: "mute_jarvis",     test: m => /^(jarvis[, ]+)?(mute|be quiet|shut up|stop talking|keep it down)\b/i.test(m.trim()) },
-  { name: "unmute_jarvis",   test: m => /^(jarvis[, ]+)?(unmute|speak again|you can talk again)\b/i.test(m.trim()) },
-  { name: "check_disk_space",test: m => /\b(disk space|storage space|how full is my (drive|hard drive))\b/i.test(m) },
-  { name: "scan_for_threats",test: m => /\b(scan .*(virus|threat|malware)|am i infected|check for threats)\b/i.test(m) },
-  { name: "stop_recording",  test: m => /\b(stop|end)\b.*\brecording\b/i.test(m) },
-  { name: "get_agenda",      test: m => /\b(what'?s on my agenda|what do i have today|anything coming up)\b/i.test(m) },
-  {
-    name: "set_timer",
-    test: m => /\b(set|start)?\s*(a\s*)?timer\b/i.test(m) && /\d+\s*(sec|second|min|minute|hour)/i.test(m),
-    args: m => {
-      const match = m.match(/(\d+)\s*(sec|second|min|minute|hour)/i);
-      const n = parseInt(match[1], 10);
-      const unit = match[2].toLowerCase();
-      const mult = unit.startsWith("hour") ? 3600 : unit.startsWith("min") ? 60 : 1;
-      return { duration_seconds: n * mult };
-    },
-  },
-];
-
-function matchLocalQuickTool(message) {
-  for (const p of LOCAL_QUICK_PATTERNS) {
-    if (p.test(message)) return { name: p.name, args: p.args ? p.args(message) : {} };
-  }
-  return null;
-}
-
-// Trim every tool's description down to its first sentence for the
-// local prompt — cuts the schema from thousands of tokens to a few
-// hundred while keeping every tool name/parameter fully intact, so
-// the model can still pick correctly, it just costs far less to
-// prefill on CPU.
-const LOCAL_TOOLS = TOOLS.map(t => {
-  const firstSentence = (t.function.description || "").split(/(?<=[.!?])\s/)[0].slice(0, 160);
-  return { ...t, function: { ...t.function, description: firstSentence } };
-});
-
 // ── TOOL-CALLING CHAT ──────────────────────────────────────────
 // The replacement for regex command routing: Groq reads the message,
 // decides for itself whether an action is needed and which one, and
@@ -679,42 +607,13 @@ const LOCAL_TOOLS = TOOLS.map(t => {
 async function chatWithTools({ message, userTitle = "Sir", memories = [], context = "", conversationHistory = [], executeTool, tz }) {
   const T = userTitle || "Sir";
 
-  // ── LOCAL FAST PATH ─────────────────────────────────────────
-  // If we're local and the message unambiguously matches one of the
-  // common commands, skip the model entirely — no prompt to prefill,
-  // no tool-calling JSON to parse, just run the tool. This is the
-  // difference between an instant response and a multi-second CPU
-  // generation for the commands people say most.
-  if (Local.isLocalMode()) {
-    const quick = matchLocalQuickTool(message);
-    if (quick) {
-      let result;
-      try { result = await executeTool(quick.name, quick.args); }
-      catch (e) { result = { reply: `That didn't go through, ${T}. ${e.message || ""}`.trim() }; }
-      return {
-        reply: result?.reply || "",
-        action: result?.action,
-        intent: result?.intent,
-        meta: result?.meta,
-        toolCalls: [{ name: quick.name, args: quick.args, result }],
-        usedTool: true,
-      };
-    }
-  }
-
   const nowStr = (() => {
     try {
       return new Intl.DateTimeFormat("en-US", { timeZone: tz || undefined, dateStyle: "full", timeStyle: "short" }).format(new Date());
     } catch { return new Date().toString(); }
   })();
 
-  const localMode = Local.isLocalMode();
-
-  const systemPrompt = localMode
-    ? getSystemPrompt(T, memories, context, [], true) + `
-
-You have tools for real actions (timers, reminders, weather, music, research, smart home, email, calendar, camera, recording, opening apps, running commands, typing text, security scans). Call the right tool when the user is asking you to DO something; otherwise just answer in plain text. Current date/time: ${nowStr}${tz ? ` (${tz})` : ""}.`
-    : getSystemPrompt(T, memories, context, []) + `
+  const systemPrompt = getSystemPrompt(T, memories, context, []) + `
 
 You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, reading a specific email in full once they pick one, checking their real Google Calendar, showing/hiding the live camera feed fullscreen, starting/stopping a downloadable screen/tab/webcam recording, instantly clipping the last N seconds of screen or webcam activity, noticing when the user needs a break, and (when Jarvis is running on the user's own computer) opening apps/files/URLs, checking disk space, running shell commands, typing text into the active window, and scanning for/neutralizing security threats. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. COMPOUND REQUESTS matter here: if the user asks for more than one thing in the same message (e.g. "open VS Code and type a flappy bird script"), call ALL the relevant tools in that SAME response — do not stop after the first one. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. After check_email lists unread emails and the user replies with something like "read the first one" or "the one from Sarah", call read_email with the right index or sender. If nothing calls for a tool, just answer normally in plain text.
 
@@ -747,17 +646,7 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
   const looksCompoundGenerate = /\b(type|write)\b/i.test(message) &&
     /\b(script|code|program|game|function|poem|essay|story|paragraph|text|snippet|class|component)\b/i.test(message);
 
-  const isLocal = localMode;
-  // Local: trimmed tool schema (short descriptions, see LOCAL_TOOLS
-  // above) and a much smaller max_tokens — CPU prefill/generation is
-  // slow enough that the cloud budgets (900/2048) can push a single
-  // request well past a minute. reasoning_effort is a Groq-only
-  // concept the local model doesn't understand, so it's omitted here.
-  const assistantMsg = await groqFetchRaw(messages, isLocal ? {
-    tools: LOCAL_TOOLS,
-    tool_choice: "auto",
-    maxTokens: looksCompoundGenerate ? 700 : 300,
-  } : {
+  const assistantMsg = await groqFetchRaw(messages, {
     tools: TOOLS,
     tool_choice: "auto",
     maxTokens: looksCompoundGenerate ? 2048 : 900,
@@ -789,11 +678,7 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
   // on the message, not a regex router intercepting it beforehand.
   const calledNames = results.map(r => r.name);
 
-  // Skipped entirely in local mode — a second forced round-trip would
-  // double an already-slow CPU generation for what's a rare edge case
-  // (compound "open X and type Y" where the model dropped the second
-  // call). Cloud keeps the safety net since Groq responses are fast.
-  if (!isLocal && calledNames.includes("open_on_computer") && !calledNames.includes("type_text") && looksCompoundGenerate) {
+  if (calledNames.includes("open_on_computer") && !calledNames.includes("type_text") && looksCompoundGenerate) {
     try {
       const followupMessages = [
         ...messages,
@@ -851,12 +736,10 @@ function getSystemPrompt(userTitle, memories, context, learnedExamples, compact 
     }`;
   }
 
-  // ── COMPACT VARIANT (local mode) ──────────────────────────────
-  // Same voice/rules, condensed to roughly a third of the token
-  // count. On a CPU-only local model this system prompt gets
-  // prefixed to EVERY single request, so trimming it is one of the
-  // cheapest wins available for cutting response latency — it costs
-  // nothing in capability, just verbosity.
+  // ── COMPACT VARIANT ─────────────────────────────────────────────
+  // Same voice/rules, condensed to roughly a third of the token count.
+  // Not currently used by default, kept available for any caller that
+  // wants a cheaper/shorter system prompt.
   if (compact) {
     return `You are J.A.R.V.I.S, Tony Stark's AI — formal, precise, dry British wit, address the user as "${T}" (not every line), never starts a reply with "I", never gushing or using exclamation points. Answer directly and usefully — you can handle anything (questions, code, math, advice). Keep replies under 3 sentences unless the request needs more.${memories && memories.length > 0 ? ` Known facts: ${memories.join(", ")}.` : ""}${context ? ` Context: ${context}.` : ""}${examplesBlock}`;
   }
@@ -943,15 +826,14 @@ async function chat(message, options = {}) {
     .sort((a, b) => (b.hitCount || 1) - (a.hitCount || 1))
     .slice(0, 2);
 
-  const localMode = Local.isLocalMode();
-  const systemPrompt = getSystemPrompt(userTitle, memories, context, relevantLearned, localMode);
+  const systemPrompt = getSystemPrompt(userTitle, memories, context, relevantLearned);
   const messages = [
     { role: "system", content: systemPrompt },
     ...conversationHistory.slice(-8),
     { role: "user", content: message },
   ];
 
-  const reply = await groqFetch(messages, MODELS.smart, 0.75, localMode ? 300 : 768);
+  const reply = await groqFetch(messages, MODELS.smart, 0.75, 768);
   const trimmedReply = reply.trim();
 
   if (!trimmedReply) throw new Error("Empty response from Groq");
@@ -1177,11 +1059,7 @@ async function summarizeNewsSarcastically(articles, userTitle = "Sir", categoryL
   }
 }
 
-// Locally, the "brain" is always considered configured — Ollama needs
-// no API key, just the app to be installed and `ollama serve` running
-// (ollamaChat() surfaces a clear error at call time if it isn't).
-// Only on a cloud deploy does this actually depend on GROQ_API_KEY.
-function isConfigured() { return Local.isLocalMode() ? true : !!GROQ_API_KEY; }
+function isConfigured() { return !!GROQ_API_KEY; }
 
 module.exports = {
   chat,
