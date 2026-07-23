@@ -45,31 +45,22 @@ if [ ! -f "$MODEL" ]; then
     echo "[STARTUP][WARN] Voice model config download failed."
 fi
 
-# ── AI BRAIN: Ollama locally, Groq in the cloud ──────────────────
-# Render sets $RENDER automatically on every deploy — that's the only
-# signal local-llm.js / jarvis-agent.js / screen-vision.js use to
-# decide Ollama vs Groq/Gemini (see local-llm.js's isLocalMode()).
-OLLAMA_MODEL_NAME="${OLLAMA_MODEL:-llama3.2:3b}"
+# ── AI BRAIN: Groq, everywhere (local machine or Render) ─────────
+# No local model to install or pull anymore — Jarvis always talks to
+# Groq's cloud API for the AI brain, the "open X on my computer"
+# agent, and screen-reading Q&A. $RENDER (set automatically by
+# Render on every deploy) is only used to tell whether the
+# "open X on my computer" agent should be enabled — there's no local
+# PC to control from a cloud deploy.
 if [ -n "$RENDER" ]; then
-  echo "[STARTUP] Running on Render (cloud) — using Groq's API for the AI brain."
-  if [ -n "$GROQ_API_KEY" ]; then
-    echo "[STARTUP] GROQ_API_KEY found — Jarvis will talk to Groq's API directly for the AI brain."
-  else
-    echo "[STARTUP][WARN] No GROQ_API_KEY found in .env — Jarvis's AI brain will be unavailable until you add one."
-  fi
-  echo "[STARTUP] Running on Render — Jarvis agent stays disabled (no local PC to control from here)."
+  echo "[STARTUP] Running on Render (cloud) — Jarvis agent stays disabled (no local PC to control from here)."
 else
-  echo "[STARTUP] Running locally — Groq/Gemini will NOT be used; the AI brain, the 'open X on my computer' agent, and screen-reading Q&A all go through the local Ollama model instead."
-  if command -v ollama >/dev/null 2>&1; then
-    if ! curl -fsS "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1; then
-      echo "[STARTUP][WARN] Ollama is installed but doesn't seem to be running — start it with 'ollama serve' (or 'ollama run $OLLAMA_MODEL_NAME')."
-    else
-      echo "[STARTUP] Ollama is running — pulling $OLLAMA_MODEL_NAME if it isn't already present (first run only, several GB)..."
-      ollama pull "$OLLAMA_MODEL_NAME" || echo "[STARTUP][WARN] 'ollama pull $OLLAMA_MODEL_NAME' failed — check the model name and your connection."
-    fi
-  else
-    echo "[STARTUP][WARN] Ollama isn't installed — install it from https://ollama.com, then run 'ollama pull $OLLAMA_MODEL_NAME' before the AI brain will work locally."
-  fi
+  echo "[STARTUP] Running locally — the 'open X on my computer' agent and screen-reading Q&A are enabled."
+fi
+if [ -n "$GROQ_API_KEY" ]; then
+  echo "[STARTUP] GROQ_API_KEY found — Jarvis will talk to Groq's API directly for the AI brain."
+else
+  echo "[STARTUP][WARN] No GROQ_API_KEY found in .env — Jarvis's AI brain will be unavailable until you add one."
 fi
 
 echo "[STARTUP] Launching voice server on :5050..."
