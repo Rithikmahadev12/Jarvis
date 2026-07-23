@@ -152,7 +152,10 @@ async function findContactRowAndClick(personName, action) {
       // existed yet — which is how the model ended up guessing at the
       // nearest plausible thing, including the tab bar above the list.
       const rowLoc = await vision.locateElement(
-        `the contact name "${personName}" (or the single closest visible match) as it appears in this Teams "All contacts" list — the name text itself, not any icon`
+        `the contact name ${JSON.stringify(personName)} (or the single closest visible match) as it appears in ` +
+        `the row/list of actual contacts in this Teams People page — the name text itself, not any icon, and NOT ` +
+        `the "All contacts" or "Active now" navigation items in the left sidebar.`,
+        { forceVision: true }
       );
       if (!rowLoc || !rowLoc.found) {
         await scrollContactsList("down");
