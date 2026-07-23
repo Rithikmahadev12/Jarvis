@@ -121,7 +121,7 @@ async function askGroq(userMessage) {
 }
 
 // Local-mode version of askGroq(), talking to Ollama instead. Small
-// local/unfiltered models don't reliably honor a strict json_object
+// some local models don't reliably honor a strict json_object
 // response_format the way Groq's hosted models do, so this asks for
 // JSON in the prompt itself and pulls the first {...} blob out of
 // whatever comes back, rather than assuming the whole reply parses.
