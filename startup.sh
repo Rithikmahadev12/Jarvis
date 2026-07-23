@@ -45,30 +45,30 @@ if [ ! -f "$MODEL" ]; then
     echo "[STARTUP][WARN] Voice model config download failed."
 fi
 
-if [ -n "$GROQ_API_KEY" ]; then
-  echo "[STARTUP] GROQ_API_KEY found — Jarvis will talk to Groq's API directly for the AI brain."
-else
-  echo "[STARTUP][WARN] No GROQ_API_KEY found in .env — Jarvis's AI brain will be unavailable until you add one."
-fi
-
-# ── JARVIS AGENT (Groq-powered, LOCAL-ONLY) ─────────────────────
-# Render sets $RENDER automatically on every deploy. When it's set,
-# we're running in the cloud — there's no local desktop for Jarvis
-# to open apps/files on, so the agent disables itself entirely
-# (see jarvis-agent.js's isEnabled()) and there's nothing to boot
-# here. When $RENDER is unset, we're on someone's own machine: the
-# agent reasons about "open X" requests using Groq's cloud API (the
-# same GROQ_API_KEY already checked above), not a local model — so,
-# unlike the old Ollama-based agent, there's no separate binary to
-# install and no model to pull. As long as GROQ_API_KEY is set, it's
-# ready the instant this instance starts locally.
+# ── AI BRAIN: Ollama locally, Groq in the cloud ──────────────────
+# Render sets $RENDER automatically on every deploy — that's the only
+# signal local-llm.js / jarvis-agent.js / screen-vision.js use to
+# decide Ollama vs Groq/Gemini (see local-llm.js's isLocalMode()).
+OLLAMA_MODEL_NAME="${OLLAMA_MODEL:-zarigata/unfiltered-llama3}"
 if [ -n "$RENDER" ]; then
+  echo "[STARTUP] Running on Render (cloud) — using Groq's API for the AI brain."
+  if [ -n "$GROQ_API_KEY" ]; then
+    echo "[STARTUP] GROQ_API_KEY found — Jarvis will talk to Groq's API directly for the AI brain."
+  else
+    echo "[STARTUP][WARN] No GROQ_API_KEY found in .env — Jarvis's AI brain will be unavailable until you add one."
+  fi
   echo "[STARTUP] Running on Render — Jarvis agent stays disabled (no local PC to control from here)."
 else
-  if [ -n "$GROQ_API_KEY" ]; then
-    echo "[STARTUP] Running locally — Jarvis agent ready (Groq-powered, 'open X on my computer' will work)."
+  echo "[STARTUP] Running locally — Groq/Gemini will NOT be used; the AI brain, the 'open X on my computer' agent, and screen-reading Q&A all go through the local Ollama model instead."
+  if command -v ollama >/dev/null 2>&1; then
+    if ! curl -fsS "http://127.0.0.1:11434/api/tags" >/dev/null 2>&1; then
+      echo "[STARTUP][WARN] Ollama is installed but doesn't seem to be running — start it with 'ollama serve' (or 'ollama run $OLLAMA_MODEL_NAME')."
+    else
+      echo "[STARTUP] Ollama is running — pulling $OLLAMA_MODEL_NAME if it isn't already present (first run only, several GB)..."
+      ollama pull "$OLLAMA_MODEL_NAME" || echo "[STARTUP][WARN] 'ollama pull $OLLAMA_MODEL_NAME' failed — check the model name and your connection."
+    fi
   else
-    echo "[STARTUP][WARN] Running locally but no GROQ_API_KEY set — Jarvis agent can't reason about 'open X' until one is added to .env."
+    echo "[STARTUP][WARN] Ollama isn't installed — install it from https://ollama.com, then run 'ollama pull $OLLAMA_MODEL_NAME' before the AI brain will work locally."
   fi
 fi
 
