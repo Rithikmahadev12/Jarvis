@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>J.A.R.V.I.S — Project Studio</title>
+<link rel="stylesheet" href="studio.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/dracula.min.css" />
+</head>
+<body>
+
+<!-- ═══════════════ ONBOARDING — "Sir, what are we building?" ═══════════════ -->
+<div id="onboard" class="onboard">
+  <div class="onboard-inner">
+    <div class="jarvis-mark">J.A.R.V.I.S</div>
+    <div class="onboard-q" id="onboard-q">Project Studio. What are we building today, Sir?</div>
+
+    <div class="type-cards" id="type-cards">
+      <button class="type-card" data-type="coding">
+        <div class="tc-icon">&lt;/&gt;</div>
+        <div class="tc-title">Coding Project</div>
+        <div class="tc-desc">Full editor, AI pair-programmer, and a live Run Script console.</div>
+      </button>
+      <button class="type-card" data-type="building">
+        <div class="tc-icon">&#9881;</div>
+        <div class="tc-title">Building Project</div>
+        <div class="tc-desc">Opens the hand-tracked CAD engine to design the physical thing.</div>
+      </button>
+      <button class="type-card" data-type="hybrid">
+        <div class="tc-icon">&#9889;</div>
+        <div class="tc-title">Both — Hybrid</div>
+        <div class="tc-desc">Code and CAD in one project. Build the thing, then run the code that drives it.</div>
+      </button>
+    </div>
+
+    <div id="name-step" class="name-step hidden">
+      <div class="onboard-q" id="name-q">Excellent. What shall we call it?</div>
+      <input id="project-name-input" class="name-input" type="text" placeholder="e.g. Robot Arm Voice Control" autocomplete="off" />
+      <button id="name-confirm" class="cta-btn">Create Project →</button>
+    </div>
+
+    <div id="recent-wrap" class="recent-wrap">
+      <div class="recent-label">Resume an existing project</div>
+      <div id="recent-list" class="recent-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════ IDE SHELL ═══════════════ -->
+<div id="ide" class="ide hidden">
+  <header class="ide-header">
+    <div class="brand">J.A.R.V.I.S <span class="brand-sub">STUDIO</span></div>
+    <div class="proj-name" id="proj-name" title="Project name">—</div>
+    <span class="badge" id="proj-type-badge">—</span>
+
+    <div class="ide-tabs" id="workspace-tabs">
+      <button class="ws-tab active" data-ws="code">CODE</button>
+      <button class="ws-tab hidden" id="ws-design-tab" data-ws="design">DESIGN</button>
+    </div>
+
+    <div class="spacer"></div>
+    <button class="ide-btn" id="btn-new-file" title="New file">+ FILE</button>
+    <button class="ide-btn" id="btn-save" title="Save current file">SAVE</button>
+    <button class="ide-btn accent" id="btn-run" title="Run current file">▶ RUN</button>
+    <button class="ide-btn" id="btn-download" title="Download project as ZIP">⇩ ZIP</button>
+    <button class="ide-btn danger" id="btn-back" title="Back to Jarvis">✕ EXIT</button>
+  </header>
+
+  <div class="ide-body">
+    <!-- CODE WORKSPACE -->
+    <div id="ws-code" class="ws-panel active">
+      <aside class="filetree">
+        <div class="filetree-label">FILES</div>
+        <div id="file-list" class="file-list"></div>
+      </aside>
+
+      <main class="editor-area">
+        <div id="editor-tabs" class="editor-tabs"></div>
+        <div id="editor-host" class="editor-host"></div>
+        <div class="console-wrap" id="console-wrap">
+          <div class="console-header" id="console-toggle">
+            <span>CONSOLE</span>
+            <span class="console-status" id="console-status">Ready</span>
+            <span class="console-chevron" id="console-chevron">▾</span>
+          </div>
+          <pre class="console-body" id="console-body">Run a script to see output here.</pre>
+        </div>
+      </main>
+
+      <aside class="ai-panel">
+        <div class="ai-header">AI ASSISTANT</div>
+        <div class="ai-log" id="ai-log">
+          <div class="ai-msg jarvis">Ask me to write, fix, or explain code — I can see whatever file you have open.</div>
+        </div>
+        <div class="ai-input-row">
+          <textarea id="ai-input" placeholder="Ask the AI for help…" rows="2"></textarea>
+          <button id="ai-send" class="cta-btn small">Send</button>
+        </div>
+      </aside>
+    </div>
+
+    <!-- DESIGN WORKSPACE (hybrid only) -->
+    <div id="ws-design" class="ws-panel">
+      <iframe id="design-iframe" class="design-iframe" src="" title="Build Mode"></iframe>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/clike/clike.min.js"></script>
+<script src="studio.js"></script>
+</body>
+</html>
