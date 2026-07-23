@@ -11,38 +11,33 @@
 // Cloud deploys (Render etc.) have no local Ollama to reach, so they
 // keep using Groq/Gemini exactly as before; nothing changes there.
 //
-// MODEL: defaults to zarigata/unfiltered-llama3
-// (https://ollama.com/zarigata/unfiltered-llama3) — an uncensored
-// Llama 3 finetune published under a third-party Ollama namespace,
-// not an official Meta/Ollama-library model. A couple of things
-// worth knowing before pulling it:
+// MODEL: defaults to llama3.1:8b (https://ollama.com/library/llama3.1)
+// — Meta's official Llama 3.1 8B instruct model, from Ollama's own
+// "library" namespace (reviewed/maintained, not a random third-party
+// upload). It's also the model Ollama used in their own tool-calling
+// announcement (https://ollama.com/blog/tool-support), so it's a
+// known-good pick for the function-calling Jarvis relies on — unlike
+// a general uncensored chat finetune, it was actually built with that
+// use case in mind.
 //   - Ollama model pulls are just weights (GGUF) + a small text
 //     Modelfile — there's no executable code that runs on your
-//     machine the way a binary or npm package could. That makes the
-//     "is it a virus" risk very different from, say, downloading a
-//     random .exe: the worst a malicious Modelfile can realistically
-//     do is set a weird system prompt or point at a bad weights URL.
-//   - That said, it's community-published (namespace "zarigata", not
-//     "library"/official), so nobody at Ollama or Meta has reviewed
-//     its behaviour. "Unfiltered" specifically means it has had
-//     safety fine-tuning removed, which is the point of it, but also
-//     means Jarvis's own output filtering (if any) is now the only
-//     thing between the raw model and the user.
-//   - Sensible precautions: check the model page's pull count /
-//     comments yourself before trusting it for anything sensitive,
-//     and don't feed it credentials or point it at tools that can
-//     take real-world actions (e.g. the "open X" / Teams-control
-//     agents below) without reviewing what it actually says first.
+//     machine the way a binary or npm package could.
+//   - It's still a normal, safety-tuned instruct model (no jailbroken/
+//     "unfiltered" finetuning), so Jarvis's usual guardrails apply as
+//     expected.
+//   - 8B is a reasonable size for CPU-only machines; if generations
+//     are still too slow, "llama3.2:3b" is smaller/faster (weaker
+//     tool-calling reliability), or "llama3.1:70b" if you have the
+//     RAM/GPU for something stronger.
 // ═══════════════════════════════════════════════════════════════
 
 const OLLAMA_URL          = process.env.OLLAMA_URL          || "http://127.0.0.1:11434";
-const OLLAMA_MODEL        = process.env.OLLAMA_MODEL        || "zarigata/unfiltered-llama3";
+const OLLAMA_MODEL        = process.env.OLLAMA_MODEL        || "llama3.1:8b";
 // Optional — only needed for the screen/image-vision fallback in
-// screen-vision.js. zarigata/unfiltered-llama3 is text-only, so
-// image understanding needs a genuinely multimodal local model
-// (e.g. "llama3.2-vision", "llava", "moondream"). Leave unset to
-// simply disable the local vision fallback rather than silently
-// reaching for Groq/Gemini.
+// screen-vision.js. llama3.1:8b is text-only, so image understanding
+// needs a genuinely multimodal local model (e.g. "llama3.2-vision",
+// "llava", "moondream"). Leave unset to simply disable the local
+// vision fallback rather than silently reaching for Groq/Gemini.
 const OLLAMA_VISION_MODEL = process.env.OLLAMA_VISION_MODEL || "";
 
 // How long to wait for a single Ollama call before giving up.
@@ -226,7 +221,7 @@ async function ollamaText(messages, model = OLLAMA_MODEL, temperature = 0.75, ma
 async function ollamaVision(base64Image, prompt) {
   if (!OLLAMA_VISION_MODEL) {
     throw new Error(
-      "No local vision model configured. zarigata/unfiltered-llama3 is text-only, so it can't look at " +
+      "No local vision model configured. llama3.1:8b is text-only, so it can't look at " +
       "images. Pull a multimodal model (e.g. `ollama pull llama3.2-vision`) and set OLLAMA_VISION_MODEL " +
       "in .env to enable local screen-vision fallback."
     );
