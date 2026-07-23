@@ -204,13 +204,40 @@ function isConfigured() {
 }
 
 // ── CAPTURE ─────────────────────────────────────────────────────
-// Returns { base64, width, height }. width/height come from the OS
-// display query so click coordinates can be mapped back correctly
-// even if a model describes positions relative to a resized image.
+// Returns { base64, width, height }. width/height are read directly
+// out of the captured PNG's own header — NOT from a separate "ask
+// Windows what the display resolution is" query. Those two numbers
+// only need to disagree slightly (a different monitor picked up by
+// screenshot-desktop than the one Screen.PrimaryScreen.Bounds
+// reports, a multi-monitor setup, screenshot-desktop applying its
+// own internal scaling) for every coordinate Gemini computes — based
+// on "this image is WxH" — to be silently wrong on click, and wrong
+// the SAME consistent way every single time, which looks exactly
+// like "it keeps clicking the same wrong spot" rather than a random
+// miss. Reading the real image bytes removes that entire class of
+// mismatch: what we tell the model is guaranteed to be the actual
+// image it's looking at.
 async function captureScreenshot() {
   const buf = await screenshot({ format: "png" });
+  const dims = getPngDimensions(buf);
+  if (dims) return { base64: buf.toString("base64"), width: dims.width, height: dims.height };
+  // Only if the buffer somehow isn't a well-formed PNG (shouldn't
+  // happen — screenshot-desktop always returns PNG) fall back to the
+  // old display-bounds query rather than returning no dimensions at
+  // all.
   const { width, height } = await getPrimaryDisplaySize();
   return { base64: buf.toString("base64"), width, height };
+}
+
+// Reads width/height straight from a PNG buffer's IHDR chunk — the
+// PNG spec fixes this at bytes 16-23 (big-endian uint32 each),
+// immediately after the 8-byte signature and 4-byte length + "IHDR"
+// tag, no library needed. Returns null if the buffer doesn't look
+// like a PNG (wrong signature) rather than throwing.
+function getPngDimensions(buf) {
+  const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  if (buf.length < 24 || !buf.subarray(0, 8).equals(PNG_SIGNATURE)) return null;
+  return { width: buf.readUInt32BE(16), height: buf.readUInt32BE(20) };
 }
 
 function getPrimaryDisplaySize() {
@@ -657,10 +684,14 @@ async function locateElement(description, opts = {}) {
   // that OCR fundamentally can't see. This is the one case that
   // still genuinely needs the vision model.
   const prompt =
-    `This screenshot is ${width}x${height} pixels. Find this UI element: "${description}". ` +
+    `This screenshot is exactly ${width}x${height} pixels — that is its real, full resolution, not a resized or ` +
+    `cropped preview. Find this UI element: "${description}". ` +
+    `Before answering, double-check you haven't confused it with a different, visually- or textually-similar ` +
+    `element elsewhere on screen (e.g. a similarly-worded nav item, tab, or label sitting near the target) — the ` +
+    `target must match the FULL description given, not just part of it. ` +
     `Reply with ONLY a JSON object, no prose, no markdown fences, in the exact shape ` +
-    `{"found": true, "x": <int>, "y": <int>} with x/y being the pixel center of the element ` +
-    `in this exact ${width}x${height} image. If you cannot find it, reply {"found": false}.`;
+    `{"found": true, "x": <int>, "y": <int>} with x/y being the pixel center of the element, as precise integer ` +
+    `pixel coordinates within this exact ${width}x${height} image. If you cannot find it, reply {"found": false}.`;
 
   const raw = await askVision(base64, prompt);
   let parsed;
