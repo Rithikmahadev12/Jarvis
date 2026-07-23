@@ -49,7 +49,7 @@ fi
 # Render sets $RENDER automatically on every deploy — that's the only
 # signal local-llm.js / jarvis-agent.js / screen-vision.js use to
 # decide Ollama vs Groq/Gemini (see local-llm.js's isLocalMode()).
-OLLAMA_MODEL_NAME="${OLLAMA_MODEL:-zarigata/unfiltered-llama3}"
+OLLAMA_MODEL_NAME="${OLLAMA_MODEL:-llama3.1:8b}"
 if [ -n "$RENDER" ]; then
   echo "[STARTUP] Running on Render (cloud) — using Groq's API for the AI brain."
   if [ -n "$GROQ_API_KEY" ]; then
