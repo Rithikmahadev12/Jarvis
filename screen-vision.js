@@ -60,18 +60,7 @@
 const { exec } = require("child_process");
 const os = require("os");
 const screenshot = require("screenshot-desktop");
-const Local = require("./local-llm");
 
-// LOCAL MODE: when running on the user's own machine (not Render),
-// askText()/askVision() below route to the local Ollama model
-// instead of Groq/Gemini — see local-llm.js. Text answers from OCR'd
-// text work fine on llama3.1:8b (it's just text in,
-// text out). The vision fallback (used when OCR finds no text at
-// all — a photo, paused video, unlabeled icon) needs an actual
-// multimodal model, which that model isn't; set OLLAMA_VISION_MODEL
-// in .env to a real local vision model (e.g. llama3.2-vision) to
-// enable it locally, otherwise that one fallback path is disabled
-// locally rather than silently calling Groq/Gemini.
 const GROQ_API_KEY = process.env.GROQ_API_KEY || "";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || "qwen/qwen3.6-27b";
@@ -149,10 +138,6 @@ const USE_GEMINI = GEMINI_API_KEYS.length > 0;
 const OCR_MIN_CONFIDENCE = 40;
 
 function isConfigured() {
-  // Locally, screen-reading's text path always works via Ollama (no
-  // key needed) — only the optional image-vision fallback needs
-  // OLLAMA_VISION_MODEL, and that's checked separately where it's used.
-  if (Local.isLocalMode()) return true;
   return !!(GROQ_API_KEY || GEMINI_API_KEYS.length);
 }
 
@@ -418,7 +403,6 @@ async function geminiRequest(prompt, base64Image = null) {
 // Costs a few hundred tokens instead of the ~1500-2000 a full
 // screenshot image costs through the vision model.
 async function askText(prompt) {
-  if (Local.isLocalMode()) return Local.ollamaText([{ role: "user", content: prompt }], Local.OLLAMA_MODEL, 0);
   if (USE_GEMINI) return geminiRequest(prompt);
   const messages = [{ role: "user", content: prompt }];
   return groqChatRequest(GROQ_TEXT_MODEL, messages);
@@ -427,7 +411,6 @@ async function askText(prompt) {
 // Vision-model call — kept as the fallback for screens/elements OCR
 // genuinely can't handle (graphical content, unlabeled icons).
 async function askVision(base64Image, prompt) {
-  if (Local.isLocalMode()) return Local.ollamaVision(base64Image, prompt);
   if (USE_GEMINI) return geminiRequest(prompt, base64Image);
   const messages = [
     {
