@@ -674,6 +674,38 @@ async function locateElement(description, opts = {}) {
 }
 
 // ── MOUSE CONTROL ────────────────────────────────────────────────
+// Moves the cursor WITHOUT clicking. Needed for hover-reveal UI —
+// e.g. Microsoft Teams only renders the chat/call/more icons on a
+// contacts-list row once the mouse is actually over that row; a
+// screenshot taken without hovering first simply doesn't have those
+// icons in it, which is how findAndClick ends up guessing at
+// something else nearby (like the tab bar above the list) instead.
+function moveMouseTo(x, y) {
+  const platform = os.platform();
+  if (platform === "win32") {
+    const ps = `
+Add-Type -TypeDefinition '
+using System;
+using System.Runtime.InteropServices;
+public class MouseMove {
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(int value);
+}';
+[MouseMove]::SetProcessDpiAwarenessContext(-4) | Out-Null;
+[MouseMove]::SetCursorPos(${Math.round(x)}, ${Math.round(y)});
+`.replace(/\r?\n/g, " ");
+    return runPS(ps);
+  }
+  if (platform === "darwin") {
+    // AppleScript's System Events doesn't have a clean pure hover
+    // primitive, but a zero-duration mouse-move via cliclick (if
+    // present) is the closest equivalent; fall back to a no-op if
+    // it's not installed rather than failing the whole flow.
+    return runCmd(`cliclick m:${Math.round(x)},${Math.round(y)}`).catch(() => {});
+  }
+  return Promise.reject(new Error("Hover isn't wired up for Linux yet — only screen reading works there."));
+}
+
 function clickAt(x, y) {
   const platform = os.platform();
   if (platform === "win32") {
@@ -698,6 +730,7 @@ Start-Sleep -Milliseconds 80;
     return runCmd(`osascript -e 'tell application "System Events" to click at {${Math.round(x)}, ${Math.round(y)}}'`);
   }
   return Promise.reject(new Error("Vision-guided clicking isn't wired up for Linux yet — only screen reading works there."));
+
 }
 
 function runPS(script) {
@@ -731,6 +764,7 @@ module.exports = {
   locateElement,
   forgetElement,
   clickAt,
+  moveMouseTo,
   findAndClick,
   GROQ_VISION_MODEL,
   GROQ_TEXT_MODEL,
