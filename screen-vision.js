@@ -65,7 +65,7 @@ const Local = require("./local-llm");
 // LOCAL MODE: when running on the user's own machine (not Render),
 // askText()/askVision() below route to the local Ollama model
 // instead of Groq/Gemini — see local-llm.js. Text answers from OCR'd
-// text work fine on zarigata/unfiltered-llama3 (it's just text in,
+// text work fine on llama3.1:8b (it's just text in,
 // text out). The vision fallback (used when OCR finds no text at
 // all — a photo, paused video, unlabeled icon) needs an actual
 // multimodal model, which that model isn't; set OLLAMA_VISION_MODEL
