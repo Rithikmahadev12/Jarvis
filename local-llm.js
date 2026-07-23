@@ -11,33 +11,31 @@
 // Cloud deploys (Render etc.) have no local Ollama to reach, so they
 // keep using Groq/Gemini exactly as before; nothing changes there.
 //
-// MODEL: defaults to llama3.1:8b (https://ollama.com/library/llama3.1)
-// — Meta's official Llama 3.1 8B instruct model, from Ollama's own
-// "library" namespace (reviewed/maintained, not a random third-party
-// upload). It's also the model Ollama used in their own tool-calling
-// announcement (https://ollama.com/blog/tool-support), so it's a
-// known-good pick for the function-calling Jarvis relies on — unlike
-// a general uncensored chat finetune, it was actually built with that
-// use case in mind.
+// MODEL: defaults to llama3.2:3b (https://ollama.com/library/llama3.2)
+// — Meta's official Llama 3.2 3B instruct model, from Ollama's
+// reviewed "library" namespace. Roughly a third the size of
+// llama3.1:8b, so noticeably faster to prefill/generate on CPU-only
+// hardware — the tradeoff is somewhat less reliable tool-call
+// picking than 8B, which is exactly what the LOCAL_QUICK_PATTERNS
+// keyword fast-path in hermes-engine.js exists to cover for the
+// commands people say most often.
 //   - Ollama model pulls are just weights (GGUF) + a small text
 //     Modelfile — there's no executable code that runs on your
 //     machine the way a binary or npm package could.
-//   - It's still a normal, safety-tuned instruct model (no jailbroken/
-//     "unfiltered" finetuning), so Jarvis's usual guardrails apply as
-//     expected.
-//   - 8B is a reasonable size for CPU-only machines; if generations
-//     are still too slow, "llama3.2:3b" is smaller/faster (weaker
-//     tool-calling reliability), or "llama3.1:70b" if you have the
-//     RAM/GPU for something stronger.
+//   - Normal, safety-tuned instruct model, same as llama3.1:8b.
+//   - If tool-calling accuracy on uncommon phrasings matters more
+//     than raw speed, "llama3.1:8b" is the more capable option;
+//     if even 3b is too slow, try "llama3.2:1b" or "qwen2.5:1.5b".
 // ═══════════════════════════════════════════════════════════════
 
 const OLLAMA_URL          = process.env.OLLAMA_URL          || "http://127.0.0.1:11434";
-const OLLAMA_MODEL        = process.env.OLLAMA_MODEL        || "llama3.1:8b";
+const OLLAMA_MODEL        = process.env.OLLAMA_MODEL        || "llama3.2:3b";
 // Optional — only needed for the screen/image-vision fallback in
-// screen-vision.js. llama3.1:8b is text-only, so image understanding
-// needs a genuinely multimodal local model (e.g. "llama3.2-vision",
-// "llava", "moondream"). Leave unset to simply disable the local
-// vision fallback rather than silently reaching for Groq/Gemini.
+// screen-vision.js. llama3.2:3b (text) is not multimodal, so image
+// understanding needs a genuinely multimodal local model (e.g.
+// "llama3.2-vision", "llava", "moondream"). Leave unset to simply
+// disable the local vision fallback rather than silently reaching
+// for Groq/Gemini.
 const OLLAMA_VISION_MODEL = process.env.OLLAMA_VISION_MODEL || "";
 
 // How long to wait for a single Ollama call before giving up.
@@ -193,6 +191,7 @@ async function ollamaChat(messages, options = {}) {
   // responding at all.
   return enqueue(async () => {
     const startedAt = Date.now();
+    console.log(`[OLLAMA] sending request to ${model} (${JSON.stringify(messages).length} chars)...`);
     try {
       const result = await attempt();
       console.log(`[OLLAMA] ${model} responded in ${Date.now() - startedAt}ms`);
@@ -219,7 +218,7 @@ async function ollamaText(messages, model = OLLAMA_MODEL, temperature = 0.75, ma
 async function ollamaVision(base64Image, prompt) {
   if (!OLLAMA_VISION_MODEL) {
     throw new Error(
-      "No local vision model configured. llama3.1:8b is text-only, so it can't look at " +
+      "No local vision model configured. llama3.2:3b is text-only, so it can't look at " +
       "images. Pull a multimodal model (e.g. `ollama pull llama3.2-vision`) and set OLLAMA_VISION_MODEL " +
       "in .env to enable local screen-vision fallback."
     );
@@ -251,6 +250,7 @@ async function ollamaVision(base64Image, prompt) {
 
   return enqueue(async () => {
     const startedAt = Date.now();
+    console.log(`[OLLAMA-VISION] sending request to ${OLLAMA_VISION_MODEL}...`);
     try {
       const result = await attempt();
       console.log(`[OLLAMA-VISION] ${OLLAMA_VISION_MODEL} responded in ${Date.now() - startedAt}ms`);
