@@ -45,6 +45,20 @@ const OLLAMA_MODEL        = process.env.OLLAMA_MODEL        || "zarigata/unfilte
 // reaching for Groq/Gemini.
 const OLLAMA_VISION_MODEL = process.env.OLLAMA_VISION_MODEL || "";
 
+// How long to wait for a single Ollama call before giving up.
+// Overridable in .env — bump this if you're on a genuinely slow
+// CPU-only machine and legitimate generations run long.
+const OLLAMA_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT_MS || "", 10) || 120000;
+
+// How long Ollama should keep the model loaded in memory after a
+// request finishes, so the NEXT request doesn't have to reload the
+// whole model from disk. Ollama's default keep_alive is only 5
+// minutes; on a CPU-only box reloading a multi-GB model back into
+// RAM can easily blow past a 120s timeout on its own, which is a
+// very plausible reason "it worked for 2 requests then failed" —
+// the 3rd one landed after the model had already been unloaded.
+const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || "30m";
+
 // ── ENVIRONMENT DETECTION ──────────────────────────────────────
 // Render sets RENDER=true (and other RENDER_* vars) on every
 // instance automatically — same pattern already used by
@@ -65,6 +79,26 @@ function isLocalMode() {
 
 function hasVisionModel() {
   return !!OLLAMA_VISION_MODEL;
+}
+
+// ── REQUEST QUEUE ───────────────────────────────────────────────
+// A CPU-only Ollama instance effectively handles one generation at
+// a time. Jarvis has several background jobs (proactive.js,
+// self-improve.js, briefing/news summarization, memory sync
+// triggers, etc.) that can all decide to call the model around the
+// same time as a live chat message. Without serializing, those pile
+// up behind whichever request got there first, and by the time an
+// earlier one finishes, later ones have already blown past their
+// own timeout — which looks exactly like "worked, worked, then
+// timed out for no reason." Running everything through this queue
+// means each call waits its turn instead of racing and starving.
+let _queue = Promise.resolve();
+function enqueue(fn) {
+  const run = _queue.then(fn, fn);
+  // Swallow errors here so one failed call doesn't wedge the queue
+  // for everything queued after it.
+  _queue = run.then(() => {}, () => {});
+  return run;
 }
 
 async function isOllamaServing() {
@@ -121,33 +155,60 @@ async function ollamaChat(messages, options = {}) {
     temperature,
     max_tokens: maxTokens,
     stream: false,
+    // Keep the model resident between calls — see OLLAMA_KEEP_ALIVE
+    // above. Ollama's OpenAI-compatible endpoint passes this through
+    // even though it's not part of the official OpenAI schema.
+    keep_alive: OLLAMA_KEEP_ALIVE,
   };
   if (tools && tools.length) { body.tools = tools; body.tool_choice = tool_choice; }
 
-  let res;
-  try {
-    res = await fetch(`${OLLAMA_URL}/v1/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120000), // local generation can be slow on CPU-only setups
-    });
-  } catch (e) {
-    throw new Error(`Could not reach local Ollama: ${friendlyOllamaError(e)}`);
-  }
+  const attempt = async () => {
+    let res;
+    try {
+      res = await fetch(`${OLLAMA_URL}/v1/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
+      });
+    } catch (e) {
+      throw new Error(`Could not reach local Ollama: ${friendlyOllamaError(e)}`);
+    }
 
-  if (res.status === 404) {
-    throw new Error(
-      `Ollama doesn't have "${model}" pulled yet. Run: ollama pull ${model}`
-    );
-  }
-  if (!res.ok) {
-    const body2 = await res.text().catch(() => "");
-    throw new Error(`Ollama API error ${res.status}: ${body2.slice(0, 300)}`);
-  }
+    if (res.status === 404) {
+      throw new Error(
+        `Ollama doesn't have "${model}" pulled yet. Run: ollama pull ${model}`
+      );
+    }
+    if (!res.ok) {
+      const body2 = await res.text().catch(() => "");
+      throw new Error(`Ollama API error ${res.status}: ${body2.slice(0, 300)}`);
+    }
 
-  const data = await res.json();
-  return data.choices?.[0]?.message || {};
+    const data = await res.json();
+    return data.choices?.[0]?.message || {};
+  };
+
+  // Serialize against every other Ollama call Jarvis makes (see the
+  // queue above), then retry ONE time on a timeout specifically —
+  // a queued request that finally gets its turn right as the model
+  // was mid-reload is exactly the "worked twice then timed out"
+  // symptom, and a fresh attempt right after usually lands on an
+  // already-warm model instead of triggering a second reload.
+  return enqueue(async () => {
+    try {
+      return await attempt();
+    } catch (e) {
+      if (/timed out/i.test(e.message)) {
+        try {
+          return await attempt();
+        } catch (e2) {
+          throw e2;
+        }
+      }
+      throw e;
+    }
+  });
 }
 
 // Convenience wrapper mirroring hermes-engine.js's groqFetch (plain
@@ -170,27 +231,41 @@ async function ollamaVision(base64Image, prompt) {
       "in .env to enable local screen-vision fallback."
     );
   }
-  let res;
-  try {
-    res = await fetch(`${OLLAMA_URL}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: OLLAMA_VISION_MODEL,
-        stream: false,
-        messages: [{ role: "user", content: prompt, images: [base64Image] }],
-      }),
-      signal: AbortSignal.timeout(120000),
-    });
-  } catch (e) {
-    throw new Error(`Could not reach local Ollama: ${friendlyOllamaError(e)}`);
-  }
-  if (!res.ok) {
-    const body2 = await res.text().catch(() => "");
-    throw new Error(`Ollama vision error ${res.status}: ${body2.slice(0, 300)}`);
-  }
-  const data = await res.json();
-  return data?.message?.content || "";
+  const attempt = async () => {
+    let res;
+    try {
+      res = await fetch(`${OLLAMA_URL}/api/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: OLLAMA_VISION_MODEL,
+          stream: false,
+          keep_alive: OLLAMA_KEEP_ALIVE,
+          messages: [{ role: "user", content: prompt, images: [base64Image] }],
+        }),
+        signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
+      });
+    } catch (e) {
+      throw new Error(`Could not reach local Ollama: ${friendlyOllamaError(e)}`);
+    }
+    if (!res.ok) {
+      const body2 = await res.text().catch(() => "");
+      throw new Error(`Ollama vision error ${res.status}: ${body2.slice(0, 300)}`);
+    }
+    const data = await res.json();
+    return data?.message?.content || "";
+  };
+
+  return enqueue(async () => {
+    try {
+      return await attempt();
+    } catch (e) {
+      if (/timed out/i.test(e.message)) {
+        try { return await attempt(); } catch (e2) { throw e2; }
+      }
+      throw e;
+    }
+  });
 }
 
 module.exports = {
