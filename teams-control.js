@@ -142,13 +142,34 @@ async function findContactRowAndClick(personName, action) {
     await scrollContactsList("top");
     await sleep(300);
     for (let i = 0; i <= maxScrolls; i++) {
+      // Teams only renders a row's chat/call/more icons once the
+      // mouse is actually hovering that row — a screenshot taken cold
+      // simply doesn't have them in it. Find the row by its name text
+      // first (cheap, works off plain OCR since the name is always
+      // visible), hover there, give the hover state a beat to render,
+      // THEN look for the icon. Without this, "find the phone icon"
+      // was being asked of a screenshot where no phone icon actually
+      // existed yet — which is how the model ended up guessing at the
+      // nearest plausible thing, including the tab bar above the list.
+      const rowLoc = await vision.locateElement(
+        `the contact name "${personName}" (or the single closest visible match) as it appears in this Teams "All contacts" list — the name text itself, not any icon`
+      );
+      if (!rowLoc || !rowLoc.found) {
+        await scrollContactsList("down");
+        await sleep(500);
+        continue;
+      }
+      await vision.moveMouseTo(rowLoc.x, rowLoc.y);
+      await sleep(400); // let the row's hover-reveal icons actually render
+
       const clicked = await vision.findAndClick(
-        `In this Microsoft Teams "All contacts" list (this must be the "All contacts" tab, NOT the "Active now" tab — ` +
-        `if what's on screen is actually "Active now", do not click anything, this is the wrong list), find the row ` +
-        `for the contact named "${personName}" (or the single closest visible match to that name if there's no exact ` +
-        `hit), then click ${iconLabel} that appears on THAT SPECIFIC row — the icons sit to the right of the name. ` +
-        `Don't click the name/avatar itself, and don't click an icon belonging to a different row.`,
-        { forceVision: true }
+        `In this Microsoft Teams "All contacts" list, the mouse is currently hovering the row for "${personName}" ` +
+        `(or the closest match), which should now be showing its hover icons. Click ${iconLabel} that appears on ` +
+        `THAT SPECIFIC hovered row — the icons sit to the right of the name, roughly level with it vertically. ` +
+        `Don't click the name/avatar itself, and don't click an icon belonging to a different row. ` +
+        `IMPORTANT: do NOT click the "All contacts" or "Active now" tab buttons near the top of this panel — those ` +
+        `are page tabs, not contact rows, even if the hovered row sits close beneath them.`,
+        { forceVision: true, skipCache: true }
       );
       // A reported click isn't proof it hit the right target — verify
       // the screen actually changed the way this action should change
@@ -157,6 +178,24 @@ async function findContactRowAndClick(personName, action) {
       // "Active now" content used to get reported back as a working
       // call/chat/menu when nothing of the sort had actually happened.
       if (clicked && (await verifyRowActionTookEffect(action))) return true;
+
+      // If that miss actually knocked the panel back onto "Active
+      // now" (the tab bar sits right above the topmost row, so an
+      // imprecise click near that first row can land on the tab above
+      // it instead), the rest of this scan would silently keep
+      // scrolling through the wrong list. Catch that here and fix the
+      // tab before continuing, rather than burning the remaining
+      // scroll passes on "Active now".
+      const stillOnAllContacts = (await vision.lookAtScreen(
+        `In this Microsoft Teams People panel, which tab is currently selected/highlighted — "All contacts" or "Active now"? Reply with only ALL_CONTACTS or ACTIVE_NOW or NEITHER.`
+      )).trim().toUpperCase();
+      if (stillOnAllContacts.includes("ACTIVE_NOW")) {
+        if (!(await ensureAllContactsTabSelected())) return false; // can't recover — let the caller fall back
+        await scrollContactsList("top");
+        await sleep(300);
+        continue; // re-scan this same screen now that we're back on the right tab
+      }
+
       await scrollContactsList("down");
       await sleep(500);
     }
