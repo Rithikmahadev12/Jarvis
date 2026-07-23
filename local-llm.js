@@ -185,22 +185,20 @@ async function ollamaChat(messages, options = {}) {
   };
 
   // Serialize against every other Ollama call Jarvis makes (see the
-  // queue above), then retry ONE time on a timeout specifically —
-  // a queued request that finally gets its turn right as the model
-  // was mid-reload is exactly the "worked twice then timed out"
-  // symptom, and a fresh attempt right after usually lands on an
-  // already-warm model instead of triggering a second reload.
+  // queue above). NOTE: no retry-on-timeout here anymore — on hardware
+  // where the model is genuinely too slow, retrying just means waiting
+  // through TWO full timeouts before the user sees anything, which is
+  // worse, not better. Log elapsed time either way so it's obvious
+  // from the console whether Ollama is slow, hanging, or not
+  // responding at all.
   return enqueue(async () => {
+    const startedAt = Date.now();
     try {
-      return await attempt();
+      const result = await attempt();
+      console.log(`[OLLAMA] ${model} responded in ${Date.now() - startedAt}ms`);
+      return result;
     } catch (e) {
-      if (/timed out/i.test(e.message)) {
-        try {
-          return await attempt();
-        } catch (e2) {
-          throw e2;
-        }
-      }
+      console.error(`[OLLAMA] ${model} failed after ${Date.now() - startedAt}ms: ${e.message}`);
       throw e;
     }
   });
@@ -252,12 +250,13 @@ async function ollamaVision(base64Image, prompt) {
   };
 
   return enqueue(async () => {
+    const startedAt = Date.now();
     try {
-      return await attempt();
+      const result = await attempt();
+      console.log(`[OLLAMA-VISION] ${OLLAMA_VISION_MODEL} responded in ${Date.now() - startedAt}ms`);
+      return result;
     } catch (e) {
-      if (/timed out/i.test(e.message)) {
-        try { return await attempt(); } catch (e2) { throw e2; }
-      }
+      console.error(`[OLLAMA-VISION] ${OLLAMA_VISION_MODEL} failed after ${Date.now() - startedAt}ms: ${e.message}`);
       throw e;
     }
   });
