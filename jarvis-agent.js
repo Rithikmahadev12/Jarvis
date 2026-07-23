@@ -30,6 +30,7 @@ const { exec } = require("child_process");
 const os       = require("os");
 const fs       = require("fs");
 const path     = require("path");
+const Local    = require("./local-llm");
 
 // ── CONFIG ──────────────────────────────────────────────────────
 // Reuses the exact same GROQ_API_KEY / model conventions as
@@ -37,6 +38,12 @@ const path     = require("path");
 // (e.g. faster/cheaper) model for this small classification task
 // than whatever the main chat brain uses, but defaults to a sane
 // Groq model if unset.
+//
+// LOCAL MODE: when running on the user's own machine (not Render),
+// this reasoning step is done entirely by the local Ollama model
+// (local-llm.js) instead — Groq is never contacted. This is what
+// used to be hermes-agent.js's job (Hermes 3 via Ollama); that file
+// is no longer needed since this one now covers both cases itself.
 const GROQ_API_KEY   = process.env.GROQ_API_KEY || "";
 const GROQ_API_URL   = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_AGENT_MODEL = process.env.GROQ_AGENT_MODEL || process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b";
@@ -59,7 +66,7 @@ function isEnabled() {
 }
 
 function isConfigured() {
-  return !!GROQ_API_KEY;
+  return Local.isLocalMode() ? true : !!GROQ_API_KEY;
 }
 
 // ── REASONING: ask Groq what "open X" means ─────────────────────
@@ -72,7 +79,12 @@ const SYSTEM_PROMPT =
   'exactly as given, or a full URL. If you truly cannot tell what they want opened, reply ' +
   '{"target": null}.';
 
+// Asks the configured brain (local Ollama, or Groq on a cloud deploy)
+// what the user's "open X" message actually means. Same JSON-object
+// contract either way: { "target": "<string>" | null }.
 async function askGroq(userMessage) {
+  if (Local.isLocalMode()) return askOllama(userMessage);
+
   if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY not set in .env");
 
   const res = await fetch(GROQ_API_URL, {
@@ -105,6 +117,26 @@ async function askGroq(userMessage) {
   const raw = data?.choices?.[0]?.message?.content || "{}";
   let parsed;
   try { parsed = JSON.parse(raw); } catch { parsed = {}; }
+  return parsed.target || null;
+}
+
+// Local-mode version of askGroq(), talking to Ollama instead. Small
+// local/unfiltered models don't reliably honor a strict json_object
+// response_format the way Groq's hosted models do, so this asks for
+// JSON in the prompt itself and pulls the first {...} blob out of
+// whatever comes back, rather than assuming the whole reply parses.
+async function askOllama(userMessage) {
+  const msg = await Local.ollamaChat(
+    [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userMessage },
+    ],
+    { model: Local.OLLAMA_MODEL, temperature: 0, maxTokens: 128 }
+  );
+  const raw = msg.content || "";
+  const match = raw.match(/\{[\s\S]*\}/);
+  let parsed = {};
+  try { parsed = JSON.parse(match ? match[0] : raw); } catch { parsed = {}; }
   return parsed.target || null;
 }
 
@@ -237,6 +269,8 @@ async function openOnComputer(userMessage) {
   if (!isConfigured()) {
     throw new Error("GROQ_API_KEY isn't set in .env, so the Jarvis agent can't reason about what to open yet.");
   }
+  // (Locally, isConfigured() is always true — Ollama errors surface on
+  // their own from askOllama() if it isn't actually running yet.)
 
   const target = await askGroq(userMessage);
   if (!target) throw new Error("Couldn't figure out what you want opened.");
