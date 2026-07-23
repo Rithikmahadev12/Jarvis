@@ -132,6 +132,50 @@ function scrollContactsList(direction) {
 // after a short pause if nothing hits the first time (recently-added
 // contact that hadn't synced into view yet). Returns true/false —
 // never throws — so callers can decide whether to fall back.
+// ── GOAL-DRIVEN FALLBACK ────────────────────────────────────────
+// A scripted click aims at one specific, named target based on one
+// screenshot. When it misses — the target was a few pixels further
+// right than the model estimated, a hover state hadn't fully
+// rendered, whatever — retrying the exact same prompt just aims the
+// same way again and misses the same way again.
+//
+// This is the alternative: forget the specific target, state the
+// GOAL instead, and let the model look at whatever is actually on
+// screen right now (which might be a wrong tab, a stray popup, a
+// half-hovered row — anything) and decide the single next click that
+// moves toward that goal. Same technique joinMeetingByLink() already
+// uses for meeting-join flows, generalized here so any scripted step
+// in this file can drop back to it on a miss instead of just
+// retrying blind. doneCheckFn is called before AND after each click
+// so it exits the moment the goal is actually reached, even if that
+// happens to be step 1.
+async function goalDrivenClickFallback(goalDescription, doneCheckFn, opts = {}) {
+  const maxSteps = opts.maxSteps || 4;
+  const stepDelayMs = opts.stepDelayMs || 900;
+
+  for (let step = 0; step < maxSteps; step++) {
+    if (await doneCheckFn()) return true;
+
+    const next = await vision.locateElement(
+      `The goal right now is: ${goalDescription} — figure out the SINGLE most important thing to click next on the ` +
+      `current screen to make progress toward that goal. This might mean recovering from a wrong screen or tab, ` +
+      `dismissing something in the way, or clicking the actual target itself — use whatever is genuinely visible ` +
+      `right now, don't assume the screen matches any particular expected layout. Be precise about WHERE on the ` +
+      `element to click: if it's a small icon next to a name or label, click squarely on the icon's own pixels, not ` +
+      `the edge of the row or a neighboring, similar-looking element.`,
+      { forceVision: true, skipCache: true }
+    );
+    if (!next || !next.found) {
+      await sleep(stepDelayMs);
+      continue;
+    }
+    await vision.clickAt(next.x, next.y);
+    await sleep(stepDelayMs);
+    if (await doneCheckFn()) return true;
+  }
+  return false;
+}
+
 async function findContactRowAndClick(personName, action) {
   const iconLabel = action === "chat" ? `the chat/message bubble icon`
     : action === "more" ? `the "..." (more options) icon`
@@ -180,15 +224,34 @@ async function findContactRowAndClick(personName, action) {
       // landed on the row itself (opening a profile card) or on
       // "Active now" content used to get reported back as a working
       // call/chat/menu when nothing of the sort had actually happened.
-      if (clicked && (await verifyRowActionTookEffect(action))) return true;
+      const doneCheck = () => verifyRowActionTookEffect(action);
+      if (clicked && (await doneCheck())) return true;
 
-      // If that miss actually knocked the panel back onto "Active
-      // now" (the tab bar sits right above the topmost row, so an
-      // imprecise click near that first row can land on the tab above
-      // it instead), the rest of this scan would silently keep
-      // scrolling through the wrong list. Catch that here and fix the
-      // tab before continuing, rather than burning the remaining
-      // scroll passes on "Active now".
+      // The scripted click missed — retrying the exact same coordinate
+      // logic just repeats the same mistake (e.g. a click that landed
+      // slightly short of the icon and hit "Active now" instead — a
+      // hardcoded "click the icon" prompt has no way to notice or
+      // correct that on retry, it'll aim the same way again). Instead,
+      // fall back to an open-ended goal loop: re-look at whatever is
+      // actually on screen right now (which might be "Active now", a
+      // stray popup, anything) and ask the model to figure out the
+      // single next click toward the real goal, same technique
+      // joinMeetingByLink already uses for less-predictable flows.
+      const goalFallbackWorked = await goalDrivenClickFallback(
+        `Get to the point where a ${action === "call" ? "phone call" : action === "chat" ? "chat conversation" : "options menu"} ` +
+        `has been opened/started for the Teams contact named "${personName}" (or the closest visible match), starting ` +
+        `from Teams' Contacts/People page. If "Active now" is currently showing instead of "All contacts", switch to ` +
+        `"All contacts" first — the target contact may not be in "Active now" at all.`,
+        doneCheck
+      );
+      if (goalFallbackWorked) return true;
+
+      // Still no luck — if that whole detour actually knocked the
+      // panel back onto "Active now" (the tab bar sits right above
+      // the topmost row, so an imprecise click near that first row can
+      // land on the tab above it instead), the rest of this scan would
+      // silently keep scrolling through the wrong list. Catch that
+      // here and fix the tab before continuing.
       const stillOnAllContacts = (await vision.lookAtScreen(
         `In this Microsoft Teams People panel, which tab is currently selected/highlighted — "All contacts" or "Active now"? Reply with only ALL_CONTACTS or ACTIVE_NOW or NEITHER.`
       )).trim().toUpperCase();
@@ -966,4 +1029,5 @@ module.exports = {
   switchTeamsMicTo,
   switchTeamsMicBack,
   ensureRealMicSelected,
+  goalDrivenClickFallback,
 };
