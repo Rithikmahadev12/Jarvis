@@ -788,7 +788,30 @@ function updateLiveHearing(text) {
 }
 
 // ── WAKE WORD ──
-function hasWakeWord(lower) { return /\bjarvi[sc]?\b/.test(lower); }
+// A bare regex match on the word "jarvis" anywhere in a sentence used to
+// be enough to trigger a reply — which meant just mentioning the name
+// while explaining Jarvis to someone else ("so when I say Jarvis...")
+// got treated as an actual command. Two extra checks fix that:
+//
+//  1. META-MENTION GUARD — phrases that talk ABOUT the wake word rather
+//     than using it ("when I say jarvis", "call it jarvis", "explaining
+//     jarvis") never count, even though the literal word is present.
+//
+//  2. POSITION GUARD — real addresses put the name right at the front
+//     ("Jarvis, do X") or right after a single interjection ("hey
+//     Jarvis...", "ok Jarvis..."). A mention appearing further into a
+//     sentence ("...and that's how Jarvis handles it", "this feature,
+//     Jarvis, is...") is describing the assistant, not commanding it.
+const WAKE_META_MENTION_RE =
+  /\b(when i say|if i say|say(?:ing)?|call(?:ed|ing)?|named|the word|talk(?:ing)?\s+about|explain(?:ing|s)?|show(?:ing|s)?|demo(?:ing|s|nstrat\w*)?|about|introduc(?:ing|e))\s+(?:the\s+|to\s+)?jarvi[sc]?\b/;
+
+function hasWakeWord(lower) {
+  const m = /\bjarvi[sc]?\b/.exec(lower);
+  if (!m) return false;
+  if (WAKE_META_MENTION_RE.test(lower)) return false;
+  const wordsBefore = lower.slice(0, m.index).trim().split(/\s+/).filter(Boolean).length;
+  return wordsBefore <= 1;
+}
 function stripWakeWord(t)   { return t.replace(/\bjarvi[sc]?\b[,.]?\s*/gi, "").trim(); }
 
 // ── NAME MATCHING ──
@@ -1741,7 +1764,6 @@ function clearAttachments() {
 // ═══════════════════════════════════════════════════════════════
 function handleChatCommand(text, attachments) {
   const lower = text.toLowerCase();
-  const prevInteraction = state.lastInteraction;
   state.lastInteraction = Date.now();
   state.interactionCount++;
   updateMood(3);
@@ -1781,9 +1803,15 @@ function handleChatCommand(text, attachments) {
     return;
   }
 
-  // Use the PREVIOUS lastInteraction timestamp, not the one we just set
-  const recentlyActive = (Date.now() - prevInteraction) < 30000;
-  if (!hasWake && !recentlyActive && state.interactionCount > 3) {
+  // Previously, anything said within 30s of a real command was treated as
+  // another command even without saying "Jarvis" again — convenient for
+  // quick follow-ups, but it meant continuing to talk (e.g. explaining a
+  // feature to someone else) right after a real command got picked up as
+  // more commands too. hasWakeWord() above already does the real work of
+  // telling an actual address apart from just mentioning the name, so
+  // there's no separate grace window anymore — every utterance is judged
+  // the same way, always.
+  if (!hasWake && state.interactionCount > 3) {
     updateLiveHearing(""); return;
   }
 
