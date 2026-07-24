@@ -417,6 +417,18 @@ async function runActiveFile() {
     if (data.stderr) out += (data.stdout ? "\n" : "") + data.stderr;
     if (data.timedOut) out += "\n[Timed out — script was killed after 10s]";
     if (!data.stdout && !data.stderr && !data.timedOut) out += "(no output)";
+
+    // ── CODE ↔ BUILD BRIDGE ──────────────────────────────────────
+    // Hybrid projects can drive the CAD model straight from a script:
+    // any stdout line shaped like JARVIS_BUILD:{...json...} gets parsed
+    // out and forwarded to the DESIGN tab's iframe, which animates the
+    // matching (or selected) part live. This is what makes "write the
+    // code, hit Run, watch the build react" actually work end-to-end.
+    if (state.project.type === "hybrid" && data.stdout) {
+      const sent = forwardBuildCommands(data.stdout);
+      if (sent > 0) out += `\n\n[→ sent ${sent} command${sent === 1 ? "" : "s"} to the DESIGN tab]`;
+    }
+
     bodyEl.textContent = out;
 
     if (data.timedOut || data.exitCode !== 0) {
@@ -431,6 +443,34 @@ async function runActiveFile() {
     statusEl.textContent = "Error";
     statusEl.className = "console-status err";
   }
+}
+
+// ── CODE ↔ BUILD BRIDGE ─────────────────────────────────────
+// Scans run-script stdout for lines like:
+//   JARVIS_BUILD:{"action":"rotate","axis":"y","degrees":25}
+// and posts each parsed command to the DESIGN tab's iframe. Returns
+// how many commands were successfully sent (shown in the console).
+function forwardBuildCommands(stdout) {
+  const iframe = $("design-iframe");
+  if (!iframe || !iframe.contentWindow) return 0;
+  const lines = String(stdout).split("\n");
+  let sent = 0;
+  for (const line of lines) {
+    const m = line.match(/JARVIS_BUILD:\s*(\{.*\})\s*$/);
+    if (!m) continue;
+    let cmd;
+    try { cmd = JSON.parse(m[1]); } catch { continue; }
+    iframe.contentWindow.postMessage({ type: "jarvis_build_cmd", cmd }, "*");
+    sent++;
+  }
+  // Bring the DESIGN tab into view so the reaction is actually visible
+  // during a live demo, instead of happening silently behind the CODE tab.
+  if (sent > 0) {
+    document.querySelectorAll(".ws-tab").forEach((t) => t.classList.toggle("active", t.dataset.ws === "design"));
+    $("ws-code").classList.remove("active");
+    $("ws-design").classList.add("active");
+  }
+  return sent;
 }
 
 // ── AI ASSISTANT ────────────────────────────────────────────
