@@ -313,9 +313,24 @@ function applyJarvisBuildCommand(cmd) {
 }
 window.addEventListener("message", (ev) => {
   const d = ev.data;
-  if (!d || d.type !== "jarvis_build_cmd") return;
-  try { applyJarvisBuildCommand(d.cmd || {}); }
-  catch (e) { log("Bridge command error: " + e.message, "err"); }
+  if (!d) return;
+  if (d.type === "jarvis_build_cmd") {
+    try { applyJarvisBuildCommand(d.cmd || {}); }
+    catch (e) { log("Bridge command error: " + e.message, "err"); }
+    return;
+  }
+  // JARVIS_BUILD_PLAN — lets the Project Studio code editor's AI panel
+  // generate a whole model (not just a tween) straight into this view,
+  // e.g. "make a robot arm that waves" when the DESIGN tab is still
+  // empty. Reuses the exact same loadScript() the manual "Paste script"
+  // and "Jarvis, build me a…" prompt bar already use, so it's held to
+  // the same validation/sanitization as every other entry point — the
+  // AI panel is just another caller, not a special case.
+  if (d.type === "jarvis_build_plan") {
+    try { loadScript(d.plan || {}, !!d.append); }
+    catch (e) { log("Bridge plan error: " + e.message, "err"); }
+    return;
+  }
 });
 
 function buildShapeFromSketch(sk) {
@@ -492,6 +507,12 @@ function rebuildAll() {
     feat._obj.visible = !feat._hidden && (isLine ? sketchVisible : true);
   }
   renderFeatureList();
+  // Let the parent Project Studio window (if we're embedded in its DESIGN
+  // tab) know how many features are in the scene right now. studio.js uses
+  // this to decide whether the CAD view is "empty" — e.g. so the AI code
+  // assistant only auto-generates a model when there isn't one already,
+  // instead of silently overwriting whatever the user has built.
+  try { window.parent.postMessage({ type: "jarvis_build_state", count: features.length }, "*"); } catch (_) {}
 }
 
 let sketchVisible = true;
