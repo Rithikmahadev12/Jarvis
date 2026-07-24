@@ -311,7 +311,17 @@ async function getCalendarEvents(message, userKey) {
     const time  = start
       ? new Date(start).toLocaleTimeString("en-GB", { hour:"2-digit", minute:"2-digit", hour12:true })
       : "all day";
-    return { title: event.summary || "(untitled)", time, location: event.location || null, link: event.htmlLink };
+    return {
+      title: event.summary || "(untitled)",
+      time,
+      // Raw ISO start + a stable id — added so downstream consumers (e.g.
+      // proactive.js's nudge engine) can compute "starts in N minutes" and
+      // dedupe "already nudged about this one" without re-parsing `time`.
+      startISO: start || null,
+      id: event.id || `${event.summary || "untitled"}|${start || "allday"}`,
+      location: event.location || null,
+      link: event.htmlLink,
+    };
   });
   return { events, period: range.label };
 }
