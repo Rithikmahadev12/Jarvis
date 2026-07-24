@@ -1476,6 +1476,7 @@ function launchMain() {
   setInterval(syncExtensionStatus, 3000);
   setInterval(pollReminders, 5000);
   setInterval(pollSchedule, 20000);
+  setInterval(pollProactiveNudges, 60000);
 
   setTimeout(() => checkMorningBriefing(), 2500);
 }
@@ -1532,6 +1533,30 @@ async function pollSchedule() {
     // server unreachable — try again next tick
   } finally {
     _scheduleBusy = false;
+  }
+}
+
+// ── PROACTIVE NUDGES (calendar × weather correlation) ──
+// Checks in every 60s. See proactive.js "NUDGE ENGINE" — this is the
+// "starts soon, and here's what else you should know" layer, distinct
+// from the once-a-day morning briefing and from schedule.js's break nudges.
+let _nudgeBusy = false;
+async function pollProactiveNudges() {
+  if (_nudgeBusy || !state.user) return;
+  _nudgeBusy = true;
+  try {
+    const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const res = await fetch(`/api/proactive/nudges/${encodeURIComponent(state.user)}?tz=${encodeURIComponent(tz)}`);
+    const data = await res.json();
+    if (data?.nudge?.text) {
+      addMsg("jarvis", data.nudge.text);
+      mic.suspend();
+      speak(data.nudge.text, () => mic.resume());
+    }
+  } catch {
+    // server unreachable — try again next tick
+  } finally {
+    _nudgeBusy = false;
   }
 }
 
