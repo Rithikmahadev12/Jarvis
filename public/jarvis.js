@@ -1798,12 +1798,22 @@ function handleChatCommand(text, attachments) {
       state.pendingProjectType = false;
       const r = `Right away, ${state.userTitle}. Opening the Studio now.`;
       addMsg("jarvis", r);
+      mic.suspend();
       speak(r, () => { window.location.href = `/studio?type=${type}`; });
       return;
     }
     // Didn't understand — ask again instead of silently falling through.
+    // mic.suspend()/resume() around the question is essential here: without
+    // it the mic stays live while Jarvis is talking, picks up its own TTS
+    // output through the speakers (which contains "coding", "building" AND
+    // "both" all in one sentence), and that self-heard transcript comes
+    // right back into this same branch — re-triggering the question and
+    // never actually leaving room to hear the person's real answer. That's
+    // the "it just keeps asking me again" loop.
     const r = `Coding, building, or both, ${state.userTitle}?`;
-    addMsg("jarvis", r); speak(r);
+    addMsg("jarvis", r);
+    mic.suspend();
+    speak(r, () => mic.resume());
     return;
   }
   const PROJECT_START_RE = /\b(start|begin|create|open)\s+(?:a\s+|the\s+|new\s+)*project\b|\bnew\s+project\b|\blet'?s\s+build\s+something\b/;
@@ -1813,6 +1823,7 @@ function handleChatCommand(text, attachments) {
     const type = map[directTypeMatch[1]] || "coding";
     const r = `Right away, ${state.userTitle}. Opening the Studio now.`;
     addMsg("jarvis", r);
+    mic.suspend();
     speak(r, () => { window.location.href = `/studio?type=${type}`; });
     return;
   }
@@ -1820,6 +1831,7 @@ function handleChatCommand(text, attachments) {
     state.pendingProjectType = true;
     const r = `Certainly, ${state.userTitle}. Will this be a coding project, a physical build, or both?`;
     addMsg("jarvis", r);
+    mic.suspend();
     speak(r, () => mic.resume());
     return;
   }
