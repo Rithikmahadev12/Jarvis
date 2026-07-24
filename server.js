@@ -338,9 +338,25 @@ app.post("/api/studio/projects/:id/ai", async (req, res) => {
     if (!Groq.isConfigured || !Groq.isConfigured()) {
       return res.status(503).json({ error: "No AI key configured on the server (GROQ_API_KEY). Add one in .env to enable the code assistant." });
     }
-    const context = activeFile
+    let context = activeFile
       ? `Currently open file: ${activeFile}\n\n\`\`\`\n${(activeFileContent || "").slice(0, 6000)}\n\`\`\``
       : "";
+
+    // Hybrid projects (code + CAD build in one) get a real link between
+    // the two: any line a script prints shaped like
+    //   JARVIS_BUILD:{"action":"rotate","axis":"y","degrees":25}
+    // is forwarded live to the DESIGN tab and animates the selected (or
+    // named) part. Tell the AI about this so "make it move the arm when
+    // it hears hey" produces code that actually drives the build, not
+    // just a console.log placeholder.
+    let project = null;
+    try { project = Studio.getProject(req.params.id); } catch {}
+    if (project && project.type === "hybrid") {
+      context += `\n\nThis is a HYBRID project: this code runs alongside a CAD/build model in the DESIGN tab, and the two are connected. To make code actually move, highlight, or nudge the physical build (not just simulate it in a comment), print a line to stdout shaped exactly like:
+JARVIS_BUILD:{"action":"rotate","axis":"y","degrees":25}
+Supported actions: "rotate" (needs axis: "x"|"y"|"z", degrees), "move" (needs axis, distance), or "pulse" (just a visual flash, no args needed). Add an optional "id" (a feature id like "f3") to target a specific part; omit it to target whichever part the user has selected, or the whole model. When the user describes physical behavior (e.g. "when it hears 'hey', move the arm"), write real trigger logic (wake-word check, sensor read, etc.) that calls console.log with this exact JARVIS_BUILD line at the moment the action should happen — this is what "Run Script" uses to actually animate the build live during testing, so it must be genuinely runnable, not a placeholder.`;
+    }
+
     const result = await Groq.codeChat(message, {
       context,
       conversationHistory: Array.isArray(history) ? history.slice(-8) : [],
