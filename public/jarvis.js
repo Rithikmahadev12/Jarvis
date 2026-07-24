@@ -1928,6 +1928,27 @@ function handleChatCommand(text, attachments) {
     }
   }
 
+  // ── Route lookups: "map/directions/route to X" (from here) or
+  // "map/directions/route from A to B" — draws an actual line on the
+  // custom Jarvis map instead of just centering on a pin. ──
+  const routeFromToMatch = cleanedLower.match(/\b(?:directions|route|way|map)\s+from\s+(.+?)\s+to\s+(.+?)[\?\.!]*$/);
+  if (routeFromToMatch) {
+    const from = routeFromToMatch[1].trim();
+    const to = routeFromToMatch[2].trim();
+    postToMap({ type: "MAP_ROUTE", from, to });
+    const r = `Plotting a route from ${from} to ${to}, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r);
+    return;
+  }
+  const routeToMatch = cleanedLower.match(/\b(?:directions|route|way|map)\s+to\s+(.+?)[\?\.!]*$/);
+  if (routeToMatch && routeToMatch[1].trim().length > 1) {
+    const to = routeToMatch[1].trim();
+    postToMap({ type: "MAP_ROUTE", to });
+    const r = `Plotting a route to ${to} from your current location, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r);
+    return;
+  }
+
   // ── Map lookups: "show me a map of X" / "map of X" / "where is X" / "find X on the map" ──
   const mapMatch =
     cleanedLower.match(/\b(?:show me|show|open|pull up|display)\s+(?:a\s+|the\s+)?map\s+(?:of|for|showing)\s+(.+)/) ||
@@ -2148,6 +2169,19 @@ function switchMode(mode, query) {
   else if (mode === "build") openBuild(query || "");
   else if (mode === "news") openNews(query || null);
   // "chat" needs nothing further — closing the panels above already returns to it
+}
+
+// Used by voice commands ("map to X", "directions from A to B") to
+// talk to Map Mode — opens it if it isn't already open, then posts
+// once the iframe has actually finished loading (handles the
+// very-first-open case where the iframe src hasn't loaded yet).
+function postToMap(msg) {
+  switchMode("map");
+  const iframe = $("map-iframe");
+  if (!iframe) return;
+  const send = () => { try { iframe.contentWindow.postMessage(msg, "*"); } catch (e) {} };
+  if (iframe.contentDocument?.readyState === "complete") setTimeout(send, 300);
+  else iframe.onload = () => setTimeout(send, 300);
 }
 
 function openMapMode(query) {
