@@ -34,6 +34,7 @@ const Weather     = require("./weather");
 const News        = require("./news");
 const Google      = require("./google");
 const InboxTriage = require("./inbox-triage");
+const Settings    = require("./settings");
 
 const DATA_DIR   = path.join(__dirname, "data");
 const STORE_FILE = path.join(DATA_DIR, "proactive-briefing.json");
@@ -151,11 +152,127 @@ async function runForUser(user, userTitle, tz) {
   const key = userKey(user);
   const built = await buildBriefing(key, userTitle, tz);
   if (!built) return null;
-  const entry = { date: todayKey(tz), ...built };
+  const today = todayKey(tz);
   const all = loadAll();
+  // Merge rather than overwrite — checkNudges() may have already written
+  // nudgedEventIds for today onto this same entry before the briefing ran
+  // (server just started, nobody's opened the daily briefing yet). Losing
+  // that would mean re-nudging about an event JARVIS already mentioned.
+  const prior = all[key] && all[key].date === today ? all[key] : {};
+  const entry = { ...prior, date: today, ...built };
   all[key] = entry;
   saveAll(all);
   return entry;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── NUDGE ENGINE ───────────────────────────────────────────────
+// The daily briefing above answers "what's going on today" once.
+// This answers a different question, checked far more often (the
+// client polls this every ~60s, same pattern as schedule.js's break
+// nudges): "has anything just become worth interrupting for?"
+//
+// v1 covers one concrete, high-value correlation: an upcoming
+// calendar event JARVIS hasn't mentioned yet, cross-referenced with
+// today's weather. That's the actual "connects the dots" behavior —
+// not two separate features bolted together, but one noticing what
+// the other already knows. Extend checkNudges() with more
+// correlations over time; the dedupe/quiet-hours/settings scaffolding
+// here is built to hold more than one.
+// ═══════════════════════════════════════════════════════════════
+
+const NUDGE_WINDOW_MIN = 15; // "starts soon" = within this many minutes
+
+function isQuietHours(tz) {
+  const settings = Settings.load();
+  if (settings.proactiveNudges === false) return true; // treat "off" as always-quiet
+  const start = settings.quietHoursStart;
+  const end   = settings.quietHoursEnd;
+  if (start == null || end == null) return false;
+  let hour;
+  try {
+    hour = tz
+      ? parseInt(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "2-digit", hour12: false }).format(new Date()), 10) % 24
+      : new Date().getHours();
+  } catch { hour = new Date().getHours(); }
+  if (Number.isNaN(hour)) return false;
+  return start <= end
+    ? (hour >= start && hour < end)   // e.g. 13 -> 18, doesn't wrap midnight
+    : (hour >= start || hour < end);  // e.g. 22 -> 7, wraps midnight
+}
+
+// Loose keyword check against whatever description string weather.js
+// returns — deliberately simple; false negatives just skip a nice-to-have
+// line, false positives just add one, neither is harmful.
+function soundsLikeBadWeather(description) {
+  if (!description) return false;
+  return /rain|shower|storm|thunder|snow|sleet|hail|drizzle/i.test(description);
+}
+
+function minutesUntil(iso) {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - Date.now();
+  if (Number.isNaN(ms)) return null;
+  return Math.round(ms / 60000);
+}
+
+// Reads whatever weather JARVIS already fetched for today's briefing
+// (cached on the stored entry) rather than firing a fresh API call on
+// every 60s poll — cheap, and consistent with what the user was already
+// told this morning.
+function cachedWeatherFor(key, tz) {
+  const entry = getToday(key, tz);
+  return entry?.meta?.weather || null;
+}
+
+async function checkNudges(user, userTitle, tz) {
+  const key = userKey(user);
+  if (isQuietHours(tz)) return null;
+
+  const settings = Settings.load();
+  if (settings.proactiveNudges === false) return null;
+
+  if (!Google.isConfigured() || !Google.hasTokenForUser(key)) return null;
+
+  let events = [];
+  try {
+    const cal = await Google.getCalendarEvents("today", key);
+    if (cal.needsAuth || cal.error) return null;
+    events = cal.events || [];
+  } catch { return null; }
+
+  const all = loadAll();
+  const today = todayKey(tz);
+  const prior = all[key] && all[key].date === today ? all[key] : { date: today };
+  const alreadyNudged = new Set(prior.nudgedEventIds || []);
+
+  // Find the soonest upcoming event that's inside the nudge window and
+  // hasn't been mentioned yet. Only ever surface one at a time — a wall
+  // of nudges defeats the point.
+  const candidate = events
+    .filter(e => e.startISO && !alreadyNudged.has(e.id))
+    .map(e => ({ ...e, minsUntil: minutesUntil(e.startISO) }))
+    .filter(e => e.minsUntil !== null && e.minsUntil >= 0 && e.minsUntil <= NUDGE_WINDOW_MIN)
+    .sort((a, b) => a.minsUntil - b.minsUntil)[0];
+
+  if (!candidate) return null;
+
+  const T = userTitle || "Sir";
+  const when = candidate.minsUntil <= 1 ? "in a minute" : `in about ${candidate.minsUntil} minutes`;
+  let text = `${T}, "${candidate.title}" starts ${when}.`;
+
+  const weather = cachedWeatherFor(key, tz);
+  if (weather && soundsLikeBadWeather(weather.description)) {
+    text += candidate.location
+      ? ` It's ${weather.description} out there — worth leaving a few minutes early and grabbing an umbrella.`
+      : ` Also worth knowing: it's ${weather.description} out there right now.`;
+  }
+
+  prior.nudgedEventIds = [...alreadyNudged, candidate.id];
+  all[key] = prior;
+  saveAll(all);
+
+  return { text, event: candidate, generatedAt: new Date().toISOString() };
 }
 
 // Lazy generation, same rationale as inbox-triage.getOrGenerateToday:
@@ -172,5 +289,6 @@ module.exports = {
   getToday,
   getOrGenerateToday,
   runForUser,
+  checkNudges,
   todayKey,
 };
