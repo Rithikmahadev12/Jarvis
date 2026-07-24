@@ -646,6 +646,21 @@ const mic = {
     setOrb(state.phase === "chatting" ? "listening" : "idle");
 
     r.onresult = (e) => {
+      // Stale-instance guard: calling r.abort() (via suspend()/_kill()) does
+      // NOT always stop this exact recognizer from delivering one more
+      // buffered result afterward — some browsers fire a final onresult for
+      // speech that was already mid-recognition at the moment abort() was
+      // called. Without this check, that late event calls back into
+      // this.onResult() using the OLD recognizer's leftover words even
+      // though a brand-new recognizer (this.rec) has already replaced it —
+      // e.g. right as Jarvis starts asking "coding, building, or both, Sir?"
+      // a stray tail-end result from the *previous* utterance sneaks through,
+      // re-triggers the same question branch, and calls speak() again before
+      // the user's real answer ever has a chance to land. This one check is
+      // what actually stops that "keeps asking again" loop — suspending the
+      // mic alone doesn't, because abort() isn't synchronous/guaranteed to
+      // silence an in-flight result.
+      if (r !== this.rec || this.suspended) return;
       this.retryCount = 0;
       const result = e.results[e.results.length - 1];
       if (result.isFinal) {
@@ -671,6 +686,7 @@ const mic = {
     };
 
     r.onerror = (e) => {
+      if (r !== this.rec) return; // stale instance — a newer recognizer already replaced it
       this.active = false; state.isListening = false; updateLiveHearing("");
       switch (e.error) {
         case "not-allowed": case "service-not-allowed":
@@ -687,6 +703,7 @@ const mic = {
     };
 
     r.onend = () => {
+      if (r !== this.rec) return; // stale instance — don't let an old session's end trigger a relaunch
       this.active = false; state.isListening = false;
       // Relaunch instantly on normal end (Chrome ends the session periodically
       // even mid-conversation) instead of routing through the backoff timer.
@@ -703,7 +720,22 @@ const mic = {
     this.retryCount++;
     this.retryTimer = setTimeout(() => this._launch(), d);
   },
-  _kill() { try { if (this.rec) this.rec.abort(); } catch (_) {} this.rec = null; this.active = false; state.isListening = false; },
+  _kill() {
+    try {
+      if (this.rec) {
+        // Detach handlers BEFORE aborting — belt-and-braces alongside the
+        // `r !== this.rec` checks above. Some browsers queue a final
+        // onresult/onend microtask right as abort() is called; nulling the
+        // handlers here means that queued event has nothing to call into,
+        // full stop, instead of relying solely on the identity check.
+        this.rec.onresult = null;
+        this.rec.onerror  = null;
+        this.rec.onend    = null;
+        this.rec.abort();
+      }
+    } catch (_) {}
+    this.rec = null; this.active = false; state.isListening = false;
+  },
   suspend() { this.suspended = true; clearTimeout(this.retryTimer); this._kill(); updateLiveHearing(""); updateMicDebug("Mic: paused"); },
   resume()  { if (!this.suspended) return; this.suspended = false; this.retryCount = 0; updateMicDebug("Mic: resuming…"); this._launch(); },
 };
