@@ -15,6 +15,8 @@ const state = {
   cm: null,               // CodeMirror instance
   aiHistory: [],          // [{role, content}]
   chosenType: null,
+  designFeatureCount: 0,  // last known feature count from the DESIGN iframe (see jarvis_build_state below)
+  designIframeReady: false,
 };
 
 // ── MODE DETECTION ──────────────────────────────────────────────
@@ -445,6 +447,16 @@ async function runActiveFile() {
   }
 }
 
+// The DESIGN iframe (build-mode.html) posts its current feature count
+// every time it rebuilds, so the AI panel can tell whether the CAD scene
+// is empty or not without having to reach into the iframe's internals.
+window.addEventListener("message", (ev) => {
+  const d = ev.data;
+  if (!d || d.type !== "jarvis_build_state") return;
+  state.designFeatureCount = Number(d.count) || 0;
+  state.designIframeReady = true;
+});
+
 // ── CODE ↔ BUILD BRIDGE ─────────────────────────────────────
 // Scans run-script stdout for lines like:
 //   JARVIS_BUILD:{"action":"rotate","axis":"y","degrees":25}
@@ -474,6 +486,13 @@ function forwardBuildCommands(stdout) {
 }
 
 // ── AI ASSISTANT ────────────────────────────────────────────
+// Loosely matches "build/make/design/construct a robot arm", "model a
+// gripper", "cad" mentions, etc. Deliberately permissive rather than
+// exact — false positives just mean an extra (cheap) /api/build/generate
+// call, but false negatives mean "make it wave" silently does nothing,
+// which is the actually annoying failure mode.
+const BUILD_INTENT_RE = /\b(build|make|create|design|construct|generate|model)\b[^.?!]{0,40}\b(arm|robot|gripper|claw|drone|car|chassis|frame|wheel|leg|hand|body|servo|motor|joint|part|shape|model|structure|mechanism|device|thing)\b|\bcad\b|\b3d model\b/i;
+
 function initAIPanel() {
   $("ai-send").onclick = sendAIMessage;
   $("ai-input").addEventListener("keydown", (e) => {
@@ -508,9 +527,98 @@ async function sendAIMessage() {
     thinking.remove();
     appendAIMessage("jarvis", data.reply);
     state.aiHistory.push({ role: "assistant", content: data.reply });
+
+    // ── AUTO-INSERT: drop the AI's code straight into the open file
+    //    instead of making you copy/paste it in by hand. ──
+    await autoInsertCode(data.reply, activeFile);
+
+    // ── AUTO-BUILD: hybrid projects only, and only if the DESIGN tab
+    //    doesn't already have something in it — this never silently
+    //    overwrites a model you've already built. ──
+    if (state.project?.type === "hybrid" && BUILD_INTENT_RE.test(message) && state.designFeatureCount === 0) {
+      await autoBuildFromPrompt(message);
+    }
   } catch (e) {
     thinking.remove();
     appendAIMessage("jarvis", `Apologies — ${e.message}`);
+  }
+}
+
+// Pulls every ```lang\ncode``` block out of an AI reply and returns the
+// biggest one (by character count) — reliably "the actual file", as
+// opposed to a short inline example mentioned elsewhere in the reply.
+function extractLargestCodeBlock(text) {
+  const re = /```(\w*)\n?([\s\S]*?)```/g;
+  let best = null, m;
+  while ((m = re.exec(String(text)))) {
+    const code = m[2].replace(/\n$/, "");
+    if (!code.trim()) continue;
+    if (!best || code.length > best.code.length) best = { lang: m[1], code };
+  }
+  return best;
+}
+
+// Writes the AI's code straight into the file that was open when the
+// question was asked (not necessarily the one on screen right now, in
+// case the person tabbed away while waiting on a reply) and saves it.
+async function autoInsertCode(reply, targetFile) {
+  if (!targetFile) return;
+  const block = extractLargestCodeBlock(reply);
+  if (!block) return;
+  const buf = state.buffers.get(targetFile);
+  if (!buf) return;
+
+  buf.content = block.code;
+  buf.dirty = true;
+  if (state.activeFile === targetFile) state.cm.setValue(block.code);
+  renderTabs();
+
+  const prevActive = state.activeFile;
+  state.activeFile = targetFile; // saveActiveFile() saves whatever this points at
+  await saveActiveFile();
+  state.activeFile = prevActive;
+  if (prevActive !== targetFile && state.cm) switchToFile(prevActive); // restore the visible tab/mode
+
+  appendAIMessage("jarvis", `✓ Inserted into ${targetFile} and saved.`);
+}
+
+// Calls the same /api/build/generate endpoint the DESIGN tab's own
+// prompt bar uses, then forwards the resulting plan into the iframe so
+// "build me a robot arm that waves" actually produces a model, not just
+// runnable code with nothing to run it against yet.
+async function autoBuildFromPrompt(prompt) {
+  const iframe = $("design-iframe");
+  if (!iframe) return;
+  const note = appendAIMessage("jarvis", "…building it in the CAD engine…");
+  try {
+    await waitForDesignIframeReady();
+    const res = await fetch("/api/build/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Build generation failed.");
+    note.remove();
+    iframe.contentWindow?.postMessage({ type: "jarvis_build_plan", plan: data.plan, append: true }, "*");
+    appendAIMessage("jarvis", `✓ Built it in the DESIGN tab${data.plan?.name ? ` — "${data.plan.name}"` : ""}. Switching you over now — hit Run on your script to see the code drive it.`);
+    document.querySelectorAll(".ws-tab").forEach((t) => t.classList.toggle("active", t.dataset.ws === "design"));
+    $("ws-code").classList.remove("active");
+    $("ws-design").classList.add("active");
+  } catch (e) {
+    note.remove();
+    appendAIMessage("jarvis", `Couldn't auto-build the CAD model: ${e.message}`);
+  }
+}
+
+// The DESIGN iframe only starts posting jarvis_build_state once its own
+// script has run (see build-mode.html's rebuildAll()). If the AI panel's
+// first message arrives before that iframe has finished loading, wait a
+// beat rather than firing a postMessage into a page with no listener yet.
+async function waitForDesignIframeReady(timeoutMs = 4000) {
+  const start = Date.now();
+  while (!state.designIframeReady && Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 100));
   }
 }
 
