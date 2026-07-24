@@ -25,6 +25,12 @@ const SETTINGS_FILE = path.join(DATA_DIR, "settings.json");
 
 const DEFAULTS = {
   faceDetection: false,
+  // Proactive nudges (see proactive.js checkNudges): calendar+weather
+  // correlation, delivered unprompted between quiet hours. Off switch
+  // and a do-not-disturb window, both user-configurable.
+  proactiveNudges: true,
+  quietHoursStart: 22, // 24h local hour, inclusive start
+  quietHoursEnd: 7,    // 24h local hour, exclusive end (wraps past midnight)
   // add more toggles here as needed, e.g.:
   // notifications: true,
   // homeTalk: false,
