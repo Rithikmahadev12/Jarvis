@@ -207,6 +207,13 @@ function resize() {
 new ResizeObserver(resize).observe(viewport);
 resize();
 
+// Declared here (before the render loop starts) rather than down near
+// applyJarvisBuildCommand, because the IIFE below runs immediately and
+// calls stepBuildTweens() on the very first frame — if this const were
+// declared later in the file, that first call would hit it while it's
+// still in the temporal dead zone and throw.
+const _buildTweens = [];
+
 (function animate() {
   requestAnimationFrame(animate);
   controls.update();
@@ -273,7 +280,6 @@ function findFeature(id) { return features.find(f => f.id === id); }
 // currently selected in the tree, else the whole model — so a script
 // works whether or not the user has picked a specific part first.
 // ═══════════════════════════════════════════════════════════════
-const _buildTweens = [];
 function stepBuildTweens() {
   if (!_buildTweens.length) return;
   const now = performance.now();
