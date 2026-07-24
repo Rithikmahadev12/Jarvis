@@ -1139,6 +1139,27 @@ app.get("/api/proactive/briefing/:user", async (req, res) => {
   }
 });
 
+// Lightweight, frequently-polled sibling of /briefing above — see
+// proactive.js's "NUDGE ENGINE" section. Cheap on every call: it only
+// hits the Calendar API and re-reads today's already-cached weather.
+app.get("/api/proactive/nudges/:user", async (req, res) => {
+  const userKey = (req.params.user || "").toLowerCase().trim();
+  if (!userKey) return res.status(400).json({ error: "Missing user" });
+
+  const profiles = loadProfiles();
+  const profile  = profiles[userKey];
+  if (profile?.googleTokens?.access && !Google.hasTokenForUser(userKey)) {
+    Google.hydrateTokens(userKey, profile.googleTokens);
+  }
+
+  try {
+    const nudge = await Proactive.checkNudges(userKey, profile?.title, req.query.tz);
+    res.json({ nudge: nudge || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // ── PERSONALITY
 // ═══════════════════════════════════════════════════════════════
