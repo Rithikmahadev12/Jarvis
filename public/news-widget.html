@@ -475,7 +475,7 @@
 
     <div class="topbar">
       <div class="topbar-left">
-        <a class="back-btn" href="/" id="back-btn" title="Back to JARVIS">← JARVIS</a>
+        <a class="back-btn" href="/" id="back-btn" title="Back to JARVIS" onclick="return handleBackClick(event)">← JARVIS</a>
         <div>
           <div class="topbar-title">J.A.R.V.I.S — WORLD NEWS</div>
           <div class="topbar-sub" id="topbar-date">SYNCING…</div>
@@ -570,6 +570,25 @@
   // own back link to avoid two conflicting ways to leave.
   const embedded = window.self !== window.top;
   if (embedded) $("back-btn").classList.add("hidden");
+
+  // Clicking a plain <a href="/"> always forces a brand-new load of the
+  // main app — which re-runs its whole boot sequence (wake word + face
+  // scan) even though you were just there seconds ago. Real browser BACK
+  // navigation is different: if the main app page is still eligible for
+  // the browser's back/forward cache, going back can restore it exactly
+  // as you left it (already logged in) instead of reloading it from
+  // scratch. So: if we got here via an actual in-app navigation (there's
+  // history to go back to), use history.back() first. Only fall through
+  // to the plain link — e.g. this tab was opened straight to /news with
+  // no prior page — if there's nothing to go back to.
+  window.handleBackClick = function (e) {
+    if (window.history.length > 1) {
+      e.preventDefault();
+      window.history.back();
+      return false;
+    }
+    return true; // no history — let the normal href="/" navigation happen
+  };
 
   function setOrb(state) {
     orb.classList.remove("idle", "thinking", "speaking");
