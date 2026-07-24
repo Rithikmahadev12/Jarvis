@@ -2313,7 +2313,7 @@ function openNews(newsMeta) {
   if (!panel || !iframe) return;
   panel.style.display = "block";
 
-  const needsLoad = !iframe.src && iframe.dataset.src;
+  const needsLoad = (!iframe.src || iframe.src === "about:blank") && iframe.dataset.src;
   if (needsLoad) iframe.src = iframe.dataset.src;
 
   const sendData = () => {
@@ -2327,8 +2327,13 @@ function openNews(newsMeta) {
   }
 }
 function closeNews() {
-  const panel = $("news-panel");
+  const panel  = $("news-panel");
+  const iframe = $("news-iframe");
   if (panel) panel.style.display = "none";
+  // Hiding the panel alone leaves the iframe running in the background —
+  // the YouTube live stream and JARVIS's narration audio would keep
+  // playing even after you've left the news page. Fully unload it instead.
+  if (iframe) iframe.src = "about:blank";
   if (state.phase === "chatting") mic.resume();
   _setTaskbarChatActive();
 }
