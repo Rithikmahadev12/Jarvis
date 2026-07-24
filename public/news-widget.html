@@ -140,16 +140,11 @@
     background: #010c14;
     z-index: 0;
   }
+  /* Headline copy used to be overlaid as a caption on top of the video —
+     removed so the video stays clean; the same headline is still shown
+     in the ticker and the headline feed panel below. */
   .broadcast-text {
-    position: absolute;
-    left: 0; right: 0; bottom: 30px; /* sits just above the ticker bar */
-    background: linear-gradient(to top, rgba(1,12,20,0.94) 0%, rgba(1,12,20,0.75) 55%, transparent 100%);
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-end;
-    padding: 34px 22px 14px;
-    z-index: 2;
-    overflow: hidden;
+    display: none;
   }
   .broadcast-eyebrow {
     font-family: var(--mono);
@@ -191,7 +186,7 @@
      with our text. */
   .broadcast-video-wrap {
     position: absolute;
-    inset: 0;
+    top: 0; left: 0; right: 0; bottom: 30px; /* leave room for the ticker strip below */
     overflow: hidden;
     background: #000;
   }
@@ -244,22 +239,11 @@
   }
   .video-mute-tag.unmuted { color: #fff; border-color: rgba(0,255,136,0.5); }
 
+  /* Second-story card used to float on top of the video — removed for
+     the same reason as .broadcast-text; that headline is still covered
+     by the ticker and the headline feed panel below. */
   .broadcast-side {
-    position: absolute;
-    top: 52px; right: 14px; /* below the MUTED tag in the corner */
-    width: 200px;
-    max-height: calc(100% - 100px); /* leave room for the ticker bar */
-    background: rgba(5,25,45,0.72);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(0,200,255,0.2);
-    border-radius: 4px;
-    padding: 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    color: #eaf7ff;
-    min-height: 0;
-    z-index: 3;
+    display: none;
   }
   .live-tag {
     background: var(--red);
