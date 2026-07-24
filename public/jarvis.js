@@ -2327,6 +2327,25 @@ async function handleAction(action, meta, replyText) {
       });
       break;
     }
+    case "SHOW_HOLOGRAM_WIREFRAME": {
+      // Opens/reuses Build Mode, then tells it to render the current
+      // (or freshly-found) model as a wireframe and immediately push
+      // it into the holographic viewer. See build-mode.html's
+      // "BUILD_WIREFRAME" message handler.
+      const query = meta?.query || "";
+      speak(replyText, () => {
+        postToBuild({ type: "BUILD_WIREFRAME", query });
+        mic.resume();
+      });
+      break;
+    }
+    case "BUILD_CHANGE_MODEL": {
+      speak(replyText, () => {
+        postToBuild({ type: "BUILD_CHANGE_MODEL" });
+        mic.resume();
+      });
+      break;
+    }
     case "SHOW_NEWS_WIDGET": {
       const newsPayload = { newsData: meta?.newsData || null, briefing: replyText, label: meta?.label || "" };
       speak(replyText, () => {
