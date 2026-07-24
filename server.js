@@ -236,6 +236,20 @@ app.get("/api/build/model/:uid", async (req, res) => {
 // Static cache of unpacked glTF models pulled from Sketchfab
 app.use("/build-cache", express.static(Build.CACHE_DIR));
 
+// ── FIND-OR-BUILD — "Jarvis, build me a drone" ──────────────────
+// Searches Sketchfab for the real thing first; only tells the client
+// to fall back to the AI feature-tree generator (/api/build/generate)
+// when nothing downloadable turns up. See build-engine.js.
+app.get("/api/build/find", async (req, res) => {
+  const q = (req.query.q || "").trim();
+  try {
+    const data = await Build.findOrBuildModel(q);
+    res.json(data);
+  } catch (e) {
+    res.status(500).json({ source: "none", query: q, results: [], error: e.message });
+  }
+});
+
 // ── BUILD MODE AI — "Jarvis, build a helmet" ──────────────────
 // Turns a natural-language description into a structured JSON scene
 // plan (parts, welds, effects) that build-mode.html spawns using its
@@ -1289,6 +1303,8 @@ const HARD_COMMANDS = {
   // Render — see jarvis-agent.js's isEnabled().
   openOnPC:     /\b(open|launch|start|fire up|pull up)\b.{1,40}\b(on (my|the) (computer|pc|machine|desktop)|notepad|calculator|calc|file explorer|finder|paint|chrome|firefox|edge|safari|spotify app|word|excel|terminal|command prompt|cmd|vs\s?code|vscode|settings app)\b/i,
   hologram:     /\b(show me a (3d|hologram)|holographic|3d model|3d scan|build mode)\b/i,
+  wireframe:    /\b(render (this|it)( into| as)? a wireframe|wireframe (mode|view|render|it|this)|show (me )?(the )?wireframe|turn (this|it) into a wireframe)\b/i,
+  changeModel:  /\b((change|swap|switch) (the )?(sketchfab )?model|try (a |another )?different model|another model|next model|different (sketchfab )?model)\b/i,
   newsWidget:   /\bnews widget\b/i,
   newsPage:     /\b(world news|news dashboard|news wall|open (the )?news|pull up (the )?news|show (me )?(the )?news|what'?s happening in the world|what'?s going on in the world|catch me up on the news|latest headlines|top headlines)\b/i,
   lookup:       /\b(look up|lookup|background check|pull everything on|find info on|osint|intel on)\b/i,
@@ -1862,6 +1878,32 @@ function handleHologramOpen(message, T) {
     ? `Pulling up build mode for "${q}", ${T}.`
     : `Build mode, ${T}. Try not to break anything.`;
   return { reply, action: "SHOW_HOLOGRAM", intent: "hologram", meta: { query: q } };
+}
+
+// ── WIREFRAME — "Jarvis, render this into a wireframe" ────────────
+// Tells the client to (re)open Build Mode, flip the current model to
+// wireframe rendering, and immediately push it into the holographic
+// viewer — a single voice command instead of clicking through the UI.
+function handleWireframeRender(message, T) {
+  const q = (message || "")
+    .replace(/\b(jarvis|hey|render|turn|show|me|the|this|it|into|as|a|wireframe|mode|view)\b/gi, "")
+    .trim();
+  const reply = q
+    ? `Rendering "${q}" as a wireframe and pulling up the hologram, ${T}.`
+    : `Rendering that as a wireframe and pulling up the hologram, ${T}.`;
+  return { reply, action: "SHOW_HOLOGRAM_WIREFRAME", intent: "wireframe", meta: { query: q } };
+}
+
+// ── CHANGE MODEL — "Jarvis, change the sketchfab model" ────────────
+// Cycles Build Mode to the next result from the last Sketchfab search
+// so the user isn't stuck with whatever loaded first.
+function handleChangeModel(T) {
+  return {
+    reply: `Swapping to the next Sketchfab model, ${T}.`,
+    action: "BUILD_CHANGE_MODEL",
+    intent: "changeModel",
+    meta: {},
+  };
 }
 
 // ── FLOATING BOARDS ────────────────────────────────────────────
@@ -2755,6 +2797,12 @@ app.post("/api/chat", async (req, res) => {
     }
     if (hardCommandType === "hologram") {
       return res.json(handleHologramOpen(message, T));
+    }
+    if (hardCommandType === "wireframe") {
+      return res.json(handleWireframeRender(message, T));
+    }
+    if (hardCommandType === "changeModel") {
+      return res.json(handleChangeModel(T));
     }
     if (hardCommandType === "openOnPC") {
       return res.json(await handleOpenOnPC(message, T));
