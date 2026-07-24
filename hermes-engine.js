@@ -951,7 +951,13 @@ async function codeChat(message, options = {}) {
     model: MODELS.code,
     temperature: 0.2,
     maxTokens: 4096,
-    reasoning_effort: "high",
+    // NOTE: this is qwen/qwen3.6-27b, not one of the gpt-oss models —
+    // Groq's Qwen3.6 endpoint only accepts reasoning_effort "none" or
+    // "default" and 400s on anything else ("low"/"medium"/"high" are
+    // gpt-oss-only values). Sending "high" here made every single
+    // codeChat() call fail and fall back to the smart model, which is
+    // the "[HERMES] Code model failed" message you were seeing.
+    reasoning_effort: "default",
     reasoning_format: "hidden", // we want the final answer, not the model's scratch thinking
   };
 
