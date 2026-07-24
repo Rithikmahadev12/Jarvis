@@ -210,6 +210,7 @@ resize();
 (function animate() {
   requestAnimationFrame(animate);
   controls.update();
+  stepBuildTweens();
   renderer.render(scene, camera);
 })();
 
@@ -261,6 +262,61 @@ scene.add(displayGroup);
 const DEFAULT_MAT = () => new THREE.MeshStandardMaterial({ color: 0x9fb4c4, metalness: 0.75, roughness: 0.32 });
 
 function findFeature(id) { return features.find(f => f.id === id); }
+
+// ═══════════════════════════════════════════════════════════════
+// JARVIS_BUILD BRIDGE — lets a Project Studio "hybrid" script drive
+// this CAD view live. studio.js parses lines like
+//   JARVIS_BUILD:{"action":"rotate","axis":"y","degrees":25}
+// out of Run Script's stdout and posts them here as
+//   { type: "jarvis_build_cmd", cmd }
+// Targets the part named by cmd.id if given, else whatever part is
+// currently selected in the tree, else the whole model — so a script
+// works whether or not the user has picked a specific part first.
+// ═══════════════════════════════════════════════════════════════
+const _buildTweens = [];
+function stepBuildTweens() {
+  if (!_buildTweens.length) return;
+  const now = performance.now();
+  for (let i = _buildTweens.length - 1; i >= 0; i--) {
+    const t = _buildTweens[i];
+    const p = Math.min(1, (now - t.start) / t.dur);
+    const eased = 1 - Math.pow(1 - p, 3); // ease-out, so the motion looks like a real actuator settling
+    t.obj[t.prop][t.axis] = t.from + (t.to - t.from) * eased;
+    if (p >= 1) _buildTweens.splice(i, 1);
+  }
+}
+function pulseHighlight(obj) {
+  const mats = [];
+  if (obj.traverse) obj.traverse((o) => { if (o.material) mats.push(o.material); });
+  else if (obj.material) mats.push(obj.material);
+  mats.forEach((m) => {
+    if (!m.emissive) return;
+    const orig = m.emissive.getHex();
+    m.emissive.setHex(0x3d8bff);
+    setTimeout(() => { try { m.emissive.setHex(orig); } catch {} }, 400);
+  });
+}
+function applyJarvisBuildCommand(cmd) {
+  const target = (cmd.id && findFeature(cmd.id)?._obj) || (selectedId && findFeature(selectedId)?._obj) || displayGroup;
+  const action = cmd.action || "pulse";
+  if (action === "rotate") {
+    const axis = ["x", "y", "z"].includes(cmd.axis) ? cmd.axis : "y";
+    const deltaRad = THREE.MathUtils.degToRad(Number(cmd.degrees) || 0);
+    _buildTweens.push({ obj: target, prop: "rotation", axis, from: target.rotation[axis], to: target.rotation[axis] + deltaRad, start: performance.now(), dur: 500 });
+  } else if (action === "move") {
+    const axis = ["x", "y", "z"].includes(cmd.axis) ? cmd.axis : "x";
+    const dist = Number(cmd.distance) || 0;
+    _buildTweens.push({ obj: target, prop: "position", axis, from: target.position[axis], to: target.position[axis] + dist, start: performance.now(), dur: 500 });
+  }
+  pulseHighlight(target); // every action gets a visible flash, even unknown ones, so nothing sent ever looks like a no-op
+  log(`[JARVIS_BUILD] ${action}${cmd.id ? " on " + cmd.id : selectedId ? " on " + selectedId : " on whole model"}`, "ok");
+}
+window.addEventListener("message", (ev) => {
+  const d = ev.data;
+  if (!d || d.type !== "jarvis_build_cmd") return;
+  try { applyJarvisBuildCommand(d.cmd || {}); }
+  catch (e) { log("Bridge command error: " + e.message, "err"); }
+});
 
 function buildShapeFromSketch(sk) {
   const shape = new THREE.Shape();
