@@ -278,13 +278,38 @@ function loadFromBuildMode() {
   });
   if (!newPieces.length) return false;
   centerAndMount(newPieces, "YOUR CAD BUILD", data.meshes.length);
+  // "Jarvis, render this into a wireframe" — build-mode.html tags the
+  // payload with wireframe:true (and also passes ?wireframe=1 on the
+  // URL as a belt-and-braces backup, since localStorage can be a beat
+  // stale in a freshly-opened tab). Either signal is enough.
+  const urlWireframe = new URLSearchParams(location.search).get("wireframe") === "1";
+  if (data.wireframe || urlWireframe) applyWireframeMode(true);
   return true;
+}
+
+// Hides the solid holographic fill and pushes the wireframe overlay to
+// full opacity, so the model reads as a pure wireframe projection
+// instead of the usual translucent-solid-plus-edges look. Grab/rotate/
+// scale all still work — the pick-ray in pickPieceAtScreen() intersects
+// p.solid, so it stays raycastable even while invisible.
+let wireframeModeOn = false;
+function applyWireframeMode(enabled) {
+  wireframeModeOn = enabled;
+  pieces.forEach((p) => {
+    p.solid.visible = !enabled;
+    p.wire.material.opacity = enabled ? 1 : p.baseWireOpacity;
+  });
+  const label = document.getElementById("hud-name");
+  if (label && enabled && !/WIREFRAME/.test(label.textContent)) {
+    label.innerHTML += ' <span style="color:#00c8ff;">— WIREFRAME</span>';
+  }
 }
 
 function loadPlaceholder() {
   document.getElementById("empty").classList.add("show");
   const geo = new THREE.TorusKnotGeometry(1, 0.32, 140, 20);
   centerAndMount([makePiece(geo, "#00c8ff", 0)], "PLACEHOLDER", 1);
+  if (new URLSearchParams(location.search).get("wireframe") === "1") applyWireframeMode(true);
 }
 
 
