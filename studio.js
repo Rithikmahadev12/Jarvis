@@ -85,6 +85,55 @@ function walkFiles(dir, base, out = []) {
 function starterFiles(type, name) {
   const safeName = (name || "New Project").trim();
   if (type === "building") return {}; // pure build projects live in Build Mode
+
+  if (type === "hybrid") {
+    return {
+      "main.js":
+`// ${safeName}
+// This is a HYBRID project: the code you write here can talk directly
+// to the CAD model in the DESIGN tab, so you can build the physical
+// thing AND the code that drives it, then test them together.
+//
+// THE BRIDGE: print a line shaped like
+//   JARVIS_BUILD:{"action":"rotate","axis":"y","degrees":25}
+// and Run Script will forward it straight to the DESIGN tab, which
+// animates the currently-selected part (or the whole model if nothing
+// is selected). That's it — no extra wiring required.
+//
+// Example below: simulate hearing the wake word "hey" and nudging an
+// arm — swap this out for a real mic/sensor input once you have
+// hardware attached; the bridge call is identical either way.
+
+function onWakeWord(word) {
+  if (word.toLowerCase() !== "hey") return;
+  console.log('Heard "hey" — moving the arm.');
+  console.log('JARVIS_BUILD:' + JSON.stringify({ action: "rotate", axis: "y", degrees: 25 }));
+}
+
+function main() {
+  console.log("Hello from ${safeName}!");
+  onWakeWord("hey");
+}
+
+main();
+`,
+      "README.md":
+`# ${safeName}
+
+Created in J.A.R.V.I.S Project Studio — **Hybrid** (code + build).
+
+- Edit files in the tree on the left; the **DESIGN** tab holds the CAD model.
+- **Save** writes your changes to the server.
+- **Run Script** executes the selected file, shows live output below,
+  AND forwards any \`JARVIS_BUILD:{...}\` lines it prints to the DESIGN
+  tab so you can watch/test the build react in real time.
+- Select a part in the DESIGN tab first if you want a command to target
+  that specific part; otherwise it moves the whole model.
+- **Download ZIP** exports the whole project to your computer.
+`,
+    };
+  }
+
   return {
     "main.js":
 `// ${safeName}
