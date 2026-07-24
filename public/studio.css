@@ -87,7 +87,7 @@ body::before{
 #ws-code{display:none;}
 #ws-code.active{display:grid;grid-template-columns:200px 1fr 300px;width:100%;}
 
-.filetree{background:var(--panel);border-right:1px solid var(--line);padding:12px 10px;overflow-y:auto;}
+.filetree{background:var(--panel);border-right:1px solid var(--line);padding:12px 10px;overflow-y:auto;min-height:0;}
 .filetree-label{font-size:10px;color:var(--ink-dim);letter-spacing:.1em;margin-bottom:10px;}
 .file-item{
   display:flex;align-items:center;justify-content:space-between;gap:6px;padding:6px 8px;border-radius:4px;
@@ -99,7 +99,7 @@ body::before{
 .file-item:hover .fx{opacity:.7;}
 .file-item .fx:hover{opacity:1;}
 
-.editor-area{display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--line);}
+.editor-area{display:flex;flex-direction:column;min-width:0;min-height:0;border-right:1px solid var(--line);}
 .editor-tabs{display:flex;gap:2px;background:var(--panel);border-bottom:1px solid var(--line);padding:4px 4px 0;overflow-x:auto;flex:0 0 auto;}
 .editor-tab{
   display:flex;align-items:center;gap:8px;padding:7px 12px;font-size:11px;color:var(--ink-dim);
@@ -124,7 +124,15 @@ body::before{
 .console-body .err-line{color:var(--danger);}
 .console-body .ok-line{color:var(--accent);}
 
-.ai-panel{background:var(--panel);display:flex;flex-direction:column;min-width:0;}
+/* min-height:0 is the fix for the AI chat not scrolling: .ai-panel is a
+   CSS-grid item (see #ws-code.active above), and grid items default to
+   min-height:auto, which means the item's content (the full unscrolled
+   chat log) sets a minimum size the grid row is forced to grow to fit —
+   pushing the whole panel taller than the screen instead of letting the
+   inner .ai-log's overflow-y:auto do the scrolling. Explicitly zeroing it
+   lets the item shrink to the row's actual height so .ai-log scrolls
+   internally like it's supposed to. */
+.ai-panel{background:var(--panel);display:flex;flex-direction:column;min-width:0;min-height:0;}
 .ai-header{padding:12px 14px;font-size:10.5px;letter-spacing:.1em;color:var(--ink-dim);border-bottom:1px solid var(--line);}
 .ai-log{flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;}
 .ai-msg{font-size:12px;line-height:1.55;padding:9px 11px;border-radius:8px;max-width:100%;white-space:pre-wrap;}
