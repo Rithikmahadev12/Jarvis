@@ -21,6 +21,7 @@
   header button{background:var(--panel2);border:1px solid var(--line);color:var(--ink);
     padding:6px 10px;border-radius:4px;font-family:var(--mono);font-size:11px;cursor:pointer;}
   header button:hover{border-color:var(--accent);color:var(--accent);}
+  header button.active{background:#123326;border-color:var(--accent);color:var(--accent);}
   #left{grid-column:1;grid-row:2/4;background:var(--panel);border-right:1px solid var(--line);
     padding:10px;overflow-y:auto;}
   #viewport{grid-column:2;grid-row:2;position:relative;background:#05080a;}
@@ -83,11 +84,24 @@
     <button id="btnScriptOut">Copy feature tree JSON</button>
     <button id="btnScriptIn">Paste / run script</button>
     <button id="btnSTL">Export STL</button>
+    <button id="btnWireframe" title="Toggle wireframe rendering of the current model">▧ Wireframe</button>
     <button id="btnHologram" title="Send the current solids to the holographic viewer, where you can turn and move it with your hands">🔮 View as Hologram</button>
     <button id="btnClear">Clear all</button>
   </header>
 
   <div id="left">
+    <div class="group-title">Find / Build a model</div>
+    <div id="sketchfabSearchRow" style="display:flex;gap:4px;margin-bottom:6px;">
+      <input id="sketchfabQuery" type="text" placeholder="e.g. quadcopter drone" style="flex:1;" />
+      <button id="btnSketchfabFind" style="width:auto;padding:5px 8px;">Find</button>
+    </div>
+    <div class="hint" id="sketchfabHint">Searches Sketchfab for a real model first; if nothing downloadable turns up, Jarvis builds it from scratch instead.</div>
+    <div id="modelSwitcher" style="display:none;margin-top:8px;">
+      <div class="group-title" style="margin-top:0;">Sketchfab results <span class="badge" id="modelSwitcherCount">0</span></div>
+      <div id="modelSwitcherList"></div>
+      <button class="tbtn" id="btnNextModel">⟳ Try next model</button>
+    </div>
+
     <div class="group-title">Sketch</div>
     <button class="tbtn" data-tool="sketch-plane">▦ New sketch plane</button>
     <button class="tbtn" data-tool="sketch-rect">▭ Rectangle</button>
@@ -162,6 +176,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLExporter } from "three/addons/exporters/STLExporter.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js";
 import { Brush, Evaluator, ADDITION, SUBTRACTION, INTERSECTION } from "three-bvh-csg";
 
@@ -271,6 +286,163 @@ const DEFAULT_MAT = () => new THREE.MeshStandardMaterial({ color: 0x9fb4c4, meta
 function findFeature(id) { return features.find(f => f.id === id); }
 
 // ═══════════════════════════════════════════════════════════════
+// SKETCHFAB MODEL LAYER — real, downloaded glTF models pulled in
+// alongside (not instead of) the parametric feature tree above. Kept
+// in its own group so rebuildAll() (which only touches `features`)
+// never wipes it out.
+// ═══════════════════════════════════════════════════════════════
+const sketchfabGroup = new THREE.Group();
+scene.add(sketchfabGroup);
+const gltfLoader = new GLTFLoader();
+let sketchfabResults = [];   // last search's results, for "next model"
+let sketchfabIndex = -1;
+let wireframeOn = false;
+
+function clearSketchfabModel() {
+  while (sketchfabGroup.children.length) sketchfabGroup.remove(sketchfabGroup.children[0]);
+}
+
+// Fits/centers whatever was just loaded into the same ~3-unit-tall
+// working volume the feature-tree kernel builds in, and applies the
+// current wireframe toggle so a newly-swapped model matches state.
+function frameSketchfabObject(obj) {
+  clearSketchfabModel();
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const maxDim = Math.max(size.x, size.y, size.z) || 1;
+  const scale = 3.4 / maxDim;
+  obj.position.sub(center);
+  const wrap = new THREE.Group();
+  wrap.add(obj);
+  wrap.scale.setScalar(scale);
+  wrap.position.y = 1.2;
+  sketchfabGroup.add(wrap);
+  applyWireframeToObject(sketchfabGroup, wireframeOn);
+}
+
+function primitiveMeshForPlaceholder(part) {
+  const color = part?.color || "#8fa3b0";
+  const mat = new THREE.MeshStandardMaterial({ color, metalness: 0.6, roughness: 0.4 });
+  let geo;
+  switch (part?.shape) {
+    case "plate":    geo = new THREE.BoxGeometry(2, 0.15, 1.2); break;
+    case "cylinder": geo = new THREE.CylinderGeometry(0.5, 0.5, 1.4, 32); break;
+    case "bracket":  geo = new THREE.BoxGeometry(0.9, 0.9, 0.2); break;
+    case "gear":     geo = new THREE.CylinderGeometry(0.7, 0.7, 0.25, 20); break;
+    case "sphere":   geo = new THREE.SphereGeometry(0.6, 24, 18); break;
+    case "panel":    geo = new THREE.BoxGeometry(1.6, 1, 0.08); break;
+    case "beam":     geo = new THREE.BoxGeometry(0.25, 0.25, 2.2); break;
+    default:         geo = new THREE.BoxGeometry(1.4, 1, 1);
+  }
+  return new THREE.Mesh(geo, mat);
+}
+
+// Loads a specific Sketchfab uid (or "prim:*" placeholder) into the
+// sketchfabGroup. Used for the initial pick and for "change model".
+async function loadSketchfabModel(uid, label) {
+  log(`Loading model "${label || uid}"…`);
+  try {
+    const res = await fetch(`/api/build/model/${encodeURIComponent(uid)}`);
+    const data = await res.json();
+    if (data.kind === "gltf") {
+      const gltf = await gltfLoader.loadAsync(data.url);
+      frameSketchfabObject(gltf.scene);
+      log(`✓ Loaded "${label || uid}" from Sketchfab.`, "ok");
+    } else if (data.kind === "placeholder") {
+      frameSketchfabObject(primitiveMeshForPlaceholder(data.part));
+      log(`✓ Loaded placeholder part (${data.part.name}).`, "ok");
+    } else {
+      const fallback = data.fallback?.part || null;
+      if (fallback) frameSketchfabObject(primitiveMeshForPlaceholder(fallback));
+      log(`✗ ${data.error || "Couldn't load that model."}`, "err");
+    }
+  } catch (e) {
+    log("✗ Failed to load model: " + e.message, "err");
+  }
+}
+
+function renderModelSwitcher() {
+  const wrap = document.getElementById("modelSwitcher");
+  const list = document.getElementById("modelSwitcherList");
+  const count = document.getElementById("modelSwitcherCount");
+  if (!sketchfabResults.length) { wrap.style.display = "none"; return; }
+  wrap.style.display = "block";
+  count.textContent = sketchfabResults.length;
+  list.innerHTML = "";
+  sketchfabResults.forEach((r, i) => {
+    const b = document.createElement("button");
+    b.className = "tbtn" + (i === sketchfabIndex ? " active" : "");
+    b.textContent = (i === sketchfabIndex ? "● " : "○ ") + r.name;
+    b.title = "by " + (r.author || "unknown");
+    b.onclick = () => selectSketchfabResult(i);
+    list.appendChild(b);
+  });
+}
+
+async function selectSketchfabResult(i) {
+  if (i < 0 || i >= sketchfabResults.length) return;
+  sketchfabIndex = i;
+  renderModelSwitcher();
+  await loadSketchfabModel(sketchfabResults[i].uid, sketchfabResults[i].name);
+}
+
+async function changeToNextModel() {
+  if (!sketchfabResults.length) {
+    log("No alternate Sketchfab results loaded yet — search for a model first.", "err");
+    return;
+  }
+  const next = (sketchfabIndex + 1) % sketchfabResults.length;
+  await selectSketchfabResult(next);
+  log(`Switched to "${sketchfabResults[next].name}".`, "ok");
+}
+
+// ── FIND-OR-BUILD — the unified "search Sketchfab, else AI-generate"
+// flow. Used by the "Find" button, the bottom prompt bar, and voice
+// commands ("Jarvis, build me a drone") relayed via BUILD_SEARCH.
+async function findOrBuildFromQuery(query) {
+  const q = (query || "").trim();
+  if (!q) return;
+  log(`→ searching Sketchfab for "${q}"…`);
+  try {
+    const res = await fetch(`/api/build/find?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if (data.source === "sketchfab" && data.results?.length) {
+      sketchfabResults = data.results;
+      sketchfabIndex = 0;
+      renderModelSwitcher();
+      await loadSketchfabModel(data.results[0].uid, data.results[0].name);
+      log(`Found ${data.results.length} match(es) on Sketchfab. Say "change the model" to try another.`, "ok");
+    } else {
+      log("Nothing downloadable on Sketchfab for that — building it from scratch instead.");
+      await runAiBuildFromPrompt(q);
+    }
+  } catch (e) {
+    log("✗ Search failed: " + e.message + " — trying the AI generator instead.", "err");
+    await runAiBuildFromPrompt(q);
+  }
+}
+
+// ── WIREFRAME — toggles wireframe rendering across both the
+// parametric feature tree AND any loaded Sketchfab model.
+function applyWireframeToObject(root, enabled) {
+  root.traverse((o) => {
+    if (!o.material) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    mats.forEach((m) => { if ("wireframe" in m) m.wireframe = enabled; });
+  });
+}
+function setWireframe(enabled) {
+  wireframeOn = enabled;
+  applyWireframeToObject(displayGroup, wireframeOn);
+  applyWireframeToObject(sketchfabGroup, wireframeOn);
+  const btn = document.getElementById("btnWireframe");
+  if (btn) btn.classList.toggle("active", wireframeOn);
+  log(wireframeOn ? "Wireframe rendering on." : "Wireframe rendering off.", "ok");
+}
+function toggleWireframe() { setWireframe(!wireframeOn); }
+
+// ═══════════════════════════════════════════════════════════════
 // JARVIS_BUILD BRIDGE — lets a Project Studio "hybrid" script drive
 // this CAD view live. studio.js parses lines like
 //   JARVIS_BUILD:{"action":"rotate","axis":"y","degrees":25}
@@ -335,6 +507,31 @@ window.addEventListener("message", (ev) => {
   if (d.type === "jarvis_build_plan") {
     try { loadScript(d.plan || {}, !!d.append); }
     catch (e) { log("Bridge plan error: " + e.message, "err"); }
+    return;
+  }
+  // BUILD_SEARCH — sent by jarvis.js's openBuild() whenever a voice
+  // command opens Build Mode with a topic ("Jarvis, show me a 3D
+  // model of a drone"). Runs the same find-or-build flow as the
+  // manual search box: Sketchfab first, AI generator as fallback.
+  if (d.type === "BUILD_SEARCH") {
+    if (d.query) findOrBuildFromQuery(d.query);
+    return;
+  }
+  // BUILD_WIREFRAME — "Jarvis, render this into a wireframe". If a
+  // query came along with it (asked for a specific thing that isn't
+  // loaded yet), find/build that first, then push straight to the
+  // holographic viewer in wireframe mode.
+  if (d.type === "BUILD_WIREFRAME") {
+    (async () => {
+      if (d.query) await findOrBuildFromQuery(d.query);
+      setWireframe(true);
+      sendToHologram({ wireframe: true });
+    })();
+    return;
+  }
+  // BUILD_CHANGE_MODEL — "Jarvis, change/swap the model".
+  if (d.type === "BUILD_CHANGE_MODEL") {
+    changeToNextModel();
     return;
   }
 });
@@ -893,26 +1090,39 @@ document.getElementById("btnSTL").onclick = () => {
   log("Exported model.stl", "ok");
 };
 
-document.getElementById("btnHologram").onclick = () => {
-  const solids = displayGroup.children.filter(o => o.type === "Mesh" && o.visible);
-  if (!solids.length) { log("Nothing to send — build something first.", "err"); return; }
-  const payload = {
-    createdAt: Date.now(),
-    meshes: solids.map(o => ({
-      geometry: o.geometry.toJSON(),
-      color: "#" + o.material.color.getHexString(),
-      metalness: o.material.metalness ?? 0.7,
-      roughness: o.material.roughness ?? 0.35,
-    })),
-  };
+document.getElementById("btnHologram").onclick = () => sendToHologram();
+
+// Collects solids from BOTH the parametric feature tree and any loaded
+// Sketchfab model, and pushes them into the holographic viewer. Also
+// carries the current wireframe toggle so "render this into a
+// wireframe" produces a wireframe hologram, not just a wireframe CAD
+// preview. Used by the button above and by the BUILD_WIREFRAME voice
+// command below.
+function sendToHologram(opts = {}) {
+  const wireframe = opts.wireframe ?? wireframeOn;
+  const meshes = [];
+  [displayGroup, sketchfabGroup].forEach((root) => {
+    root.traverse((o) => {
+      if (o.type !== "Mesh" || !o.visible || !o.geometry) return;
+      const mat = Array.isArray(o.material) ? o.material[0] : o.material;
+      meshes.push({
+        geometry: o.geometry.toJSON(),
+        color: mat?.color ? "#" + mat.color.getHexString() : "#9fb4c4",
+        metalness: mat?.metalness ?? 0.7,
+        roughness: mat?.roughness ?? 0.35,
+      });
+    });
+  });
+  if (!meshes.length) { log("Nothing to send — build or find something first.", "err"); return; }
+  const payload = { createdAt: Date.now(), wireframe, meshes };
   try {
     localStorage.setItem("jarvis:holoModel", JSON.stringify(payload));
-    log(`Sent ${solids.length} solid(s) to the Holographic Viewer — opening…`, "ok");
-    window.open("hologram-build.html", "_blank");
+    log(`Sent ${meshes.length} solid(s) to the Holographic Viewer${wireframe ? " (wireframe)" : ""} — opening…`, "ok");
+    window.open("hologram-build.html" + (wireframe ? "?wireframe=1" : ""), "_blank");
   } catch (e) {
     log("Failed to send to hologram viewer: " + e.message, "err");
   }
-};
+}
 
 document.getElementById("btnScriptOut").onclick = () => {
   const clean = features.map(({ _geo, _obj, _hidden, _error, ...rest }) => rest);
@@ -953,12 +1163,18 @@ function loadScript(plan, append) {
 // ═══════════════════════════════════════════════════════════════
 // JARVIS AI HOOK — POST /api/build/generate { prompt } -> { plan:{features:[...]} }
 // ═══════════════════════════════════════════════════════════════
-document.getElementById("btnBuild").onclick = runAiBuild;
-document.getElementById("prompt").addEventListener("keydown", e => { if (e.key === "Enter") runAiBuild(); });
-async function runAiBuild() {
-  const prompt = document.getElementById("prompt").value.trim();
+// The bottom prompt bar now goes through the same find-or-build flow
+// as voice commands: try Sketchfab for a real model first, and only
+// fall back to the AI feature-tree generator if nothing downloadable
+// turns up. Kept as its own function (runAiBuildFromPrompt) so the
+// fallback path is callable directly, without hitting Sketchfab again.
+document.getElementById("btnBuild").onclick = () => findOrBuildFromQuery(document.getElementById("prompt").value.trim());
+document.getElementById("prompt").addEventListener("keydown", e => {
+  if (e.key === "Enter") findOrBuildFromQuery(document.getElementById("prompt").value.trim());
+});
+async function runAiBuildFromPrompt(prompt) {
   if (!prompt) return;
-  log("→ asking Jarvis: " + prompt);
+  log("→ asking Jarvis to build it: " + prompt);
   try {
     const res = await fetch("/api/build/generate", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -972,6 +1188,17 @@ async function runAiBuild() {
     log("(Needs a working Groq key in .env for hermes-engine — see build-ai.js)");
   }
 }
+
+// ── Manual "Find on Sketchfab" box + "next model" + wireframe toggle
+document.getElementById("btnSketchfabFind").onclick = () => {
+  const q = document.getElementById("sketchfabQuery").value.trim();
+  if (q) findOrBuildFromQuery(q);
+};
+document.getElementById("sketchfabQuery").addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("btnSketchfabFind").click();
+});
+document.getElementById("btnNextModel").onclick = changeToNextModel;
+document.getElementById("btnWireframe").onclick = toggleWireframe;
 
 // ═══════════════════════════════════════════════════════════════
 // DEMO: 4-cylinder inline crankshaft + pistons, built entirely from
