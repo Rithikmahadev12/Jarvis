@@ -2335,6 +2335,17 @@ function closeBuild() {
 // Broadcast-style dashboard, real headlines, JARVIS narrates with
 // its usual dry sarcasm. No typing — voice/taskbar only.
 // ═══════════════════════════════════════════════════════════════
+
+// Taskbar "NEWS" button — takes you to the standalone /news page (same
+// destination "Jarvis, what's on the news" navigates to by default), not
+// the embedded panel. No sessionStorage handoff needed here — with no
+// pushed payload, news-widget.html just self-fetches general headlines
+// on load, same as a bookmarked/cold open.
+function goToNewsPage() {
+  if (window.JarvisTransition) window.JarvisTransition.goTo("/news");
+  else window.location.href = "/news";
+}
+
 function openNews(newsMeta) {
   const panel  = $("news-panel");
   const iframe = $("news-iframe");
