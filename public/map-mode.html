@@ -156,9 +156,95 @@
     }
   }
 
+  // Same geocode as above but returns coordinates instead of flying
+  // the camera there directly — used when a point is one leg of a
+  // route rather than the whole show.
+  async function geocodeCoords(query) {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    if (!data || !data.length) return null;
+    const r = data[0];
+    return { lat: parseFloat(r.lat), lon: parseFloat(r.lon), name: r.display_name.split(',').slice(0,3).join(',') };
+  }
+
+  function getBrowserLocation() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) { resolve(null); return; }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude, name: 'Your location' }),
+        () => resolve(null),
+        { timeout: 8000, maximumAge: 60000 }
+      );
+    });
+  }
+
+  const startPinIcon = L.divIcon({ className: 'jarvis-pin-wrap', html: '<div class="jarvis-pin" style="filter:hue-rotate(90deg)"></div>', iconSize: [22,22] });
+  let routeLine = null, routeGlow = null, startMarker = null;
+
+  function clearRoute() {
+    if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+    if (routeGlow) { map.removeLayer(routeGlow); routeGlow = null; }
+    if (startMarker) { map.removeLayer(startMarker); startMarker = null; }
+  }
+
+  function fmtDistance(meters) {
+    return meters >= 1000 ? `${(meters/1000).toFixed(1)} km` : `${Math.round(meters)} m`;
+  }
+  function fmtDuration(seconds) {
+    const h = Math.floor(seconds / 3600), m = Math.round((seconds % 3600) / 60);
+    return h ? `${h}h ${m}m` : `${m} min`;
+  }
+
+  // "map to London" (from = null, uses the browser's current position)
+  // or "map from Portland to London" — geocodes both ends, asks OSRM's
+  // public routing server for a driving route, and draws it in the same
+  // HUD-blue style as everything else on this screen.
+  async function showRoute(fromQuery, toQuery) {
+    clearRoute();
+    setLocCard(toQuery, 0, 0, 'Plotting route…');
+    let dest = null;
+    try {
+      dest = await geocodeCoords(toQuery);
+      if (!dest) { setLocCard(toQuery, 0, 0, 'No match found.'); return; }
+
+      const origin = fromQuery ? await geocodeCoords(fromQuery) : await getBrowserLocation();
+      if (!origin) {
+        // No origin available (denied/unsupported geolocation, or a
+        // "from" place that didn't geocode) — fall back to just
+        // showing the destination, same as a plain map lookup.
+        flyTo(dest.lat, dest.lon, dest.name, 11);
+        document.getElementById('loc-status').textContent = 'No route origin available — showing destination only.';
+        return;
+      }
+
+      const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${origin.lon},${origin.lat};${dest.lon},${dest.lat}?overview=full&geometry=geojson`);
+      const data = await res.json();
+      const route = data?.routes?.[0];
+      if (!route) {
+        flyTo(dest.lat, dest.lon, dest.name, 11);
+        document.getElementById('loc-status').textContent = 'No drivable route found — showing destination only.';
+        return;
+      }
+
+      const latlngs = route.geometry.coordinates.map(([lon, lat]) => [lat, lon]);
+      routeGlow = L.polyline(latlngs, { color: '#00c8ff', weight: 8, opacity: 0.18 }).addTo(map);
+      routeLine = L.polyline(latlngs, { color: '#00c8ff', weight: 2.5, opacity: 0.9 }).addTo(map);
+      startMarker = L.marker([origin.lat, origin.lon], { icon: startPinIcon }).addTo(map);
+      if (marker) map.removeLayer(marker);
+      marker = L.marker([dest.lat, dest.lon], { icon: pinIcon }).addTo(map);
+
+      map.flyToBounds(routeLine.getBounds(), { padding: [80, 80], duration: 1.4 });
+      setLocCard(dest.name, dest.lat, dest.lon,
+        `${fmtDistance(route.distance)} · ${fmtDuration(route.duration)} from ${origin.name}`);
+    } catch (e) {
+      if (dest) flyTo(dest.lat, dest.lon, toQuery, 11);
+      document.getElementById('loc-status').textContent = 'Route lookup failed — network issue.';
+    }
+  }
+
   function searchPlace() {
     const q = document.getElementById('map-search').value.trim();
-    if (q) geocode(q);
+    if (q) { clearRoute(); geocode(q); }
   }
   document.getElementById('map-search').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') searchPlace();
@@ -167,8 +253,13 @@
   // Receive commands from the parent JARVIS window
   window.addEventListener('message', (e) => {
     if (e.data?.type === 'MAP_SEARCH' && e.data.query) {
+      clearRoute();
       document.getElementById('map-search').value = e.data.query;
       geocode(e.data.query);
+    }
+    if (e.data?.type === 'MAP_ROUTE' && e.data.to) {
+      document.getElementById('map-search').value = e.data.to;
+      showRoute(e.data.from || null, e.data.to);
     }
   });
 
