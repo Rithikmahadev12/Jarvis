@@ -368,7 +368,7 @@ const TOOLS = [
         properties: {
           category: { type: "string", enum: ["general","business","entertainment","health","science","sports","technology"], description: "News category, if the user asked for a specific one. Omit for general top headlines." },
           topic:    { type: "string", description: "A specific topic/keyword to search news for, if the user named one (e.g. 'news about Iran'). Omit if they just want general headlines." },
-          display:  { type: "string", enum: ["page","widget"], description: "'widget' ONLY if the user's wording explicitly includes the word 'widget' (e.g. 'jarvis news widget'). Otherwise always 'page' — that's the default for 'show me the news', 'world news', etc." },
+          display:  { type: "string", enum: ["page","widget"], description: "'widget' ONLY if the user's wording explicitly includes the word 'widget' (e.g. 'jarvis news widget', 'pull up the news widget'). Otherwise always 'page' — that's the default for 'show me the news', 'world news', 'what's on the news', etc." },
         },
       },
     },
