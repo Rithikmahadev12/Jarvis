@@ -794,7 +794,9 @@ function updateLiveHearing(text) {
 // A bare regex match on the word "jarvis" anywhere in a sentence used to
 // be enough to trigger a reply — which meant just mentioning the name
 // while explaining Jarvis to someone else ("so when I say Jarvis...")
-// got treated as an actual command. Two extra checks fix that:
+// got treated as an actual command. Three checks fix that, all purely
+// from the shape/content of what was said — no camera, no toggle,
+// always on:
 //
 //  1. META-MENTION GUARD — phrases that talk ABOUT the wake word rather
 //     than using it ("when I say jarvis", "call it jarvis", "explaining
@@ -805,15 +807,43 @@ function updateLiveHearing(text) {
 //     Jarvis...", "ok Jarvis..."). A mention appearing further into a
 //     sentence ("...and that's how Jarvis handles it", "this feature,
 //     Jarvis, is...") is describing the assistant, not commanding it.
+//
+//  3. DESCRIPTIVE-FOLLOWUP GUARD — "Jarvis is the assistant I built"
+//     passes both checks above (name's right at the front, no
+//     meta-mention trigger word) and still isn't a command — it's a
+//     sentence ABOUT Jarvis. The giveaway is the very next word: a
+//     real address is followed by a pause then an instruction or
+//     question, never straight into a third-person descriptive verb
+//     ("is", "handles", "does", "runs"...).
 const WAKE_META_MENTION_RE =
   /\b(when i say|if i say|say(?:ing)?|call(?:ed|ing)?|named|the word|talk(?:ing)?\s+about|explain(?:ing|s)?|show(?:ing|s)?|demo(?:ing|s|nstrat\w*)?|about|introduc(?:ing|e))\s+(?:the\s+|to\s+)?jarvi[sc]?\b/;
+
+const WAKE_DESCRIPTIVE_FOLLOWUP = new Set([
+  "is", "isn't", "was", "wasn't", "were", "weren't", "has", "hasn't", "had", "hadn't",
+  "does", "doesn't", "did", "didn't", "handles", "handled", "runs", "ran",
+  "works", "worked", "seems", "seemed", "looks", "looked", "sounds", "sounded",
+  "became", "becomes", "used", "uses", "knows", "knew", "understands", "understood",
+  "helps", "helped", "lets", "let", "means", "meant", "makes", "made", "gives", "gave",
+]);
+
+// A real request/question, however it's phrased — used by the monologue
+// guard below to tell a genuine (if wordy) command apart from ordinary
+// talking that just happens to start with the name.
+const COMMAND_SHAPE_RE =
+  /\?|\b(please|can you|could you|would you|will you|do you|does it|open|close|play|pause|resume|stop|mute|unmute|turn (?:on|off|up|down)|set|remind|schedule|search|find|look up|show|tell|give|read|check|call|text|message|send|create|make|build|write|calculate|convert|translate|define|explain|remember|forget|cancel|delete|add|remove|clip|record|take a|capture|save|pull up|bring up|move|switch|enable|disable|activate|deactivate|go to|start|what|when|where|why|who|how|which|is there|are there)\b/i;
 
 function hasWakeWord(lower) {
   const m = /\bjarvi[sc]?\b/.exec(lower);
   if (!m) return false;
   if (WAKE_META_MENTION_RE.test(lower)) return false;
   const wordsBefore = lower.slice(0, m.index).trim().split(/\s+/).filter(Boolean).length;
-  return wordsBefore <= 1;
+  if (wordsBefore > 1) return false;
+
+  const after = lower.slice(m.index + m[0].length).replace(/^['’]s\b/, " is ").trim();
+  const nextWord = (after.split(/\s+/)[0] || "").replace(/[^a-z']/g, "");
+  if (WAKE_DESCRIPTIVE_FOLLOWUP.has(nextWord)) return false;
+
+  return true;
 }
 function stripWakeWord(t)   { return t.replace(/\bjarvi[sc]?\b[,.]?\s*/gi, "").trim(); }
 
@@ -1780,8 +1810,30 @@ function handleChatCommand(text, attachments) {
   updateMood(3);
   CameraObserver.notifyUserMessage();
 
-  const hasWake = hasWakeWord(lower);
-  const cleaned = hasWake ? stripWakeWord(text) : text;
+  // ── MONOLOGUE GUARD ──
+  // hasWakeWord() already screens out meta-mentions ("when I say
+  // Jarvis...") and mid-sentence name-drops (name has to be right up
+  // front). This catches the case those miss: the name IS right up
+  // front, but what follows is a long stretch of normal talking —
+  // presenting, explaining something to another person — with none of
+  // the shape of an actual request. Real commands are short and have
+  // a request/question shape ("Jarvis, what's on my calendar",
+  // "Jarvis mute", "Jarvis can you..."). A 20+ word ramble with no
+  // question mark and no command verb anywhere in it almost certainly
+  // isn't one, even though it starts with the name. No camera, no
+  // toggle — just reading the shape of what was actually said.
+  const rawHasWake = hasWakeWord(lower);
+  const strippedForShape = rawHasWake ? stripWakeWord(text) : text;
+  let hasWake = rawHasWake;
+  let monologueBlocked = false;
+  if (rawHasWake) {
+    const wordCount = strippedForShape.trim().split(/\s+/).filter(Boolean).length;
+    if (wordCount > 18 && !COMMAND_SHAPE_RE.test(strippedForShape)) {
+      hasWake = false;
+      monologueBlocked = true;
+    }
+  }
+  const cleaned = hasWake ? strippedForShape : text;
 
   // ── MUTE / UNMUTE — instant, fully local, no network round-trip.
   //    Checked BEFORE the wake-word/recency gate below so a bare
@@ -1847,7 +1899,7 @@ function handleChatCommand(text, attachments) {
   // telling an actual address apart from just mentioning the name, so
   // there's no separate grace window anymore — every utterance is judged
   // the same way, always.
-  if (!hasWake && state.interactionCount > 3) {
+  if ((!hasWake && state.interactionCount > 3) || monologueBlocked) {
     updateLiveHearing("");
     handleAmbientSpeech(text);
     return;
