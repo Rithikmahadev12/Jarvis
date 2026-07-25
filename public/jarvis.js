@@ -1452,13 +1452,13 @@ function saveServerSetting(partial) {
 
 function launchMain() {
   state.phase = "chatting";
-  // Remember that this tab already completed voice+face verification —
-  // lets a later full-page reload (e.g. the browser Back button landing
-  // back on "/" after visiting /news) skip straight to the home screen
-  // instead of re-running the lock screen. Cleared on logout, and it's
-  // sessionStorage so a brand-new tab/window always re-verifies.
+  // Remember this login for the lifetime of THIS browser tab (sessionStorage,
+  // not localStorage — a brand new tab or a real browser restart still gets
+  // the full lock/face-scan flow). This is what lets navigating away — e.g.
+  // to /news — and coming back skip straight to the home screen instead of
+  // re-running the whole login sequence on every reload.
   try {
-    sessionStorage.setItem("jarvis_session", JSON.stringify({ user: state.user, userTitle: state.userTitle }));
+    sessionStorage.setItem("jarvis_session", JSON.stringify({ user: state.user, userTitle: state.userTitle, ts: Date.now() }));
   } catch (e) {}
   loadServerSettings(); // restore saved toggles (face detection, etc.) — fire-and-forget, applies as soon as it resolves
   $("auth-screen").classList.remove("active");
@@ -3636,7 +3636,6 @@ function stopFullRecording() {
 
 // ── LOGOUT ──
 function handleLogout() {
-  try { sessionStorage.removeItem("jarvis_session"); } catch (e) {}
   mic.suspend();
   if (state.faceCheckInterval) clearInterval(state.faceCheckInterval);
   for (const t of state.activeTimers) clearTimeout(t.id);
@@ -3650,6 +3649,7 @@ function handleLogout() {
     state.faceEnrolled = false; state.faceDescriptors = null; state.faceEnrollPending = false;
     state.intruderDetectionEnabled = false;
     _selectedUser = null; _voiceSamples = []; _voiceSamplesDone = 0;
+    try { sessionStorage.removeItem("jarvis_session"); } catch (e) {}
     $("transcript").innerHTML = "";
     $("main-screen").classList.remove("active");
     setOrb("idle"); stopScreenRecord();
@@ -3698,6 +3698,32 @@ function loadScript(src) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ── SESSION RESUME ──
+// launchMain() writes "jarvis_session" to sessionStorage every time you
+// log in, but nothing ever read it back on boot — so navigating away
+// (e.g. to /news) and coming back always re-ran the full "SAY JARVIS TO
+// BEGIN" + face-scan flow from scratch, even seconds later. This checks
+// for that saved session first and, if it's still fresh, skips straight
+// to the home screen instead. sessionStorage is scoped to this one
+// browser tab and clears when the tab closes, so a new tab or an actual
+// browser restart still gets the real login — this only short-circuits
+// re-navigation within the same tab/session.
+const SESSION_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12h — generous for one sitting/demo, still forces a real login the next day
+function tryResumeSession() {
+  try {
+    const raw = sessionStorage.getItem("jarvis_session");
+    if (!raw) return false;
+    const saved = JSON.parse(raw);
+    if (!saved || !saved.user || !saved.userTitle) return false;
+    if (Date.now() - saved.ts > SESSION_MAX_AGE_MS) return false;
+    state.user = saved.user;
+    state.userTitle = saved.userTitle;
+    launchMain();
+    return true;
+  } catch (e) { return false; }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ── BOOT ──
 // ═══════════════════════════════════════════════════════════════
 window.addEventListener("load", async () => {
@@ -3706,22 +3732,6 @@ window.addEventListener("load", async () => {
     w.volume = 0; speechSynthesis.speak(w); speechSynthesis.getVoices();
   }, 500);
 
-  // Already verified earlier this tab/session (e.g. we're only here
-  // because the Back button from /news landed on "/" again)? Skip the
-  // lock/auth screens entirely and go straight back to the home screen.
-  let resumed = false;
-  try {
-    const raw = sessionStorage.getItem("jarvis_session");
-    if (raw) {
-      const sess = JSON.parse(raw);
-      if (sess && sess.user) {
-        state.user = sess.user;
-        state.userTitle = sess.userTitle;
-        launchMain();
-        resumed = true;
-      }
-    }
-  } catch (e) {}
-
-  if (!resumed) runLockScreen();
+  if (tryResumeSession()) return;
+  runLockScreen();
 });
