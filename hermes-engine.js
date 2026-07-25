@@ -1108,6 +1108,45 @@ async function summarizeNewsSarcastically(articles, userTitle = "Sir", categoryL
   }
 }
 
+// ── AMBIENT ASSIST ─────────────────────────────────────────────
+// Not a command. This looks at a short window of speech JARVIS picked up
+// WITHOUT being addressed by name, and decides on its own whether
+// there's something clearly useful worth interjecting about — someone
+// asked a factual question out loud, mentioned a task it could help
+// with, stated a problem it can solve. Deliberately conservative: the
+// default, expected answer is nothing. It's meant to interject rarely
+// and be right when it does, not comment on every sentence it hears.
+async function ambientAssist(snippet, userTitle = "Sir") {
+  if (!GroqKeys.hasGroqKey()) return null;
+  if (!snippet || snippet.trim().length < 8) return null;
+
+  const T = userTitle || "Sir";
+  const messages = [
+    {
+      role: "system",
+      content: `You are J.A.R.V.I.S, silently overhearing a snippet of nearby conversation. Nobody said your name or spoke to you directly — you are deciding, entirely on your own, whether it's worth interjecting.
+
+Only interject if the snippet contains something CLEARLY actionable and low-risk to jump in on — e.g. someone asked a factual question out loud that you can just answer, mentioned needing to do something you can help with (look something up, do a calculation, remember something), or stated an obvious problem you could solve right now.
+
+Do NOT interject on: small talk, opinions, personal/emotional statements, arguments, jokes, or anything ambiguous. When in doubt, say nothing — staying quiet is always the safe, correct choice and should be the outcome most of the time.
+
+If there's nothing worth saying, respond with EXACTLY: NONE
+If there is, respond with ONE short spoken sentence, in character as JARVIS — dry, precise, respectful, address the user as "${T}" — and make it clear you're jumping in unprompted (e.g. open with "If I may, ${T}," or "Actually, ${T},"). Never repeat back what was said, never explain that you were listening — just help.`,
+    },
+    { role: "user", content: snippet.trim().slice(0, 600) },
+  ];
+
+  try {
+    const reply = await groqFetch(messages, MODELS.fast, 0.4, 120);
+    const clean = (reply || "").trim().replace(/^["']|["']$/g, "");
+    if (!clean || /^none\b/i.test(clean)) return null;
+    return clean;
+  } catch (e) {
+    console.warn("[AMBIENT] assist failed:", e.message);
+    return null;
+  }
+}
+
 function isConfigured() { return GroqKeys.hasGroqKey(); }
 
 module.exports = {
@@ -1116,6 +1155,7 @@ module.exports = {
   codeChat,
   groqFetchRaw,
   summarizeNewsSarcastically,
+  ambientAssist,
   TOOLS,
   generateCode,
   analyzeIntent,
