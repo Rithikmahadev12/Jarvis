@@ -22,6 +22,9 @@ function getUserTimezone() {
 const state = window.state = {
   phase: "idle",
   muted: false,          // true after "mute"/"jarvis mute" — speak() becomes a silent no-op
+  ambientBuffer: [],       // recent speech heard WITHOUT a wake word, waiting to be checked for anything worth helping with
+  ambientDebounceTimer: null,
+  lastAmbientReply: 0,     // timestamp of the last unprompted ambient interjection — cooldown gate
   outputMode: "phone",   // "phone" = normal browser TTS, "home" = cast via Piper/Google Home
   user: null,
   userTitle: null,
@@ -1820,7 +1823,9 @@ function handleChatCommand(text, attachments) {
   // there's no separate grace window anymore — every utterance is judged
   // the same way, always.
   if (!hasWake && state.interactionCount > 3) {
-    updateLiveHearing(""); return;
+    updateLiveHearing("");
+    handleAmbientSpeech(text);
+    return;
   }
 
   if (!cleaned || cleaned.trim().length < 1) {
@@ -2088,6 +2093,59 @@ function handleChatCommand(text, attachments) {
   }
 
   sendToAI(cleaned, attachments);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── AMBIENT ASSIST ──
+// The genuinely proactive path: speech that DIDN'T address Jarvis by
+// name still gets looked at. After a short pause in talking, whatever
+// was said gets sent to the backend, which decides — on its own,
+// separately from any normal chat turn — whether there's something
+// clearly useful worth jumping in on. Almost always the answer is no
+// and nothing happens; that's the intended, expected behavior, not a
+// bug. A cooldown keeps it from ever becoming chatty even if several
+// "help-worthy" moments happen close together.
+// ═══════════════════════════════════════════════════════════════
+const AMBIENT_DEBOUNCE_MS = 1400;   // wait for a natural pause before looking at what was said
+const AMBIENT_WINDOW_MS   = 20000;  // only combine speech from the last ~20s into one snippet
+const AMBIENT_COOLDOWN_MS = 25000;  // minimum gap between unprompted ambient interjections
+
+function handleAmbientSpeech(text) {
+  if (state.muted || isJarvisSpeaking()) return;      // don't process Jarvis's own audio / while muted
+  const trimmed = (text || "").trim();
+  if (trimmed.length < 4) return;                      // too short to be anything actionable
+
+  state.ambientBuffer.push({ text: trimmed, ts: Date.now() });
+  state.ambientBuffer = state.ambientBuffer.filter(e => Date.now() - e.ts < AMBIENT_WINDOW_MS);
+
+  clearTimeout(state.ambientDebounceTimer);
+  state.ambientDebounceTimer = setTimeout(checkAmbientHelp, AMBIENT_DEBOUNCE_MS);
+}
+
+async function checkAmbientHelp() {
+  const snippet = state.ambientBuffer.map(e => e.text).join(" ").trim();
+  state.ambientBuffer = [];
+  if (!snippet) return;
+  if (Date.now() - state.lastAmbientReply < AMBIENT_COOLDOWN_MS) return; // stay quiet, still in cooldown
+  if (state.muted || isJarvisSpeaking() || state.phase !== "chatting") return;
+
+  try {
+    const res = await fetch("/api/ambient/assist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ snippet, userTitle: state.userTitle }),
+    });
+    const data = await res.json();
+    if (!data.reply) return; // the common case — nothing worth saying
+
+    state.lastAmbientReply = Date.now();
+    addMsg("jarvis", data.reply);
+    mic.suspend();
+    speak(data.reply, () => mic.resume());
+    updateMood(4);
+  } catch (e) {
+    // network hiccup — say nothing, try again next time speech comes in
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
