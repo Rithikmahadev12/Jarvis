@@ -1178,6 +1178,22 @@ app.post("/api/personality/smalltalk", (req, res) => {
   res.json({ reply: Personality.routeSmallTalk(message, T, userTimezone) || null });
 });
 
+// ── AMBIENT ASSIST ──
+// Called with a short window of speech JARVIS overheard WITHOUT being
+// addressed by name. Groq decides whether it's worth proactively
+// offering help; almost always the answer should be "no" (reply: null).
+app.post("/api/ambient/assist", async (req, res) => {
+  try {
+    const { snippet, userTitle } = req.body || {};
+    if (!snippet) return res.json({ reply: null });
+    const reply = await Groq.ambientAssist(snippet, userTitle || "Sir");
+    res.json({ reply: reply || null });
+  } catch (e) {
+    console.error("[AMBIENT] /api/ambient/assist failed:", e.message);
+    res.status(500).json({ reply: null, error: e.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // ── EXTENSION API
 // ═══════════════════════════════════════════════════════════════
