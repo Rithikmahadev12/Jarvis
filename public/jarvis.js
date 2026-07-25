@@ -1814,6 +1814,31 @@ function handleChatCommand(text, attachments) {
     return;
   }
 
+  // ── Context injection: if user says "yes/no/sure/ok" after JARVIS asked
+  //    a question — including a question JARVIS asked UNPROMPTED, e.g. via
+  //    ambient assist ("would you like me to pull up some recipes?") —
+  //    treat it as answering that question. Checked BEFORE the ambient
+  //    gate below: a bare "yes" has no wake word and is short enough that
+  //    the ambient buffer would otherwise just silently swallow it,
+  //    leaving Jarvis's own question hanging with no reply ever landing.
+  const isShortAffirmOrNeg = /^(yes|yeah|yep|sure|ok|okay|no|nope|nah|please|go ahead|do it|confirm|cancel|skip)\.?$/i.test(cleaned.trim());
+  if (isShortAffirmOrNeg && state.pendingBuildConfirm) {
+    const isYes = /^(yes|yeah|yep|sure|ok|okay|please|go ahead|do it|confirm)\.?$/i.test(cleaned.trim());
+    const iframe = $("build-iframe");
+    try { iframe?.contentWindow?.postMessage({ type: "BUILD_CONFIRM", yes: isYes }, "*"); } catch (e) {}
+    state.pendingBuildConfirm = false;
+    state.lastJarvisQuestion = null;
+    const r = isYes ? `Connecting them now, ${state.userTitle}.` : `Understood — leaving them as they are.`;
+    addMsg("jarvis", r); speak(r);
+    return;
+  }
+  if (isShortAffirmOrNeg && state.lastJarvisQuestion) {
+    const contextualText = `${cleaned} (in response to: "${state.lastJarvisQuestion}")`;
+    state.lastJarvisQuestion = null;
+    sendToAI(contextualText);
+    return;
+  }
+
   // Previously, anything said within 30s of a real command was treated as
   // another command even without saying "Jarvis" again — convenient for
   // quick follow-ups, but it meant continuing to talk (e.g. explaining a
@@ -1832,26 +1857,6 @@ function handleChatCommand(text, attachments) {
     const acks = [`Yes, ${state.userTitle}?`, `At your service, ${state.userTitle}.`, `How can I help, ${state.userTitle}?`];
     const ack = acks[Math.floor(Math.random() * acks.length)];
     addMsg("jarvis", ack); speak(ack); return;
-  }
-
-  // ── Context injection: if user says "yes/no/sure/ok" after JARVIS asked a question,
-  //    automatically inject the question context so the AI understands the reply ──
-  const isShortAffirmOrNeg = /^(yes|yeah|yep|sure|ok|okay|no|nope|nah|please|go ahead|do it|confirm|cancel|skip)\.?$/i.test(cleaned.trim());
-  if (isShortAffirmOrNeg && state.pendingBuildConfirm) {
-    const isYes = /^(yes|yeah|yep|sure|ok|okay|please|go ahead|do it|confirm)\.?$/i.test(cleaned.trim());
-    const iframe = $("build-iframe");
-    try { iframe?.contentWindow?.postMessage({ type: "BUILD_CONFIRM", yes: isYes }, "*"); } catch (e) {}
-    state.pendingBuildConfirm = false;
-    state.lastJarvisQuestion = null;
-    const r = isYes ? `Connecting them now, ${state.userTitle}.` : `Understood — leaving them as they are.`;
-    addMsg("jarvis", r); speak(r);
-    return;
-  }
-  if (isShortAffirmOrNeg && state.lastJarvisQuestion) {
-    const contextualText = `${cleaned} (in response to: "${state.lastJarvisQuestion}")`;
-    state.lastJarvisQuestion = null;
-    sendToAI(contextualText);
-    return;
   }
 
   const cleanedLower = cleaned.toLowerCase();
