@@ -2821,23 +2821,14 @@ async function handleAction(action, meta, replyText) {
     }
     case "SHOW_HUD": {
       speak(replyText, () => mic.resume());
-      // In the desktop app, "pull up the HUD" should float over whatever
-      // you're currently looking at (another app, your desktop) — not
-      // open inside the J.A.R.V.I.S window itself. window.isDesktopApp
-      // is set by desktop-bridge.js; it's false in a plain browser /
-      // the Render deployment, where we fall back to the in-page HUD.
-      if (window.isDesktopApp && window.jarvisDesktop) {
-        window.jarvisDesktop.showOverlay();
-      } else if (window.PiPWidgets) {
+      if (window.PiPWidgets) {
         window.PiPWidgets.handleVoiceCommand("SHOW_HUD", { query: meta?.query || replyText });
       }
       break;
     }
     case "HIDE_HUD": {
       speak(replyText, () => mic.resume());
-      if (window.isDesktopApp && window.jarvisDesktop) {
-        window.jarvisDesktop.hideOverlay();
-      } else if (window.PiPWidgets) {
+      if (window.PiPWidgets) {
         window.PiPWidgets.handleVoiceCommand("HIDE_HUD", { query: meta?.query || replyText });
       }
       break;
