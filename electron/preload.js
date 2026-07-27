@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("jarvisDesktop", {
 
   // Full-desktop HUD overlay (one transparent window per monitor)
   toggleOverlay: () => ipcRenderer.invoke("desktop:toggle-overlay"),
+  showOverlay: () => ipcRenderer.invoke("desktop:show-overlay"),
+  hideOverlay: () => ipcRenderer.invoke("desktop:hide-overlay"),
   setClickThrough: (on) => ipcRenderer.invoke("desktop:set-click-through", on),
 
   // Pop a widget out into its own floating, draggable OS window that
