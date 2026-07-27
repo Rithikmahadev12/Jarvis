@@ -2,11 +2,13 @@
   "name": "jarvis",
   "version": "2.0.0",
   "description": "Jarvis AI Voice Assistant — Custom AI Engine",
-  "main": "server.js",
+  "main": "electron/main.js",
   "scripts": {
     "start": "bash startup.sh & node server.js",
     "voice:setup": "pip install fastapi uvicorn TTS soundfile --break-system-packages",
-    "voice:start": "uvicorn voice-server.server:app --host 0.0.0.0 --port 5050"
+    "voice:start": "uvicorn voice-server.server:app --host 0.0.0.0 --port 5050",
+    "desktop": "electron .",
+    "desktop:dist": "electron-builder"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
@@ -19,5 +21,29 @@
     "ws": "^8.18.0",
     "screenshot-desktop": "^1.15.0",
     "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "electron": "^31.3.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.jarvis.desktop",
+    "productName": "J.A.R.V.I.S",
+    "files": [
+      "electron/**/*",
+      "public/**/*",
+      "server.js",
+      "*.js",
+      "data/**/*",
+      "voice-server/**/*",
+      "jarvis.config.json",
+      ".env",
+      "node_modules/**/*",
+      "package.json"
+    ],
+    "directories": { "output": "dist" },
+    "mac": { "target": "dmg", "icon": "public/icons/icon-512.png" },
+    "win": { "target": "nsis", "icon": "public/icons/icon-512.png" },
+    "linux": { "target": "AppImage", "icon": "public/icons/icon-512.png" }
   }
 }
