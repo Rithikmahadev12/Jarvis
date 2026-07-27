@@ -1,0 +1,68 @@
+/* ═══════════════════════════════════════════════════════════════
+   THEME: MINIMAL
+   Sleeker / less clutter / more whitespace, keeping the same
+   sci-fi identity (colors, fonts) rather than replacing it.
+   Loaded LAST in index.html so it overrides the base theme's
+   tighter spacing and heavier glow without touching every file
+   that already exists. Safe to delete this one file to fully
+   revert to the original look.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Every glow in the app already flows through these variables —
+     turning them down softens things globally instead of chasing
+     individual box-shadow rules across a dozen files. */
+  --blue-glow:   rgba(0,200,255,0.16);
+  --amber-glow:  rgba(255,170,0,0.16);
+  --red-glow:    rgba(255,51,51,0.18);
+  --green-glow:  rgba(0,255,136,0.14);
+  --blue-mid:    rgba(0,200,255,0.07);
+  --blue-dim:    rgba(0,200,255,0.09);
+}
+
+/* ── TOP BAR — more breathing room, quieter edge ── */
+.top-bar {
+  padding: 0 32px;
+  box-shadow: 0 1px 0 rgba(0,200,255,0.06);
+}
+.top-bar::before {
+  background: linear-gradient(90deg, transparent, rgba(0,200,255,0.18) 30%, rgba(0,200,255,0.18) 70%, transparent);
+}
+.tb-block { padding: 0 22px; gap: 4px; }
+.top-bar-center { gap: 6px; }
+.top-title { text-shadow: 0 0 8px var(--blue-glow); }
+.tb-separator { background: rgba(0,200,255,0.10); }
+
+/* ── SIDE PANELS — calmer border, more internal air ── */
+.side-panel {
+  border-color: rgba(0,200,255,0.06);
+}
+.side-panel::before { opacity: 0.4; }
+
+.panel-section {
+  padding: 18px 18px;
+  border-bottom: 1px solid rgba(0,200,255,0.05);
+}
+.left-panel .panel-section { padding-left: var(--bracket-w); }
+
+.panel-section-label { margin-bottom: 12px; }
+
+/* ── MESSAGES — softer bubbles, more spacing between them ── */
+.transcript-area { gap: 16px; }
+
+.msg-text {
+  padding: 11px 16px;
+  line-height: 1.65;
+}
+.msg.user .msg-text {
+  background: rgba(0,200,255,0.03);
+  border-right: 1.5px solid rgba(0,200,255,0.3);
+}
+.msg.jarvis .msg-text {
+  background: linear-gradient(135deg, rgba(0,200,255,0.045), rgba(0,30,60,0.35));
+  border-left: 1.5px solid rgba(0,200,255,0.55);
+}
+.msg.system .msg-text {
+  background: rgba(255,170,0,0.03);
+  border-color: rgba(255,170,0,0.08);
+}
