@@ -99,11 +99,6 @@ window.PiPWidgets = (function () {
     closeBtn.onmouseleave = () => closeBtn.style.background = 'rgba(0,200,255,0.07)';
     closeBtn.onclick = () => {
       closeAll();
-      // In the desktop app this overlay lives in its own always-on-top
-      // OS window (see electron/main.js). Hiding the in-page div alone
-      // leaves that window sitting there empty/transparent — tell
-      // Electron to actually hide the window too.
-      if (window.isDesktopApp && window.jarvisDesktop) window.jarvisDesktop.hideOverlay();
     };
     overlayEl.appendChild(closeBtn);
 
