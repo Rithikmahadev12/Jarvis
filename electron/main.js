@@ -7,14 +7,11 @@
 //     version — nothing about server.js changes) OR points at a
 //     remote deployment (e.g. Render) if you'd rather not run the
 //     backend on this machine.
-//   - Gives you a normal app window for the main chat/home UI.
-//   - Gives you a real "HUD overlay" — a transparent, click-through,
-//     always-on-top, frameless window that sits ON TOP OF your
-//     entire desktop (over any app), on any monitor. This is a real
-//     OS-level window, not just a div inside a browser tab.
-//   - Lets you pop any widget (board, music, hologram, news, HUD
-//     panels) out into its own small floating window that can be
-//     dragged to any screen.
+//   - Gives you a normal app window for the main chat/home UI, with
+//     no browser-style File/Edit/View menu bar — just the app.
+//   - Lets you pop any widget (board, music, hologram, news) out
+//     into its own small floating window that can be dragged to any
+//     screen and stays on top of everything else.
 //
 // Nothing here modifies server.js or how the app behaves when it's
 // simply loaded in a normal browser (e.g. hitting the Render URL) —
@@ -22,7 +19,7 @@
 // of this code executes at all.
 // ═══════════════════════════════════════════════════════════════
 
-const { app, BrowserWindow, screen, globalShortcut, Tray, Menu, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, screen, Tray, Menu, ipcMain, shell } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -42,8 +39,6 @@ function loadConfig() {
     mode: "auto",
     localPort: 3000,
     remoteUrl: "", // e.g. "https://jarvis.onrender.com"
-    hudHotkey: "CommandOrControl+Shift+J",
-    startHudOnLaunch: false,
   };
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
@@ -56,12 +51,10 @@ function loadConfig() {
 const config = loadConfig();
 
 let mainWindow = null;
-let overlayWindows = []; // one per display, the full-desktop HUD layer
 let widgetWindows = new Map(); // id -> BrowserWindow
 let tray = null;
 let backendChild = null;
 let backendUrl = null;
-let clickThroughOn = false;
 let widgetIdCounter = 0;
 
 // ── BACKEND RESOLUTION ──────────────────────────────────────────
@@ -143,6 +136,7 @@ function createMainWindow() {
     minHeight: 480,
     backgroundColor: "#0a0e14",
     title: "J.A.R.V.I.S",
+    autoHideMenuBar: true,
     icon: path.join(ROOT, "public", "icons", "icon-512.png"),
     webPreferences: {
       preload: preloadPath(),
@@ -155,78 +149,10 @@ function createMainWindow() {
   return mainWindow;
 }
 
-// One transparent, click-through-able, always-on-top window per
-// display, stretched to that display's full bounds. This is what
-// makes the HUD show up "anywhere" — over your desktop, over other
-// apps, on whichever monitor you're looking at.
-function createOverlayWindows() {
-  closeOverlayWindows();
-  const displays = screen.getAllDisplays();
-  overlayWindows = displays.map((display) => {
-    const win = new BrowserWindow({
-      x: display.bounds.x,
-      y: display.bounds.y,
-      width: display.bounds.width,
-      height: display.bounds.height,
-      frame: false,
-      transparent: true,
-      hasShadow: false,
-      resizable: false,
-      movable: false,
-      skipTaskbar: true,
-      alwaysOnTop: true,
-      focusable: true,
-      backgroundColor: "#00000000",
-      webPreferences: {
-        preload: preloadPath(),
-        contextIsolation: true,
-        sandbox: false,
-      },
-    });
-    win.setAlwaysOnTop(true, "screen-saver");
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-    win.loadURL(`${backendUrl}/overlay.html`);
-    win.setIgnoreMouseEvents(clickThroughOn, { forward: true });
-    win.hide(); // start hidden; toggled via hotkey/tray
-    return win;
-  });
-}
-
-function closeOverlayWindows() {
-  overlayWindows.forEach((w) => { try { w.close(); } catch {} });
-  overlayWindows = [];
-}
-
-function toggleOverlay() {
-  if (!overlayWindows.length) createOverlayWindows();
-  const show = overlayWindows[0] && !overlayWindows[0].isVisible();
-  overlayWindows.forEach((w) => (show ? w.showInactive() : w.hide()));
-  return show;
-}
-
-// Explicit (idempotent) show/hide — unlike toggleOverlay(), calling
-// these twice in a row is safe. Used when a voice command says
-// "show the HUD" and we want it up regardless of current state,
-// rather than flipping it off if it happened to already be showing.
-function showOverlayWindows() {
-  if (!overlayWindows.length) createOverlayWindows();
-  overlayWindows.forEach((w) => w.showInactive());
-  return true;
-}
-
-function hideOverlayWindows() {
-  overlayWindows.forEach((w) => w.hide());
-  return false;
-}
-
-function setClickThrough(on) {
-  clickThroughOn = !!on;
-  overlayWindows.forEach((w) => w.setIgnoreMouseEvents(clickThroughOn, { forward: true }));
-}
-
-// A single floating widget (board / music / hologram / news / a
-// custom HUD panel) in its own small always-on-top window that can
-// be dragged to any spot on any monitor.
+// A single floating widget (board / music / hologram / news) in its
+// own small always-on-top window that can be dragged to any spot on
+// any monitor. This is the "overlay" behavior we're keeping — just
+// not a full-desktop click-through HUD layer.
 function openWidgetWindow(widgetName, opts = {}) {
   const displays = screen.getAllDisplays();
   const target = displays[opts.displayIndex] || screen.getPrimaryDisplay();
@@ -279,15 +205,6 @@ function buildTray() {
       { label: "J.A.R.V.I.S", enabled: false },
       { label: `Backend: ${backendUrl}`, enabled: false },
       { type: "separator" },
-      {
-        label: overlayWindows.length && overlayWindows[0].isVisible() ? "Hide HUD" : "Show HUD",
-        click: () => { toggleOverlay(); rebuildMenu(); },
-      },
-      {
-        label: clickThroughOn ? "Disable click-through" : "Enable click-through",
-        click: () => { setClickThrough(!clickThroughOn); rebuildMenu(); },
-      },
-      { type: "separator" },
       { label: "Open widget: Music", click: () => openWidgetWindow("music") },
       { label: "Open widget: Board", click: () => openWidgetWindow("board") },
       { label: "Open widget: Hologram", click: () => openWidgetWindow("hologram") },
@@ -304,10 +221,6 @@ function buildTray() {
 
 // ── IPC (exposed to renderer via preload.js as window.jarvisDesktop) ──
 ipcMain.handle("desktop:get-backend-url", () => backendUrl);
-ipcMain.handle("desktop:toggle-overlay", () => toggleOverlay());
-ipcMain.handle("desktop:show-overlay", () => showOverlayWindows());
-ipcMain.handle("desktop:hide-overlay", () => hideOverlayWindows());
-ipcMain.handle("desktop:set-click-through", (_e, on) => { setClickThrough(on); return clickThroughOn; });
 ipcMain.handle("desktop:open-widget", (_e, name, opts) => openWidgetWindow(name, opts));
 ipcMain.handle("desktop:close-widget", (_e, id) => closeWidgetWindow(id));
 ipcMain.handle("desktop:get-displays", () => screen.getAllDisplays());
@@ -315,6 +228,10 @@ ipcMain.handle("desktop:open-external", (_e, url) => shell.openExternal(url));
 ipcMain.on("desktop:quit", () => app.quit());
 
 // ── LIFECYCLE ───────────────────────────────────────────────────
+// No File/Edit/View/Window/Help menu bar — this is what made the
+// window feel like "a website in a browser" instead of a real app.
+Menu.setApplicationMenu(null);
+
 app.whenReady().then(async () => {
   try {
     backendUrl = await resolveBackend();
@@ -323,7 +240,7 @@ app.whenReady().then(async () => {
     // Show a minimal window explaining what to fix rather than a
     // silent crash — most likely cause is a missing GROQ_API_KEY or
     // both mode:'local' failing and no remoteUrl set as a fallback.
-    const errWin = new BrowserWindow({ width: 640, height: 360 });
+    const errWin = new BrowserWindow({ width: 640, height: 360, autoHideMenuBar: true });
     errWin.loadURL(
       "data:text/html," +
         encodeURIComponent(`<body style="font-family:sans-serif;background:#111;color:#eee;padding:24px">
@@ -338,19 +255,7 @@ app.whenReady().then(async () => {
   }
 
   createMainWindow();
-  createOverlayWindows();
   buildTray();
-
-  globalShortcut.register(config.hudHotkey, () => toggleOverlay());
-  // Alt+Shift+C toggles click-through on the HUD overlay so you can
-  // click "into" it to interact, or click "through" it to use
-  // whatever's underneath.
-  globalShortcut.register("CommandOrControl+Shift+C", () => setClickThrough(!clickThroughOn));
-
-  if (config.startHudOnLaunch) toggleOverlay();
-
-  screen.on("display-added", createOverlayWindows);
-  screen.on("display-removed", createOverlayWindows);
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
@@ -358,8 +263,8 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
-  // Keep running in the tray on Windows/Linux (the HUD/tray is the
-  // point of the desktop app); fully quit on macOS only if the user
+  // Keep running in the tray on Windows/Linux (the tray is the point
+  // of the desktop app); fully quit on macOS only if the user
   // explicitly quits from the tray/menu, matching normal mac apps.
   if (process.platform !== "darwin") {
     // no-op: tray keeps the app alive intentionally
@@ -367,6 +272,5 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
-  globalShortcut.unregisterAll();
   if (backendChild) { try { backendChild.kill(); } catch {} }
 });
