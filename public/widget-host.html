@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>J.A.R.V.I.S Widget</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; width: 100vw; height: 100vh;
+    background: transparent !important;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+    font-family: 'Rajdhani', sans-serif;
+  }
+  /* The whole window is draggable by default (there's no OS title
+     bar, since these are frameless floating widgets) — but real
+     buttons/inputs/sliders inside a widget opt back OUT of dragging
+     via .no-drag so they stay clickable. Widget CSS already marks
+     its interactive controls; this is just the window-level default. */
+  body { -webkit-app-region: drag; }
+  button, input, a, select, textarea, [data-hand-drag], .no-drag {
+    -webkit-app-region: no-drag;
+  }
+  #widget-root { position: fixed; inset: 0; }
+</style>
+<link rel="stylesheet" href="glass-ui.css"/>
+<link rel="stylesheet" href="jarvis-glow.css"/>
+<link rel="stylesheet" href="music-widget.css"/>
+<link rel="stylesheet" href="board-widget.css"/>
+<link rel="stylesheet" href="hologram-widget.css"/>
+</head>
+<body>
+  <div id="widget-root"></div>
+
+  <script>
+    window.state = window.state || { phase: "idle" };
+  </script>
+
+  <script src="music-widget.js"></script>
+  <script src="board-widget.js"></script>
+  <script src="hologram-widget.js"></script>
+  <script src="desktop-bridge.js"></script>
+
+  <script>
+    // Which single widget this window exists to show, e.g.
+    // widget-host.html?widget=music  or  ?widget=hologram&key=earth
+    const params = new URLSearchParams(location.search);
+    const kind = params.get("widget");
+
+    function boot() {
+      try {
+        if (kind === "music" && window.MusicWidget) {
+          // Music widget renders itself into the page once a track
+          // is requested; nothing to do until playback is asked for
+          // from the main app — this window just hosts it visibly.
+        } else if (kind === "board" && window.BoardWidget) {
+          window.BoardWidget.show({
+            id: params.get("id") || "note",
+            title: params.get("title") || "Board",
+            content: params.get("content") || "",
+          });
+        } else if (kind === "hologram" && window.HologramWidget) {
+          window.HologramWidget.show(params.get("key") || "earth");
+        } else if (kind === "news") {
+          // Simple fallback: news doesn't have its own floating
+          // widget class yet, so just load the existing news page
+          // fragment inline.
+          fetch("news-widget.html").then(r => r.text()).then(html => {
+            document.getElementById("widget-root").innerHTML = html;
+          });
+        }
+      } catch (e) {
+        console.warn("[widget-host] failed to boot widget:", kind, e);
+      }
+    }
+    window.addEventListener("load", () => setTimeout(boot, 150));
+  </script>
+</body>
+</html>
