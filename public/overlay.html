@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>J.A.R.V.I.S — HUD Overlay</title>
+<style>
+  /* Fully transparent by default so whatever's behind this window
+     (your desktop, another app) shows through everywhere the HUD
+     itself isn't drawing something. */
+  html, body {
+    margin: 0; padding: 0; width: 100vw; height: 100vh;
+    background: transparent !important;
+    overflow: hidden;
+    -webkit-user-select: none; user-select: none;
+  }
+  #overlay-root { position: fixed; inset: 0; }
+  /* A small always-visible drag handle in the corner so the overlay
+     window itself can be repositioned even while click-through is
+     off — only relevant if you ever make the window movable. */
+  #hud-drag-handle {
+    position: fixed; top: 8px; left: 8px; width: 90px; height: 22px;
+    -webkit-app-region: drag;
+    opacity: 0; pointer-events: none;
+  }
+</style>
+<link rel="stylesheet" href="hud-v2.css"/>
+<link rel="stylesheet" href="hud-main.css"/>
+<link rel="stylesheet" href="glass-ui.css"/>
+<link rel="stylesheet" href="jarvis-glow.css"/>
+</head>
+<body>
+  <div id="hud-drag-handle"></div>
+  <div id="overlay-root"></div>
+
+  <!-- Minimal state stub so hud-panels.js / pip-widgets.js (which
+       normally read window.state set up by jarvis.js in the full
+       app) have something sane to render even in this bare window. -->
+  <script>
+    window.state = window.state || {
+      phase: "idle", isListening: false, user: "Sir", userTitle: "—",
+    };
+  </script>
+
+  <script src="pip-widgets.js"></script>
+  <script src="hud-panels.js"></script>
+  <script src="hud-live.js"></script>
+  <script src="hud-globe.js"></script>
+  <script src="desktop-bridge.js"></script>
+
+  <script>
+    // This whole window IS the HUD layer, so bring it up immediately
+    // once the widget scripts above have registered themselves.
+    window.addEventListener("load", () => {
+      setTimeout(() => {
+        try {
+          window.PiPWidgets && window.PiPWidgets.handleVoiceCommand &&
+            window.PiPWidgets.handleVoiceCommand("SHOW_HUD", { query: "" });
+        } catch (e) { console.warn("[overlay] HUD auto-start failed:", e); }
+      }, 200);
+    });
+  </script>
+</body>
+</html>
