@@ -204,6 +204,21 @@ function toggleOverlay() {
   return show;
 }
 
+// Explicit (idempotent) show/hide — unlike toggleOverlay(), calling
+// these twice in a row is safe. Used when a voice command says
+// "show the HUD" and we want it up regardless of current state,
+// rather than flipping it off if it happened to already be showing.
+function showOverlayWindows() {
+  if (!overlayWindows.length) createOverlayWindows();
+  overlayWindows.forEach((w) => w.showInactive());
+  return true;
+}
+
+function hideOverlayWindows() {
+  overlayWindows.forEach((w) => w.hide());
+  return false;
+}
+
 function setClickThrough(on) {
   clickThroughOn = !!on;
   overlayWindows.forEach((w) => w.setIgnoreMouseEvents(clickThroughOn, { forward: true }));
@@ -290,6 +305,8 @@ function buildTray() {
 // ── IPC (exposed to renderer via preload.js as window.jarvisDesktop) ──
 ipcMain.handle("desktop:get-backend-url", () => backendUrl);
 ipcMain.handle("desktop:toggle-overlay", () => toggleOverlay());
+ipcMain.handle("desktop:show-overlay", () => showOverlayWindows());
+ipcMain.handle("desktop:hide-overlay", () => hideOverlayWindows());
 ipcMain.handle("desktop:set-click-through", (_e, on) => { setClickThrough(on); return clickThroughOn; });
 ipcMain.handle("desktop:open-widget", (_e, name, opts) => openWidgetWindow(name, opts));
 ipcMain.handle("desktop:close-widget", (_e, id) => closeWidgetWindow(id));
