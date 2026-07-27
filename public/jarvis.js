@@ -2762,7 +2762,7 @@ async function handleAction(action, meta, replyText) {
       break;
     }
     case "NOTIF_SETTINGS": { speak(replyText, () => {}); showNotifSettings(); break; }
-    case "LOGOUT": { speak(replyText, () => {}); setTimeout(() => handleLogout(), 800); break; }
+    case "LOGOUT": { speak(replyText, () => {}); setTimeout(() => handleLogout(meta), 800); break; }
     case "CALL": {
   const targetName = meta?.targetName || null;
   speak(replyText, () => {
@@ -3750,7 +3750,16 @@ function stopFullRecording() {
 }
 
 // ── LOGOUT ──
-function handleLogout() {
+// "log out" / "sign out" / "close session" just lock the screen (the
+// original behavior, unchanged) so a shared/multi-user machine can
+// switch users without closing the whole app. A real "shut down" /
+// "power off" / "goodbye" phrase — only when running as the desktop
+// app (window.jarvisDesktop present) — actually quits the app.
+const SHUTDOWN_PHRASE = /\b(shut ?down|power off|turn off jarvis|goodbye)\b/i;
+
+function handleLogout(meta) {
+  const wantsFullShutdown = window.isDesktopApp && SHUTDOWN_PHRASE.test(meta?.query || "");
+
   mic.suspend();
   if (state.faceCheckInterval) clearInterval(state.faceCheckInterval);
   for (const t of state.activeTimers) clearTimeout(t.id);
@@ -3768,6 +3777,13 @@ function handleLogout() {
     $("transcript").innerHTML = "";
     $("main-screen").classList.remove("active");
     setOrb("idle"); stopScreenRecord();
+
+    if (wantsFullShutdown) {
+      // Give the "Goodbye" line a beat to actually finish playing out
+      // loud before the whole app (and its audio) disappears.
+      setTimeout(() => window.jarvisDesktop.quit(), 600);
+      return;
+    }
 
     runLockScreen();
   });
