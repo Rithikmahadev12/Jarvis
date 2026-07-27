@@ -2885,6 +2885,14 @@ app.post("/api/chat", async (req, res) => {
     if (action === "SHOW_HUD" || action === "HIDE_HUD") {
       return res.json({ reply, action, intent, meta: { query: message } });
     }
+    if (action === "LOGOUT") {
+      // Pass the original phrase along so the client can tell a real
+      // "shut down"/"power off"/"goodbye" apart from a plain
+      // "log out"/"sign out" — only the former should quit the whole
+      // desktop app when running as local software; a plain log out
+      // should just lock the screen, same as always.
+      return res.json({ reply, action, intent, meta: { ...meta, query: message } });
+    }
     if (action === "MEMORY_SAVE" && meta?.saveFact) {
       const mem = loadMemories();
       const key = (userName || "user").toLowerCase().trim();
