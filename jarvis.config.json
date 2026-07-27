@@ -1,7 +1,5 @@
 {
   "mode": "auto",
   "localPort": 3000,
-  "remoteUrl": "https://jarvis-6tig.onrender.com",
-  "hudHotkey": "CommandOrControl+Shift+J",
-  "startHudOnLaunch": false
+  "remoteUrl": "https://jarvis-6tig.onrender.com"
 }
