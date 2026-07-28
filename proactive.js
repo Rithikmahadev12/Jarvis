@@ -36,6 +36,7 @@ const Google      = require("./google");
 const InboxTriage = require("./inbox-triage");
 const Settings    = require("./settings");
 const Focus       = require("./focus");
+const MeetingPrep = require("./meeting-prep");
 
 const DATA_DIR   = path.join(__dirname, "data");
 const STORE_FILE = path.join(DATA_DIR, "proactive-briefing.json");
@@ -283,6 +284,61 @@ async function checkNudges(user, userTitle, tz) {
   return { text, event: candidate, generatedAt: new Date().toISOString() };
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ── MEETING PREP NUDGE ────────────────────────────────────────
+// Sibling of checkNudges above, same polling/dedupe shape, but a
+// separate concern: instead of "your meeting is soon", this is
+// "here's what you last discussed with them by email" — see
+// meeting-prep.js. Kept as its own function/endpoint rather than
+// folded into checkNudges so the client can show it as its own card
+// and so a slow Gmail search on this path never delays the plain
+// "starts soon" nudge above.
+// ═══════════════════════════════════════════════════════════════
+
+const PREP_WINDOW_MIN = 20; // look this far ahead for something to prep
+
+async function checkMeetingPrep(user, userTitle, tz) {
+  const key = userKey(user);
+  if (isQuietHours(tz)) return null;
+
+  const settings = Settings.load();
+  if (settings.proactiveNudges === false) return null;
+  if (Focus.isActive(key)) return null; // don't interrupt a heads-down session either
+
+  if (!Google.isConfigured() || !Google.hasTokenForUser(key)) return null;
+
+  let events = [];
+  try {
+    const cal = await Google.getCalendarEvents("today", key);
+    if (cal.needsAuth || cal.error) return null;
+    events = cal.events || [];
+  } catch { return null; }
+
+  const all = loadAll();
+  const today = todayKey(tz);
+  const prior = all[key] && all[key].date === today ? all[key] : { date: today };
+  const alreadyPrepped = new Set(prior.preppedEventIds || []);
+
+  const candidate = events
+    .filter(e => e.startISO && e.attendees?.length && !alreadyPrepped.has(e.id))
+    .map(e => ({ ...e, minsUntil: minutesUntil(e.startISO) }))
+    .filter(e => e.minsUntil !== null && e.minsUntil >= 0 && e.minsUntil <= PREP_WINDOW_MIN)
+    .sort((a, b) => a.minsUntil - b.minsUntil)[0];
+
+  if (!candidate) return null;
+
+  let prep = null;
+  try { prep = await MeetingPrep.getPrepForEvent(key, candidate, userTitle); }
+  catch { return null; }
+  if (!prep) return null; // nothing found — don't mark as prepped, might exist by next poll
+
+  prior.preppedEventIds = [...alreadyPrepped, candidate.id];
+  all[key] = prior;
+  saveAll(all);
+
+  return { text: prep.text, event: candidate, thread: prep.thread, generatedAt: new Date().toISOString() };
+}
+
 // Lazy generation, same rationale as inbox-triage.getOrGenerateToday:
 // if the server was asleep overnight, the first request of the day
 // generates it on the spot instead of the user having to ask.
@@ -298,5 +354,6 @@ module.exports = {
   getOrGenerateToday,
   runForUser,
   checkNudges,
+  checkMeetingPrep,
   todayKey,
 };
