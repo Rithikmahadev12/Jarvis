@@ -28,6 +28,8 @@ const Briefing    = require("./briefing");
 const InboxTriage = require("./inbox-triage");
 const Schedule    = require("./schedule");
 const Proactive   = require("./proactive");
+const Debrief     = require("./debrief");
+const Focus       = require("./focus");
 const TTS = require("./tts");
 const Persistence = require("./persistence");
 const Settings    = require("./settings");
@@ -933,6 +935,37 @@ app.post("/api/briefing/reset", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// ── FOCUS MODE
+// GET  /api/focus/:user            → current status (active + duration, or last session)
+// POST /api/focus/start  { user }  → begin a heads-down session
+// POST /api/focus/stop   { user }  → end it, returns the resurface summary
+// ═══════════════════════════════════════════════════════════════
+app.get("/api/focus/:user", (req, res) => {
+  res.json(Focus.getStatus(req.params.user));
+});
+
+app.post("/api/focus/start", (req, res) => {
+  const { user } = req.body || {};
+  if (!user) return res.status(400).json({ error: "Missing field: user" });
+  res.json({ success: true, status: Focus.start(user) });
+});
+
+app.post("/api/focus/stop", (req, res) => {
+  const { user } = req.body || {};
+  if (!user) return res.status(400).json({ error: "Missing field: user" });
+  const summary = Focus.stop(user);
+  res.json({ success: true, summary });
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── END-OF-DAY DEBRIEF
+// GET /api/debrief/:user → today's stored debrief, or { debrief: null }
+// ═══════════════════════════════════════════════════════════════
+app.get("/api/debrief/:user", (req, res) => {
+  res.json({ debrief: Debrief.getToday(req.params.user) });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // ── WEATHER
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/weather", async (req, res) => {
@@ -1678,8 +1711,144 @@ async function routeDailyBriefing(message, T, sessionId, userName, userTimezone)
     return { reply: formatTaskBriefingReply(existing, T), action: "DAILY_BRIEFING", intent: "daily_briefing", meta: { briefing: existing } };
   }
 
+  // If last night's debrief left something on the table, offer to carry
+  // it forward instead of asking "do you have a goal" cold.
+  const rollover = Debrief.consumeRollover(userName);
+  if (rollover) {
+    const entry = await Briefing.setToday(userName, rollover, T);
+    return {
+      reply: `Picking up where yesterday left off, ${T}: ${entry.headline}. ` + formatTaskBriefingReply(entry, T),
+      action: "DAILY_BRIEFING",
+      intent: "daily_briefing",
+      meta: { briefing: entry, rolledOver: true },
+    };
+  }
+
   Briefing.proposeGoalQuestion(sessionId);
   return { reply: `Do you have a goal for today, ${T}?`, action: "DAILY_BRIEFING", intent: "daily_briefing" };
+}
+
+// ── END-OF-DAY DEBRIEF (conversational, mirrors routeDailyBriefing) ──
+const DEBRIEF_RE = /\b(end.of.day|evening debrief|daily debrief|debrief me|debrief|how did today go|wrap up my day)\b/i;
+
+async function routeDebrief(message, T, sessionId, userName, userTimezone) {
+  const pending = Debrief.getPendingDebrief(sessionId);
+
+  if (pending) {
+    if (pending.phase === "awaiting_report_text") {
+      const morning = Briefing.getToday(userName);
+      const task = morning ? morning.task : "";
+      const { doneSummary, leftover } = await Debrief.buildSummary(task, message);
+
+      if (leftover) {
+        Debrief.setDebriefState(sessionId, { phase: "awaiting_rollover_yesno", leftover, task, doneSummary });
+        return {
+          reply: `Got it, ${T} — ${doneSummary} Still open: ${leftover}. Want me to roll that into tomorrow's briefing?`,
+          action: "DEBRIEF",
+          intent: "debrief",
+        };
+      }
+
+      Debrief.clearPendingDebrief(sessionId);
+      Debrief.saveToday(userName, { task, report: message, doneSummary, leftover: "" });
+      return {
+        reply: `Nice work, ${T} — ${doneSummary} Nothing left hanging over into tomorrow.`,
+        action: "DEBRIEF",
+        intent: "debrief",
+        meta: { debrief: { task, doneSummary } },
+      };
+    }
+
+    if (pending.phase === "awaiting_rollover_yesno") {
+      Debrief.clearPendingDebrief(sessionId);
+      Debrief.saveToday(userName, {
+        task: pending.task,
+        report: message,
+        doneSummary: pending.doneSummary,
+        leftover: pending.leftover,
+        rolledOver: isAffirmative(message),
+      });
+      if (isAffirmative(message)) {
+        Debrief.setRollover(userName, pending.leftover);
+        return { reply: `Done — I'll bring that up first thing tomorrow, ${T}.`, action: "DEBRIEF", intent: "debrief" };
+      }
+      return { reply: `Understood, ${T} — I'll leave it off tomorrow's list.`, action: "DEBRIEF", intent: "debrief" };
+    }
+
+    Debrief.clearPendingDebrief(sessionId);
+    return null;
+  }
+
+  if (!DEBRIEF_RE.test(message)) return null;
+
+  const existing = Debrief.getToday(userName);
+  if (existing) {
+    return {
+      reply: `Already debriefed today, ${T} — ${existing.doneSummary || "logged and closed out."}`,
+      action: "DEBRIEF",
+      intent: "debrief",
+    };
+  }
+
+  const morning = Briefing.getToday(userName);
+  if (!morning || !morning.task) {
+    Debrief.proposeDebrief(sessionId);
+    return { reply: `No task logged this morning, ${T} — anything worth noting from today?`, action: "DEBRIEF", intent: "debrief" };
+  }
+
+  Debrief.proposeDebrief(sessionId);
+  let calLine = "";
+  try {
+    if (Google.isConfigured() && Google.hasTokenForUser(String(userName || "guest").toLowerCase().trim())) {
+      const cal = await Google.getCalendarEvents("today", String(userName || "guest").toLowerCase().trim());
+      if (!cal.needsAuth && !cal.error && cal.events) {
+        calLine = ` The calendar shows ${cal.events.length} thing${cal.events.length === 1 ? "" : "s"} on it today.`;
+      }
+    }
+  } catch { /* skip — not connected */ }
+
+  return {
+    reply: `This morning you said you'd: ${morning.task}.${calLine} What actually got done, ${T}?`,
+    action: "DEBRIEF",
+    intent: "debrief",
+  };
+}
+
+// ── FOCUS MODE (heads-down sessions) ──────────────────────────────
+const FOCUS_ON_RE  = /\b(i'?m heads down|heads down|focus mode on|going dark|deep work mode|start focus(?: mode)?)\b/i;
+const FOCUS_OFF_RE = /\b(i'?m back|focus mode off|stop focus(?: mode)?|end focus(?: mode)?|resurfacing|coming up for air)\b/i;
+
+function routeFocusMode(message, T, userName) {
+  const key = String(userName || "guest").toLowerCase().trim();
+
+  if (FOCUS_OFF_RE.test(message)) {
+    const summary = Focus.stop(key);
+    if (!summary) return { reply: `No focus session running, ${T}.`, action: "FOCUS_MODE", intent: "focus_mode_off" };
+    const mins = summary.durationMin;
+    const nudgeLine = summary.suppressed > 0
+      ? ` ${summary.suppressed} nudge${summary.suppressed === 1 ? "" : "s"} came in while you were heads-down — held back until now.`
+      : ` Nothing came in while you were heads-down.`;
+    return {
+      reply: `Welcome back, ${T}. You were heads-down for ${mins} minute${mins === 1 ? "" : "s"}.${nudgeLine}`,
+      action: "FOCUS_MODE",
+      intent: "focus_mode_off",
+      meta: { focus: summary },
+    };
+  }
+
+  if (FOCUS_ON_RE.test(message)) {
+    if (Focus.isActive(key)) {
+      return { reply: `Already heads-down, ${T} — say the word when you're back.`, action: "FOCUS_MODE", intent: "focus_mode_on" };
+    }
+    Focus.start(key);
+    return {
+      reply: `Heads-down mode on, ${T}. I'll hold back calendar nudges and give you a rundown when you resurface.`,
+      action: "FOCUS_MODE",
+      intent: "focus_mode_on",
+    };
+  }
+
+  return null;
 }
 
 async function resolvePendingAgentAction(message, T, sessionId) {
@@ -2634,6 +2803,16 @@ app.post("/api/chat", async (req, res) => {
   //      the old full-screen experience) ──
   const briefingResolution = await routeDailyBriefing(message, T, sessionId, userName, userTimezone);
   if (briefingResolution) return res.json(briefingResolution);
+
+  // ── -0.4. End-of-day debrief — same "only if asked" rule as the
+  //      morning briefing above ──
+  const debriefResolution = await routeDebrief(message, T, sessionId, userName, userTimezone);
+  if (debriefResolution) return res.json(debriefResolution);
+
+  // ── -0.3. Focus mode on/off — checked before general routing so
+  //      "I'm heads down" / "I'm back" never gets reinterpreted ──
+  const focusResolution = routeFocusMode(message, T, userName);
+  if (focusResolution) return res.json(focusResolution);
 
 
   // ── 0. Home Talk toggle — checked first so it never collides with
