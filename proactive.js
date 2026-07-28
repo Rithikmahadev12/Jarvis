@@ -35,6 +35,7 @@ const News        = require("./news");
 const Google      = require("./google");
 const InboxTriage = require("./inbox-triage");
 const Settings    = require("./settings");
+const Focus       = require("./focus");
 
 const DATA_DIR   = path.join(__dirname, "data");
 const STORE_FILE = path.join(DATA_DIR, "proactive-briefing.json");
@@ -231,6 +232,13 @@ async function checkNudges(user, userTitle, tz) {
 
   const settings = Settings.load();
   if (settings.proactiveNudges === false) return null;
+
+  // Heads-down session in progress — hold this nudge back and count it
+  // instead, so the user gets an accurate "N held back" report on resurface.
+  if (Focus.isActive(key)) {
+    Focus.recordSuppressed(key);
+    return null;
+  }
 
   if (!Google.isConfigured() || !Google.hasTokenForUser(key)) return null;
 
