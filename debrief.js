@@ -133,12 +133,23 @@ async function buildSummary(task, report) {
 }
 
 // ── PENDING DEBRIEF QUESTION (conversational flow) ───────────────
-// sessionId -> { phase: "awaiting_report_text" | "awaiting_rollover_yesno", leftover }
+// sessionId -> { phase: "awaiting_report_text" | "awaiting_recap_leftover"
+//              | "awaiting_rollover_yesno", leftover, doneSummary }
+//
+// "awaiting_recap_leftover" is the no-morning-task path: activity-log.js
+// already built a recap of the day from tracked screen activity, so
+// instead of asking "what did you do" (report_text), we ask "anything
+// still left" directly, then join back into the same rollover question
+// every other path ends on.
 const PENDING_DEBRIEF = new Map();
 
 function proposeDebrief(sessionId) {
   if (!sessionId) return;
   PENDING_DEBRIEF.set(sessionId, { phase: "awaiting_report_text" });
+}
+function proposeRecapLeftover(sessionId, doneSummary) {
+  if (!sessionId) return;
+  PENDING_DEBRIEF.set(sessionId, { phase: "awaiting_recap_leftover", doneSummary: String(doneSummary || "").trim() });
 }
 function setDebriefState(sessionId, patch) {
   if (!sessionId) return;
@@ -153,6 +164,14 @@ function clearPendingDebrief(sessionId) {
   PENDING_DEBRIEF.delete(sessionId);
 }
 
+// Loose "nothing to add" detector for the recap-leftover reply — broader
+// than server.js's isNegative() (which only matches a leading "no")
+// since replies here are naturally things like "nothing", "all done", etc.
+const NOTHING_LEFT_RE = /^\s*(nothing|none|nope|nah|no|all done|all set|that'?s it|already done|complete(d)?|good|good for now)\s*[.!]?\s*$/i;
+function isNothingLeft(message) {
+  return NOTHING_LEFT_RE.test(String(message || "").trim());
+}
+
 module.exports = {
   getToday,
   saveToday,
@@ -161,7 +180,9 @@ module.exports = {
   buildSummary,
   todayKey,
   proposeDebrief,
+  proposeRecapLeftover,
   setDebriefState,
   getPendingDebrief,
   clearPendingDebrief,
+  isNothingLeft,
 };
