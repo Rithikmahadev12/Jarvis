@@ -1032,28 +1032,45 @@ async function runLockScreen() {
     return;
   }
 
-  // Nothing scans yet — just wait for the person to talk to JARVIS.
-  // The camera never opens (and never shows in the middle of the orb)
-  // until a voice is actually heard, so this is a listening state, not
-  // a live camera preview.
-  waitForLockWakeWord();
+  // Auto-scan immediately — no wake word needed before we check your
+  // face. If you're recognized, we sit "prescanned" and just wait for
+  // a tap or "Jarvis" to continue (no second scan, so it's instant).
+  // If you're not recognized (or no face is found at all), we jump
+  // straight to sign in / create account — no waiting around.
+  runLockFaceScan();
 }
+
+// Set once a face scan on load has already matched someone — lets
+// waitForLockWakeWord() skip re-scanning and just launch straight in
+// the instant the person taps the orb or says "Jarvis".
+let _lockPrescannedProfile = null;
 
 // ── LOCK SCREEN — WAIT FOR VOICE ──
 // Sits quietly listening for the wake word ("Jarvis…"). The instant it
-// hears you, it hands off to the face-recognition step. Tapping the orb
-// does the same thing, as a fallback for browsers without speech
+// hears you, it either (a) launches straight in if a face scan already
+// matched you on load — no re-scanning, so it doesn't waste time — or
+// (b) runs the face scan now, if nothing was prescanned. Tapping the
+// orb does the same thing, as a fallback for browsers without speech
 // recognition (or if the mic is unavailable/denied).
 let _lockWakeHandled = false;
 function waitForLockWakeWord() {
   _lockWakeHandled = false;
-  setLockStatus("SAY \"JARVIS\" TO BEGIN", "I'll verify you by voice, then by face");
+
+  if (_lockPrescannedProfile) {
+    setLockStatus(`WELCOME BACK, ${_lockPrescannedProfile.name.toUpperCase()}`, 'Tap the orb or say "Jarvis" to continue');
+  } else {
+    setLockStatus("SAY \"JARVIS\" TO BEGIN", "I'll verify you by voice, then by face");
+  }
 
   const beginScan = () => {
     if (_lockWakeHandled) return;
     _lockWakeHandled = true;
     mic.suspend();
-    runLockFaceScan();
+    if (_lockPrescannedProfile) {
+      completeLockLogin(_lockPrescannedProfile);
+    } else {
+      runLockFaceScan();
+    }
   };
 
   const orbWrap = document.querySelector(".lock-orb-wrap");
@@ -1061,7 +1078,8 @@ function waitForLockWakeWord() {
 
   if (!SR) {
     // No speech recognition available in this browser — skip straight
-    // to face scanning instead of waiting forever for a wake word.
+    // to face scanning (or straight to launch, if already prescanned)
+    // instead of waiting forever for a wake word.
     beginScan();
     return;
   }
@@ -1074,13 +1092,27 @@ function waitForLockWakeWord() {
   });
 }
 
+// Finishes signing someone in who was already matched by the prescan —
+// no camera, no re-detection, just the welcome beat and straight into
+// the main HUD.
+async function completeLockLogin(profile) {
+  const lock = $("lock-screen");
+  setLockStatus("FACE RECOGNIZED ✓", `Welcome back, ${profile.name}`);
+  stopLockClock();
+  stopLockGlobe();
+  await delay(300);
+  lock?.classList.remove("active");
+  _lockPrescannedProfile = null;
+  speak(`Welcome back, ${profile.title}.`, launchMain);
+}
+
 // ── LOCK SCREEN — FACE SCAN ──
 // Runs only after the wake word is heard. Camera feed is never shown
 // (opacity stays 0 — see #lock-face-video CSS) so this reads purely as
 // the orb "thinking", not a webcam preview in the middle of the screen.
 async function runLockFaceScan() {
   const lock = $("lock-screen");
-  setLockStatus("VERIFYING…", "Scanning your face — hold still");
+  setLockStatus("SCANNING FOR YOUR FACE…", "");
   const video = $("lock-face-video");
   const sweep = $("lock-scan-sweep");
   video?.classList.add("scanning");
@@ -1099,9 +1131,10 @@ async function runLockFaceScan() {
     return;
   }
 
-  const MAX_ATTEMPTS = 20; // ~14s scanning window before falling back
+  const MAX_ATTEMPTS = 10; // ~5s scanning window — this runs automatically
+                            // on load, so it should resolve fast either way
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    if (!video || video.readyState < 2) { await delay(500); continue; }
+    if (!video || video.readyState < 2) { await delay(400); continue; }
 
     try {
       const detection = await faceapi
@@ -1117,35 +1150,34 @@ async function runLockFaceScan() {
         });
         const data = await res.json();
         if (data.authorized) {
-          setLockStatus("FACE RECOGNIZED ✓", `Welcome back, ${data.profile.name}`);
+          // Recognized — stop here, don't launch yet. We stay prescanned
+          // on the lock screen until the person taps the orb or says
+          // "Jarvis", at which point completeLockLogin() skips straight
+          // in without scanning again.
           sweep?.classList.remove("active");
+          video?.classList.remove("scanning");
           stopAuthCameraStream();
-          stopLockClock();
-          stopLockGlobe();
           localStorage.setItem("jarvis_name_hint", data.profile.name.toLowerCase());
           saveProfileLocal(data.profile);
           state.user      = data.profile.name;
           state.userTitle = data.profile.title;
-          await delay(500);
-          lock?.classList.remove("active");
-          speak(`Welcome back, ${data.profile.title}.`, launchMain);
+          _lockPrescannedProfile = data.profile;
+          waitForLockWakeWord();
           return;
         }
       }
     } catch (e) { /* keep scanning */ }
 
-    setLockStatus(`VERIFYING… (${attempt + 1}/${MAX_ATTEMPTS})`);
-    await delay(700);
+    setLockStatus(`SCANNING FOR YOUR FACE… (${attempt + 1}/${MAX_ATTEMPTS})`);
+    await delay(400);
   }
 
-  // Scanned the whole window and never matched a face on file.
-  setLockStatus("COULDN'T FIND USER", "Opening account setup…");
+  // Scanned the whole window and never matched a face on file (or no
+  // face was there at all) — go straight to sign in / create account,
+  // no waiting around.
+  setLockStatus("FACE NOT RECOGNIZED", "Opening sign in…");
   sweep?.classList.remove("active");
   stopAuthCameraStream();
-  await new Promise((resolve) => {
-    speak("Couldn't find user.", resolve);
-    setTimeout(resolve, 2500); // safety net if TTS never resolves
-  });
   exitLockScreen();
   goToCreateAccount();
 }
