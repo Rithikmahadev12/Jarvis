@@ -321,6 +321,12 @@ async function getCalendarEvents(message, userKey) {
       id: event.id || `${event.summary || "untitled"}|${start || "allday"}`,
       location: event.location || null,
       link: event.htmlLink,
+      // Attendee emails (self excluded where possible) — added so
+      // meeting-prep.js can find "the last thread with these people"
+      // without a second round-trip to the Calendar API.
+      attendees: (event.attendees || [])
+        .filter(a => a?.email && !a.self)
+        .map(a => a.email.toLowerCase()),
     };
   });
   return { events, period: range.label };
@@ -328,6 +334,45 @@ async function getCalendarEvents(message, userKey) {
 
 async function handleCalendarCommand(message, userKey) {
   return await getCalendarEvents(message, userKey);
+}
+
+// ── FIND LAST THREAD WITH THESE PEOPLE ──────────────────────────
+// Used by meeting-prep.js: given the attendee emails, find the single
+// most recent Gmail message to/from any of them so JARVIS can say
+// "here's what you last discussed" before a meeting. Read-only — same
+// as getInbox — never marks anything read or touches the message.
+async function findRecentThreadWithPeople(userKey, attendeeEmails = []) {
+  const emails = (attendeeEmails || []).filter(Boolean).slice(0, 5); // query length sanity cap
+  if (!emails.length) return null;
+
+  const peopleQuery = emails.map(e => `(from:${e} OR to:${e})`).join(" OR ");
+  const query = `(${peopleQuery})`;
+
+  const listData = await googleFetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(query)}&maxResults=5`,
+    userKey
+  );
+  if (listData.needsAuth || listData.error) return null;
+  if (!listData.messages?.length) return null;
+
+  // Take the newest match Gmail returns (list is already most-recent-first)
+  // and fetch just enough of it to summarize — metadata + snippet, not the
+  // full body, to keep this cheap since it may run once per upcoming event.
+  const top = listData.messages[0];
+  const detail = await googleFetch(
+    `https://gmail.googleapis.com/gmail/v1/users/me/messages/${top.id}?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date`,
+    userKey
+  );
+  if (detail.error || detail.needsAuth) return null;
+  const headers = detail.payload?.headers || [];
+  const get = (name) => headers.find(h => h.name === name)?.value || "";
+
+  return {
+    subject: get("Subject") || "(no subject)",
+    from:    get("From").replace(/<.*>/, "").trim() || "Unknown",
+    date:    get("Date"),
+    snippet: detail.snippet || "",
+  };
 }
 
 // ── USER TOKEN HELPERS ────────────────────────────────────────
@@ -350,4 +395,6 @@ module.exports = {
   getInbox,
   getMessageBody,
   classifySender,
+  getCalendarEvents,
+  findRecentThreadWithPeople,
 };
