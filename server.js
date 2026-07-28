@@ -1210,6 +1210,28 @@ app.get("/api/proactive/nudges/:user", async (req, res) => {
   }
 });
 
+// Sibling of /nudges above — see proactive.js's "MEETING PREP NUDGE"
+// section. Same polling pattern; hits Gmail search once per event
+// (cached after that), so slightly heavier than /nudges but still
+// safe to poll every ~60s.
+app.get("/api/proactive/meeting-prep/:user", async (req, res) => {
+  const userKey = (req.params.user || "").toLowerCase().trim();
+  if (!userKey) return res.status(400).json({ error: "Missing user" });
+
+  const profiles = loadProfiles();
+  const profile  = profiles[userKey];
+  if (profile?.googleTokens?.access && !Google.hasTokenForUser(userKey)) {
+    Google.hydrateTokens(userKey, profile.googleTokens);
+  }
+
+  try {
+    const prep = await Proactive.checkMeetingPrep(userKey, profile?.title, req.query.tz);
+    res.json({ prep: prep || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // ── PERSONALITY
 // ═══════════════════════════════════════════════════════════════
