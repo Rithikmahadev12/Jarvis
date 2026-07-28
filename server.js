@@ -29,6 +29,7 @@ const InboxTriage = require("./inbox-triage");
 const Schedule    = require("./schedule");
 const Proactive   = require("./proactive");
 const Debrief     = require("./debrief");
+const ActivityLog = require("./activity-log");
 const Focus       = require("./focus");
 const TTS = require("./tts");
 const Persistence = require("./persistence");
@@ -965,6 +966,15 @@ app.get("/api/debrief/:user", (req, res) => {
   res.json({ debrief: Debrief.getToday(req.params.user) });
 });
 
+// GET /api/activity/:user → today's ambient activity recap (see activity-log.js)
+app.get("/api/activity/:user", async (req, res) => {
+  try {
+    res.json(await ActivityLog.buildActivityRecap(req.params.user));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // ── WEATHER
 // ═══════════════════════════════════════════════════════════════
@@ -1759,6 +1769,33 @@ async function routeDebrief(message, T, sessionId, userName, userTimezone) {
       };
     }
 
+    if (pending.phase === "awaiting_recap_leftover") {
+      const NO_MORNING_TASK_LABEL = "(no morning task — recapped from today's screen activity)";
+      if (Debrief.isNothingLeft(message)) {
+        Debrief.clearPendingDebrief(sessionId);
+        Debrief.saveToday(userName, {
+          task: NO_MORNING_TASK_LABEL,
+          report: pending.doneSummary,
+          doneSummary: pending.doneSummary,
+          leftover: "",
+        });
+        return { reply: `Good, ${T} — logged and closed out.`, action: "DEBRIEF", intent: "debrief" };
+      }
+
+      const leftover = message.trim();
+      Debrief.setDebriefState(sessionId, {
+        phase: "awaiting_rollover_yesno",
+        leftover,
+        task: NO_MORNING_TASK_LABEL,
+        doneSummary: pending.doneSummary,
+      });
+      return {
+        reply: `Got it, ${T} — want me to set "${leftover}" as tomorrow's task?`,
+        action: "DEBRIEF",
+        intent: "debrief",
+      };
+    }
+
     if (pending.phase === "awaiting_rollover_yesno") {
       Debrief.clearPendingDebrief(sessionId);
       Debrief.saveToday(userName, {
@@ -1792,6 +1829,23 @@ async function routeDebrief(message, T, sessionId, userName, userTimezone) {
 
   const morning = Briefing.getToday(userName);
   if (!morning || !morning.task) {
+    // No morning task — instead of asking the user to reconstruct their
+    // whole day from scratch, see if activity-log.js (ambient, free,
+    // local foreground-window tracking — see that file) already has a
+    // recap for today and lead with that.
+    let recap = null;
+    try { recap = await ActivityLog.buildActivityRecap(userName); } catch { recap = null; }
+
+    if (recap && recap.hasData) {
+      Debrief.proposeRecapLeftover(sessionId, recap.text);
+      return {
+        reply: `${recap.text} Anything still left to do, ${T}?`,
+        action: "DEBRIEF",
+        intent: "debrief",
+        meta: { activityRecap: recap },
+      };
+    }
+
     Debrief.proposeDebrief(sessionId);
     return { reply: `No task logged this morning, ${T} — anything worth noting from today?`, action: "DEBRIEF", intent: "debrief" };
   }
@@ -3286,6 +3340,13 @@ function startServer() {
       runSweep();                              // once shortly after boot
       setInterval(runSweep, 15 * 60 * 1000);   // then every 15 minutes
     }
+
+    // ── AMBIENT ACTIVITY TRACKING: foreground window title, local only ──
+    // Zero API cost (see activity-log.js) — feeds the end-of-day debrief
+    // a recap of the day when no morning task was ever set. No-ops on
+    // non-Windows hosts and can be turned off via Settings (activityTracking)
+    // or JARVIS_TRACK_ACTIVITY=false in .env.
+    ActivityLog.startTracking();
   });
 }
 
