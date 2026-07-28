@@ -22,6 +22,9 @@ const JarvisAgent = require("./jarvis-agent");
 const Improve     = require("./self-improve");
 const Trainer     = require("./trainer");
 const Brain       = require("./brain");
+const LocalBrain  = require("./local-brain");
+const OwnBrain    = require("./own-brain");
+const OwnBrainTrainer = require("./own-brain-trainer");
 const Reminders   = require("./reminders");
 const Boards      = require("./boards");
 const Briefing    = require("./briefing");
@@ -757,6 +760,10 @@ app.get("/api/training/examples", (req, res) => {
   const ex = Trainer.exportForPromptStuffing(intent || "general", parseInt(limit) || 5);
   res.json({ examples: ex });
 });
+app.get("/api/brain/stats", (req, res) => {
+  res.json(OwnBrain.getStats());
+});
+
 app.post("/api/training/generate", async (req, res) => {
   if (!Groq.isConfigured()) return res.status(400).json({ error: "GROQ_API_KEY not set" });
   const { intent, count } = req.body;
@@ -3002,6 +3009,25 @@ app.post("/api/chat", async (req, res) => {
     return res.json(commsResult);
   }
 
+  // ── 2.45 Own Brain tutor pipeline — genuine knowledge/info
+  //      questions only (never commands/actions — see local-brain.js's
+  //      gating). Tries JARVIS's own locally-trained model first,
+  //      then Groq as a tutor, then live web research, teaching
+  //      whatever it learns back to the local model each time. If
+  //      none of that produces an answer, this returns null and the
+  //      message falls straight through to the normal Groq
+  //      tool-calling pipeline below, unchanged. ──
+  try {
+    const localResult = await LocalBrain.answer(message, { userTitle: T });
+    if (localResult) {
+      appendToSession(sessionId, "user", enrichedMessage);
+      appendToSession(sessionId, "assistant", localResult.reply);
+      return res.json(localResult);
+    }
+  } catch (err) {
+    console.error("[LOCAL-BRAIN] pipeline failed, falling back:", err.message);
+  }
+
   // ── 2.5 AI decides + acts — replaces regex command matching ──
   // Groq reads the message and either calls a real tool (reminder,
   // timer, weather, Spotify, home control) or just answers in text.
@@ -3208,6 +3234,7 @@ async function boot() {
 
   Improve.startImprovementLoop(5 * 60 * 1000);
   Trainer.startTrainingLoop(15 * 60 * 1000);
+  OwnBrainTrainer.startOwnBrainTraining(10 * 60 * 1000);
   Persistence.startAutoSync();
 
   startServer();
