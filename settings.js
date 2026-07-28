@@ -31,6 +31,11 @@ const DEFAULTS = {
   proactiveNudges: true,
   quietHoursStart: 22, // 24h local hour, inclusive start
   quietHoursEnd: 7,    // 24h local hour, exclusive end (wraps past midnight)
+  // Ambient foreground-window tracking (see activity-log.js). Local-only,
+  // zero API cost — used to auto-build the end-of-day debrief recap when
+  // no morning task was set. Off switch for anyone who'd rather not have
+  // window titles logged at all.
+  activityTracking: true,
   // add more toggles here as needed, e.g.:
   // notifications: true,
   // homeTalk: false,
