@@ -780,6 +780,20 @@ function runCmd(cmd) {
 // (caller should fall back to telling the user rather than silently
 // failing).
 async function findAndClick(description, opts = {}) {
+  // TIER 0 — UI Automation: ask Windows for the real control instead
+  // of guessing from a screenshot (see ui-automation.js for the full
+  // rationale). Free, deterministic, no AI call. Silently skipped
+  // (not an error) when: not on Windows, the native addon isn't
+  // built, the description has no quoted control name to search for,
+  // or the control just isn't found this way — any of those fall
+  // straight through to the OCR/vision tiers below, unchanged.
+  if (!opts.skipUIA) {
+    try {
+      const uia = require("./ui-automation");
+      if (await uia.findAndClick(description, opts)) return true;
+    } catch { /* fall through — this tier must never block the rest */ }
+  }
+
   const loc = await locateElement(description, opts);
   if (!loc || !loc.found) return false;
   await clickAt(loc.x, loc.y);
