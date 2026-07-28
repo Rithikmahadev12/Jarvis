@@ -87,6 +87,10 @@ function trackingEnabled() {
 }
 
 // ── FOREGROUND WINDOW TITLE (free, local, Windows-only) ──────────
+// Exported (not just used internally) because ui-automation.js reuses
+// this exact primitive to figure out which top-level window to scope
+// its element search to — no reason to shell out to PowerShell twice
+// for the same information.
 function getForegroundWindowTitle() {
   return new Promise((resolve) => {
     if (!isWindows()) return resolve("");
@@ -283,4 +287,5 @@ module.exports = {
   getTodayEntries,
   buildActivityRecap,
   todayKey,
-};a
+  getForegroundWindowTitle,
+};
