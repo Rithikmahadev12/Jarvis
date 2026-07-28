@@ -1573,6 +1573,7 @@ function launchMain() {
   setInterval(pollReminders, 5000);
   setInterval(pollSchedule, 20000);
   setInterval(pollProactiveNudges, 60000);
+  setInterval(pollMeetingPrep, 60000);
 
   setTimeout(() => checkMorningBriefing(), 2500);
 }
@@ -1653,6 +1654,31 @@ async function pollProactiveNudges() {
     // server unreachable — try again next tick
   } finally {
     _nudgeBusy = false;
+  }
+}
+
+// ── MEETING PREP (calendar × inbox correlation) ──
+// Checks in every 60s, same cadence as pollProactiveNudges. See
+// proactive.js "MEETING PREP NUDGE" — this is the "here's what you
+// last discussed with them by email" layer, fired once per event
+// inside the prep window, not once per poll.
+let _meetingPrepBusy = false;
+async function pollMeetingPrep() {
+  if (_meetingPrepBusy || !state.user) return;
+  _meetingPrepBusy = true;
+  try {
+    const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const res = await fetch(`/api/proactive/meeting-prep/${encodeURIComponent(state.user)}?tz=${encodeURIComponent(tz)}`);
+    const data = await res.json();
+    if (data?.prep?.text) {
+      addMsg("jarvis", data.prep.text);
+      mic.suspend();
+      speak(data.prep.text, () => mic.resume());
+    }
+  } catch {
+    // server unreachable — try again next tick
+  } finally {
+    _meetingPrepBusy = false;
   }
 }
 
