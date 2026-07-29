@@ -115,9 +115,15 @@
     <div class="db-widget db-widget-music paused" id="db-w-music" data-widget data-hand-drag="true">
       <div class="db-widget-close" data-close title="Close (say &quot;pull up the music widget&quot; to bring it back)">✕</div>
       <div class="db-widget-label">MUSIC</div>
-      <div class="db-music-track" id="db-music-track">Nothing playing</div>
-      <div class="db-music-artist" id="db-music-artist">Say "Jarvis, play something"</div>
-      <div class="db-music-bars"><span></span><span></span><span></span><span></span><span></span></div>
+      <!-- Default placeholder shown until a track actually plays; the real
+           now-playing card (cover art + controls, from music-widget.js) gets
+           mounted into #db-music-embed at that point and this is hidden. -->
+      <div class="db-music-placeholder" id="db-music-placeholder">
+        <div class="db-music-track">Nothing playing</div>
+        <div class="db-music-artist">Say "Jarvis, play something"</div>
+        <div class="db-music-bars"><span></span><span></span><span></span><span></span><span></span></div>
+      </div>
+      <div class="db-music-embed" id="db-music-embed"></div>
     </div>
 
     <div class="db-widget db-widget-notes" id="db-w-notes" data-widget data-hand-drag="true">
@@ -355,20 +361,19 @@
     }
   }
 
-  // ── MUSIC (mirrors the actual player in music-widget.js; /api/spotify
-  //    is a fallback for setups that do have Spotify configured) ──
+  // ── MUSIC (the real now-playing card from music-widget.js mounts itself
+  //    into #db-music-embed and owns its own title/artist/art/controls —
+  //    this just shows/hides the "nothing playing" placeholder behind it
+  //    and keeps the .paused state in sync for the CSS. /api/spotify is a
+  //    fallback poll for setups that do have Spotify configured but where
+  //    the embedded YouTube player hasn't reported anything yet) ──
   let musicWidgetHasData = false; // true once we've heard from the real player at least once
   function applyMusicState(title, artist, playing) {
-    const trackEl = $("db-music-track"), artistEl = $("db-music-artist"), widget = $("db-w-music");
-    if (title) {
-      if (trackEl) trackEl.textContent = title;
-      if (artistEl) artistEl.textContent = artist || "";
-      widget?.classList.toggle("paused", !playing);
-    } else {
-      if (trackEl) trackEl.textContent = "Nothing playing";
-      if (artistEl) artistEl.textContent = 'Say "Jarvis, play something"';
-      widget?.classList.add("paused");
-    }
+    const widget = $("db-w-music"), placeholder = $("db-music-placeholder");
+    const hasTrack = !!title;
+    widget?.classList.toggle("paused", !playing);
+    widget?.classList.toggle("has-track", hasTrack);
+    if (placeholder) placeholder.style.display = hasTrack ? "none" : "";
   }
   window.addEventListener("jarvis:music-changed", (e) => {
     musicWidgetHasData = true;
@@ -378,7 +383,7 @@
 
   async function loadMusic() {
     if (musicWidgetHasData) return; // the real player is already reporting state directly
-    const trackEl = $("db-music-track"), artistEl = $("db-music-artist"), widget = $("db-w-music");
+    const widget = $("db-w-music");
     try {
       const res = await fetch("/api/spotify", {
         method: "POST",
@@ -387,9 +392,7 @@
       });
       const data = await res.json();
       if (data.track || data.title) {
-        if (trackEl) trackEl.textContent = data.track || data.title;
-        if (artistEl) artistEl.textContent = data.artist || "";
-        widget?.classList.remove("paused");
+        applyMusicState(data.track || data.title, data.artist, true);
       } else {
         widget?.classList.add("paused");
       }
@@ -561,7 +564,7 @@
 
     document.querySelectorAll("#db-widget-layer [data-widget]").forEach(el => {
       el.addEventListener("pointerdown", (e) => {
-        if (e.target.closest("textarea, input, button")) return;
+        if (e.target.closest("textarea, input, button, .mw-progress-track")) return;
         dragEl = el;
         el.classList.add("db-dragging");
         el.setPointerCapture(e.pointerId);
