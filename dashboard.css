@@ -137,7 +137,7 @@
   cursor: grab;
   user-select: none;
   touch-action: none;
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, opacity 0.25s ease, transform 0.25s ease, filter 0.25s ease;
 }
 .db-widget:hover {
   border-color: rgba(255,255,255,0.28);
@@ -146,6 +146,39 @@
   cursor: grabbing;
   box-shadow: 0 16px 46px rgba(0,0,0,0.4), 0 0 0 1px var(--db-accent-glow);
   z-index: 50;
+}
+
+/* Close (✕) button — top-right corner of every widget. Closing a
+   widget hides it (state + position kept) rather than destroying it;
+   ask Jarvis to "pull up the <name> widget" or flip it back on in
+   Settings → Widgets to bring it back. */
+.db-widget-close {
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.14);
+  color: rgba(234,246,255,0.55);
+  font-size: 0.6rem;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.db-widget:hover .db-widget-close { opacity: 1; transform: scale(1); }
+.db-widget-close:hover {
+  background: rgba(255,70,70,0.25);
+  border-color: rgba(255,120,120,0.5);
+  color: #ffd7d7;
+}
+.db-widget.db-widget-closed {
+  opacity: 0;
+  transform: scale(0.92);
+  pointer-events: none;
+  filter: blur(2px);
 }
 .db-widget-label {
   font-family: var(--hud, 'Orbitron', monospace);
@@ -216,6 +249,19 @@
   flex-shrink: 0;
 }
 .db-todo-empty { font-size: 0.78rem; color: rgba(234,246,255,0.4); font-style: italic; }
+
+/* News widget */
+.db-widget-news { width: 250px; }
+.db-news-list { display: flex; flex-direction: column; gap: 8px; max-height: 180px; overflow-y: auto; }
+.db-news-item {
+  font-size: 0.78rem;
+  line-height: 1.3;
+  color: rgba(234,246,255,0.85);
+  padding: 4px 2px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.07);
+}
+.db-news-item:last-child { border-bottom: none; padding-bottom: 2px; }
+.db-news-empty { font-size: 0.78rem; color: rgba(234,246,255,0.4); font-style: italic; }
 
 /* Music widget */
 .db-widget-music { width: 240px; }
@@ -478,6 +524,13 @@ select.db-lang-select {
 }
 .db-switch.on { background: var(--db-accent); }
 .db-switch.on::after { transform: translateX(18px); }
+
+.db-settings-row-col label { margin-bottom: 4px; }
+#db-widget-toggle-list .db-widget-toggle-row {
+  padding: 6px 8px;
+  border-radius: 10px;
+}
+#db-widget-toggle-list .db-widget-toggle-row:hover { background: rgba(255,255,255,0.05); }
 
 .db-settings-close {
   position: absolute;
