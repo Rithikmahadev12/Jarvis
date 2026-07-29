@@ -779,6 +779,11 @@
   <script src="music-widget.js"></script>
   <script src="hud-globe.js"></script>
   <script src="board-widget.js"></script>
+  <!-- desktop-bridge.js has to load before jarvis.js: jarvis.js reads
+       window.isDesktopApp once at parse time to decide whether the mic
+       should use native SpeechRecognition or the desktop cloud-STT
+       fallback (see the MIC ENGINE section in jarvis.js). -->
+  <script src="desktop-bridge.js"></script>
   <script src="jarvis.js"></script>
   <script src="intro.js"></script>
   <script src="home-ui.js"></script>
@@ -786,7 +791,6 @@
   <script src="pip-widgets.js"></script>
   <script src="hand-tracking.js"></script>
   <script src="mode-picker.js"></script>
-  <script src="desktop-bridge.js"></script>
   <script src="dashboard.js"></script>
   <script>
     // Start hand tracking once the main screen goes active (after login)
