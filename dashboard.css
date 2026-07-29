@@ -275,30 +275,53 @@
   border-radius: 50%;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.14), rgba(255,255,255,0.02) 60%),
-              var(--db-glass-bg-soft);
-  border: 1px solid var(--db-glass-border);
-  backdrop-filter: blur(16px) saturate(160%);
-  -webkit-backdrop-filter: blur(16px) saturate(160%);
-  box-shadow: 0 0 30px var(--db-accent-glow), inset 0 1px 0 rgba(255,255,255,0.1);
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255,255,255,0.35), rgba(255,255,255,0.04) 42%, rgba(255,255,255,0.02) 70%),
+    var(--db-glass-bg-soft);
+  border: 1px solid rgba(255,255,255,0.35);
+  backdrop-filter: blur(18px) saturate(180%);
+  -webkit-backdrop-filter: blur(18px) saturate(180%);
+  box-shadow:
+    0 0 34px var(--db-accent-glow),
+    inset 0 1px 1px rgba(255,255,255,0.55),
+    inset 0 -10px 18px rgba(0,0,0,0.25),
+    inset 0 0 0 1px rgba(255,255,255,0.06);
   transition: transform 0.25s ease, box-shadow 0.25s ease;
+  overflow: hidden;
+}
+/* glossy highlight sweep — the thing that reads as "glass" rather than "plastic" */
+#db-orb-launcher::before {
+  content: "";
+  position: absolute;
+  top: 6%; left: 14%;
+  width: 46%; height: 30%;
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(255,255,255,0.55), rgba(255,255,255,0));
+  filter: blur(1px);
+  transform: rotate(-18deg);
+  pointer-events: none;
 }
 #db-orb-launcher:hover {
   transform: scale(1.06);
-  box-shadow: 0 0 46px var(--db-accent-glow), inset 0 1px 0 rgba(255,255,255,0.16);
+  box-shadow:
+    0 0 50px var(--db-accent-glow),
+    inset 0 1px 1px rgba(255,255,255,0.65),
+    inset 0 -10px 18px rgba(0,0,0,0.22),
+    inset 0 0 0 1px rgba(255,255,255,0.1);
 }
 #db-orb-launcher:active { transform: scale(0.97); }
 #db-orb-launcher .db-orb-core {
-  width: 30px; height: 30px;
+  width: 28px; height: 28px;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #fff, var(--db-accent) 55%, rgba(111,211,255,0.2) 100%);
-  box-shadow: 0 0 18px var(--db-accent-glow);
+  background: radial-gradient(circle at 35% 35%, rgba(255,255,255,0.95), var(--db-accent) 55%, rgba(255,255,255,0.08) 100%);
+  box-shadow: 0 0 20px var(--db-accent-glow), inset 0 0 6px rgba(255,255,255,0.6);
+  opacity: 0.9;
   animation: dbOrbPulse 2.6s ease-in-out infinite;
 }
 #db-orb-launcher .db-orb-ring {
-  position: absolute; inset: 6px;
+  position: absolute; inset: 8px;
   border-radius: 50%;
-  border: 1px solid rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.28);
   animation: dbOrbSpin 10s linear infinite;
 }
 #db-orb-launcher .db-orb-ring::before {
