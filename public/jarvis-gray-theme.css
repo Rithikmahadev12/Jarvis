@@ -84,15 +84,15 @@
 /* ═══════════════════════════════════════════════════════════════
    MODE DOCK + INPUT BAR — graphite instead of blue-glass
    ═══════════════════════════════════════════════════════════════ */
-#main-screen.hud-minimal #mode-taskbar {
+#mode-taskbar {
   background: rgba(14,16,18,0.6);
   border-color: rgba(180,188,196,0.16);
   box-shadow: 0 8px 28px rgba(0,0,0,0.45), 0 0 18px rgba(170,180,190,0.05);
   transition: box-shadow 0.3s ease, border-color 0.3s ease;
 }
-#main-screen.hud-minimal .taskbar-btn { transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease; }
-#main-screen.hud-minimal .taskbar-btn:hover { transform: translateY(-1px); background: rgba(180,188,196,0.08); }
-#main-screen.hud-minimal .taskbar-btn:active { transform: translateY(0) scale(0.94); }
+.taskbar-btn { transition: background 0.2s ease, color 0.2s ease, transform 0.15s ease; }
+.taskbar-btn:hover { transform: translateY(-1px); background: rgba(180,188,196,0.08); }
+.taskbar-btn:active { transform: translateY(0) scale(0.94); }
 
 #main-screen.hud-minimal .input-bar {
   background: rgba(12,14,16,0.6);
