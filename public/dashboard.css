@@ -272,7 +272,7 @@
 .db-news-item:last-child { border-bottom: none; padding-bottom: 2px; }
 .db-news-empty { font-size: 0.78rem; color: rgba(234,246,255,0.4); font-style: italic; }
 
-/* Music widget */
+/* Music widget — placeholder (shown until something actually plays) */
 .db-widget-music { width: 240px; }
 .db-music-track { font-size: 0.9rem; font-weight: 600; }
 .db-music-artist { font-size: 0.76rem; color: rgba(234,246,255,0.55); margin-top: 2px; }
@@ -288,6 +288,11 @@
 .db-music-bars span:nth-child(5){height:65%;animation-delay:.6s}
 .db-widget-music.paused .db-music-bars span { animation-play-state: paused; opacity: 0.3; }
 @keyframes dbBar { 0%,100%{transform:scaleY(0.4)} 50%{transform:scaleY(1)} }
+
+/* Music widget — embed slot. The real now-playing card (cover art +
+   controls) from music-widget.js mounts here, shrunk down to fit via the
+   ".mw-embedded" rules in music-widget.css. Empty (0-height) until then. */
+.db-music-embed:empty { display: none; }
 
 /* Notes widget */
 .db-widget-notes { width: 220px; }
