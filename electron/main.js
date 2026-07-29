@@ -243,22 +243,24 @@ ipcMain.on("desktop:quit", () => app.quit());
 // window feel like "a website in a browser" instead of a real app.
 Menu.setApplicationMenu(null);
 
-// Explicitly allow microphone (and camera) access. Without a handler
-// here, Electron's fallback behavior for permission requests can vary
-// by version/platform and has been known to silently deny getUserMedia
-// with no error surfaced anywhere in the page — which looks exactly
-// like "the mic doesn't work" even though every step of the STT
-// pipeline (see public/jarvis.js MIC ENGINE + stt.js) is otherwise fine.
-session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-  if (permission === "media" || permission === "audioCapture" || permission === "videoCapture") {
-    callback(true);
-    return;
-  }
-  callback(true); // this app only ever runs its own trusted UI, nothing to gate here
-});
-session.defaultSession.setPermissionCheckHandler(() => true);
-
 app.whenReady().then(async () => {
+  // Explicitly allow microphone (and camera) access. Without a handler
+  // here, Electron's fallback behavior for permission requests can vary
+  // by version/platform and has been known to silently deny getUserMedia
+  // with no error surfaced anywhere in the page — which looks exactly
+  // like "the mic doesn't work" even though every step of the STT
+  // pipeline (see public/jarvis.js MIC ENGINE + stt.js) is otherwise fine.
+  // (session.defaultSession only exists once the app is ready, hence this
+  // living inside the whenReady() callback rather than at module scope.)
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === "media" || permission === "audioCapture" || permission === "videoCapture") {
+      callback(true);
+      return;
+    }
+    callback(true); // this app only ever runs its own trusted UI, nothing to gate here
+  });
+  session.defaultSession.setPermissionCheckHandler(() => true);
+
   try {
     backendUrl = await resolveBackend();
   } catch (err) {
