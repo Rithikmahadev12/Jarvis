@@ -1971,6 +1971,42 @@ function handleChatCommand(text, attachments) {
 
   const cleanedLower = cleaned.toLowerCase();
 
+  // ── Dashboard widget show/hide — "Jarvis, pull up the news widget",
+  //    "close the weather widget", "bring back my notes widget", etc.
+  //    Fully local: no AI round-trip, mirrors the mute/unmute pattern
+  //    above. Widget name resolution lives in dashboard.js (single
+  //    source of truth for aliases) via window.JarvisDashboard.
+  //    Reopening also brings the home/widget screen back to front —
+  //    so "pull up X" while you're inside the chat HUD actually shows
+  //    it, not just flips a flag you can't see. ──
+  {
+    const WIDGET_WORD_RE = "(clock|time|weather|to[\\s-]?do|tasks?|music|song|player|notes?|news|headlines?)";
+    const SHOW_WIDGET_RE = new RegExp(`\\b(?:pull up|bring back|show|open|restore|re-?add|add back)\\s+(?:the\\s+|my\\s+)?${WIDGET_WORD_RE}\\s*widget\\b`);
+    const HIDE_WIDGET_RE = new RegExp(`\\b(?:close|hide|remove|dismiss|get rid of)\\s+(?:the\\s+|my\\s+)?${WIDGET_WORD_RE}\\s*widget\\b`);
+    const dash = window.JarvisDashboard;
+    if (dash) {
+      const showMatch = cleanedLower.match(SHOW_WIDGET_RE);
+      const hideMatch = !showMatch && cleanedLower.match(HIDE_WIDGET_RE);
+      if (showMatch || hideMatch) {
+        const id = dash.resolveWidget((showMatch || hideMatch)[1]);
+        if (id) {
+          const label = dash.widgetLabel(id);
+          let r;
+          if (showMatch) {
+            dash.show(id);
+            r = `${label} widget's back up, ${state.userTitle}.`;
+          } else {
+            dash.hide(id);
+            r = `Closed the ${label} widget, ${state.userTitle}.`;
+          }
+          addMsg("jarvis", r);
+          speak(r);
+          return;
+        }
+      }
+    }
+  }
+
   // NOTE: "daily briefing" / "brief me" etc. used to be intercepted HERE
   // and launched the full-screen briefing.js experience directly, which
   // is exactly the "big page every time" behavior that wasn't wanted.
