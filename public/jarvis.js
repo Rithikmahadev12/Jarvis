@@ -798,6 +798,12 @@ const mic = {
 
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     this._cloudCtx = new AudioCtx();
+    // See note above _launchCloud below the VAD-tick fix — a fresh
+    // AudioContext can come up "suspended" under the browser's autoplay
+    // policy, which would make the VAD analyser read permanent silence.
+    if (this._cloudCtx.state === "suspended") {
+      try { await this._cloudCtx.resume(); } catch (_) {}
+    }
     const src = this._cloudCtx.createMediaStreamSource(this._cloudStream);
     this._cloudAnalyser = this._cloudCtx.createAnalyser();
     this._cloudAnalyser.fftSize = 512;
@@ -815,6 +821,7 @@ const mic = {
   // MediaRecorder around it so we only ever upload real speech.
   _cloudVadTick() {
     if (this.suspended || !this.active || !this._cloudAnalyser) return;
+    if (this._cloudCtx && this._cloudCtx.state === "suspended") this._cloudCtx.resume().catch(() => {});
     const data = new Uint8Array(this._cloudAnalyser.frequencyBinCount);
     this._cloudAnalyser.getByteTimeDomainData(data);
     let sumSquares = 0;
