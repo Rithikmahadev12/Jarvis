@@ -10,7 +10,29 @@
 
   const DB_KEY_POS   = "jarvis_dash_widget_pos_v1";
   const DB_KEY_NOTES = "jarvis_dash_notes_v1";
+  const DB_KEY_HIDDEN = "jarvis_dash_widget_hidden_v1"; // array of widget ids currently closed
   const DB_KEY_BG_META = "jarvis_dash_bg_meta_v1"; // {type:'image'|'video'|'none'}
+
+  // ── canonical widget id list + spoken-name aliases, shared with
+  //    jarvis.js via window.JarvisDashboard.resolveWidget() so "pull up
+  //    the news widget" / "close weather widget" resolve to the right
+  //    card regardless of phrasing ──
+  const WIDGET_META = {
+    "db-w-clock":   { label: "Clock",   aliases: ["clock", "time"] },
+    "db-w-weather": { label: "Weather", aliases: ["weather"] },
+    "db-w-todo":    { label: "To-Do",   aliases: ["todo", "to-do", "to do", "tasks", "task"] },
+    "db-w-music":   { label: "Music",   aliases: ["music", "song", "player"] },
+    "db-w-notes":   { label: "Notes",   aliases: ["notes", "note"] },
+    "db-w-news":    { label: "News",    aliases: ["news", "headlines", "headline"] },
+  };
+  function resolveWidget(word) {
+    if (!word) return null;
+    const norm = String(word).toLowerCase().trim().replace(/\s+/g, " ");
+    for (const id of Object.keys(WIDGET_META)) {
+      if (WIDGET_META[id].aliases.includes(norm)) return id;
+    }
+    return null;
+  }
   const IDB_NAME = "jarvis-dashboard";
   const IDB_STORE = "bg";
 
@@ -61,16 +83,19 @@
     "db-w-todo":    { x: 78, y: 30 },
     "db-w-music":   { x: 4,  y: 78 },
     "db-w-notes":   { x: 78, y: 62 },
+    "db-w-news":    { x: 4,  y: 40 },
   };
 
   const WIDGETS_HTML = `
     <div class="db-widget db-widget-clock" id="db-w-clock" data-widget>
+      <div class="db-widget-close" data-close title="Close (say &quot;pull up the clock widget&quot; to bring it back)">✕</div>
       <div class="db-widget-label">TIME</div>
       <div class="db-time" id="db-time">--:--</div>
       <div class="db-date" id="db-date">—</div>
     </div>
 
     <div class="db-widget db-widget-weather" id="db-w-weather" data-widget>
+      <div class="db-widget-close" data-close title="Close (say &quot;pull up the weather widget&quot; to bring it back)">✕</div>
       <div class="db-widget-label">WEATHER</div>
       <div class="db-weather-main">
         <div class="db-temp" id="db-temp">--°</div>
@@ -80,6 +105,7 @@
     </div>
 
     <div class="db-widget db-widget-todo" id="db-w-todo" data-widget>
+      <div class="db-widget-close" data-close title="Close (say &quot;pull up the to-do widget&quot; to bring it back)">✕</div>
       <div class="db-widget-label">TO-DO</div>
       <div class="db-todo-list" id="db-todo-list">
         <div class="db-todo-empty">Loading…</div>
@@ -87,6 +113,7 @@
     </div>
 
     <div class="db-widget db-widget-music paused" id="db-w-music" data-widget>
+      <div class="db-widget-close" data-close title="Close (say &quot;pull up the music widget&quot; to bring it back)">✕</div>
       <div class="db-widget-label">MUSIC</div>
       <div class="db-music-track" id="db-music-track">Nothing playing</div>
       <div class="db-music-artist" id="db-music-artist">Say "Jarvis, play something"</div>
@@ -94,8 +121,17 @@
     </div>
 
     <div class="db-widget db-widget-notes" id="db-w-notes" data-widget>
+      <div class="db-widget-close" data-close title="Close (say &quot;pull up the notes widget&quot; to bring it back)">✕</div>
       <div class="db-widget-label">NOTES</div>
       <textarea id="db-notes-area" placeholder="Jot something down…"></textarea>
+    </div>
+
+    <div class="db-widget db-widget-news" id="db-w-news" data-widget>
+      <div class="db-widget-close" data-close title="Close (say &quot;pull up the news widget&quot; to bring it back)">✕</div>
+      <div class="db-widget-label">NEWS</div>
+      <div class="db-news-list" id="db-news-list">
+        <div class="db-news-empty">Loading…</div>
+      </div>
     </div>
   `;
 
@@ -156,6 +192,13 @@
 
         <div class="db-settings-divider"></div>
 
+        <div class="db-settings-row db-settings-row-col">
+          <label>Widgets</label>
+          <div id="db-widget-toggle-list"></div>
+        </div>
+
+        <div class="db-settings-divider"></div>
+
         <button class="db-btn" id="db-reset-layout-btn">↺ Reset Layout</button>
         <button class="db-btn db-btn-primary" id="db-settings-done-btn" style="margin-top:14px">Done</button>
       </div>
@@ -164,6 +207,7 @@
 
   let pendingBgFile = null;
   let pendingBgKind = null;
+  let dashRoot = null;
 
   function buildDashboard() {
     const wrap = document.createElement("div");
@@ -178,7 +222,22 @@
     homeBtn.textContent = "⌂";
     document.body.appendChild(homeBtn);
 
+    dashRoot = wrap;
     return wrap;
+  }
+
+  // Bring the widget desktop back to the front (used by the orb's own
+  // home button, and by the "pull up X widget" voice/text command so
+  // the widget you just asked for is actually visible).
+  function revealDashboard() {
+    if (!dashRoot) return;
+    dashRoot.classList.remove("db-hidden");
+    $("db-home-btn")?.classList.remove("db-show");
+  }
+  function hideDashboardToHUD() {
+    if (!dashRoot) return;
+    dashRoot.classList.add("db-hidden");
+    $("db-home-btn")?.classList.add("db-show");
   }
 
   // ── CLOCK ──
@@ -262,6 +321,27 @@
     }
   }
 
+  // ── NEWS (wired to existing /api/news endpoint) ──
+  async function loadNews() {
+    const list = $("db-news-list");
+    if (!list) return;
+    try {
+      const res = await fetch("/api/news");
+      const data = await res.json();
+      const items = data.articles || data.items || [];
+      if (!items.length) {
+        list.innerHTML = `<div class="db-news-empty">Nothing new</div>`;
+        return;
+      }
+      list.innerHTML = items.slice(0, 5).map(it => {
+        const label = it.title || it.headline || "Untitled";
+        return `<div class="db-news-item">${escapeHtml(label)}</div>`;
+      }).join("");
+    } catch (e) {
+      list.innerHTML = `<div class="db-news-empty">Couldn't load</div>`;
+    }
+  }
+
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
   }
@@ -298,6 +378,77 @@
   function resetLayout() {
     localStorage.removeItem(DB_KEY_POS);
     applyLayout();
+  }
+
+  // ── WIDGET CLOSE / RE-OPEN ──
+  // Closed widgets are hidden (not removed from the DOM, so their
+  // internal state — notes text, music polling, etc. — isn't lost)
+  // and the set persists across reloads. Bring one back either via
+  // the ✕ button's undo path (settings panel toggle) or by asking
+  // Jarvis: "pull up the news widget" / "close the weather widget".
+  function loadHidden() {
+    try { return new Set(JSON.parse(localStorage.getItem(DB_KEY_HIDDEN)) || []); }
+    catch (e) { return new Set(); }
+  }
+  function saveHidden(set) {
+    localStorage.setItem(DB_KEY_HIDDEN, JSON.stringify(Array.from(set)));
+  }
+  let hiddenWidgets = loadHidden();
+
+  function applyHiddenState() {
+    Object.keys(WIDGET_META).forEach(id => {
+      const el = $(id);
+      if (!el) return;
+      el.classList.toggle("db-widget-closed", hiddenWidgets.has(id));
+    });
+    syncWidgetToggleList();
+  }
+  function hideWidgetById(id) {
+    if (!WIDGET_META[id]) return false;
+    hiddenWidgets.add(id);
+    saveHidden(hiddenWidgets);
+    applyHiddenState();
+    return true;
+  }
+  function showWidgetById(id) {
+    if (!WIDGET_META[id]) return false;
+    hiddenWidgets.delete(id);
+    saveHidden(hiddenWidgets);
+    applyHiddenState();
+    revealDashboard();
+    return true;
+  }
+  function toggleWidgetById(id) {
+    return hiddenWidgets.has(id) ? showWidgetById(id) : hideWidgetById(id);
+  }
+
+  function initCloseButtons() {
+    document.querySelectorAll("#db-widget-layer [data-close]").forEach(btn => {
+      btn.addEventListener("pointerdown", e => e.stopPropagation()); // don't start a drag
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const widget = btn.closest("[data-widget]");
+        if (widget) hideWidgetById(widget.id);
+      });
+    });
+  }
+
+  // ── Widgets list inside settings panel — lets you re-open a closed
+  //    widget with a tap instead of needing to ask Jarvis for it ──
+  function syncWidgetToggleList() {
+    const host = $("db-widget-toggle-list");
+    if (!host) return;
+    host.innerHTML = Object.keys(WIDGET_META).map(id => {
+      const on = !hiddenWidgets.has(id);
+      return `
+        <div class="db-settings-toggle-row db-widget-toggle-row">
+          <span>${WIDGET_META[id].label}</span>
+          <div class="db-switch ${on ? "on" : ""}" data-widget-toggle="${id}"></div>
+        </div>`;
+    }).join("");
+    host.querySelectorAll("[data-widget-toggle]").forEach(sw => {
+      sw.addEventListener("click", () => toggleWidgetById(sw.dataset.widgetToggle));
+    });
   }
 
   function initDragging() {
@@ -464,14 +615,8 @@
   // ── ORB / SHOW-HIDE WIRING ──
   function initOrbAndVisibility(dash) {
     const homeBtn = $("db-home-btn");
-    $("db-orb-launcher")?.addEventListener("click", () => {
-      dash.classList.add("db-hidden");
-      homeBtn?.classList.add("db-show");
-    });
-    homeBtn?.addEventListener("click", () => {
-      dash.classList.remove("db-hidden");
-      homeBtn.classList.remove("db-show");
-    });
+    $("db-orb-launcher")?.addEventListener("click", hideDashboardToHUD);
+    homeBtn?.addEventListener("click", revealDashboard);
 
     // Reveal the dashboard the moment the existing app finishes its
     // login/intro sequence and shows the chat HUD (#main-screen.active).
@@ -495,8 +640,7 @@
       if (e.key !== "Enter") return;
       const q = input.value.trim();
       if (!q) return;
-      dash.classList.add("db-hidden");
-      $("db-home-btn")?.classList.add("db-show");
+      hideDashboardToHUD();
       setTimeout(() => {
         if (typeof window.handleChatCommand === "function") {
           window.handleChatCommand(q);
@@ -516,6 +660,8 @@
     applyLayout();
     initDragging();
     initNotes();
+    initCloseButtons();
+    applyHiddenState();
     initSettings();
     initOrbAndVisibility(dash);
     initSearch(dash);
@@ -523,10 +669,27 @@
     loadWeather();
     loadTodos();
     loadMusic();
+    loadNews();
     setInterval(loadWeather, 10 * 60 * 1000);
     setInterval(loadTodos, 2 * 60 * 1000);
     setInterval(loadMusic, 30 * 1000);
+    setInterval(loadNews, 15 * 60 * 1000);
     window.addEventListener("resize", applyLayout);
+
+    // ── Public API — lets jarvis.js's chat/voice command handler
+    //    show/hide widgets by spoken name ("pull up the news widget",
+    //    "close the weather widget") and bring the home screen back
+    //    to front when it does. ──
+    window.JarvisDashboard = {
+      resolveWidget,
+      show: showWidgetById,
+      hide: hideWidgetById,
+      toggle: toggleWidgetById,
+      isHidden: (id) => hiddenWidgets.has(id),
+      reveal: revealDashboard,
+      hideToHUD: hideDashboardToHUD,
+      widgetLabel: (id) => WIDGET_META[id]?.label || id,
+    };
   }
 
   if (document.readyState === "loading") {
