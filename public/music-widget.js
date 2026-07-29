@@ -54,11 +54,19 @@ window.MusicWidget = (function () {
     if ($("music-widget")) return;
     const wrap = document.createElement("div");
     wrap.id = "music-widget";
-    wrap.className = "music-widget hidden";
+    // If the dashboard's compact MUSIC card is on the page, mount the real
+    // now-playing UI (cover art + controls) straight into it instead of
+    // floating it as its own free card — shrunk to fit via .mw-embedded
+    // rules in music-widget.css. Falls back to the classic floating card
+    // (e.g. on widget-host.html, which has no dashboard) when it isn't.
+    const embedHost = document.getElementById("db-music-embed");
+    const embedded = !!embedHost;
+    wrap.className = "music-widget hidden" + (embedded ? " mw-embedded" : "");
     // Lets hand-tracking's pinch gesture grab and drag this widget — it
     // synthesizes real pointer events, so it just rides the same drag
-    // handling below that mouse/touch already use.
-    wrap.dataset.handDrag = "true";
+    // handling below that mouse/touch already use. Not relevant once
+    // embedded in the dashboard card (that card has its own drag handling).
+    if (!embedded) wrap.dataset.handDrag = "true";
     wrap.innerHTML = `
       <button class="mw-close" id="mw-close" aria-label="Close" title="Stop">&#10005;</button>
       <div class="mw-content" id="mw-content">
@@ -86,7 +94,7 @@ window.MusicWidget = (function () {
       </div>
       <div id="mw-yt-mount" class="mw-yt-mount"></div>
     `;
-    document.body.appendChild(wrap);
+    (embedHost || document.body).appendChild(wrap);
 
     $("mw-close").addEventListener("click", stop);
     $("mw-playpause").addEventListener("click", togglePlayPause);
@@ -95,8 +103,10 @@ window.MusicWidget = (function () {
     $("mw-repeat").addEventListener("click", onToggleRepeat);
     $("mw-progress-track").addEventListener("pointerdown", onScrub);
 
-    initDrag(wrap);
-    restorePosition(wrap);
+    if (!embedded) {
+      initDrag(wrap);
+      restorePosition(wrap);
+    }
   }
 
   // ── Dragging (pointer events cover mouse + touch) ───────────
