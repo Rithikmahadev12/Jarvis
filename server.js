@@ -35,6 +35,7 @@ const Debrief     = require("./debrief");
 const ActivityLog = require("./activity-log");
 const Focus       = require("./focus");
 const TTS = require("./tts");
+const STT = require("./stt");
 const Persistence = require("./persistence");
 const Settings    = require("./settings");
 const Comms       = require("./comms-router");
@@ -1335,6 +1336,26 @@ app.post("/api/screen", (req, res) => {
   } catch {
     const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0, 5);
     return res.json({ reply: `On your screen, ${T}: ${lines.join(". ")}` });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── TRANSCRIBE (desktop mic fallback — see public/mic-cloud.js)
+// ═══════════════════════════════════════════════════════════════
+// Web Speech API doesn't work inside the Electron app (stock Chromium
+// has no Google API key), so the desktop build records a short clip
+// and sends it here as base64 instead. Render / plain-browser usage
+// never hits this — it keeps using webkitSpeechRecognition directly.
+app.post("/api/transcribe", async (req, res) => {
+  try {
+    const { audio, mimeType } = req.body;
+    if (!audio) return res.status(400).json({ error: "Missing audio." });
+    const buffer = Buffer.from(audio, "base64");
+    const ext = (mimeType || "").includes("mp4") ? "clip.mp4" : "clip.webm";
+    const result = await STT.transcribe(buffer, ext, mimeType || "audio/webm");
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message, text: "" });
   }
 });
 
