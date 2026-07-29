@@ -347,7 +347,7 @@
       if (!blob) return;
       const url = URL.createObjectURL(blob);
       renderBackground(meta.type, url);
-      if (meta.type === "image") tintHandTrackingFromImage(url);
+      if (meta.type === "image" && window.JarvisTheme) window.JarvisTheme.setFromImageURL(url);
     } catch (e) { /* fall back to default gradient */ }
   }
 
@@ -376,7 +376,7 @@
     localStorage.setItem(DB_KEY_BG_META, JSON.stringify({ type: pendingBgKind }));
     const url = URL.createObjectURL(pendingBgFile);
     renderBackground(pendingBgKind, url);
-    if (pendingBgKind === "image") tintHandTrackingFromImage(url);
+    if (pendingBgKind === "image" && window.JarvisTheme) window.JarvisTheme.setFromImageURL(url);
     pendingBgFile = null; pendingBgKind = null;
     closeSettings();
   }
@@ -386,7 +386,8 @@
     localStorage.removeItem(DB_KEY_BG_META);
     const layer = $("db-bg-layer");
     if (layer) layer.querySelectorAll("img, video").forEach(n => n.remove());
-    resetHandTrackingTint();
+    if (window.JarvisTheme) window.JarvisTheme.reset();
+    else resetHandTrackingTint();
   }
 
   // Sample the wallpaper's average color so the hand-tracking cursor
