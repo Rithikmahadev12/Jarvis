@@ -969,7 +969,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-function updateMicDebug(msg) { const el = $("mic-debug"); if (el) el.textContent = msg; }
+function updateMicDebug(msg) { console.log("[mic-status]", msg); const el = $("mic-debug"); if (el) el.textContent = msg; }
 
 // ── MUTE INDICATOR ──
 // Small self-styled badge — no CSS file edits needed. Voice recognition
