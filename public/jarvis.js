@@ -619,7 +619,32 @@ async function switchCamera(deviceId) {
 // ═══════════════════════════════════════════════════════════════
 // ── MIC ENGINE ──
 // ═══════════════════════════════════════════════════════════════
+// Two transports behind one `mic` object with the same public API
+// (start/suspend/resume/requestPerm, plus .active/.suspended read
+// by the rest of this file):
+//
+//   • NATIVE  — window.webkitSpeechRecognition. Used on the Render
+//     deployment and in a normal browser tab. Streams interim +
+//     final results straight from Chrome, free, no server round trip.
+//
+//   • CLOUD   — used automatically inside the Electron desktop app
+//     (window.isDesktopApp, set by desktop-bridge.js), or as a
+//     fallback in any browser that doesn't have SpeechRecognition at
+//     all. Electron ships stock/open-source Chromium, which has no
+//     Google API key baked in, so webkitSpeechRecognition just fails
+//     there (usually a silent "network" error loop) no matter what
+//     mic permissions are granted — there's no client-side fix for
+//     that. Instead this records short clips with MediaRecorder,
+//     using a simple volume-based VAD (voice activity detector) to
+//     decide when an utterance starts/ends, and sends each clip to
+//     POST /api/transcribe, which forwards it to Groq's Whisper
+//     endpoint (see stt.js) and returns text.
+//
+// Everything downstream (mic.start(onResult, onInterim), speak(),
+// barge-in, etc.) doesn't need to know which transport is live.
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const USE_CLOUD_STT = !!(window.isDesktopApp || !SR);
+
 const mic = {
   rec: null, active: false, retryCount: 0, maxRetries: 999, retryDelay: 150,
   retryTimer: null, onResult: null, onInterim: null, continuous: true,
@@ -631,6 +656,11 @@ const mic = {
   // stops them from firing back-to-back in a tight loop.
   _lastLaunchAt: 0, _minLaunchGapMs: 700,
 
+  // ── cloud-transport state (unused in native mode) ──
+  _cloudStream: null, _cloudCtx: null, _cloudAnalyser: null, _cloudRecorder: null,
+  _cloudChunks: null, _cloudVadRAF: null, _cloudSpeaking: false, _cloudSilenceStart: 0,
+  _cloudMime: "audio/webm",
+
   async requestPerm() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1, sampleRate: 16000 } });
@@ -640,7 +670,7 @@ const mic = {
   },
 
   start(onResult, onInterim, continuous) {
-    if (!SR) { addMsg("system", "Speech recognition requires Chrome/Edge."); return; }
+    if (!USE_CLOUD_STT && !SR) { addMsg("system", "Speech recognition requires Chrome/Edge."); return; }
     this.onResult = onResult; this.onInterim = onInterim;
     this.continuous = continuous !== false; this.suspended = false; this.retryCount = 0; this._launch();
   },
@@ -657,6 +687,12 @@ const mic = {
   },
 
   _launch() {
+    if (this.suspended) return;
+    if (USE_CLOUD_STT) { this._launchCloud(); return; }
+    this._launchNative();
+  },
+
+  _launchNative() {
     if (!SR) return;
     if (this.suspended) return;
     this._lastLaunchAt = Date.now();
@@ -736,6 +772,148 @@ const mic = {
     catch { this.active = false; state.isListening = false; this._scheduleRetry(300); }
   },
 
+  // ═══════════════════════════════════════════════════════════
+  // ── CLOUD TRANSPORT (desktop app) ──
+  // Record → local VAD decides utterance boundaries → upload the
+  // clip to /api/transcribe → feed the text back through the same
+  // onResult callback the native path uses. No interim results (the
+  // clip isn't transcribed until it's done), but speech onset still
+  // triggers barge-in immediately via the volume meter, so it still
+  // feels responsive even though the text arrives a beat later.
+  // ═══════════════════════════════════════════════════════════
+  async _launchCloud() {
+    if (this.suspended) return;
+    this._lastLaunchAt = Date.now();
+    if (this.active) { this._killing = true; this._kill(); this._killing = false; }
+    try {
+      this._cloudStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 }
+      });
+    } catch {
+      this.permGranted = false; updateMicDebug("Mic: blocked — check permissions"); this.suspended = true; return;
+    }
+    this.permGranted = true; this.active = true; state.isListening = true;
+    setOrb(state.phase === "chatting" ? "listening" : "idle");
+    updateMicDebug("Mic: listening…");
+
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    this._cloudCtx = new AudioCtx();
+    const src = this._cloudCtx.createMediaStreamSource(this._cloudStream);
+    this._cloudAnalyser = this._cloudCtx.createAnalyser();
+    this._cloudAnalyser.fftSize = 512;
+    src.connect(this._cloudAnalyser);
+
+    this._cloudSpeaking = false;
+    this._cloudSilenceStart = 0;
+    this._cloudChunks = [];
+    this._cloudRecorder = null;
+    this._cloudVadTick();
+  },
+
+  // Runs every animation frame while the mic is active: watches input
+  // volume to decide when speech starts/stops, starting/stopping the
+  // MediaRecorder around it so we only ever upload real speech.
+  _cloudVadTick() {
+    if (this.suspended || !this.active || !this._cloudAnalyser) return;
+    const data = new Uint8Array(this._cloudAnalyser.frequencyBinCount);
+    this._cloudAnalyser.getByteTimeDomainData(data);
+    let sumSquares = 0;
+    for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sumSquares += v * v; }
+    const rms = Math.sqrt(sumSquares / data.length);
+    const SPEECH_THRESHOLD = 0.02;   // mic-dependent; picks up normal talking volume without tripping on room noise
+    const SILENCE_HOLD_MS  = 900;    // how long we wait after speech stops before treating the utterance as done
+    const MAX_UTTERANCE_MS = 15000;  // safety cap so a stuck-open mic can't record forever
+
+    const now = Date.now();
+    if (rms > SPEECH_THRESHOLD) {
+      if (!this._cloudSpeaking) {
+        this._cloudSpeaking = true;
+        this._cloudUtteranceStart = now;
+        if (isJarvisSpeaking()) stopSpeaking(); // barge-in the instant real volume shows up
+        updateLiveHearing("…"); updateMicDebug("Mic: hearing you…");
+        this._cloudStartRecorder();
+      }
+      this._cloudSilenceStart = 0;
+    } else if (this._cloudSpeaking) {
+      if (!this._cloudSilenceStart) this._cloudSilenceStart = now;
+      if (now - this._cloudSilenceStart > SILENCE_HOLD_MS || now - this._cloudUtteranceStart > MAX_UTTERANCE_MS) {
+        this._cloudSpeaking = false;
+        updateLiveHearing(""); updateMicDebug("Mic: transcribing…");
+        this._cloudStopRecorder();
+      }
+    }
+    this._cloudVadRAF = requestAnimationFrame(() => this._cloudVadTick());
+  },
+
+  _cloudStartRecorder() {
+    if (!this._cloudStream || this._cloudRecorder) return;
+    const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
+    const mime = mimeCandidates.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+    this._cloudMime = mime || "audio/webm";
+    try {
+      this._cloudRecorder = mime ? new MediaRecorder(this._cloudStream, { mimeType: mime }) : new MediaRecorder(this._cloudStream);
+    } catch {
+      this._cloudRecorder = new MediaRecorder(this._cloudStream);
+    }
+    this._cloudChunks = [];
+    this._cloudRecorder.ondataavailable = (e) => { if (e.data && e.data.size) this._cloudChunks.push(e.data); };
+    this._cloudRecorder.start();
+  },
+
+  _cloudStopRecorder() {
+    if (!this._cloudRecorder) { this._relaunchCloudSoon(); return; }
+    const rec = this._cloudRecorder;
+    rec.onstop = async () => {
+      const chunks = this._cloudChunks || [];
+      this._cloudChunks = [];
+      if (!chunks.length) { this._relaunchCloudSoon(); return; }
+      const blob = new Blob(chunks, { type: this._cloudMime });
+      // Tiny clips are almost always noise bumping the VAD threshold, not speech.
+      if (blob.size < 2000) { this._relaunchCloudSoon(); return; }
+      try {
+        const text = await this._cloudTranscribe(blob);
+        this.retryCount = 0;
+        if (text) {
+          updateMicDebug(`Mic: "${text}"`);
+          if (this.onResult) this.onResult(text);
+        } else {
+          updateMicDebug("Mic: listening…");
+        }
+      } catch (e) {
+        console.warn("[mic-cloud] transcription failed:", e.message);
+        updateMicDebug("Mic: transcription error — retrying");
+      }
+      this._relaunchCloudSoon();
+    };
+    try { rec.stop(); } catch { this._relaunchCloudSoon(); }
+    this._cloudRecorder = null;
+  },
+
+  async _cloudTranscribe(blob) {
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result.split(",")[1] || "");
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    const res = await fetch("/api/transcribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ audio: base64, mimeType: blob.type }),
+    });
+    if (!res.ok) throw new Error(`transcribe HTTP ${res.status}`);
+    const data = await res.json();
+    return (data.text || "").trim();
+  },
+
+  // Same spirit as _relaunchSoon(): re-arm the VAD loop for the next
+  // utterance without stacking calls if we're already mid-relaunch.
+  _relaunchCloudSoon() {
+    if (this.suspended || !this.active) return;
+    clearTimeout(this.retryTimer);
+    this.retryTimer = setTimeout(() => { if (!this.suspended) this._cloudVadTick(); }, 50);
+  },
+
   _scheduleRetry(ms) {
     clearTimeout(this.retryTimer); if (this.suspended) return;
     const d = Math.min(ms * Math.pow(1.2, Math.min(this.retryCount, 6)), 3000);
@@ -743,6 +921,16 @@ const mic = {
     this.retryTimer = setTimeout(() => this._launch(), d);
   },
   _kill() {
+    if (USE_CLOUD_STT) {
+      cancelAnimationFrame(this._cloudVadRAF);
+      try { if (this._cloudRecorder) { this._cloudRecorder.ondataavailable = null; this._cloudRecorder.onstop = null; this._cloudRecorder.stop(); } } catch (_) {}
+      try { if (this._cloudStream) this._cloudStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+      try { if (this._cloudCtx) this._cloudCtx.close(); } catch (_) {}
+      this._cloudRecorder = null; this._cloudStream = null; this._cloudCtx = null; this._cloudAnalyser = null;
+      this._cloudSpeaking = false; this._cloudSilenceStart = 0;
+      this.rec = null; this.active = false; state.isListening = false;
+      return;
+    }
     try {
       if (this.rec) {
         // Detach handlers BEFORE aborting — belt-and-braces alongside the
