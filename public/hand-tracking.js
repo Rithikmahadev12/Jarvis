@@ -580,7 +580,7 @@ const HandTracking = (() => {
       color: "rgba(0,200,255,0.55)", lineWidth: 2,
     });
     drawLandmarks(overlayCtx, scaled, {
-      color: "rgba(255,170,0,0.9)", lineWidth: 1, radius: 3,
+      color: "rgba(210,240,255,0.9)", lineWidth: 1, radius: 3,
     });
     overlayCtx.restore();
   }
