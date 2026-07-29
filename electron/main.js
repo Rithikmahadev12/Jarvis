@@ -156,6 +156,7 @@ function createMainWindow() {
     },
   });
   mainWindow.loadURL(`${backendUrl}/index.html`);
+  mainWindow.webContents.openDevTools({ mode: "detach" });
   mainWindow.on("closed", () => { mainWindow = null; });
   return mainWindow;
 }
