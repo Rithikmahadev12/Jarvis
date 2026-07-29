@@ -3,6 +3,12 @@
    or keep as separate file and link it after style.css)
    ═══════════════════════════════════════════════════════════════ */
 
+:root {
+  --ht-glass: rgba(230,245,255,0.9);
+  --ht-glass-glow: rgba(160,215,255,0.55);
+  --ht-glass-glow-strong: rgba(180,225,255,0.9);
+}
+
 .ht-overlay-canvas {
   position: fixed;
   inset: 0;
@@ -26,8 +32,12 @@
   top: 50%; left: 50%;
   width: 8px; height: 8px;
   border-radius: 50%;
-  background: var(--amber, #ffaa00);
-  box-shadow: 0 0 10px var(--amber-glow, rgba(255,170,0,0.6));
+  background: var(--ht-glass, rgba(230,245,255,0.9));
+  backdrop-filter: blur(2px);
+  box-shadow:
+    0 0 10px var(--ht-glass-glow, rgba(160,215,255,0.55)),
+    inset 0 0 4px rgba(255,255,255,0.8);
+  border: 1px solid rgba(255,255,255,0.5);
   transform: translate(-50%, -50%);
 }
 .ht-cursor-ring {
@@ -68,17 +78,22 @@
   opacity: 0.35; /* dwell can't progress while idle, so keep the fill ring subdued */
 }
 .ht-cursor-engaged .ht-cursor-dot {
-  box-shadow: 0 0 14px var(--amber-glow, rgba(255,170,0,0.85));
+  box-shadow:
+    0 0 16px var(--ht-glass-glow, rgba(160,215,255,0.85)),
+    inset 0 0 6px rgba(255,255,255,0.9);
   transform: translate(-50%, -50%) scale(1.15);
 }
 .ht-cursor-grabbing .ht-cursor-dot {
-  background: var(--green, #00ff88);
-  box-shadow: 0 0 12px rgba(0,255,136,0.75);
+  background: var(--ht-glass, rgba(230,245,255,0.95));
+  box-shadow:
+    0 0 16px var(--ht-glass-glow-strong, rgba(180,225,255,0.9)),
+    inset 0 0 6px rgba(255,255,255,0.95);
+  border-color: rgba(255,255,255,0.85);
   transform: translate(-50%, -50%) scale(1.35);
 }
 .ht-cursor-grabbing .ht-cursor-ring-fill,
 .ht-cursor-grabbing .ht-cursor-ring-bg {
-  stroke: var(--green, #00ff88);
+  stroke: var(--ht-glass, rgba(230,245,255,0.95));
 }
 @keyframes htClickPulse {
   0%   { transform: translate(-50%, -50%) scale(1); }
