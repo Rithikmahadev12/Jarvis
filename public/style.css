@@ -1322,7 +1322,7 @@ select option { background: var(--bg2); }
   left: 0; right: 0;
   bottom: var(--ticker-h);
   height: var(--taskbar-h);
-  z-index: 61;
+  z-index: 620; /* above #jarvis-dashboard (500) so it shows on the new widget home too */
   display: flex;
   align-items: center;
   justify-content: center;
