@@ -126,7 +126,7 @@
 /* ═══════════════════════════════════════════════════════════════
    MODE DOCK — slim icon-only pill (matches reference screenshots)
    ═══════════════════════════════════════════════════════════════ */
-#main-screen.hud-minimal #mode-taskbar {
+#mode-taskbar {
   left: 50%;
   right: auto;
   transform: translateX(-50%);
@@ -140,7 +140,7 @@
   border: 1px solid rgba(0, 200, 255, 0.22);
   box-shadow: 0 8px 28px rgba(0,0,0,0.4), 0 0 22px rgba(0,200,255,0.08);
 }
-#main-screen.hud-minimal .taskbar-btn {
+.taskbar-btn {
   min-width: 0;
   width: 36px; height: 36px;
   padding: 0;
@@ -149,15 +149,15 @@
   align-items: center;
   justify-content: center;
 }
-#main-screen.hud-minimal .taskbar-btn .tb-icon { font-size: 1rem; }
-#main-screen.hud-minimal .taskbar-btn .tb-icon svg { width: 17px; height: 17px; display: block; color: inherit; }
-#main-screen.hud-minimal .taskbar-btn .tb-label { display: none; }
-#main-screen.hud-minimal .taskbar-btn.mic-btn { width: 40px; height: 40px; }
-#main-screen.hud-minimal .taskbar-btn.mic-btn .tb-icon svg { width: 19px; height: 19px; }
-#main-screen.hud-minimal .taskbar-sep { height: 18px; }
+.taskbar-btn .tb-icon { font-size: 1rem; }
+.taskbar-btn .tb-icon svg { width: 17px; height: 17px; display: block; color: inherit; }
+.taskbar-btn .tb-label { display: none; }
+.taskbar-btn.mic-btn { width: 40px; height: 40px; }
+.taskbar-btn.mic-btn .tb-icon svg { width: 19px; height: 19px; }
+.taskbar-sep { height: 18px; }
 
 @media (max-width: 640px) {
-  #main-screen.hud-minimal #mode-taskbar { bottom: calc(var(--ticker-h) + 12px); padding: 6px 7px; }
-  #main-screen.hud-minimal .taskbar-btn { width: 32px; height: 32px; }
-  #main-screen.hud-minimal .taskbar-btn.mic-btn { width: 36px; height: 36px; }
+  #mode-taskbar { bottom: calc(var(--ticker-h) + 12px); padding: 6px 7px; }
+  .taskbar-btn { width: 32px; height: 32px; }
+  .taskbar-btn.mic-btn { width: 36px; height: 36px; }
 }
