@@ -247,6 +247,15 @@
 
         <div class="db-settings-divider"></div>
 
+        <div class="db-settings-row">
+          <label>Microphone</label>
+          <select class="db-lang-select" id="db-mic-select">
+            <option value="">Loading devices…</option>
+          </select>
+        </div>
+
+        <div class="db-settings-divider"></div>
+
         <div class="db-settings-toggle-row">
           <span>Motion effects</span>
           <div class="db-switch on" id="db-motion-switch"></div>
@@ -687,8 +696,34 @@
   }
 
   // ── SETTINGS PANEL ──
-  function openSettings() { $("db-settings-overlay")?.classList.add("db-open"); }
+  function openSettings() { $("db-settings-overlay")?.classList.add("db-open"); populateMicSelect(); }
   function closeSettings() { $("db-settings-overlay")?.classList.remove("db-open"); }
+
+  async function populateMicSelect() {
+    const sel = $("db-mic-select");
+    if (!sel || typeof window.listMicDevices !== "function") return;
+    const devices = await window.listMicDevices();
+    const current = typeof window.getMicDevice === "function" ? window.getMicDevice() : null;
+    sel.innerHTML = "";
+    const defaultOpt = document.createElement("option");
+    defaultOpt.value = "";
+    defaultOpt.textContent = "System default";
+    sel.appendChild(defaultOpt);
+    devices.forEach((d, i) => {
+      const opt = document.createElement("option");
+      opt.value = d.deviceId;
+      opt.textContent = d.label || `Microphone ${i + 1}`;
+      if (d.deviceId === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+    if (!current) defaultOpt.selected = true;
+  }
+
+  function initMicSelect() {
+    $("db-mic-select")?.addEventListener("change", (e) => {
+      if (typeof window.setMicDevice === "function") window.setMicDevice(e.target.value || null);
+    });
+  }
 
   function initSettings() {
     $("db-settings-btn")?.addEventListener("click", openSettings);
@@ -778,6 +813,7 @@
     initCloseButtons();
     applyHiddenState();
     initSettings();
+    initMicSelect();
     initOrbAndVisibility(dash);
     initSearch(dash);
     restoreBackground();
