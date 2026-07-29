@@ -205,3 +205,77 @@
 @media (max-width: 480px) {
   .music-widget { width: min(380px, calc(100vw - 24px)); }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   EMBEDDED VARIANT — same card, mounted inside the dashboard's
+   compact MUSIC widget (#db-music-embed) instead of floating free.
+   Cover art + controls stay, just shrunk down to fit the card.
+   ═══════════════════════════════════════════════════════════════ */
+.music-widget.mw-embedded {
+  position: relative;
+  inset: auto;
+  right: auto; bottom: auto; left: auto; top: auto;
+  z-index: auto;
+  width: 100%;
+  padding: 0;
+  margin-top: 4px;
+  background: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  border: none;
+  clip-path: none;
+  touch-action: auto;
+  user-select: auto;
+  transition: opacity .25s ease;
+}
+.music-widget.mw-embedded::before { display: none; }
+.music-widget.mw-embedded.dragging { transition: none; } /* embedded card never drags itself */
+
+/* The dashboard card already has its own ✕ (closes/hides the whole
+   widget), so the player's own stop button is redundant clutter here. */
+.music-widget.mw-embedded .mw-close { display: none; }
+
+.music-widget.mw-embedded .mw-content {
+  gap: 10px;
+  cursor: default;
+  align-items: center;
+}
+
+.music-widget.mw-embedded .mw-art {
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+}
+.music-widget.mw-embedded .mw-art svg { width: 20px; height: 20px; }
+
+.music-widget.mw-embedded .mw-info { min-width: 0; }
+
+.music-widget.mw-embedded .mw-title {
+  font-size: 0.84rem;
+  margin-bottom: 1px;
+}
+.music-widget.mw-embedded .mw-artist {
+  font-size: 0.7rem;
+  margin-bottom: 0;
+}
+.music-widget.mw-embedded .mw-album { display: none; }
+
+.music-widget.mw-embedded .mw-progress-container {
+  margin: 6px 0 0;
+  font-size: 0;
+  gap: 0;
+}
+.music-widget.mw-embedded .mw-progress-container span { display: none; } /* elapsed/duration text — keep just the bar */
+.music-widget.mw-embedded .mw-progress-track { margin: 0; height: 2px; }
+
+.music-widget.mw-embedded .mw-controls {
+  gap: 4px;
+  margin-top: 6px;
+}
+.music-widget.mw-embedded .mw-btn {
+  width: 22px;
+  height: 20px;
+  font-size: 8px;
+  border-radius: 2px;
+}
