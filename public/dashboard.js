@@ -87,14 +87,14 @@
   };
 
   const WIDGETS_HTML = `
-    <div class="db-widget db-widget-clock" id="db-w-clock" data-widget>
+    <div class="db-widget db-widget-clock" id="db-w-clock" data-widget data-hand-drag="true">
       <div class="db-widget-close" data-close title="Close (say &quot;pull up the clock widget&quot; to bring it back)">✕</div>
       <div class="db-widget-label">TIME</div>
       <div class="db-time" id="db-time">--:--</div>
       <div class="db-date" id="db-date">—</div>
     </div>
 
-    <div class="db-widget db-widget-weather" id="db-w-weather" data-widget>
+    <div class="db-widget db-widget-weather" id="db-w-weather" data-widget data-hand-drag="true">
       <div class="db-widget-close" data-close title="Close (say &quot;pull up the weather widget&quot; to bring it back)">✕</div>
       <div class="db-widget-label">WEATHER</div>
       <div class="db-weather-main">
@@ -104,15 +104,15 @@
       <div class="db-loc" id="db-loc">Locating…</div>
     </div>
 
-    <div class="db-widget db-widget-todo" id="db-w-todo" data-widget>
+    <div class="db-widget db-widget-todo" id="db-w-todo" data-widget data-hand-drag="true">
       <div class="db-widget-close" data-close title="Close (say &quot;pull up the to-do widget&quot; to bring it back)">✕</div>
       <div class="db-widget-label">TO-DO</div>
-      <div class="db-todo-list" id="db-todo-list">
+      <div class="db-todo-list" id="db-todo-list" data-hand-drag="true">
         <div class="db-todo-empty">Loading…</div>
       </div>
     </div>
 
-    <div class="db-widget db-widget-music paused" id="db-w-music" data-widget>
+    <div class="db-widget db-widget-music paused" id="db-w-music" data-widget data-hand-drag="true">
       <div class="db-widget-close" data-close title="Close (say &quot;pull up the music widget&quot; to bring it back)">✕</div>
       <div class="db-widget-label">MUSIC</div>
       <div class="db-music-track" id="db-music-track">Nothing playing</div>
@@ -120,16 +120,16 @@
       <div class="db-music-bars"><span></span><span></span><span></span><span></span><span></span></div>
     </div>
 
-    <div class="db-widget db-widget-notes" id="db-w-notes" data-widget>
+    <div class="db-widget db-widget-notes" id="db-w-notes" data-widget data-hand-drag="true">
       <div class="db-widget-close" data-close title="Close (say &quot;pull up the notes widget&quot; to bring it back)">✕</div>
       <div class="db-widget-label">NOTES</div>
       <textarea id="db-notes-area" placeholder="Jot something down…"></textarea>
     </div>
 
-    <div class="db-widget db-widget-news" id="db-w-news" data-widget>
+    <div class="db-widget db-widget-news" id="db-w-news" data-widget data-hand-drag="true">
       <div class="db-widget-close" data-close title="Close (say &quot;pull up the news widget&quot; to bring it back)">✕</div>
       <div class="db-widget-label">NEWS</div>
-      <div class="db-news-list" id="db-news-list">
+      <div class="db-news-list" id="db-news-list" data-hand-drag="true">
         <div class="db-news-empty">Loading…</div>
       </div>
     </div>
@@ -153,8 +153,64 @@
 
     <div id="db-orb-launcher" title="Open Jarvis">
       <div class="db-orb-tip">OPEN JARVIS</div>
-      <div class="db-orb-ring"></div>
-      <div class="db-orb-core"></div>
+      <div class="db-orb-mini-wrap">
+        <div class="jr-orb">
+          <div class="jr-core-glow"></div>
+          <div class="jr-inner-ring">
+            <div class="jr-title">J</div>
+          </div>
+          <svg class="jr-hud-svg" viewBox="0 0 400 400">
+            <g class="jr-dot-ring">
+              <circle cx="355.0" cy="200.0" r="2.0" fill="#cfeeff" opacity="0.85"/>
+              <circle cx="351.6" cy="232.2" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="341.6" cy="263.0" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="325.4" cy="291.1" r="2.0" fill="#cfeeff" opacity="0.85"/>
+              <circle cx="303.7" cy="315.2" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="277.5" cy="334.2" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="247.9" cy="347.4" r="2.0" fill="#cfeeff" opacity="0.85"/>
+              <circle cx="216.2" cy="354.2" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="183.8" cy="354.2" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="152.1" cy="347.4" r="2.0" fill="#cfeeff" opacity="0.85"/>
+              <circle cx="122.5" cy="334.2" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="96.3" cy="315.2" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="74.6" cy="291.1" r="2.0" fill="#cfeeff" opacity="0.85"/>
+              <circle cx="58.4" cy="263.0" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="48.4" cy="232.2" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="45.0" cy="200.0" r="2.0" fill="#cfeeff" opacity="0.85"/>
+              <circle cx="48.4" cy="167.8" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="58.4" cy="137.0" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="74.6" cy="108.9" r="2.0" fill="#cfeeff" opacity="0.85"/>
+              <circle cx="96.3" cy="84.8" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="122.5" cy="65.8" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="152.1" cy="52.6" r="2.0" fill="#cfeeff" opacity="0.85"/>
+              <circle cx="183.8" cy="45.8" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="216.2" cy="45.8" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="247.9" cy="52.6" r="2.0" fill="#cfeeff" opacity="0.85"/>
+              <circle cx="277.5" cy="65.8" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="303.7" cy="84.8" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="325.4" cy="108.9" r="2.0" fill="#cfeeff" opacity="0.85"/>
+              <circle cx="341.6" cy="137.0" r="1.6" fill="#cfeeff" opacity="0.5"/>
+              <circle cx="351.6" cy="167.8" r="1.6" fill="#cfeeff" opacity="0.5"/>
+            </g>
+            <g class="jr-ticks">
+              <line x1="311.7" y1="81.2" x2="324.5" y2="68.5" stroke="rgba(220,240,255,0.6)" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="318.8" y1="88.3" x2="331.5" y2="75.5" stroke="rgba(220,240,255,0.6)" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="311.7" y1="324.5" x2="324.5" y2="311.7" stroke="rgba(220,240,255,0.6)" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="318.8" y1="331.5" x2="331.5" y2="318.8" stroke="rgba(220,240,255,0.6)" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="68.5" y1="324.5" x2="81.2" y2="311.7" stroke="rgba(220,240,255,0.6)" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="75.5" y1="331.5" x2="88.3" y2="318.8" stroke="rgba(220,240,255,0.6)" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="68.5" y1="81.2" x2="81.2" y2="68.5" stroke="rgba(220,240,255,0.6)" stroke-width="1.6" stroke-linecap="round"/>
+              <line x1="75.5" y1="88.3" x2="88.3" y2="75.5" stroke="rgba(220,240,255,0.6)" stroke-width="1.6" stroke-linecap="round"/>
+            </g>
+            <circle class="jr-arc-white" cx="200" cy="200" r="130"
+                    fill="none" stroke="rgba(230,245,255,0.55)" stroke-width="1.6"
+                    stroke-linecap="round" stroke-dasharray="360 456"/>
+            <circle class="jr-arc-blue" cx="200" cy="200" r="115"
+                    fill="none" stroke="rgba(58,134,255,0.85)" stroke-width="3"
+                    stroke-linecap="round" stroke-dasharray="262 460"/>
+          </svg>
+        </div>
+      </div>
     </div>
 
     <div id="db-settings-overlay">
@@ -299,8 +355,29 @@
     }
   }
 
-  // ── MUSIC (wired to existing /api/spotify endpoint) ──
+  // ── MUSIC (mirrors the actual player in music-widget.js; /api/spotify
+  //    is a fallback for setups that do have Spotify configured) ──
+  let musicWidgetHasData = false; // true once we've heard from the real player at least once
+  function applyMusicState(title, artist, playing) {
+    const trackEl = $("db-music-track"), artistEl = $("db-music-artist"), widget = $("db-w-music");
+    if (title) {
+      if (trackEl) trackEl.textContent = title;
+      if (artistEl) artistEl.textContent = artist || "";
+      widget?.classList.toggle("paused", !playing);
+    } else {
+      if (trackEl) trackEl.textContent = "Nothing playing";
+      if (artistEl) artistEl.textContent = 'Say "Jarvis, play something"';
+      widget?.classList.add("paused");
+    }
+  }
+  window.addEventListener("jarvis:music-changed", (e) => {
+    musicWidgetHasData = true;
+    const { title, artist, playing } = e.detail || {};
+    applyMusicState(title, artist, playing);
+  });
+
   async function loadMusic() {
+    if (musicWidgetHasData) return; // the real player is already reporting state directly
     const trackEl = $("db-music-track"), artistEl = $("db-music-artist"), widget = $("db-w-music");
     try {
       const res = await fetch("/api/spotify", {
@@ -451,6 +528,34 @@
     });
   }
 
+  // ── SCROLL-DRAG for widget content lists (news, to-do) ──
+  // Mouse wheel already scrolls these normally. This adds the same
+  // grab-and-move interaction the widgets use for repositioning, but
+  // applied to scrollTop instead — so hand-tracking's pinch-drag (which
+  // just dispatches real pointer events at whatever [data-hand-drag]
+  // element is under the cursor) can scroll these lists the same way it
+  // drags a widget, with no gesture-specific code needed here.
+  function initScrollDragLists() {
+    document.querySelectorAll("#db-news-list, #db-todo-list").forEach(el => {
+      let dragging = false, startY = 0, startScroll = 0;
+      el.addEventListener("pointerdown", (e) => {
+        dragging = true;
+        startY = e.clientY;
+        startScroll = el.scrollTop;
+        el.setPointerCapture(e.pointerId);
+        e.stopPropagation(); // don't also start a whole-widget drag
+      });
+      el.addEventListener("pointermove", (e) => {
+        if (!dragging) return;
+        el.scrollTop = startScroll - (e.clientY - startY);
+        e.stopPropagation();
+      });
+      const end = (e) => { dragging = false; e.stopPropagation(); };
+      el.addEventListener("pointerup", end);
+      el.addEventListener("pointercancel", end);
+    });
+  }
+
   function initDragging() {
     let dragEl = null, startX = 0, startY = 0, origLeftPx = 0, origTopPx = 0;
 
@@ -504,17 +609,22 @@
 
   function renderBackground(type, url) {
     const layer = $("db-bg-layer");
+    const scrim = $("db-bg-scrim");
     if (!layer) return;
     layer.querySelectorAll("img, video").forEach(n => n.remove());
     if (type === "image") {
       const img = document.createElement("img");
       img.src = url;
       layer.appendChild(img);
+      scrim?.classList.remove("db-scrim-video");
     } else if (type === "video") {
       const vid = document.createElement("video");
       vid.src = url;
       vid.autoplay = true; vid.loop = true; vid.muted = true; vid.playsInline = true;
+      vid.preload = "auto";
+      vid.disablePictureInPicture = true;
       layer.appendChild(vid);
+      scrim?.classList.add("db-scrim-video");
     }
   }
 
@@ -537,6 +647,7 @@
     localStorage.removeItem(DB_KEY_BG_META);
     const layer = $("db-bg-layer");
     if (layer) layer.querySelectorAll("img, video").forEach(n => n.remove());
+    $("db-bg-scrim")?.classList.remove("db-scrim-video");
     if (window.JarvisTheme) window.JarvisTheme.reset();
     else resetHandTrackingTint();
   }
@@ -659,6 +770,7 @@
     setInterval(tickClock, 1000 * 15);
     applyLayout();
     initDragging();
+    initScrollDragLists();
     initNotes();
     initCloseButtons();
     applyHiddenState();
