@@ -661,12 +661,39 @@ const mic = {
   _cloudChunks: null, _cloudVadRAF: null, _cloudSpeaking: false, _cloudSilenceStart: 0,
   _cloudMime: "audio/webm",
 
+  // Which physical mic to use (getUserMedia deviceId). null = system default.
+  // Persisted so the choice survives a restart. Only the cloud transport
+  // (Electron desktop app) actually honors this — native SpeechRecognition
+  // always uses whatever the OS/browser default input device is and has
+  // no API to target a specific device.
+  selectedDeviceId: localStorage.getItem("jarvis_mic_device_id") || null,
+
+  setDevice(deviceId) {
+    this.selectedDeviceId = deviceId || null;
+    if (this.selectedDeviceId) localStorage.setItem("jarvis_mic_device_id", this.selectedDeviceId);
+    else localStorage.removeItem("jarvis_mic_device_id");
+    // Apply immediately if we're already listening.
+    if (this.active && !this.suspended) { this._killing = true; this._kill(); this._killing = false; this._relaunchSoon(); }
+  },
+
   async requestPerm() {
+    const constraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1, sampleRate: 16000 };
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true, channelCount: 1, sampleRate: 16000 } });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { ...constraints, deviceId: this.selectedDeviceId ? { exact: this.selectedDeviceId } : undefined } });
       stream.getTracks().forEach(t => t.stop());
       this.permGranted = true; updateMicDebug("Mic: permission granted ✓");
-    } catch { updateMicDebug("Mic: permission denied ✗"); }
+    } catch (e) {
+      // Saved device likely no longer exists (unplugged/renamed) — retry on the default input before giving up.
+      if (this.selectedDeviceId && e.name === "OverconstrainedError") {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+          stream.getTracks().forEach(t => t.stop());
+          this.permGranted = true; updateMicDebug("Mic: saved device unavailable, using default ✓");
+          return;
+        } catch { /* fall through to denied message below */ }
+      }
+      updateMicDebug("Mic: permission denied ✗");
+    }
   },
 
   start(onResult, onInterim, continuous) {
@@ -785,12 +812,22 @@ const mic = {
     if (this.suspended) return;
     this._lastLaunchAt = Date.now();
     if (this.active) { this._killing = true; this._kill(); this._killing = false; }
+    const cloudConstraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
     try {
       this._cloudStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 }
+        audio: { ...cloudConstraints, deviceId: this.selectedDeviceId ? { exact: this.selectedDeviceId } : undefined }
       });
-    } catch {
-      this.permGranted = false; updateMicDebug("Mic: blocked — check permissions"); this.suspended = true; return;
+    } catch (e) {
+      // Saved device likely no longer exists (unplugged/renamed) — retry on the default input before giving up.
+      if (this.selectedDeviceId && e.name === "OverconstrainedError") {
+        try {
+          this._cloudStream = await navigator.mediaDevices.getUserMedia({ audio: cloudConstraints });
+        } catch {
+          this.permGranted = false; updateMicDebug("Mic: blocked — check permissions"); this.suspended = true; return;
+        }
+      } else {
+        this.permGranted = false; updateMicDebug("Mic: blocked — check permissions"); this.suspended = true; return;
+      }
     }
     this.permGranted = true; this.active = true; state.isListening = true;
     setOrb(state.phase === "chatting" ? "listening" : "idle");
@@ -970,6 +1007,25 @@ document.addEventListener("visibilitychange", () => {
 });
 
 function updateMicDebug(msg) { console.log("[mic-status]", msg); const el = $("mic-debug"); if (el) el.textContent = msg; }
+
+// ── Settings-panel hooks (used by dashboard.js's mic dropdown) ──
+// Device *labels* are only populated by the browser once mic permission has
+// been granted at least once — before that they come back as "Microphone 1"
+// etc, so callers should have already called mic.requestPerm() at some point
+// (app startup already does this) for labels to show up correctly.
+async function listMicDevices() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return devices.filter(d => d.kind === "audioinput");
+  } catch (e) {
+    console.warn("[mic] couldn't list input devices:", e.message);
+    return [];
+  }
+}
+window.listMicDevices = listMicDevices;
+window.setMicDevice = (deviceId) => mic.setDevice(deviceId);
+window.getMicDevice = () => mic.selectedDeviceId;
+
 
 // ── MUTE INDICATOR ──
 // Small self-styled badge — no CSS file edits needed. Voice recognition
