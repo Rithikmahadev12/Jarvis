@@ -157,7 +157,7 @@
         <div class="jr-orb">
           <div class="jr-core-glow"></div>
           <div class="jr-inner-ring">
-            <div class="jr-title">J</div>
+            <div class="jr-title">JARVIS</div>
           </div>
           <svg class="jr-hud-svg" viewBox="0 0 400 400">
             <g class="jr-dot-ring">
