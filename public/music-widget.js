@@ -20,6 +20,18 @@ window.MusicWidget = (function () {
 
   function $(id) { return document.getElementById(id); }
 
+  // Broadcast the current now-playing state so other widgets (the dashboard
+  // MUSIC card) can mirror this player instead of polling the unconfigured
+  // Spotify endpoint. Reads straight from the DOM since that's already the
+  // single source of truth this file keeps up to date.
+  function notifyDashboard(playing) {
+    const title = $("mw-title")?.textContent || "";
+    const artist = $("mw-artist")?.textContent || "";
+    window.dispatchEvent(new CustomEvent("jarvis:music-changed", {
+      detail: { title, artist, playing: !!playing },
+    }));
+  }
+
   // ── YouTube IFrame API loader (loaded once, lazily) ──────────
   function loadYouTubeAPI() {
     if (window.YT && window.YT.Player) return Promise.resolve();
@@ -276,6 +288,7 @@ window.MusicWidget = (function () {
       $("mw-album").textContent = "";
       setArtwork("");
       lookupAlbumClient(title, artist, currentVideoId);
+      notifyDashboard(isPlaying());
     }
   }
 
@@ -284,10 +297,13 @@ window.MusicWidget = (function () {
     if (e.data === YT.PlayerState.PLAYING) {
       setPlayPauseIcon(true);
       syncNowPlayingFromPlayer();
+      notifyDashboard(true);
     } else if (e.data === YT.PlayerState.PAUSED) {
       setPlayPauseIcon(false);
+      notifyDashboard(false);
     } else if (e.data === YT.PlayerState.ENDED) {
       setPlayPauseIcon(false);
+      notifyDashboard(false);
       if (repeatOn && player) { player.seekTo(0, true); player.playVideo(); }
     }
   }
@@ -339,6 +355,7 @@ window.MusicWidget = (function () {
     $("mw-duration").textContent = "0:00";
     $("mw-progress-fill").style.width = "0%";
     show();
+    notifyDashboard(true);
 
     await loadYouTubeAPI();
 
@@ -357,8 +374,8 @@ window.MusicWidget = (function () {
   function togglePlayPause() {
     if (!player || typeof player.getPlayerState !== "function") return;
     const state = player.getPlayerState();
-    if (state === YT.PlayerState.PLAYING) { player.pauseVideo(); setPlayPauseIcon(false); }
-    else { player.playVideo(); setPlayPauseIcon(true); }
+    if (state === YT.PlayerState.PLAYING) { player.pauseVideo(); setPlayPauseIcon(false); notifyDashboard(false); }
+    else { player.playVideo(); setPlayPauseIcon(true); notifyDashboard(true); }
   }
 
   function onPrev() {
@@ -377,13 +394,14 @@ window.MusicWidget = (function () {
     $("mw-repeat").classList.toggle("active", repeatOn);
   }
 
-  function pause() { if (player && player.pauseVideo) { player.pauseVideo(); setPlayPauseIcon(false); } }
-  function resume() { if (player && player.playVideo) { player.playVideo(); setPlayPauseIcon(true); } }
+  function pause() { if (player && player.pauseVideo) { player.pauseVideo(); setPlayPauseIcon(false); notifyDashboard(false); } }
+  function resume() { if (player && player.playVideo) { player.playVideo(); setPlayPauseIcon(true); notifyDashboard(true); } }
 
   function stop() {
     if (player && player.stopVideo) { try { player.stopVideo(); } catch {} }
     stopProgressTimer();
     hide();
+    window.dispatchEvent(new CustomEvent("jarvis:music-changed", { detail: { title: "", artist: "", playing: false } }));
   }
 
   function isPlaying() {
