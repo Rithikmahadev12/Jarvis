@@ -1,0 +1,504 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — HOME DASHBOARD v1.0
+   Glass widget desktop that sits on top of the chat HUD. Purely
+   additive — loaded after glass-ui.css, touches no existing
+   #id/.class used by jarvis.js logic.
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  --db-accent:       #6fd3ff;
+  --db-accent-glow:  rgba(111, 211, 255, 0.45);
+  --db-glass-bg:      rgba(14, 22, 34, 0.32);
+  --db-glass-bg-soft: rgba(14, 22, 34, 0.20);
+  --db-glass-border: rgba(255, 255, 255, 0.14);
+  --db-radius:       20px;
+}
+
+#jarvis-dashboard {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  overflow: hidden;
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto;
+  transition: opacity 0.45s ease, transform 0.45s ease, visibility 0.45s;
+  font-family: var(--raj, 'Rajdhani', sans-serif);
+}
+#jarvis-dashboard.db-hidden {
+  opacity: 0;
+  transform: scale(1.03);
+  pointer-events: none;
+  visibility: hidden;
+}
+
+/* ── BACKGROUND LAYER (image / live video wallpaper) ── */
+#db-bg-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(ellipse 1400px 900px at 20% 10%, rgba(70,140,255,0.10), transparent 60%),
+              radial-gradient(ellipse 1200px 800px at 85% 95%, rgba(255,50,50,0.08), transparent 60%),
+              linear-gradient(160deg, #05070c 0%, #0a0d14 55%, #060810 100%);
+  background-size: cover;
+  background-position: center;
+}
+#db-bg-layer img,
+#db-bg-layer video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+#db-bg-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.06) 30%, rgba(0,0,0,0.10) 70%, rgba(0,0,0,0.38) 100%);
+  pointer-events: none;
+}
+
+/* ── TOP BAR: search + settings gear ── */
+#db-top-row {
+  position: absolute;
+  top: 22px; left: 22px; right: 22px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+#db-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 340px;
+  background: var(--db-glass-bg);
+  border: 1px solid var(--db-glass-border);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border-radius: 999px;
+  padding: 10px 16px;
+  color: rgba(255,255,255,0.55);
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+}
+#db-search input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #eaf6ff;
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+#db-search input::placeholder { color: rgba(255,255,255,0.4); }
+
+.db-icon-btn {
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--db-glass-bg);
+  border: 1px solid var(--db-glass-border);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  color: #eaf6ff;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+.db-icon-btn:hover {
+  border-color: var(--db-accent);
+  box-shadow: 0 0 18px var(--db-accent-glow);
+  transform: translateY(-1px);
+}
+
+/* ── WIDGET LAYER ── */
+#db-widget-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
+.db-widget {
+  position: absolute;
+  min-width: 150px;
+  background: var(--db-glass-bg);
+  border: 1px solid var(--db-glass-border);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  border-radius: var(--db-radius);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.06);
+  color: #eaf6ff;
+  padding: 16px 18px;
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.db-widget:hover {
+  border-color: rgba(255,255,255,0.28);
+}
+.db-widget.db-dragging {
+  cursor: grabbing;
+  box-shadow: 0 16px 46px rgba(0,0,0,0.4), 0 0 0 1px var(--db-accent-glow);
+  z-index: 50;
+}
+.db-widget-label {
+  font-family: var(--hud, 'Orbitron', monospace);
+  font-size: 0.55rem;
+  letter-spacing: 0.18em;
+  color: rgba(234,246,255,0.55);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.db-widget-label::before {
+  content: "";
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--db-accent);
+  box-shadow: 0 0 6px var(--db-accent-glow);
+}
+
+/* Clock widget */
+.db-widget-clock .db-time {
+  font-family: var(--hud, 'Orbitron', monospace);
+  font-size: 2.4rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+.db-widget-clock .db-date {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  color: rgba(234,246,255,0.7);
+  letter-spacing: 0.04em;
+}
+
+/* Weather widget */
+.db-widget-weather .db-weather-main {
+  display: flex; align-items: baseline; gap: 10px;
+}
+.db-widget-weather .db-temp {
+  font-family: var(--hud, 'Orbitron', monospace);
+  font-size: 2rem;
+  font-weight: 600;
+}
+.db-widget-weather .db-cond {
+  font-size: 0.8rem;
+  color: rgba(234,246,255,0.65);
+}
+.db-widget-weather .db-loc {
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: rgba(234,246,255,0.45);
+  letter-spacing: 0.04em;
+}
+
+/* To-Do widget */
+.db-widget-todo { width: 230px; }
+.db-todo-list { display: flex; flex-direction: column; gap: 7px; max-height: 170px; overflow-y: auto; }
+.db-todo-item {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.82rem;
+  color: rgba(234,246,255,0.85);
+  padding: 4px 2px;
+  border-radius: 8px;
+}
+.db-todo-item .db-todo-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  border: 1.5px solid var(--db-accent);
+  flex-shrink: 0;
+}
+.db-todo-empty { font-size: 0.78rem; color: rgba(234,246,255,0.4); font-style: italic; }
+
+/* Music widget */
+.db-widget-music { width: 240px; }
+.db-music-track { font-size: 0.9rem; font-weight: 600; }
+.db-music-artist { font-size: 0.76rem; color: rgba(234,246,255,0.55); margin-top: 2px; }
+.db-music-bars { display: flex; align-items: flex-end; gap: 3px; height: 20px; margin-top: 10px; }
+.db-music-bars span {
+  width: 3px; background: var(--db-accent); border-radius: 2px; opacity: 0.8;
+  animation: dbBar 1.1s ease-in-out infinite;
+}
+.db-music-bars span:nth-child(1){height:40%;animation-delay:0s}
+.db-music-bars span:nth-child(2){height:80%;animation-delay:.15s}
+.db-music-bars span:nth-child(3){height:55%;animation-delay:.3s}
+.db-music-bars span:nth-child(4){height:95%;animation-delay:.45s}
+.db-music-bars span:nth-child(5){height:65%;animation-delay:.6s}
+.db-widget-music.paused .db-music-bars span { animation-play-state: paused; opacity: 0.3; }
+@keyframes dbBar { 0%,100%{transform:scaleY(0.4)} 50%{transform:scaleY(1)} }
+
+/* Notes widget */
+.db-widget-notes { width: 220px; }
+.db-widget-notes textarea {
+  width: 100%; min-height: 90px; resize: vertical;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
+  color: #eaf6ff;
+  font-family: inherit;
+  font-size: 0.8rem;
+  padding: 8px;
+  outline: none;
+}
+.db-widget-notes textarea:focus { border-color: var(--db-accent); }
+
+/* Drag handle affordance */
+.db-widget::after {
+  content: "";
+  position: absolute;
+  top: 10px; right: 12px;
+  width: 14px; height: 14px;
+  background:
+    radial-gradient(circle, rgba(255,255,255,0.35) 1.2px, transparent 1.2px) 0 0,
+    radial-gradient(circle, rgba(255,255,255,0.35) 1.2px, transparent 1.2px) 6px 0,
+    radial-gradient(circle, rgba(255,255,255,0.35) 1.2px, transparent 1.2px) 0 6px,
+    radial-gradient(circle, rgba(255,255,255,0.35) 1.2px, transparent 1.2px) 6px 6px;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+.db-widget:hover::after { opacity: 1; }
+
+/* ── JARVIS ORB — bottom right launcher into the chat HUD ── */
+#db-orb-launcher {
+  position: absolute;
+  bottom: 30px; right: 30px;
+  z-index: 10;
+  width: 84px; height: 84px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(circle at 35% 30%, rgba(255,255,255,0.14), rgba(255,255,255,0.02) 60%),
+              var(--db-glass-bg-soft);
+  border: 1px solid var(--db-glass-border);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  box-shadow: 0 0 30px var(--db-accent-glow), inset 0 1px 0 rgba(255,255,255,0.1);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+#db-orb-launcher:hover {
+  transform: scale(1.06);
+  box-shadow: 0 0 46px var(--db-accent-glow), inset 0 1px 0 rgba(255,255,255,0.16);
+}
+#db-orb-launcher:active { transform: scale(0.97); }
+#db-orb-launcher .db-orb-core {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff, var(--db-accent) 55%, rgba(111,211,255,0.2) 100%);
+  box-shadow: 0 0 18px var(--db-accent-glow);
+  animation: dbOrbPulse 2.6s ease-in-out infinite;
+}
+#db-orb-launcher .db-orb-ring {
+  position: absolute; inset: 6px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.18);
+  animation: dbOrbSpin 10s linear infinite;
+}
+#db-orb-launcher .db-orb-ring::before {
+  content: "";
+  position: absolute; top: -1.5px; left: 50%;
+  width: 4px; height: 4px; margin-left: -2px;
+  border-radius: 50%;
+  background: var(--db-accent);
+  box-shadow: 0 0 8px var(--db-accent-glow);
+}
+@keyframes dbOrbPulse { 0%,100%{ transform: scale(1); opacity:0.95 } 50%{ transform: scale(1.12); opacity:1 } }
+@keyframes dbOrbSpin { from{ transform: rotate(0) } to{ transform: rotate(360deg) } }
+
+/* small label above orb */
+#db-orb-launcher .db-orb-tip {
+  position: absolute;
+  bottom: 100%; right: 0; margin-bottom: 10px;
+  background: var(--db-glass-bg-soft);
+  border: 1px solid var(--db-glass-border);
+  backdrop-filter: blur(10px);
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-family: var(--hud, 'Orbitron', monospace);
+  font-size: 0.5rem;
+  letter-spacing: 0.14em;
+  color: rgba(234,246,255,0.75);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: all 0.2s ease;
+  pointer-events: none;
+}
+#db-orb-launcher:hover .db-orb-tip { opacity: 1; transform: translateY(0); }
+
+/* ── SETTINGS PANEL ── */
+#db-settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 700;
+  background: rgba(4, 8, 14, 0.45);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+#db-settings-overlay.db-open { opacity: 1; pointer-events: auto; }
+
+#db-settings-panel {
+  width: min(340px, 88vw);
+  max-height: 80vh;
+  overflow-y: auto;
+  background: linear-gradient(180deg, rgba(28,60,110,0.42), rgba(10,18,32,0.55));
+  border: 1px solid rgba(255,255,255,0.16);
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border-radius: 22px;
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.12);
+  color: #eaf6ff;
+  transform: translateY(10px) scale(0.98);
+  transition: transform 0.25s ease;
+}
+#db-settings-overlay.db-open #db-settings-panel { transform: translateY(0) scale(1); }
+
+.db-settings-title {
+  font-family: var(--hud, 'Orbitron', monospace);
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  color: rgba(234,246,255,0.75);
+  margin-bottom: 14px;
+  text-align: center;
+}
+.db-settings-row { margin-bottom: 10px; }
+.db-settings-row label {
+  display: block;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: rgba(234,246,255,0.55);
+  margin-bottom: 6px;
+}
+select.db-lang-select {
+  width: 100%;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.16);
+  color: #eaf6ff;
+  border-radius: 12px;
+  padding: 9px 12px;
+  font-family: inherit;
+  font-size: 0.82rem;
+  outline: none;
+}
+
+.db-btn {
+  width: 100%;
+  display: block;
+  text-align: center;
+  padding: 11px 14px;
+  margin-top: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: #eaf6ff;
+  font-family: var(--raj, 'Rajdhani', sans-serif);
+  font-weight: 600;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.db-btn:hover { border-color: rgba(255,255,255,0.34); background: rgba(255,255,255,0.1); }
+.db-btn-primary {
+  background: linear-gradient(180deg, #4fb3ff, #1c7fe0);
+  border-color: rgba(255,255,255,0.25);
+  box-shadow: 0 6px 22px rgba(30,140,255,0.35);
+}
+.db-btn-primary:hover { filter: brightness(1.08); }
+.db-btn-ghost { background: transparent; }
+.db-btn-danger { color: #ffb3b3; }
+
+.db-settings-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.12);
+  margin: 16px 0 14px;
+}
+
+.db-settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: rgba(234,246,255,0.7);
+  padding: 6px 2px;
+}
+.db-switch {
+  width: 40px; height: 22px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.14);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  flex-shrink: 0;
+}
+.db-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s ease;
+}
+.db-switch.on { background: var(--db-accent); }
+.db-switch.on::after { transform: translateX(18px); }
+
+.db-settings-close {
+  position: absolute;
+  top: 14px; right: 14px;
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.14);
+  color: #eaf6ff;
+  cursor: pointer;
+}
+
+#db-settings-panel { position: relative; }
+#db-bg-file-input { display: none; }
+
+/* ── HOME BUTTON (return to dashboard from chat HUD) ── */
+#db-home-btn {
+  position: fixed;
+  z-index: 640;
+  bottom: calc(var(--ticker-h, 22px) + var(--taskbar-h, 64px) + 16px);
+  right: 18px;
+  width: 46px; height: 46px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--db-glass-bg-soft, rgba(14,22,34,0.5));
+  border: 1px solid var(--db-glass-border, rgba(255,255,255,0.14));
+  backdrop-filter: blur(14px) saturate(150%);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  color: #eaf6ff;
+  font-size: 1.1rem;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition: all 0.25s ease;
+}
+#db-home-btn.db-show { opacity: 1; transform: translateY(0); pointer-events: auto; }
+#db-home-btn:hover { box-shadow: 0 0 20px var(--db-accent-glow, rgba(111,211,255,0.45)); border-color: var(--db-accent, #6fd3ff); }
+
+@media (max-width: 720px) {
+  #db-search { max-width: none; }
+  .db-widget { min-width: 130px; padding: 12px 14px; }
+  .db-widget-clock .db-time { font-size: 1.7rem; }
+  #db-orb-launcher { width: 68px; height: 68px; bottom: 18px; right: 18px; }
+  #db-orb-launcher .db-orb-core { width: 24px; height: 24px; }
+}
