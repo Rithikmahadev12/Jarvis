@@ -19,7 +19,7 @@
 // of this code executes at all.
 // ═══════════════════════════════════════════════════════════════
 
-const { app, BrowserWindow, screen, Tray, Menu, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, screen, Tray, Menu, ipcMain, shell, session } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const http = require("http");
@@ -138,6 +138,17 @@ function createMainWindow() {
     title: "J.A.R.V.I.S",
     autoHideMenuBar: true,
     icon: path.join(ROOT, "public", "icons", "icon-512.png"),
+    // Keep the native min/max/close buttons (and window dragging/snapping)
+    // but skin the bar itself to match the app's dark theme instead of
+    // the default white OS titlebar. Windows/Linux only — on macOS,
+    // titleBarStyle:'hidden' alone already lets the app's own dark
+    // background show straight through behind the traffic-light buttons.
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#0a0e14",
+      symbolColor: "#8fd8ff",
+      height: 34,
+    },
     webPreferences: {
       preload: preloadPath(),
       contextIsolation: true,
@@ -231,6 +242,21 @@ ipcMain.on("desktop:quit", () => app.quit());
 // No File/Edit/View/Window/Help menu bar — this is what made the
 // window feel like "a website in a browser" instead of a real app.
 Menu.setApplicationMenu(null);
+
+// Explicitly allow microphone (and camera) access. Without a handler
+// here, Electron's fallback behavior for permission requests can vary
+// by version/platform and has been known to silently deny getUserMedia
+// with no error surfaced anywhere in the page — which looks exactly
+// like "the mic doesn't work" even though every step of the STT
+// pipeline (see public/jarvis.js MIC ENGINE + stt.js) is otherwise fine.
+session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+  if (permission === "media" || permission === "audioCapture" || permission === "videoCapture") {
+    callback(true);
+    return;
+  }
+  callback(true); // this app only ever runs its own trusted UI, nothing to gate here
+});
+session.defaultSession.setPermissionCheckHandler(() => true);
 
 app.whenReady().then(async () => {
   try {
