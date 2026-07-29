@@ -624,6 +624,12 @@ const mic = {
   rec: null, active: false, retryCount: 0, maxRetries: 999, retryDelay: 150,
   retryTimer: null, onResult: null, onInterim: null, continuous: true,
   suspended: false, _killing: false, permGranted: false,
+  // Minimum time between two "new SR() + r.start()" calls. Every relaunch
+  // opens a fresh OS-level mic capture session, which is what makes the
+  // Windows/mac mic indicator flash on/off. This doesn't remove restarts
+  // (the recognizer still needs to relaunch after no-speech/onend), but it
+  // stops them from firing back-to-back in a tight loop.
+  _lastLaunchAt: 0, _minLaunchGapMs: 700,
 
   async requestPerm() {
     try {
@@ -639,9 +645,21 @@ const mic = {
     this.continuous = continuous !== false; this.suspended = false; this.retryCount = 0; this._launch();
   },
 
+  // Relaunch, but never sooner than _minLaunchGapMs after the last one —
+  // this is what actually stops the mic-in-use indicator from flickering
+  // in a tight loop when the browser keeps ending/erroring the session.
+  _relaunchSoon() {
+    if (this.suspended) return;
+    const elapsed = Date.now() - this._lastLaunchAt;
+    const wait = Math.max(0, this._minLaunchGapMs - elapsed);
+    clearTimeout(this.retryTimer);
+    this.retryTimer = setTimeout(() => this._launch(), wait);
+  },
+
   _launch() {
     if (!SR) return;
     if (this.suspended) return;
+    this._lastLaunchAt = Date.now();
     if (this.active) { this._killing = true; this._kill(); this._killing = false; }
     const r = new SR();
     r.lang = "en-US"; r.continuous = true; r.interimResults = true; r.maxAlternatives = 5;
@@ -697,10 +715,10 @@ const mic = {
         // "no-speech" fires constantly in continuous mode and is not a real error —
         // relaunch immediately with NO backoff so we never leave a dead gap that
         // swallows the start of what the person is saying.
-        case "no-speech": updateMicDebug("Mic: listening…"); setTimeout(() => this._launch(), 0); return;
+        case "no-speech": updateMicDebug("Mic: listening…"); this._relaunchSoon(); return;
         case "audio-capture": this._scheduleRetry(800); return;
         case "network": this._scheduleRetry(1500); return;
-        case "aborted": if (!this.suspended && !this._killing) setTimeout(() => this._launch(), 0); return;
+        case "aborted": if (!this.suspended && !this._killing) this._relaunchSoon(); return;
         default: this._scheduleRetry(500);
       }
     };
@@ -708,9 +726,10 @@ const mic = {
     r.onend = () => {
       if (r !== this.rec) return; // stale instance — don't let an old session's end trigger a relaunch
       this.active = false; state.isListening = false;
-      // Relaunch instantly on normal end (Chrome ends the session periodically
-      // even mid-conversation) instead of routing through the backoff timer.
-      if (!this.suspended) setTimeout(() => this._launch(), 0);
+      // Relaunch on normal end (Chrome ends the session periodically even
+      // mid-conversation), gated so it can't stack right on top of another
+      // relaunch and thrash the mic indicator.
+      if (!this.suspended) this._relaunchSoon();
     };
 
     try { r.start(); updateMicDebug("Mic: listening…"); }
