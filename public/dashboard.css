@@ -32,6 +32,24 @@
   visibility: hidden;
 }
 
+/* ── VIDEO PERFORMANCE MODE ──────────────────────────────────────
+   Live backdrop-filter blur on the widgets/search bar/settings button
+   is fine over a static image, but over a playing video it means
+   Chromium has to re-run a Gaussian blur across the moving frame
+   underneath every one of those panels, every single frame — on top
+   of decoding the video itself. With up to ~8 blurred panels on
+   screen at once that's the #1 cause of choppy wallpaper playback.
+   So while a video background is active, trade the live blur for a
+   flatter but still-glassy solid tone; everything else (image
+   backgrounds, layout, motion) is unaffected. */
+#jarvis-dashboard.db-video-active #db-search,
+#jarvis-dashboard.db-video-active .db-icon-btn,
+#jarvis-dashboard.db-video-active .db-widget {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background: rgba(12, 19, 30, 0.62);
+}
+
 /* ── BACKGROUND LAYER (image / live video wallpaper) ── */
 #db-bg-layer {
   position: absolute;
@@ -52,12 +70,34 @@
   object-fit: cover;
   object-position: center;
 }
-/* video wallpapers read as flatter/darker than photos under the same
-   scrim, since they're usually already lower-bitrate — give them a
-   small, real contrast/saturation lift instead of leaving them washed out */
+/* Isolate the video on its own GPU compositor layer. Without this,
+   Chromium/Electron will often fall back to re-compositing every
+   video frame together with the rest of the page (widgets ticking,
+   clock updates, etc.), which is what causes choppy/dropped-frame
+   playback for a full-screen looping wallpaper. transform + will-change
+   forces the browser to hand the video its own layer that the GPU can
+   present directly, independent of everything else on screen. */
 #db-bg-layer video {
-  filter: saturate(1.12) contrast(1.06);
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform;
 }
+/* video wallpapers read as flatter/darker than photos under the same
+   scrim, since they're usually already lower-bitrate. We used to fix
+   this with a CSS `filter` directly on the <video>, but any filter on
+   a video element blocks Chromium's hardware video overlay path and
+   is a common cause of choppy playback — so the lift now happens on
+   a separate blend layer that sits above the video instead of on it. */
+#db-bg-video-tint {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(180deg, rgba(80,150,255,0.05), rgba(255,90,60,0.04));
+  mix-blend-mode: overlay;
+}
+#db-bg-video-tint.db-tint-active { opacity: 1; }
 #db-bg-scrim.db-scrim-video {
   background: linear-gradient(180deg, rgba(0,0,0,0.16) 0%, rgba(0,0,0,0.02) 30%, rgba(0,0,0,0.04) 70%, rgba(0,0,0,0.24) 100%);
 }
