@@ -28,6 +28,19 @@ const { spawn } = require("child_process");
 const ROOT = path.join(__dirname, "..");
 const CONFIG_PATH = path.join(ROOT, "jarvis.config.json");
 
+// ── GPU / VIDEO PLAYBACK TUNING ──────────────────────────────────
+// The dashboard's live-wallpaper background renders a looping <video>
+// full-screen. Electron/Chromium can play that choppily out of the
+// box because (a) hardware video decode is sometimes off by default
+// on Windows/Linux, and (b) Chromium's GPU allow-list blocks some
+// GPUs it doesn't recognize, silently falling back to software
+// compositing. These switches fix both, and must be set before
+// app.whenReady().
+app.commandLine.appendSwitch("enable-accelerated-video-decode");
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("ignore-gpu-blocklist");
+app.commandLine.appendSwitch("enable-zero-copy");
+
 // ── CONFIG ──────────────────────────────────────────────────────
 // mode: "auto"   -> try to run server.js locally; if that fails to
 //                   boot, fall back to remoteUrl if one is set
