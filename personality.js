@@ -467,6 +467,52 @@ function shouldSpeakProactively(state) {
   return null;
 }
 
+// ── SCREEN ROAST ENGINE ────────────────────────────────────────
+// Takes OCR'd text pulled from the user's actual, real, right-now
+// screen and returns a witty JARVIS-style line that references what
+// it specifically found — not a generic "here's a joke" from a
+// canned array. This is the deterministic fallback used by the
+// /api/screen route: the primary path asks the AI engine to be
+// funny with the real OCR text in front of it, and this only kicks
+// in if that call fails or comes back too short/flat to be worth
+// sending. Order matters below — first match wins, so more specific
+// signatures (named sites/apps) are checked before generic ones.
+const SCREEN_SIGNATURES = [
+  { re: /\byoutube\b/i,             line: (T) => `Ah — YouTube, ${T}. The internet's most productive-looking way to lose forty minutes. Whatever's playing, I hope it was worth the sacrifice.` },
+  { re: /\bnetflix\b/i,             line: (T) => `Netflix, ${T}? In the middle of the day I'm choosing not to ask about. No judgment. Well — some judgment.` },
+  { re: /\breddit\b/i,              line: (T) => `Reddit, ${T}. A fine source of unsolicited opinions from strangers who are, statistically, less qualified than I am to have them.` },
+  { re: /\b(twitter|x\.com)\b/i,    line: (T) => `X, ${T}. I'd comment on the discourse, but honestly the discourse comments on itself.` },
+  { re: /\binstagram\b/i,           line: (T) => `Instagram, ${T}. Scrolling through other people's highlight reels — a fine use of the one existence you get.` },
+  { re: /\btiktok\b/i,              line: (T) => `TikTok, ${T}. I've calculated the odds you meant to close this fifteen minutes ago. They were not in your favor.` },
+  { re: /\b(gmail|outlook|inbox)\b/i, line: (T) => `Your inbox, ${T}. Bold of you to open that voluntarily. Anything in there actually urgent, or is this just self-inflicted?` },
+  { re: /\b(excel|spreadsheet|\.xlsx)\b/i, line: (T) => `A spreadsheet, ${T}. Living the dream, one cell reference at a time.` },
+  { re: /\b(visual studio|vs ?code|github|stack overflow|localhost|terminal|npm|git commit)\b/i,
+                                     line: (T) => `Code, ${T}. Judging by what's on screen, either it's working and you're admiring it, or it isn't and you're bargaining with it. I'll assume the latter — statistically safer.` },
+  { re: /\b(steam|fortnite|valorant|league of legends|minecraft|discord)\b/i,
+                                     line: (T) => `Right, so we're gaming, ${T}. I'll log this under "research" if anyone asks.` },
+  { re: /\b(linkedin)\b/i,          line: (T) => `LinkedIn, ${T}. Everyone's thriving, everyone's humbled, no one's fine. Riveting stuff.` },
+  { re: /\bspotify\b/i,             line: (T) => `Spotify's up, ${T}. Whatever's on the queue, I'll assume it says something about your current emotional state.` },
+  { re: /\b(zoom|teams meeting|google meet)\b/i,
+                                     line: (T) => `A meeting, ${T}. On screen, camera presumably off, attention presumably elsewhere. I won't tell if you won't.` },
+];
+
+function getScreenRoast(ocrText, T = "Sir") {
+  const text = String(ocrText || "");
+  for (const sig of SCREEN_SIGNATURES) {
+    if (sig.re.test(text)) return sig.line(T);
+  }
+  // No recognised app/site — fall back to something generic but
+  // still built from the actual text rather than a stock line.
+  const firstLine = text
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 4 && l.length < 60);
+  if (firstLine) {
+    return `Best I can make of your screen, ${T}: "${firstLine}". I'll withhold full judgment until I know more — but I have some.`;
+  }
+  return `I'm looking, ${T}, but whatever's on screen isn't giving me much to work with. Either very boring or very private — I won't ask which.`;
+}
+
 // ── OUTWARD-FACING INTRO (spoken/typed to a THIRD PARTY) ──────────
 // Used by comms-router.js/teams-control.js when Jarvis contacts
 // someone on the owner's behalf. Distinct from buildJarvisResponse
@@ -494,6 +540,7 @@ module.exports = {
   routeSmallTalk,
   routePersonalNews,
   getCameraComment,
+  getScreenRoast,
   shouldSpeakProactively,
   buildJarvisResponse,
   craftAgentIntro,
