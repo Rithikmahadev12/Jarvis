@@ -1844,8 +1844,10 @@ function launchMain() {
   setInterval(pollSchedule, 20000);
   setInterval(pollProactiveNudges, 60000);
   setInterval(pollMeetingPrep, 60000);
+  setInterval(pollHabits, 5 * 60000);
 
   setTimeout(() => checkMorningBriefing(), 2500);
+  setTimeout(() => pollHabits(), 3000);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1976,6 +1978,36 @@ async function pollReminders() {
     // server unreachable or not yet ready — try again next tick
   } finally {
     _remindersBusy = false;
+  }
+}
+
+// ── HABIT CHECK-IN (missed workout etc.) ──
+// Checks whether any tracked habit's normal time has passed today
+// without being marked done. Fires on load and every few minutes —
+// server-side only asks once per habit per day, so this is safe to
+// poll without risk of nagging on every tick.
+let _habitsBusy = false;
+async function pollHabits() {
+  if (_habitsBusy || !state.user) return;
+  _habitsBusy = true;
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const params = new URLSearchParams({
+      tz,
+      sessionId: state.sessionId || "",
+      userTitle: state.userTitle || "Sir",
+    });
+    const res  = await fetch(`/api/habits/due?${params.toString()}`);
+    const data = await res.json();
+    if (data?.prompt?.reply) {
+      addMsg("jarvis", data.prompt.reply);
+      mic.suspend();
+      speak(data.prompt.reply, () => mic.resume());
+    }
+  } catch {
+    // server unreachable — try again next tick
+  } finally {
+    _habitsBusy = false;
   }
 }
 
