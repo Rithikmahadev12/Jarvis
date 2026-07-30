@@ -37,19 +37,32 @@ function loadCambKeys() {
   const DEFAULT_VOICE_ID = 20303;
   const baseVoiceId = Number(process.env.CAMB_VOICE_ID || DEFAULT_VOICE_ID);
 
-  const keys = [];
-  if (process.env.CAMB_API_KEY) {
-    keys.push({ key: process.env.CAMB_API_KEY, voiceId: baseVoiceId });
+  // Scan ALL env vars for CAMB_API_KEY / CAMB_API_KEY<N>, instead of
+  // walking i=2,3,4... and stopping at the first missing number. That
+  // old approach silently truncated the whole list the moment there
+  // was a single gap or out-of-order key (e.g. CAMB_API_KEY26 defined
+  // but CAMB_API_KEY25 missing/renamed) — everything after the gap was
+  // never loaded at all, which looks exactly like "stops checking
+  // after N keys" and "skips keys that still have credits" even though
+  // those keys were never read in the first place. This has no upper
+  // limit and no gap sensitivity: however many CAMB_API_KEY* vars exist,
+  // all of them get picked up.
+  const found = []; // { n: number, key: string }
+  for (const envName of Object.keys(process.env)) {
+    const m = envName.match(/^CAMB_API_KEY(\d*)$/);
+    if (!m) continue;
+    const value = process.env[envName];
+    if (!value) continue;
+    const n = m[1] ? Number(m[1]) : 1; // bare CAMB_API_KEY counts as #1
+    found.push({ n, key: value });
   }
-  let i = 2;
-  while (process.env[`CAMB_API_KEY${i}`]) {
-    const voiceId = process.env[`CAMB_VOICE_ID${i}`]
-      ? Number(process.env[`CAMB_VOICE_ID${i}`])
-      : baseVoiceId;
-    keys.push({ key: process.env[`CAMB_API_KEY${i}`], voiceId });
-    i++;
-  }
-  return keys;
+  found.sort((a, b) => a.n - b.n);
+
+  return found.map(({ n, key }) => {
+    const voiceEnvName = n === 1 ? "CAMB_VOICE_ID" : `CAMB_VOICE_ID${n}`;
+    const voiceId = process.env[voiceEnvName] ? Number(process.env[voiceEnvName]) : baseVoiceId;
+    return { key, voiceId };
+  });
 }
 
 const CAMB_KEYS       = loadCambKeys();
@@ -103,9 +116,15 @@ function cambIsReady() {
   return CAMB_KEYS.length > 0;
 }
 
-// HTTP codes that mean "this key is done" rather than "Camb is down" —
-// worth moving to the next key instead of giving up on Camb entirely.
-const CAMB_KEY_EXHAUSTED_CODES = new Set([401, 402, 403, 429]);
+// Status codes that mean this specific key is genuinely done — invalid,
+// revoked, or actually out of credits. Safe to skip immediately.
+const CAMB_KEY_DEAD_CODES = new Set([401, 402, 403]);
+// Status codes that are usually transient (a momentary rate limit or a
+// server-side hiccup) and do NOT mean the key is out of credits. A key
+// that has real credits left can still get one of these once — so we
+// give it one quick retry before rotating away from it, instead of
+// writing it off on a single bad response.
+const CAMB_KEY_TRANSIENT_CODES = new Set([429, 500, 502, 503, 504]);
 
 async function synthesizeWithCamb(clean) {
   if (!CAMB_KEYS.length) return null;
@@ -120,41 +139,63 @@ async function synthesizeWithCamb(clean) {
     const idx = (_cambKeyIndex + attempt) % CAMB_KEYS.length;
     const { key, voiceId } = CAMB_KEYS[idx];
 
-    try {
-      const res = await fetch(CAMB_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": key,
-        },
-        body: JSON.stringify({
-          text: clean,
-          voice_id: voiceId,
-          language: CAMB_LANGUAGE,
-          speech_model: CAMB_MODEL,
-        }),
-        signal: AbortSignal.timeout(CAMB_TIMEOUT_MS),
-      });
-
-      if (CAMB_KEY_EXHAUSTED_CODES.has(res.status)) {
-        console.warn(`[TTS] Camb key #${idx + 1} rejected (HTTP ${res.status}, likely out of credits) — rotating to next key`);
-        continue; // try the next key
+    // Up to 2 tries for THIS key: the first try, plus one retry if that
+    // first try looked like a transient blip rather than a dead key.
+    for (let keyTry = 0; keyTry < 2; keyTry++) {
+      if (keyTry === 1) {
+        // brief pause before retrying the same key
+        await new Promise((r) => setTimeout(r, 400));
       }
+      try {
+        const res = await fetch(CAMB_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": key,
+          },
+          body: JSON.stringify({
+            text: clean,
+            voice_id: voiceId,
+            language: CAMB_LANGUAGE,
+            speech_model: CAMB_MODEL,
+          }),
+          signal: AbortSignal.timeout(CAMB_TIMEOUT_MS),
+        });
 
-      if (!res.ok) {
-        const body = await res.text().catch(() => "");
-        console.error(`[TTS] Camb.ai (key #${idx + 1}) returned ${res.status}: ${body.slice(0, 300)}`);
-        continue; // still worth trying another key rather than giving up
+        if (CAMB_KEY_DEAD_CODES.has(res.status)) {
+          console.warn(`[TTS] Camb key #${idx + 1} rejected (HTTP ${res.status} — invalid key or out of credits) — rotating to next key`);
+          break; // no point retrying this key, it's genuinely done
+        }
+
+        if (CAMB_KEY_TRANSIENT_CODES.has(res.status)) {
+          if (keyTry === 0) {
+            console.warn(`[TTS] Camb key #${idx + 1} got a transient HTTP ${res.status} — retrying same key once before rotating`);
+            continue; // give this same key one more shot
+          }
+          console.warn(`[TTS] Camb key #${idx + 1} still failing after retry (HTTP ${res.status}) — rotating to next key`);
+          break;
+        }
+
+        if (!res.ok) {
+          const body = await res.text().catch(() => "");
+          console.error(`[TTS] Camb.ai (key #${idx + 1}) returned ${res.status}: ${body.slice(0, 300)}`);
+          break; // unrecognized failure — still worth trying another key
+        }
+
+        const buf = Buffer.from(await res.arrayBuffer());
+        if (!buf.length) { break; }
+
+        _cambKeyIndex = idx; // this key works — start here next time
+        return { buffer: buf, mimeType: "audio/flac" }; // tts-stream returns audio/flac
+      } catch (e) {
+        // network/timeout error — treat as transient, worth one retry
+        // on this same key before assuming it's actually dead
+        if (keyTry === 0) {
+          console.warn(`[TTS] Camb.ai (key #${idx + 1}) error on first try (${e.message}) — retrying same key once`);
+          continue;
+        }
+        console.error(`[TTS] Camb.ai (key #${idx + 1}) error after retry:`, e.message);
       }
-
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (!buf.length) { continue; }
-
-      _cambKeyIndex = idx; // this key works — start here next time
-      return { buffer: buf, mimeType: "audio/flac" }; // tts-stream returns audio/flac
-    } catch (e) {
-      console.error(`[TTS] Camb.ai (key #${idx + 1}) error:`, e.message);
-      // network/timeout error — try the next key
     }
   }
 
