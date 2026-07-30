@@ -157,8 +157,8 @@
       ${WIDGETS_HTML}
     </div>
 
-    <div id="db-orb-launcher" title="Open Jarvis">
-      <div class="db-orb-tip">OPEN JARVIS</div>
+    <div id="db-orb-launcher" title="Talk to Jarvis">
+      <div class="db-orb-tip">TALK TO JARVIS</div>
       <div class="db-orb-mini-wrap">
         <div class="jr-orb">
           <div class="jr-core-glow"></div>
@@ -306,9 +306,11 @@
     $("db-home-btn")?.classList.remove("db-show");
   }
   function hideDashboardToHUD() {
-    if (!dashRoot) return;
-    dashRoot.classList.add("db-hidden");
-    $("db-home-btn")?.classList.add("db-show");
+    // Disabled: the widget dashboard (image 1 layout) is now the
+    // permanent main screen. The old chat-HUD/orb screen is no longer
+    // shown, so this is intentionally a no-op — the dashboard just
+    // stays in front, always.
+    return;
   }
 
   // ── CLOCK ──
@@ -764,7 +766,9 @@
   // ── ORB / SHOW-HIDE WIRING ──
   function initOrbAndVisibility(dash) {
     const homeBtn = $("db-home-btn");
-    $("db-orb-launcher")?.addEventListener("click", hideDashboardToHUD);
+    $("db-orb-launcher")?.addEventListener("click", () => {
+      if (typeof window.toggleListening === "function") window.toggleListening();
+    });
     homeBtn?.addEventListener("click", revealDashboard);
 
     // Reveal the dashboard the moment the existing app finishes its
