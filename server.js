@@ -1334,12 +1334,23 @@ app.post("/api/screen", (req, res) => {
   if (!ocrText || ocrText.trim().length < 5) {
     return res.json({ reply: `I received the screen frame but couldn't extract readable text, ${T}.` });
   }
-  const screenContext = `The user's screen contains: "${ocrText.trim().slice(0, 800)}". The user asked: "${question || "What is on my screen?"}"`;
+  // "Roast me" / "make fun of what I'm doing" style requests want a
+  // joke that actually references the real screen content, not a
+  // dry factual readout — steer the AI call accordingly, and fall
+  // back to personality.js's deterministic roast generator if that
+  // call fails or comes back too short/flat to land as a joke.
+  const isRoast = /\b(roast|make fun of|clown|razz|talk trash|joke about|be funny|funny about)\b/i.test(question || "");
+  const screenContext = isRoast
+    ? `The user's screen contains: "${ocrText.trim().slice(0, 800)}". The user just asked: "${question}" — they want a witty, dry, JARVIS-style joke or roast about what they're actually doing, based specifically on that real screen content (not a generic joke). One or two sentences, needling but not mean.`
+    : `The user's screen contains: "${ocrText.trim().slice(0, 800)}". The user asked: "${question || "What is on my screen?"}"`;
   try {
     const result = AI.process({ message: screenContext, sessionId: `screen_${userName || "user"}`, userName, userTitle, memories, serverData: getLinksSummary() });
-    const reply  = result.reply.length > 20 ? `I can see your screen, ${T}. ${result.reply}` : `Your screen shows: ${ocrText.trim().slice(0, 200)}`;
+    const reply = isRoast
+      ? (result.reply && result.reply.length > 15 ? result.reply : Personality.getScreenRoast(ocrText, T))
+      : (result.reply.length > 20 ? `I can see your screen, ${T}. ${result.reply}` : `Your screen shows: ${ocrText.trim().slice(0, 200)}`);
     return res.json({ reply });
   } catch {
+    if (isRoast) return res.json({ reply: Personality.getScreenRoast(ocrText, T) });
     const lines = ocrText.trim().split("\n").filter(l => l.trim().length > 2).slice(0, 5);
     return res.json({ reply: `On your screen, ${T}: ${lines.join(". ")}` });
   }
@@ -1446,7 +1457,7 @@ const HARD_COMMANDS = {
   lookup:       /\b(look up|lookup|background check|pull everything on|find info on|osint|intel on)\b/i,
   memory:       /\b(remember that|memorize|save that fact|note that|i want you to remember)\b/i,
   memForget:    /\b(forget|delete memory|erase|clear memory|stop remembering)\b/i,
-  readScreen:   /\b(read (my )?screen|what('s| is) on (my )?screen|analyze screen|scan screen)\b/i,
+  readScreen:   /\b(read (my )?screen|what('s| is) on (my )?screen|analyze screen|scan screen|roast me|roast my screen|make fun of (me|what i'?m doing)|clown (on )?me|razz me|talk trash about (my|what)|joke about (what|my) (i'?m doing|screen)|guess what i'?m doing)\b/i,
   switchCam:    /\b(switch camera|camera \d|use camera|change camera)\b/i,
   systemStatus: /\b(system status|diagnostics|all systems|health check|uptime|are you ok)\b/i,
   logout:       /\b(log out|logout|sign out|goodbye|shut down jarvis|close session)\b/i,
@@ -2593,6 +2604,17 @@ async function executeAssistantTool(name, args, ctx) {
       return { reply: `Joining now, ${T}.`, action: "JOIN_MEETING", intent: "comms" };
     }
 
+    case "read_screen": {
+      const question = String(args.question || "What is on my screen?").trim();
+      const isRoast = /\b(roast|make fun of|clown|razz|talk trash|joke about|be funny|funny about)\b/i.test(question);
+      return {
+        reply: isRoast ? `Let's see what we're working with, ${T}...` : `Taking a look, ${T}...`,
+        action: "READ_SCREEN",
+        intent: "screen",
+        meta: { question },
+      };
+    }
+
     case "show_camera":
       return { reply: `Bringing up the camera feed, ${T}.`, action: "SHOW_CAMERA", intent: "camera" };
 
@@ -3163,6 +3185,15 @@ app.post("/api/chat", async (req, res) => {
     }
     if (hardCommandType === "openOnPC") {
       return res.json(await handleOpenOnPC(message, T));
+    }
+    if (hardCommandType === "readScreen") {
+      const isRoast = /\b(roast|make fun of|clown|razz|talk trash|joke about|be funny|funny about)\b/i.test(message);
+      return res.json({
+        reply: isRoast ? `Let's see what we're working with, ${T}...` : `Taking a look, ${T}...`,
+        action: "READ_SCREEN",
+        intent: "screen",
+        meta: { question: message },
+      });
     }
     if (hardCommandType === "newsWidget") {
       return res.json(await handleNewsFetch(message, T, "widget"));
