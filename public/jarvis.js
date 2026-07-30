@@ -864,9 +864,10 @@ const mic = {
     let sumSquares = 0;
     for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sumSquares += v * v; }
     const rms = Math.sqrt(sumSquares / data.length);
-    const SPEECH_THRESHOLD = 0.02;   // mic-dependent; picks up normal talking volume without tripping on room noise
+    const SPEECH_THRESHOLD = 0.035;  // raised from 0.02 — the old value was tripping on room tone/breath/fan noise, which is what was feeding Whisper silent clips it then hallucinated "okay"/"thank you" on
     const SILENCE_HOLD_MS  = 900;    // how long we wait after speech stops before treating the utterance as done
     const MAX_UTTERANCE_MS = 15000;  // safety cap so a stuck-open mic can't record forever
+    const MIN_SPEECH_MS    = 300;    // an utterance shorter than this is almost never a real word — drop it before it ever reaches the server
 
     const now = Date.now();
     if (rms > SPEECH_THRESHOLD) {
@@ -880,10 +881,20 @@ const mic = {
       this._cloudSilenceStart = 0;
     } else if (this._cloudSpeaking) {
       if (!this._cloudSilenceStart) this._cloudSilenceStart = now;
-      if (now - this._cloudSilenceStart > SILENCE_HOLD_MS || now - this._cloudUtteranceStart > MAX_UTTERANCE_MS) {
+      const spokeLongEnough = (this._cloudSilenceStart - this._cloudUtteranceStart) >= MIN_SPEECH_MS;
+      const timedOut = now - this._cloudUtteranceStart > MAX_UTTERANCE_MS;
+      if ((spokeLongEnough && now - this._cloudSilenceStart > SILENCE_HOLD_MS) || timedOut) {
         this._cloudSpeaking = false;
         updateLiveHearing(""); updateMicDebug("Mic: transcribing…");
         this._cloudStopRecorder();
+      } else if (!spokeLongEnough && now - this._cloudSilenceStart > SILENCE_HOLD_MS) {
+        // Volume blipped above threshold for under MIN_SPEECH_MS then dropped —
+        // a click/breath/fan gust, not a word. Discard silently and re-arm.
+        this._cloudSpeaking = false;
+        this._cloudSilenceStart = 0;
+        try { if (this._cloudRecorder) { this._cloudRecorder.ondataavailable = null; this._cloudRecorder.onstop = null; this._cloudRecorder.stop(); } } catch (_) {}
+        this._cloudRecorder = null; this._cloudChunks = [];
+        updateLiveHearing(""); updateMicDebug("Mic: listening…");
       }
     }
     this._cloudVadRAF = requestAnimationFrame(() => this._cloudVadTick());
