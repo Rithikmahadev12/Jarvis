@@ -143,6 +143,7 @@
 
   const DASHBOARD_HTML = `
     <div id="db-bg-layer"></div>
+    <div id="db-bg-video-tint"></div>
     <div id="db-bg-scrim"></div>
 
     <div id="db-top-row">
@@ -624,6 +625,7 @@
   function renderBackground(type, url) {
     const layer = $("db-bg-layer");
     const scrim = $("db-bg-scrim");
+    const tint = $("db-bg-video-tint");
     if (!layer) return;
     layer.querySelectorAll("img, video").forEach(n => n.remove());
     if (type === "image") {
@@ -631,6 +633,8 @@
       img.src = url;
       layer.appendChild(img);
       scrim?.classList.remove("db-scrim-video");
+      tint?.classList.remove("db-tint-active");
+      dashRoot?.classList.remove("db-video-active");
     } else if (type === "video") {
       const vid = document.createElement("video");
       vid.src = url;
@@ -639,6 +643,8 @@
       vid.disablePictureInPicture = true;
       layer.appendChild(vid);
       scrim?.classList.add("db-scrim-video");
+      tint?.classList.add("db-tint-active");
+      dashRoot?.classList.add("db-video-active");
     }
   }
 
@@ -662,6 +668,8 @@
     const layer = $("db-bg-layer");
     if (layer) layer.querySelectorAll("img, video").forEach(n => n.remove());
     $("db-bg-scrim")?.classList.remove("db-scrim-video");
+    $("db-bg-video-tint")?.classList.remove("db-tint-active");
+    dashRoot?.classList.remove("db-video-active");
     if (window.JarvisTheme) window.JarvisTheme.reset();
     else resetHandTrackingTint();
   }
