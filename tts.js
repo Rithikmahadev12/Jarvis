@@ -163,7 +163,8 @@ async function synthesizeWithCamb(clean) {
         });
 
         if (CAMB_KEY_DEAD_CODES.has(res.status)) {
-          console.warn(`[TTS] Camb key #${idx + 1} rejected (HTTP ${res.status} — invalid key or out of credits) — rotating to next key`);
+          const body = await res.text().catch(() => "");
+          console.warn(`[TTS] Camb key #${idx + 1} rejected (HTTP ${res.status}) — rotating to next key. Response: ${body.slice(0, 300) || "(empty body)"}`);
           break; // no point retrying this key, it's genuinely done
         }
 
