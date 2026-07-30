@@ -26,6 +26,7 @@ const LocalBrain  = require("./local-brain");
 const OwnBrain    = require("./own-brain");
 const OwnBrainTrainer = require("./own-brain-trainer");
 const Reminders   = require("./reminders");
+const Habits      = require("./habits");
 const Boards      = require("./boards");
 const Briefing    = require("./briefing");
 const InboxTriage = require("./inbox-triage");
@@ -1160,6 +1161,11 @@ app.delete("/api/boards/:id", (req, res) => {
 //    been at it over an hour, JARVIS has already picked a break
 //    suggestion by the time this responds; it never waits for a
 //    separate "yes" round-trip. ──
+app.get("/api/habits/due", (req, res) => {
+  const T = req.query.userTitle || "Sir";
+  const prompt = Habits.checkMissed(T, req.query.tz, req.query.sessionId);
+  res.json({ prompt });
+});
 app.get("/api/schedule/due", (req, res) => {
   res.json({ nudge: Schedule.checkWorkNudge(req.query.tz) });
 });
@@ -2460,6 +2466,10 @@ async function executeAssistantTool(name, args, ctx) {
       }
       if (dueAt == null && args.duration_seconds) dueAt = Date.now() + Number(args.duration_seconds) * 1000;
       if (dueAt == null) return { reply: `When should I remind you, ${T}?` };
+      // Also teach the habit tracker if this looks like a recurring
+      // thing (workout, meditation, etc.) so a missed normal time can
+      // trigger a proactive "shall I reschedule?" check-in later.
+      Habits.registerHabitFromText(args.label || "", userTimezone);
       return Reminders.createReminder(dueAt, args.label, T);
     }
 
@@ -2919,6 +2929,13 @@ app.post("/api/chat", async (req, res) => {
   if (focusResolution) return res.json(focusResolution);
 
 
+  // ── -0.2. Habit tracker — a pending "shall I reschedule your
+  //      workout?" question (or a standalone "I already did it")
+  //      must be caught here, before smalltalk/AI routing could
+  //      reinterpret a bare "no" as something unrelated. ──
+  const habitResolution = Habits.route(message, T, userTimezone, sessionId);
+  if (habitResolution) return res.json(habitResolution);
+
   // ── 0. Home Talk toggle — checked first so it never collides with
   //      smart-home / smalltalk / AI routing below ──
   if (HOME_TALK_ON.test(message)) {
@@ -3114,6 +3131,7 @@ app.post("/api/chat", async (req, res) => {
   // them and mangling labels with its regex-based extraction.
   const reminderResult = Reminders.route(message, T, userTimezone, sessionId);
   if (reminderResult) {
+    Habits.maybeRegisterFromReminder(message, userTimezone);
     return res.json(reminderResult);
   }
 
