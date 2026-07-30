@@ -611,6 +611,19 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "read_screen",
+      description: "Look at whatever is currently on the user's shared screen and answer a question about it, describe it, or riff on it — e.g. 'what's on my screen', 'read my screen', 'what am I looking at', 'what am I doing right now', and ALSO any request to be funny/witty about the real content on screen: 'roast me', 'roast my screen', 'make fun of what I'm doing', 'clown on me', 'make a joke about what I'm doing', 'razz me based on my screen', 'talk trash about my tabs'. Requires the user to already be screen-sharing — if they aren't, Jarvis will say so and ask them to share first, so always call this rather than guessing from memory or claiming you can't see anything. Pass the user's exact question/request through in the question field so the right tone (informational vs. a joke) carries through.",
+      parameters: {
+        type: "object",
+        properties: {
+          question: { type: "string", description: "The user's request verbatim or lightly cleaned up — e.g. 'What is on my screen?' or 'Roast me based on what I'm doing right now.'" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "scan_for_threats",
       description: "Run a security sweep of the user's own computer for viruses/malware/suspicious activity — e.g. 'scan my computer for viruses', 'is there a hacker on my machine', 'check for threats', 'am I infected'. Only works when Jarvis is running locally (not the hosted site). Checks the OS's own built-in protection where available (e.g. Windows Defender) and flags suspicious-looking processes/connections. If it finds something, Jarvis will report it and ask whether to neutralize it — the user's next 'yes' handles that automatically, so don't also call neutralize_threat immediately after this in the same turn.",
       parameters: { type: "object", properties: {} },
