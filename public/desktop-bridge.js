@@ -30,4 +30,37 @@
     } catch (e) { console.warn("[desktop-bridge] fallback open failed:", e); }
     return null;
   };
+
+  // ── Open in real browser (native mic) ──
+  // The desktop app's mic runs on MediaRecorder + Whisper because
+  // Electron's bundled Chromium can't reach Google's speech servers
+  // (see the big comment in jarvis.js above USE_CLOUD_STT — this is a
+  // Google-side restriction, not something fixable from in here).
+  // The only way to get the exact same native webkitSpeechRecognition
+  // behavior as the website is to run the page in an actual installed
+  // browser instead of Electron's window. This opens the same backend
+  // URL externally so voice works identically to jarvis-render.com.
+  window.openInBrowser = async function () {
+    if (!isDesktop) { window.open(location.href, "_blank"); return; }
+    try {
+      const url = await window.jarvisDesktop.getBackendUrl();
+      await window.jarvisDesktop.openExternal(url || location.origin);
+    } catch (e) { console.warn("[desktop-bridge] openInBrowser failed:", e); }
+  };
+
+  if (isDesktop) {
+    document.addEventListener("DOMContentLoaded", () => {
+      const btn = document.createElement("button");
+      btn.textContent = "🎙 Open in Browser (native mic)";
+      btn.title = "Runs Jarvis in your real browser so voice recognition works exactly like the website, instead of the app's Whisper fallback.";
+      Object.assign(btn.style, {
+        position: "fixed", bottom: "12px", right: "12px", zIndex: 999999,
+        padding: "8px 12px", borderRadius: "8px", border: "1px solid rgba(255,255,255,0.25)",
+        background: "rgba(20,20,24,0.85)", color: "#fff", fontSize: "12px",
+        cursor: "pointer", backdropFilter: "blur(6px)",
+      });
+      btn.onclick = () => window.openInBrowser();
+      document.body.appendChild(btn);
+    });
+  }
 })();
