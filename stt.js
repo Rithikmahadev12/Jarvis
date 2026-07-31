@@ -53,6 +53,13 @@ async function transcribe(buffer, filename = "clip.webm", mimeType = "audio/webm
     form.append("response_format", "verbose_json");
     form.append("language", "en");
     form.append("temperature", "0");
+    // Context hint for Whisper. These clips are short, isolated voice
+    // commands with no surrounding conversation to disambiguate from —
+    // exactly the condition that makes Whisper default to a stock phrase
+    // ("thank you", "so", ".") or mis-hear the first word of a command.
+    // Priming it with the kind of thing it's about to hear measurably
+    // helps both problems.
+    form.append("prompt", "Voice commands spoken to a personal assistant named Jarvis: play, pause, skip, stop, resume, shuffle, volume up, volume down, play the song, open, close, search, what's the weather, set a timer, set a reminder, turn off the lights, good morning Jarvis.");
 
     let res;
     try {
