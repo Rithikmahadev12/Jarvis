@@ -865,30 +865,59 @@ const mic = {
     // the container header.
     this._cloudPcmRing = [];
     this._cloudUtteranceStartTs = null;
-    const PROCESSOR_BUFFER = 2048;
-    this._cloudProcessor = this._cloudCtx.createScriptProcessor(PROCESSOR_BUFFER, 1, 1);
     this._cloudMuteGain = this._cloudCtx.createGain();
     this._cloudMuteGain.gain.value = 0; // never let the tap reach real speakers
+
+    // AudioWorkletNode instead of the old ScriptProcessorNode: ScriptProcessorNode
+    // is deprecated, and on newer Chromium/Electron builds its onaudioprocess
+    // callback can silently stop firing while the rest of the audio graph (the
+    // AnalyserNode used for VAD, above) keeps working fine — VAD state
+    // transitions correctly ("hearing you…") but the PCM ring buffer never
+    // fills, so every utterance silently bails out with nothing to send.
+    // AudioWorkletNode runs on the dedicated audio thread and doesn't have
+    // that failure mode. Falls back to ScriptProcessorNode only if the
+    // worklet module can't be loaded at all (very old Electron/Chromium).
+    let workletReady = false;
+    try {
+      await this._cloudCtx.audioWorklet.addModule("pcm-worklet.js");
+      workletReady = true;
+    } catch (e) {
+      console.error("[mic] AudioWorklet module failed to load, falling back to ScriptProcessorNode:", e);
+    }
+
+    if (workletReady) {
+      this._cloudProcessor = new AudioWorkletNode(this._cloudCtx, "pcm-capture-processor", { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
+      const thisProcessor = this._cloudProcessor;
+      this._cloudProcessor.port.onmessage = (e) => {
+        // Guard against orphaned instances: mic suspend/resume happens back
+        // to back during boot (face scan → account creation → chat listening
+        // etc.), and a message can already be in flight at the moment _kill()
+        // disconnects it. Without this check, that stray message fires
+        // against a ring buffer (or processor slot) that's already been
+        // nulled out or replaced by a newer launch, and throws.
+        if (this._cloudProcessor !== thisProcessor || !this._cloudPcmRing) return;
+        const now = Date.now();
+        this._cloudPcmRing.push({ samples: e.data, ts: now });
+        // Bound memory: only need enough history to cover the longest
+        // possible utterance plus pre-roll, not the whole session.
+        const cutoff = now - 16000;
+        while (this._cloudPcmRing.length && this._cloudPcmRing[0].ts < cutoff) this._cloudPcmRing.shift();
+      };
+    } else {
+      const PROCESSOR_BUFFER = 2048;
+      this._cloudProcessor = this._cloudCtx.createScriptProcessor(PROCESSOR_BUFFER, 1, 1);
+      const thisProcessor = this._cloudProcessor;
+      this._cloudProcessor.onaudioprocess = (e) => {
+        if (this._cloudProcessor !== thisProcessor || !this._cloudPcmRing) return;
+        const now = Date.now();
+        this._cloudPcmRing.push({ samples: new Float32Array(e.inputBuffer.getChannelData(0)), ts: now });
+        const cutoff = now - 16000;
+        while (this._cloudPcmRing.length && this._cloudPcmRing[0].ts < cutoff) this._cloudPcmRing.shift();
+      };
+    }
     src.connect(this._cloudProcessor);
     this._cloudProcessor.connect(this._cloudMuteGain);
     this._cloudMuteGain.connect(this._cloudCtx.destination);
-    const thisProcessor = this._cloudProcessor;
-    this._cloudProcessor.onaudioprocess = (e) => {
-      // Guard against orphaned instances: mic suspend/resume happens back
-      // to back during boot (face scan → account creation → chat listening
-      // etc.), and a ScriptProcessorNode can have one callback already
-      // queued at the moment _kill() disconnects it. Without this check,
-      // that stray callback fires against a ring buffer (or processor
-      // slot) that's already been nulled out or replaced by a newer
-      // launch, and throws.
-      if (this._cloudProcessor !== thisProcessor || !this._cloudPcmRing) return;
-      const now = Date.now();
-      this._cloudPcmRing.push({ samples: new Float32Array(e.inputBuffer.getChannelData(0)), ts: now });
-      // Bound memory: only need enough history to cover the longest
-      // possible utterance plus pre-roll, not the whole session.
-      const cutoff = now - 16000;
-      while (this._cloudPcmRing.length && this._cloudPcmRing[0].ts < cutoff) this._cloudPcmRing.shift();
-    };
 
     this._cloudSpeaking = false;
     this._cloudSilenceStart = 0;
@@ -983,10 +1012,16 @@ const mic = {
     const startTs = this._cloudUtteranceStartTs;
     this._cloudUtteranceStartTs = null;
     const ring = this._cloudPcmRing;
-    if (!startTs || !ring || !ring.length) { this._relaunchCloudSoon(); return; }
+    if (!startTs || !ring || !ring.length) {
+      console.warn(`[mic-debug] bailing: startTs=${startTs} ringExists=${!!ring} ringLen=${ring ? ring.length : "n/a"}`);
+      this._relaunchCloudSoon(); return;
+    }
 
     const slice = ring.filter((c) => c.ts >= startTs && c.ts <= now);
-    if (!slice.length) { this._relaunchCloudSoon(); return; }
+    if (!slice.length) {
+      console.warn(`[mic-debug] bailing: empty slice — ring has ${ring.length} chunks spanning ${ring[0]?.ts} to ${ring[ring.length-1]?.ts}, wanted ${startTs} to ${now}`);
+      this._relaunchCloudSoon(); return;
+    }
 
     let totalLen = 0;
     for (const c of slice) totalLen += c.samples.length;
@@ -1001,7 +1036,11 @@ const mic = {
     // a last-ditch "is there literally anything here" check now, not a
     // duration filter. WAV is uncompressed so the byte floor is much
     // higher than the old webm one (44-byte header + ~a few ms of audio).
-    if (blob.size < 4000) { this._relaunchCloudSoon(); return; }
+    if (blob.size < 4000) {
+      console.warn(`[mic-debug] bailing: blob too small — ${blob.size} bytes, ${slice.length} chunks, ${totalLen} samples`);
+      this._relaunchCloudSoon(); return;
+    }
+    console.log(`[mic-debug] sending clip: ${blob.size} bytes, ${(totalLen / this._cloudCtx.sampleRate).toFixed(2)}s`);
 
     (async () => {
       try {
@@ -1086,7 +1125,7 @@ const mic = {
   _kill() {
     if (USE_CLOUD_STT) {
       cancelAnimationFrame(this._cloudVadRAF);
-      try { if (this._cloudProcessor) { this._cloudProcessor.onaudioprocess = null; this._cloudProcessor.disconnect(); } } catch (_) {}
+      try { if (this._cloudProcessor) { this._cloudProcessor.onaudioprocess = null; if (this._cloudProcessor.port) this._cloudProcessor.port.onmessage = null; this._cloudProcessor.disconnect(); } } catch (_) {}
       try { if (this._cloudMuteGain) this._cloudMuteGain.disconnect(); } catch (_) {}
       try { if (this._cloudStream) this._cloudStream.getTracks().forEach(t => t.stop()); } catch (_) {}
       try { if (this._cloudCtx) this._cloudCtx.close(); } catch (_) {}
