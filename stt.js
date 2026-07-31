@@ -24,9 +24,12 @@
 const GroqKeys = require("./groq-keys");
 
 const GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
-// Fast + cheap + good enough for command-style utterances. Override
-// with GROQ_STT_MODEL in .env if you'd rather use whisper-large-v3.
-const STT_MODEL = process.env.GROQ_STT_MODEL || "whisper-large-v3-turbo";
+// Groq's hardware is fast enough that the accuracy difference between
+// "turbo" and the full model matters a lot more than the latency
+// difference does for short command-style clips — turbo was mishearing
+// short/quiet utterances too often. Override with GROQ_STT_MODEL in
+// .env if you want to go back to whisper-large-v3-turbo for speed.
+const STT_MODEL = process.env.GROQ_STT_MODEL || "whisper-large-v3";
 
 // buffer: raw audio bytes (webm/opus from the browser's MediaRecorder)
 // filename: just needs a sensible extension so Groq can sniff the format
