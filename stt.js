@@ -26,7 +26,10 @@
 // or fails, so nothing breaks for setups that had those working.
 //
 // Only used by the desktop app's mic fallback (see
-// public/mic-cloud.js) — the Render/browser flow never calls this.
+// public/jarvis.js's CLOUD BATCH transport) — the Render/browser flow
+// never calls this. This is the batch (record → upload → wait) path;
+// for the faster continuous-streaming path used first, see
+// stt-stream.js, which proxies a live WebSocket to Deepgram instead.
 // ═══════════════════════════════════════════════════════════════
 const GroqKeys = require("./groq-keys");
 
