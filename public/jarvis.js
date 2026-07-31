@@ -619,26 +619,34 @@ async function switchCamera(deviceId) {
 // ═══════════════════════════════════════════════════════════════
 // ── MIC ENGINE ──
 // ═══════════════════════════════════════════════════════════════
-// Two transports behind one `mic` object with the same public API
+// Three transports behind one `mic` object with the same public API
 // (start/suspend/resume/requestPerm, plus .active/.suspended read
 // by the rest of this file):
 //
-//   • NATIVE  — window.webkitSpeechRecognition. Used on the Render
-//     deployment and in a normal browser tab. Streams interim +
+//   • NATIVE       — window.webkitSpeechRecognition. Used on the
+//     Render deployment and in a normal browser tab. Streams interim +
 //     final results straight from Chrome, free, no server round trip.
 //
-//   • CLOUD   — used automatically inside the Electron desktop app
-//     (window.isDesktopApp, set by desktop-bridge.js), or as a
+//   • CLOUD STREAM — used automatically inside the Electron desktop
+//     app (window.isDesktopApp, set by desktop-bridge.js), or as a
 //     fallback in any browser that doesn't have SpeechRecognition at
 //     all. Electron ships stock/open-source Chromium, which has no
 //     Google API key baked in, so webkitSpeechRecognition just fails
-//     there (usually a silent "network" error loop) no matter what
-//     mic permissions are granted — there's no client-side fix for
-//     that. Instead this records short clips with MediaRecorder,
-//     using a simple volume-based VAD (voice activity detector) to
-//     decide when an utterance starts/ends, and sends each clip to
-//     POST /api/transcribe, which forwards it to Groq's Whisper
-//     endpoint (see stt.js) and returns text.
+//     there (usually a silent "network" error loop) no matter what mic
+//     permissions are granted — there's no client-side fix for that.
+//     This is the preferred cloud path: it opens a persistent
+//     WebSocket to /ws/stt (proxied server-side to Deepgram's live
+//     endpoint — see stt-stream.js) and streams raw PCM continuously,
+//     getting interim + final words back the same way Chrome's native
+//     API does, instead of waiting for a full clip to upload.
+//
+//   • CLOUD BATCH  — fallback used only if the stream transport can't
+//     establish a working connection (e.g. no DEEPGRAM_API_KEY set
+//     server-side). Records short clips with MediaRecorder, using a
+//     simple volume-based VAD (voice activity detector) to decide when
+//     an utterance starts/ends, and sends each clip to POST
+//     /api/transcribe, which forwards it to Deepgram/Gemini/Groq (see
+//     stt.js) and returns text once the whole clip has been processed.
 //
 // Everything downstream (mic.start(onResult, onInterim), speak(),
 // barge-in, etc.) doesn't need to know which transport is live.
@@ -660,6 +668,16 @@ const mic = {
   _cloudStream: null, _cloudCtx: null, _cloudAnalyser: null,
   _cloudProcessor: null, _cloudMuteGain: null, _cloudPcmRing: null, _cloudUtteranceStartTs: null,
   _cloudVadRAF: null, _cloudSpeaking: false, _cloudSilenceStart: 0,
+
+  // ── cloud STREAM-transport state ──
+  // Tried first: continuous WebSocket to /ws/stt (Deepgram live). Only
+  // drops to the batch (_launchCloudBatch) pipeline above if the stream
+  // fails to establish a couple times in a row (e.g. no DEEPGRAM_API_KEY
+  // configured server-side), so setups without that key keep working
+  // exactly as before.
+  _streamMode: true, _streamFailCount: 0, _streamSocket: null,
+  _streamCtx: null, _streamStream: null, _streamProcessor: null, _streamMuteGain: null,
+  _streamChunkBuf: null, _streamChunkFilled: 0, _streamInterim: "",
 
   // Which physical mic to use (getUserMedia deviceId). null = system default.
   // Persisted so the choice survives a restart. Only the cloud transport
@@ -801,14 +819,27 @@ const mic = {
 
   // ═══════════════════════════════════════════════════════════
   // ── CLOUD TRANSPORT (desktop app) ──
-  // Record → local VAD decides utterance boundaries → upload the
-  // clip to /api/transcribe → feed the text back through the same
-  // onResult callback the native path uses. No interim results (the
-  // clip isn't transcribed until it's done), but speech onset still
-  // triggers barge-in immediately via the volume meter, so it still
-  // feels responsive even though the text arrives a beat later.
+  // Two variants behind this one entry point:
+  //
+  //   STREAM (preferred) — a persistent WebSocket to /ws/stt, which
+  //   the server proxies to Deepgram's live endpoint. Audio streams
+  //   up continuously and interim/final words stream back while
+  //   you're still talking, the same shape as native onresult. See
+  //   _launchCloudStream() below.
+  //
+  //   BATCH (fallback) — record → local VAD decides utterance
+  //   boundaries → upload the whole clip to /api/transcribe → wait
+  //   for the reply. Only used if streaming can't establish (e.g. no
+  //   DEEPGRAM_API_KEY configured server-side), so older setups keep
+  //   working exactly as before. See _launchCloudBatch() further down.
   // ═══════════════════════════════════════════════════════════
-  async _launchCloud() {
+  _launchCloud() {
+    if (this.suspended) return;
+    if (this._streamMode) { this._launchCloudStream(); return; }
+    this._launchCloudBatch();
+  },
+
+  async _launchCloudBatch() {
     if (this.suspended) return;
     this._lastLaunchAt = Date.now();
     if (this.active) { this._killing = true; this._kill(); this._killing = false; }
@@ -1108,6 +1139,194 @@ const mic = {
     return (data.text || "").trim();
   },
 
+  // ═══════════════════════════════════════════════════════════
+  // ── CLOUD STREAM TRANSPORT (preferred desktop path) ──
+  // Opens a WebSocket to /ws/stt (proxied server-side to Deepgram's
+  // live endpoint — see stt-stream.js), streams raw 16-bit PCM up
+  // continuously, and gets interim/final transcripts back the same
+  // way native onresult delivers them. No client-side silence-hold:
+  // Deepgram does its own endpointing server-side (DEEPGRAM_ENDPOINTING_MS,
+  // default 300ms — vs. the old 900ms client VAD hold), and interim
+  // words arrive while the user is still talking, not after they stop.
+  // ═══════════════════════════════════════════════════════════
+  async _launchCloudStream() {
+    if (this.suspended) return;
+    this._lastLaunchAt = Date.now();
+    if (this.active) { this._killing = true; this._kill(); this._killing = false; }
+
+    const constraints = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
+    try {
+      this._streamStream = await navigator.mediaDevices.getUserMedia({
+        audio: { ...constraints, deviceId: this.selectedDeviceId ? { exact: this.selectedDeviceId } : undefined }
+      });
+    } catch (e) {
+      if (this.selectedDeviceId && e.name === "OverconstrainedError") {
+        try {
+          this._streamStream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+        } catch {
+          this.permGranted = false; updateMicDebug("Mic: blocked — check permissions"); this.suspended = true; return;
+        }
+      } else {
+        this.permGranted = false; updateMicDebug("Mic: blocked — check permissions"); this.suspended = true; return;
+      }
+    }
+
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    this._streamCtx = new AudioCtx();
+    if (this._streamCtx.state === "suspended") { try { await this._streamCtx.resume(); } catch (_) {} }
+
+    // Open the WS before wiring the audio graph so we're not buffering
+    // silently for no reason if it's going to fail fast (e.g. no key
+    // configured server-side).
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const sr = this._streamCtx.sampleRate;
+    let ws;
+    try {
+      ws = new WebSocket(`${proto}//${location.host}/ws/stt?sampleRate=${sr}`);
+      ws.binaryType = "arraybuffer";
+    } catch (e) {
+      this._streamFallback(); return;
+    }
+    this._streamSocket = ws;
+
+    let openedOk = false;
+    let torndown = false;
+
+    ws.onopen = () => {
+      openedOk = true;
+      this._streamFailCount = 0;
+      this.permGranted = true; this.active = true; state.isListening = true;
+      setOrb(state.phase === "chatting" ? "listening" : "idle");
+      updateMicDebug("Mic: listening…");
+      this._streamStartAudioGraph(sr, ws);
+    };
+
+    ws.onmessage = (ev) => {
+      let msg;
+      try { msg = JSON.parse(ev.data); } catch { return; }
+      if (!msg || !msg.text) return;
+      if (msg.type === "final") {
+        this._streamInterim = "";
+        updateLiveHearing(""); updateMicDebug(`Mic: "${msg.text}"`);
+        if (this.onResult) this.onResult(msg.text);
+      } else {
+        this._streamInterim = msg.text;
+        // Barge-in the same way native mode does: a few real words in,
+        // cut Jarvis off, don't wait for the full utterance to land.
+        if (msg.text.length > 3 && isJarvisSpeaking()) stopSpeaking();
+        updateLiveHearing(msg.text); updateMicDebug("Mic: " + msg.text + "…");
+        if (this.onInterim) this.onInterim(msg.text);
+      }
+    };
+
+    ws.onclose = (ev) => {
+      if (torndown) return; torndown = true;
+      this._streamStopAudioGraph();
+      this.active = false; state.isListening = false; updateLiveHearing("");
+      if (this.suspended) return;
+      if (!openedOk) {
+        // Never got a working connection at all — most likely no
+        // DEEPGRAM_API_KEY configured server-side (server closes with
+        // code 4001/4002 in that case). Give it one more try in case it
+        // was transient, then permanently fall back to batch mode.
+        this._streamFailCount++;
+        if (this._streamFailCount >= 2) { this._streamFallback(); return; }
+      }
+      this._relaunchSoon();
+    };
+
+    ws.onerror = () => { /* onclose fires right after and handles fallback/retry */ };
+  },
+
+  // Wires the mic into the AudioWorklet PCM tap and starts pushing
+  // frames to the already-open WebSocket. Buffers a few worklet
+  // callbacks (128 samples each) into ~20ms chunks before sending, so
+  // we're not opening a WS frame every 2-3ms.
+  async _streamStartAudioGraph(sampleRate, ws) {
+    const ctx = this._streamCtx;
+    const src = ctx.createMediaStreamSource(this._streamStream);
+    this._streamMuteGain = ctx.createGain();
+    this._streamMuteGain.gain.value = 0; // tap only, never routed to speakers
+
+    const chunkSamples = Math.round(sampleRate * 0.02); // ~20ms per frame sent
+    this._streamChunkBuf = new Float32Array(chunkSamples);
+    this._streamChunkFilled = 0;
+
+    const pushSamples = (float32) => {
+      let i = 0;
+      while (i < float32.length) {
+        const space = this._streamChunkBuf.length - this._streamChunkFilled;
+        const n = Math.min(space, float32.length - i);
+        this._streamChunkBuf.set(float32.subarray(i, i + n), this._streamChunkFilled);
+        this._streamChunkFilled += n; i += n;
+        if (this._streamChunkFilled >= this._streamChunkBuf.length) {
+          if (ws.readyState === WebSocket.OPEN) ws.send(this._floatTo16BitPCM(this._streamChunkBuf));
+          this._streamChunkFilled = 0;
+        }
+      }
+    };
+
+    let workletReady = false;
+    try {
+      await ctx.audioWorklet.addModule("pcm-worklet.js");
+      workletReady = true;
+    } catch (e) {
+      console.error("[mic-stream] AudioWorklet module failed to load, falling back to ScriptProcessorNode:", e);
+    }
+
+    if (this._streamCtx !== ctx) return; // torn down while awaiting the worklet module
+
+    if (workletReady) {
+      this._streamProcessor = new AudioWorkletNode(ctx, "pcm-capture-processor", { numberOfInputs: 1, numberOfOutputs: 1, channelCount: 1 });
+      const thisProcessor = this._streamProcessor;
+      this._streamProcessor.port.onmessage = (e) => {
+        if (this._streamProcessor !== thisProcessor) return;
+        pushSamples(e.data);
+      };
+    } else {
+      const PROCESSOR_BUFFER = 2048;
+      this._streamProcessor = ctx.createScriptProcessor(PROCESSOR_BUFFER, 1, 1);
+      const thisProcessor = this._streamProcessor;
+      this._streamProcessor.onaudioprocess = (e) => {
+        if (this._streamProcessor !== thisProcessor) return;
+        pushSamples(e.inputBuffer.getChannelData(0));
+      };
+    }
+    src.connect(this._streamProcessor);
+    this._streamProcessor.connect(this._streamMuteGain);
+    this._streamMuteGain.connect(ctx.destination);
+  },
+
+  _floatTo16BitPCM(float32) {
+    const out = new Int16Array(float32.length);
+    for (let i = 0; i < float32.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32[i]));
+      out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    return out.buffer;
+  },
+
+  _streamStopAudioGraph() {
+    try { if (this._streamProcessor) { this._streamProcessor.onaudioprocess = null; if (this._streamProcessor.port) this._streamProcessor.port.onmessage = null; this._streamProcessor.disconnect(); } } catch (_) {}
+    try { if (this._streamMuteGain) this._streamMuteGain.disconnect(); } catch (_) {}
+    try { if (this._streamStream) this._streamStream.getTracks().forEach(t => t.stop()); } catch (_) {}
+    try { if (this._streamCtx) this._streamCtx.close(); } catch (_) {}
+    this._streamProcessor = null; this._streamMuteGain = null; this._streamChunkBuf = null;
+    this._streamChunkFilled = 0; this._streamStream = null; this._streamCtx = null;
+  },
+
+  // Streaming couldn't get a working connection twice in a row — most
+  // likely DEEPGRAM_API_KEY just isn't set server-side. Drop to the
+  // batch pipeline permanently for this session so the app keeps
+  // working (just back to record → upload → wait) instead of retrying
+  // a dead endpoint forever.
+  _streamFallback() {
+    console.warn("[mic-stream] falling back to batch cloud transcription — is DEEPGRAM_API_KEY set?");
+    this._streamMode = false;
+    updateMicDebug("Mic: falling back to batch mode…");
+    this._relaunchSoon();
+  },
+
   // Same spirit as _relaunchSoon(): re-arm the VAD loop for the next
   // utterance without stacking calls if we're already mid-relaunch.
   _relaunchCloudSoon() {
@@ -1124,6 +1343,11 @@ const mic = {
   },
   _kill() {
     if (USE_CLOUD_STT) {
+      // Stream transport
+      try { if (this._streamSocket) { this._streamSocket.onopen = this._streamSocket.onmessage = this._streamSocket.onclose = this._streamSocket.onerror = null; if (this._streamSocket.readyState === WebSocket.OPEN || this._streamSocket.readyState === WebSocket.CONNECTING) this._streamSocket.close(); } } catch (_) {}
+      this._streamSocket = null;
+      this._streamStopAudioGraph();
+      // Batch transport
       cancelAnimationFrame(this._cloudVadRAF);
       try { if (this._cloudProcessor) { this._cloudProcessor.onaudioprocess = null; if (this._cloudProcessor.port) this._cloudProcessor.port.onmessage = null; this._cloudProcessor.disconnect(); } } catch (_) {}
       try { if (this._cloudMuteGain) this._cloudMuteGain.disconnect(); } catch (_) {}
