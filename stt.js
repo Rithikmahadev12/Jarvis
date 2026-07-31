@@ -16,20 +16,84 @@
 // instead. This module is that backend: it takes a short recorded
 // audio clip from the browser and transcribes it.
 //
-// Primary engine: Gemini (reuses the same GEMINI_API_KEY / failover
-// pool already configured for screen-vision.js — no new signup, and
-// Gemini's audio understanding is noticeably better than Groq's
-// Whisper on short/quiet command-style clips, which is what this
-// project's mic input actually is). Falls back to Groq's hosted
-// Whisper endpoint only if no GEMINI_API_KEY is configured, so
-// existing Groq-only setups keep working unchanged.
+// Primary engine: Deepgram (Nova-2). Free account gives $200 in
+// credit with no card required and no expiration — plenty for
+// personal use — and it's noticeably more accurate on short,
+// quiet, command-style clips than Groq's Whisper was. Get a key at
+// https://console.deepgram.com/signup, then set DEEPGRAM_API_KEY in
+// .env. Falls back to Gemini (if GEMINI_API_KEY is set) and then
+// Groq (if GROQ_API_KEY is set) only if Deepgram isn't configured
+// or fails, so nothing breaks for setups that had those working.
 //
 // Only used by the desktop app's mic fallback (see
 // public/mic-cloud.js) — the Render/browser flow never calls this.
 // ═══════════════════════════════════════════════════════════════
 const GroqKeys = require("./groq-keys");
 
-// ── Gemini key pool (same pattern as screen-vision.js) ────────────
+// ── Deepgram ────────────────────────────────────────────────────
+const DEEPGRAM_API_KEY = (process.env.DEEPGRAM_API_KEY || "").trim();
+const DEEPGRAM_MODEL = process.env.DEEPGRAM_MODEL || "nova-2";
+const DEEPGRAM_MIME_MAP = { "audio/webm": "audio/webm", "audio/wav": "audio/wav", "audio/mp4": "audio/mp4", "audio/mpeg": "audio/mpeg", "audio/ogg": "audio/ogg" };
+
+async function deepgramTranscribe(buffer, mimeType) {
+  const contentType = DEEPGRAM_MIME_MAP[mimeType] || "audio/webm";
+  // keywords boosts recognition odds for this project's actual command
+  // vocabulary and the wake word itself — Deepgram's docs recommend
+  // this for short command-style utterances just like Groq's "prompt"
+  // field was doing before.
+  const keywords = ["jarvis:2", "shuffle:1", "resume:1"].map(k => `keywords=${encodeURIComponent(k)}`).join("&");
+  const url = `https://api.deepgram.com/v1/listen?model=${DEEPGRAM_MODEL}&language=en&smart_format=true&punctuate=true&${keywords}`;
+
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Authorization": `Token ${DEEPGRAM_API_KEY}`, "Content-Type": contentType },
+      body: buffer,
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch (e) {
+    throw new Error(`Could not reach Deepgram STT: ${e.message}`);
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(`Deepgram STT error ${res.status}: ${err.err_msg || err.reason || res.statusText}`);
+  }
+
+  const data = await res.json();
+  const transcript = data?.results?.channels?.[0]?.alternatives?.[0]?.transcript || "";
+  return { text: transcript.trim() };
+}
+
+// buffer: raw audio bytes (webm/opus from the browser's MediaRecorder)
+// filename: kept for signature compatibility with the fallback engines
+// mimeType: passed through to whichever engine handles the request
+async function transcribe(buffer, filename = "clip.webm", mimeType = "audio/webm") {
+  if (!buffer || !buffer.length) return { text: "" };
+
+  if (DEEPGRAM_API_KEY) {
+    try {
+      return await deepgramTranscribe(buffer, mimeType);
+    } catch (e) {
+      console.warn(`[STT] Deepgram failed: ${e.message} — falling back...`);
+      if (!USE_GEMINI && !GroqKeys.hasGroqKey()) throw e;
+    }
+  }
+
+  if (USE_GEMINI) {
+    try {
+      return await geminiTranscribe(buffer, mimeType);
+    } catch (e) {
+      console.warn(`[STT] Gemini failed: ${e.message} — falling back...`);
+      if (!GroqKeys.hasGroqKey()) throw e;
+    }
+  }
+
+  return groqTranscribe(buffer, filename, mimeType);
+}
+
+// ── Gemini fallback ─────────────────────────────────────────────
 function loadGeminiKeys() {
   const keys = [];
   const primary = process.env.GEMINI_API_KEY || "";
@@ -53,20 +117,12 @@ function currentGeminiKey() {
 function rotateGeminiKey() {
   geminiKeyIndex = (geminiKeyIndex + 1) % GEMINI_API_KEYS.length;
 }
-// Same always-current alias screen-vision.js uses, so this doesn't go
-// stale when Google retires a pinned version. Override with
-// GEMINI_STT_MODEL in .env if you want to pin one.
 const GEMINI_STT_MODEL = process.env.GEMINI_STT_MODEL || "gemini-flash-latest";
 function geminiUrlFor(model) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
 const USE_GEMINI = GEMINI_API_KEYS.length > 0;
 
-// Instruction primes Gemini with the same command vocabulary the old
-// Groq prompt used, and — importantly — tells it to return NOTHING
-// when the clip is silence/noise, since Gemini doesn't give us the
-// per-segment no_speech_prob signal Whisper does to filter that
-// ourselves after the fact.
 const GEMINI_STT_PROMPT = `Transcribe the exact words spoken in this audio clip. It is a short voice command spoken to a personal assistant named Jarvis — things like "play", "pause", "skip", "stop", "resume", "shuffle", "volume up", "volume down", "open", "close", "search", "what's the weather", "set a timer", "set a reminder", "turn off the lights", "good morning Jarvis", or a short yes/no reply.
 
 Rules:
@@ -100,7 +156,6 @@ async function geminiTranscribe(buffer, mimeType) {
       });
     } catch (e) {
       lastError = new Error(`Could not reach Gemini STT: ${e.message}`);
-      console.warn(`[STT] Gemini key #${geminiKeyIndex + 1} network failure: ${e.message} — rotating...`);
       rotateGeminiKey();
       continue;
     }
@@ -108,7 +163,6 @@ async function geminiTranscribe(buffer, mimeType) {
     if ((res.status === 429 || res.status === 401 || res.status === 403 || res.status >= 500) && i < attempts - 1) {
       const errBody = await res.json().catch(() => ({}));
       lastError = new Error(`Gemini STT error ${res.status}: ${errBody.error?.message || res.statusText}`);
-      console.warn(`[STT] Gemini key #${geminiKeyIndex + 1} failed with ${res.status} — rotating...`);
       rotateGeminiKey();
       continue;
     }
@@ -127,25 +181,12 @@ async function geminiTranscribe(buffer, mimeType) {
   throw lastError || new Error("All configured Gemini API keys failed for speech-to-text.");
 }
 
-// buffer: raw audio bytes (webm/opus from the browser's MediaRecorder)
-// filename: kept for signature compatibility with the Groq path below
-// mimeType: passed through to whichever engine handles the request
-async function transcribe(buffer, filename = "clip.webm", mimeType = "audio/webm") {
-  if (!buffer || !buffer.length) return { text: "" };
-
-  if (USE_GEMINI) {
-    return geminiTranscribe(buffer, mimeType);
-  }
-
-  return groqTranscribe(buffer, filename, mimeType);
-}
-
-// ── Groq fallback (only used when GEMINI_API_KEY isn't configured) ─
+// ── Groq fallback (last resort) ────────────────────────────────
 const GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
 const STT_MODEL = process.env.GROQ_STT_MODEL || "whisper-large-v3";
 
 async function groqTranscribe(buffer, filename, mimeType) {
-  if (!GroqKeys.hasGroqKey()) throw new Error("Neither GEMINI_API_KEY nor GROQ_API_KEY is set in .env — desktop mic needs one of them for speech-to-text.");
+  if (!GroqKeys.hasGroqKey()) throw new Error("No STT provider configured — set DEEPGRAM_API_KEY (recommended), GEMINI_API_KEY, or GROQ_API_KEY in .env.");
 
   const totalKeys = GroqKeys.groqKeyCount();
   let lastError = null;
@@ -174,7 +215,6 @@ async function groqTranscribe(buffer, filename, mimeType) {
     } catch (e) {
       lastError = new Error(`Could not reach Groq STT${keyLabel}: ${e.message}`);
       if (isLastKey) throw lastError;
-      console.warn(`[STT]${keyLabel} network failure: ${e.message} — rotating to next key...`);
       GroqKeys.rotateGroqKey();
       continue;
     }
@@ -182,7 +222,6 @@ async function groqTranscribe(buffer, filename, mimeType) {
     if ((res.status === 429 || res.status === 401 || res.status === 403 || res.status >= 500) && !isLastKey) {
       const errBody = await res.json().catch(() => ({}));
       lastError = new Error(`Groq STT error ${res.status}${keyLabel}: ${errBody.error?.message || res.statusText}`);
-      console.warn(`[STT]${keyLabel} failed with ${res.status} — rotating to next key...`);
       GroqKeys.rotateGroqKey();
       continue;
     }
@@ -199,7 +238,6 @@ async function groqTranscribe(buffer, filename, mimeType) {
   throw lastError || new Error("All configured Groq API keys failed for speech-to-text.");
 }
 
-// ── Hallucination filtering (Groq path only — Gemini path filters via prompt) ──
 const NO_SPEECH_PROB_MAX   = 0.5;
 const AVG_LOGPROB_MIN      = -1.0;
 const COMPRESSION_RATIO_MAX = 2.4;
