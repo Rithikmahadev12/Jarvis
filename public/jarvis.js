@@ -872,7 +872,16 @@ const mic = {
     src.connect(this._cloudProcessor);
     this._cloudProcessor.connect(this._cloudMuteGain);
     this._cloudMuteGain.connect(this._cloudCtx.destination);
+    const thisProcessor = this._cloudProcessor;
     this._cloudProcessor.onaudioprocess = (e) => {
+      // Guard against orphaned instances: mic suspend/resume happens back
+      // to back during boot (face scan → account creation → chat listening
+      // etc.), and a ScriptProcessorNode can have one callback already
+      // queued at the moment _kill() disconnects it. Without this check,
+      // that stray callback fires against a ring buffer (or processor
+      // slot) that's already been nulled out or replaced by a newer
+      // launch, and throws.
+      if (this._cloudProcessor !== thisProcessor || !this._cloudPcmRing) return;
       const now = Date.now();
       this._cloudPcmRing.push({ samples: new Float32Array(e.inputBuffer.getChannelData(0)), ts: now });
       // Bound memory: only need enough history to cover the longest
