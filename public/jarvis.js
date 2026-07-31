@@ -657,9 +657,9 @@ const mic = {
   _lastLaunchAt: 0, _minLaunchGapMs: 700,
 
   // ── cloud-transport state (unused in native mode) ──
-  _cloudStream: null, _cloudCtx: null, _cloudAnalyser: null, _cloudRecorder: null,
-  _cloudChunks: null, _cloudVadRAF: null, _cloudSpeaking: false, _cloudSilenceStart: 0,
-  _cloudMime: "audio/webm",
+  _cloudStream: null, _cloudCtx: null, _cloudAnalyser: null,
+  _cloudProcessor: null, _cloudMuteGain: null, _cloudPcmRing: null, _cloudUtteranceStartTs: null,
+  _cloudVadRAF: null, _cloudSpeaking: false, _cloudSilenceStart: 0,
 
   // Which physical mic to use (getUserMedia deviceId). null = system default.
   // Persisted so the choice survives a restart. Only the cloud transport
@@ -846,10 +846,43 @@ const mic = {
     this._cloudAnalyser.fftSize = 512;
     src.connect(this._cloudAnalyser);
 
+    // ── Continuous PCM tap (pre-roll buffer) ──
+    // Previously a brand-new MediaRecorder was started only once the VAD
+    // saw the volume cross the speech threshold — which meant the first
+    // ~100-200ms of the utterance (usually the quiet attack of the first
+    // word, e.g. "play") was already gone by the time recording began.
+    // That's what was turning "play timeless" into "timeless" or worse —
+    // Whisper guessing at a fragment and mishearing it, or hallucinating
+    // a stock phrase like "thank you" on what little audio it got.
+    //
+    // Fix: keep a rolling buffer of raw PCM samples running at all times
+    // (via a ScriptProcessorNode tapped off the same source), and when
+    // the VAD fires, splice in a bit of audio from BEFORE the trigger
+    // moment as well as everything after. Raw PCM (not MediaRecorder
+    // chunks) is used here specifically because it can be sliced at any
+    // arbitrary point and re-encoded standalone — WebM/Opus chunks from
+    // a timesliced MediaRecorder can't be split like that without losing
+    // the container header.
+    this._cloudPcmRing = [];
+    this._cloudUtteranceStartTs = null;
+    const PROCESSOR_BUFFER = 2048;
+    this._cloudProcessor = this._cloudCtx.createScriptProcessor(PROCESSOR_BUFFER, 1, 1);
+    this._cloudMuteGain = this._cloudCtx.createGain();
+    this._cloudMuteGain.gain.value = 0; // never let the tap reach real speakers
+    src.connect(this._cloudProcessor);
+    this._cloudProcessor.connect(this._cloudMuteGain);
+    this._cloudMuteGain.connect(this._cloudCtx.destination);
+    this._cloudProcessor.onaudioprocess = (e) => {
+      const now = Date.now();
+      this._cloudPcmRing.push({ samples: new Float32Array(e.inputBuffer.getChannelData(0)), ts: now });
+      // Bound memory: only need enough history to cover the longest
+      // possible utterance plus pre-roll, not the whole session.
+      const cutoff = now - 16000;
+      while (this._cloudPcmRing.length && this._cloudPcmRing[0].ts < cutoff) this._cloudPcmRing.shift();
+    };
+
     this._cloudSpeaking = false;
     this._cloudSilenceStart = 0;
-    this._cloudChunks = [];
-    this._cloudRecorder = null;
     // Ambient-noise calibration: a single fixed volume threshold (the old
     // 0.035) works for whoever tuned it, but a quieter mic/voice or a
     // noisier room means real speech never crosses it (Jarvis just never
@@ -864,8 +897,9 @@ const mic = {
   },
 
   // Runs every animation frame while the mic is active: watches input
-  // volume to decide when speech starts/stops, starting/stopping the
-  // MediaRecorder around it so we only ever upload real speech.
+  // volume to decide when speech starts/stops, and marks that window
+  // (plus a bit of pre-roll) against the continuously-running PCM ring
+  // buffer so only the relevant slice gets uploaded.
   _cloudVadTick() {
     if (this.suspended || !this.active || !this._cloudAnalyser) return;
     if (this._cloudCtx && this._cloudCtx.state === "suspended") this._cloudCtx.resume().catch(() => {});
@@ -898,14 +932,15 @@ const mic = {
     const SILENCE_HOLD_MS  = 900;    // how long we wait after speech stops before treating the utterance as done
     const MAX_UTTERANCE_MS = 15000;  // safety cap so a stuck-open mic can't record forever
     const MIN_SPEECH_MS    = 300;    // an utterance shorter than this is almost never a real word — drop it before it ever reaches the server
+    const PREROLL_MS       = 280;    // how far back before the trigger to reach into the ring buffer, so the attack of the first word isn't clipped
 
     if (rms > SPEECH_THRESHOLD) {
       if (!this._cloudSpeaking) {
         this._cloudSpeaking = true;
         this._cloudUtteranceStart = now;
+        this._cloudUtteranceStartTs = now - PREROLL_MS;
         if (isJarvisSpeaking()) stopSpeaking(); // barge-in the instant real volume shows up
         updateLiveHearing("…"); updateMicDebug("Mic: hearing you…");
-        this._cloudStartRecorder();
       }
       this._cloudSilenceStart = 0;
     } else if (this._cloudSpeaking) {
@@ -915,50 +950,51 @@ const mic = {
       if ((spokeLongEnough && now - this._cloudSilenceStart > SILENCE_HOLD_MS) || timedOut) {
         this._cloudSpeaking = false;
         updateLiveHearing(""); updateMicDebug("Mic: transcribing…");
-        this._cloudStopRecorder();
+        this._cloudFinishUtterance(now);
       } else if (!spokeLongEnough && now - this._cloudSilenceStart > SILENCE_HOLD_MS) {
         // Volume blipped above threshold for under MIN_SPEECH_MS then dropped —
         // a click/breath/fan gust, not a word. Discard silently and re-arm.
         this._cloudSpeaking = false;
         this._cloudSilenceStart = 0;
-        try { if (this._cloudRecorder) { this._cloudRecorder.ondataavailable = null; this._cloudRecorder.onstop = null; this._cloudRecorder.stop(); } } catch (_) {}
-        this._cloudRecorder = null; this._cloudChunks = [];
+        this._cloudUtteranceStartTs = null;
         updateLiveHearing(""); updateMicDebug("Mic: listening…");
       }
     }
     this._cloudVadRAF = requestAnimationFrame(() => this._cloudVadTick());
   },
 
-  _cloudStartRecorder() {
-    if (!this._cloudStream || this._cloudRecorder) return;
-    const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
-    const mime = mimeCandidates.find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
-    this._cloudMime = mime || "audio/webm";
-    try {
-      this._cloudRecorder = mime ? new MediaRecorder(this._cloudStream, { mimeType: mime }) : new MediaRecorder(this._cloudStream);
-    } catch {
-      this._cloudRecorder = new MediaRecorder(this._cloudStream);
-    }
-    this._cloudChunks = [];
-    this._cloudRecorder.ondataavailable = (e) => { if (e.data && e.data.size) this._cloudChunks.push(e.data); };
-    this._cloudRecorder.start();
-  },
+  // Slices the requested window out of the continuously-running PCM ring
+  // buffer (including the pre-roll set in _cloudVadTick), encodes it as a
+  // WAV blob, and sends it off for transcription. Raw PCM is used instead
+  // of MediaRecorder chunks specifically because it can be sliced from any
+  // arbitrary start point — a WebM/Opus chunk from mid-recording can't be
+  // decoded standalone without the container header from the very first
+  // chunk, which is what made pre-roll impossible with the old approach.
+  _cloudFinishUtterance(now) {
+    const startTs = this._cloudUtteranceStartTs;
+    this._cloudUtteranceStartTs = null;
+    const ring = this._cloudPcmRing;
+    if (!startTs || !ring || !ring.length) { this._relaunchCloudSoon(); return; }
 
-  _cloudStopRecorder() {
-    if (!this._cloudRecorder) { this._relaunchCloudSoon(); return; }
-    const rec = this._cloudRecorder;
-    rec.onstop = async () => {
-      const chunks = this._cloudChunks || [];
-      this._cloudChunks = [];
-      if (!chunks.length) { this._relaunchCloudSoon(); return; }
-      const blob = new Blob(chunks, { type: this._cloudMime });
-      // Tiny clips are almost always noise bumping the VAD threshold, not
-      // speech — but by the time we get here the VAD loop has already
-      // confirmed >=MIN_SPEECH_MS of above-threshold audio, so this is
-      // just a last-ditch "is there literally anything here" check now,
-      // not a duration filter. 2000 bytes was cutting off genuine short
-      // words (e.g. a quick "yes"/"no" answer) at lower encoder bitrates.
-      if (blob.size < 600) { this._relaunchCloudSoon(); return; }
+    const slice = ring.filter((c) => c.ts >= startTs && c.ts <= now);
+    if (!slice.length) { this._relaunchCloudSoon(); return; }
+
+    let totalLen = 0;
+    for (const c of slice) totalLen += c.samples.length;
+    const merged = new Float32Array(totalLen);
+    let offset = 0;
+    for (const c of slice) { merged.set(c.samples, offset); offset += c.samples.length; }
+
+    const blob = this._encodeWav(merged, this._cloudCtx.sampleRate);
+    // Tiny clips are almost always noise bumping the VAD threshold, not
+    // speech — but by the time we get here the VAD loop has already
+    // confirmed >=MIN_SPEECH_MS of above-threshold audio, so this is just
+    // a last-ditch "is there literally anything here" check now, not a
+    // duration filter. WAV is uncompressed so the byte floor is much
+    // higher than the old webm one (44-byte header + ~a few ms of audio).
+    if (blob.size < 4000) { this._relaunchCloudSoon(); return; }
+
+    (async () => {
       try {
         const text = await this._cloudTranscribe(blob);
         this.retryCount = 0;
@@ -973,9 +1009,38 @@ const mic = {
         updateMicDebug("Mic: transcription error — retrying");
       }
       this._relaunchCloudSoon();
-    };
-    try { rec.stop(); } catch { this._relaunchCloudSoon(); }
-    this._cloudRecorder = null;
+    })();
+  },
+
+  // Minimal 16-bit PCM WAV encoder — no external deps needed for a plain
+  // mono clip like this.
+  _encodeWav(samples, sampleRate) {
+    const numChannels = 1, bitsPerSample = 16;
+    const blockAlign = (numChannels * bitsPerSample) / 8;
+    const byteRate = sampleRate * blockAlign;
+    const dataSize = samples.length * 2;
+    const buffer = new ArrayBuffer(44 + dataSize);
+    const view = new DataView(buffer);
+    const writeStr = (offset, str) => { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); };
+    writeStr(0, "RIFF");
+    view.setUint32(4, 36 + dataSize, true);
+    writeStr(8, "WAVE");
+    writeStr(12, "fmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true); // PCM
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitsPerSample, true);
+    writeStr(36, "data");
+    view.setUint32(40, dataSize, true);
+    let offset = 44;
+    for (let i = 0; i < samples.length; i++, offset += 2) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    return new Blob([view], { type: "audio/wav" });
   },
 
   async _cloudTranscribe(blob) {
@@ -1012,10 +1077,12 @@ const mic = {
   _kill() {
     if (USE_CLOUD_STT) {
       cancelAnimationFrame(this._cloudVadRAF);
-      try { if (this._cloudRecorder) { this._cloudRecorder.ondataavailable = null; this._cloudRecorder.onstop = null; this._cloudRecorder.stop(); } } catch (_) {}
+      try { if (this._cloudProcessor) { this._cloudProcessor.onaudioprocess = null; this._cloudProcessor.disconnect(); } } catch (_) {}
+      try { if (this._cloudMuteGain) this._cloudMuteGain.disconnect(); } catch (_) {}
       try { if (this._cloudStream) this._cloudStream.getTracks().forEach(t => t.stop()); } catch (_) {}
       try { if (this._cloudCtx) this._cloudCtx.close(); } catch (_) {}
-      this._cloudRecorder = null; this._cloudStream = null; this._cloudCtx = null; this._cloudAnalyser = null;
+      this._cloudProcessor = null; this._cloudMuteGain = null; this._cloudPcmRing = null; this._cloudUtteranceStartTs = null;
+      this._cloudStream = null; this._cloudCtx = null; this._cloudAnalyser = null;
       this._cloudSpeaking = false; this._cloudSilenceStart = 0;
       this.rec = null; this.active = false; state.isListening = false;
       return;
