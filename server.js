@@ -3141,7 +3141,21 @@ app.post("/api/chat", async (req, res) => {
       }
     } catch (err) {
       console.error("[TOOLS] chatWithTools failed, falling back to legacy pipeline:", err.message);
-      // fall through to the pipeline below
+      // If EVERY configured Groq key just got rate-limited (429), the
+      // legacy pipeline below is a dumb regex/keyword matcher — it does
+      // NOT understand natural phrasing, so letting a rate-limit error
+      // fall through to it silently is exactly what makes Jarvis look
+      // like it "misheard" or "thinks I said something else": it never
+      // saw the real message at all, a regex guessed instead. Surface
+      // the real reason instead of guessing.
+      if (/rate.?limit|429/i.test(err.message || "")) {
+        const rateLimitedReply = `Apologies, ${T} — I'm being rate-limited by Groq at the moment, so I couldn't process that properly. Give it about twenty seconds and try again.`;
+        appendToSession(sessionId, "user", enrichedMessage);
+        appendToSession(sessionId, "assistant", rateLimitedReply);
+        return res.json({ reply: rateLimitedReply, action: "RATE_LIMITED", intent: "error" });
+      }
+      // Any other failure (network blip, Groq 5xx, etc.) — fall through
+      // to the legacy pipeline below as before.
     }
   }
 
