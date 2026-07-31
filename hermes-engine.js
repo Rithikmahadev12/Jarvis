@@ -669,15 +669,29 @@ async function chatWithTools({ message, userTitle = "Sir", memories = [], contex
     } catch { return new Date().toString(); }
   })();
 
-  const systemPrompt = getSystemPrompt(T, memories, context, []) + `
+  // NOTE ON TOKEN BUDGET: this account's Groq tier caps openai/gpt-oss-20b
+  // at 8000 TPM (tokens/minute) — see groq-keys.js / the 429 logs. The full
+  // getSystemPrompt() (personality voice/rules block) plus the ~30-tool
+  // schema below plus conversation history was regularly eating most of
+  // that budget in ONE request, which is what was causing both keys to
+  // 429 back-to-back and the whole message to fall through to the dumb
+  // legacy regex router (see server.js) instead of ever reaching the AI.
+  // getSystemPrompt() already had a `compact` variant (same voice/rules,
+  // ~1/3 the tokens) that just wasn't being used here — switching to it
+  // is a free, behavior-preserving token cut.
+  const systemPrompt = getSystemPrompt(T, memories, context, [], true) + `
 
 You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, reading a specific email in full once they pick one, checking their real Google Calendar, showing/hiding the live camera feed fullscreen, starting/stopping a downloadable screen/tab/webcam recording, instantly clipping the last N seconds of screen or webcam activity, noticing when the user needs a break, and (when Jarvis is running on the user's own computer) opening apps/files/URLs, checking disk space, running shell commands, typing text into the active window, and scanning for/neutralizing security threats. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. COMPOUND REQUESTS matter here: if the user asks for more than one thing in the same message (e.g. "open VS Code and type a flappy bird script"), call ALL the relevant tools in that SAME response — do not stop after the first one. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. After check_email lists unread emails and the user replies with something like "read the first one" or "the one from Sarah", call read_email with the right index or sender. If nothing calls for a tool, just answer normally in plain text.
 
 Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use this to compute datetime_iso for reminders.`;
 
+  // Trimmed from -8 to -4: still enough turns for follow-ups ("read the
+  // first one", "yes do that") to resolve correctly, at roughly half the
+  // token cost of the full 8-turn window — same TPM-budget reasoning as
+  // the compact system prompt above.
   const messages = [
     { role: "system", content: systemPrompt },
-    ...conversationHistory.slice(-8),
+    ...conversationHistory.slice(-4),
     { role: "user", content: message },
   ];
 
