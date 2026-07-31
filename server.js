@@ -1368,7 +1368,7 @@ app.post("/api/transcribe", async (req, res) => {
     const { audio, mimeType } = req.body;
     if (!audio) return res.status(400).json({ error: "Missing audio." });
     const buffer = Buffer.from(audio, "base64");
-    const ext = (mimeType || "").includes("mp4") ? "clip.mp4" : "clip.webm";
+    const ext = (mimeType || "").includes("wav") ? "clip.wav" : (mimeType || "").includes("mp4") ? "clip.mp4" : "clip.webm";
     const result = await STT.transcribe(buffer, ext, mimeType || "audio/webm");
     res.json(result);
   } catch (e) {
