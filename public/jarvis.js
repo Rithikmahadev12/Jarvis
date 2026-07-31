@@ -850,6 +850,16 @@ const mic = {
     this._cloudSilenceStart = 0;
     this._cloudChunks = [];
     this._cloudRecorder = null;
+    // Ambient-noise calibration: a single fixed volume threshold (the old
+    // 0.035) works for whoever tuned it, but a quieter mic/voice or a
+    // noisier room means real speech never crosses it (Jarvis just never
+    // "hears" you), while a hot mic means room tone crosses it constantly.
+    // Sample actual room noise for the first ~500ms after launch and set
+    // the threshold relative to THAT, so it adapts per machine/room
+    // instead of using one magic number for everyone.
+    this._cloudNoiseSamples = [];
+    this._cloudCalibratedUntil = Date.now() + 500;
+    this._cloudNoiseFloor = 0.012; // sane default until calibration completes
     this._cloudVadTick();
   },
 
@@ -864,12 +874,31 @@ const mic = {
     let sumSquares = 0;
     for (let i = 0; i < data.length; i++) { const v = (data[i] - 128) / 128; sumSquares += v * v; }
     const rms = Math.sqrt(sumSquares / data.length);
-    const SPEECH_THRESHOLD = 0.035;  // raised from 0.02 — the old value was tripping on room tone/breath/fan noise, which is what was feeding Whisper silent clips it then hallucinated "okay"/"thank you" on
+
+    const now = Date.now();
+
+    // ── Calibration window: first ~500ms after launch just measures room
+    // tone, doesn't try to detect speech yet. The real threshold ends up
+    // as the measured floor * 3, clamped to a sane range — quiet room +
+    // quiet mic gets a low threshold (so it actually hears you), noisy
+    // room/hot mic gets a higher one (so it doesn't trigger on fan/AC
+    // noise), instead of one fixed number assuming everyone's setup.
+    if (now < this._cloudCalibratedUntil) {
+      this._cloudNoiseSamples.push(rms);
+      this._cloudVadRAF = requestAnimationFrame(() => this._cloudVadTick());
+      return;
+    }
+    if (this._cloudNoiseSamples && this._cloudNoiseSamples.length) {
+      const avgFloor = this._cloudNoiseSamples.reduce((a, b) => a + b, 0) / this._cloudNoiseSamples.length;
+      this._cloudNoiseFloor = Math.min(Math.max(avgFloor * 3, 0.015), 0.06);
+      this._cloudNoiseSamples = null; // calibration done, don't keep sampling
+    }
+
+    const SPEECH_THRESHOLD = this._cloudNoiseFloor;
     const SILENCE_HOLD_MS  = 900;    // how long we wait after speech stops before treating the utterance as done
     const MAX_UTTERANCE_MS = 15000;  // safety cap so a stuck-open mic can't record forever
     const MIN_SPEECH_MS    = 300;    // an utterance shorter than this is almost never a real word — drop it before it ever reaches the server
 
-    const now = Date.now();
     if (rms > SPEECH_THRESHOLD) {
       if (!this._cloudSpeaking) {
         this._cloudSpeaking = true;
@@ -923,8 +952,13 @@ const mic = {
       this._cloudChunks = [];
       if (!chunks.length) { this._relaunchCloudSoon(); return; }
       const blob = new Blob(chunks, { type: this._cloudMime });
-      // Tiny clips are almost always noise bumping the VAD threshold, not speech.
-      if (blob.size < 2000) { this._relaunchCloudSoon(); return; }
+      // Tiny clips are almost always noise bumping the VAD threshold, not
+      // speech — but by the time we get here the VAD loop has already
+      // confirmed >=MIN_SPEECH_MS of above-threshold audio, so this is
+      // just a last-ditch "is there literally anything here" check now,
+      // not a duration filter. 2000 bytes was cutting off genuine short
+      // words (e.g. a quick "yes"/"no" answer) at lower encoder bitrates.
+      if (blob.size < 600) { this._relaunchCloudSoon(); return; }
       try {
         const text = await this._cloudTranscribe(blob);
         this.retryCount = 0;
