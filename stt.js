@@ -108,8 +108,17 @@ const COMPRESSION_RATIO_MAX = 2.4;  // above this, output is repetitive garbage
 // Stock phrases Whisper defaults to on silence/noise. Only used as a
 // *tie-breaker* on short, low-confidence segments — never used to reject
 // something the person actually clearly said with good confidence.
+//
+// IMPORTANT: "yes"/"ok"/"okay"/"no" are deliberately NOT in this set.
+// Jarvis regularly asks real yes/no questions ("coding, building, or
+// both, Sir?", voice-login confirmations, etc.) and short one-word
+// answers naturally get lower Whisper confidence than longer sentences
+// just because there's less audio to work with — so treating them as
+// "probably a hallucination" was silently discarding real answers, not
+// filtering noise. Keeping only phrases that are near-impossible to be
+// a genuine deliberate reply to Jarvis.
 const HALLUCINATION_PHRASES = new Set([
-  "thank you", "thanks", "thanks for watching", "okay", "ok", "yes", "so",
+  "thank you", "thanks", "thanks for watching", "so",
   "bye", "you", "i'm not", "all right", "alright", ".", "",
 ]);
 
