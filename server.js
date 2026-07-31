@@ -200,6 +200,8 @@ app.use("/soundeffects", express.static(path.join(__dirname, "soundeffects")));
 // ═══════════════════════════════════════════════════════════════
 const attachComms = require("./comms-server");
 const io          = attachComms(httpServer);
+const attachSttStream = require("./stt-stream");
+attachSttStream(httpServer);
 
 app.get("/comms", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "comms.html"));
