@@ -14,28 +14,138 @@
 // error loop) no matter what permissions are granted. There's no
 // client-side fix for that; it has to go through a real STT backend
 // instead. This module is that backend: it takes a short recorded
-// audio clip from the browser and transcribes it with Groq's hosted
-// Whisper endpoint (same GROQ_API_KEY / failover pool already used
-// by hermes-engine.js, so no new keys to set up).
+// audio clip from the browser and transcribes it.
+//
+// Primary engine: Gemini (reuses the same GEMINI_API_KEY / failover
+// pool already configured for screen-vision.js — no new signup, and
+// Gemini's audio understanding is noticeably better than Groq's
+// Whisper on short/quiet command-style clips, which is what this
+// project's mic input actually is). Falls back to Groq's hosted
+// Whisper endpoint only if no GEMINI_API_KEY is configured, so
+// existing Groq-only setups keep working unchanged.
 //
 // Only used by the desktop app's mic fallback (see
 // public/mic-cloud.js) — the Render/browser flow never calls this.
 // ═══════════════════════════════════════════════════════════════
 const GroqKeys = require("./groq-keys");
 
-const GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
-// Groq's hardware is fast enough that the accuracy difference between
-// "turbo" and the full model matters a lot more than the latency
-// difference does for short command-style clips — turbo was mishearing
-// short/quiet utterances too often. Override with GROQ_STT_MODEL in
-// .env if you want to go back to whisper-large-v3-turbo for speed.
-const STT_MODEL = process.env.GROQ_STT_MODEL || "whisper-large-v3";
+// ── Gemini key pool (same pattern as screen-vision.js) ────────────
+function loadGeminiKeys() {
+  const keys = [];
+  const primary = process.env.GEMINI_API_KEY || "";
+  for (const k of primary.split(",")) {
+    const trimmed = k.trim();
+    if (trimmed) keys.push(trimmed);
+  }
+  for (let i = 2; ; i++) {
+    const k = process.env[`GEMINI_API_KEY${i}`];
+    if (!k) break;
+    const trimmed = k.trim();
+    if (trimmed) keys.push(trimmed);
+  }
+  return keys;
+}
+const GEMINI_API_KEYS = loadGeminiKeys();
+let geminiKeyIndex = 0;
+function currentGeminiKey() {
+  return GEMINI_API_KEYS[geminiKeyIndex % GEMINI_API_KEYS.length];
+}
+function rotateGeminiKey() {
+  geminiKeyIndex = (geminiKeyIndex + 1) % GEMINI_API_KEYS.length;
+}
+// Same always-current alias screen-vision.js uses, so this doesn't go
+// stale when Google retires a pinned version. Override with
+// GEMINI_STT_MODEL in .env if you want to pin one.
+const GEMINI_STT_MODEL = process.env.GEMINI_STT_MODEL || "gemini-flash-latest";
+function geminiUrlFor(model) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+}
+const USE_GEMINI = GEMINI_API_KEYS.length > 0;
+
+// Instruction primes Gemini with the same command vocabulary the old
+// Groq prompt used, and — importantly — tells it to return NOTHING
+// when the clip is silence/noise, since Gemini doesn't give us the
+// per-segment no_speech_prob signal Whisper does to filter that
+// ourselves after the fact.
+const GEMINI_STT_PROMPT = `Transcribe the exact words spoken in this audio clip. It is a short voice command spoken to a personal assistant named Jarvis — things like "play", "pause", "skip", "stop", "resume", "shuffle", "volume up", "volume down", "open", "close", "search", "what's the weather", "set a timer", "set a reminder", "turn off the lights", "good morning Jarvis", or a short yes/no reply.
+
+Rules:
+- Output ONLY the transcribed words, nothing else — no quotes, no labels, no punctuation commentary.
+- If the clip is silence, noise, breathing, or otherwise contains no actual speech, output exactly: [EMPTY]
+- Do not guess or hallucinate a generic phrase (like "thank you" or "okay") if you are not confident real words were spoken — output [EMPTY] instead.
+- Transcribe in English.`;
+
+const GEMINI_MIME_MAP = { "audio/webm": "audio/webm", "audio/wav": "audio/wav", "audio/mp4": "audio/mp4", "audio/mpeg": "audio/mpeg", "audio/ogg": "audio/ogg" };
+
+async function geminiTranscribe(buffer, mimeType) {
+  const geminiMime = GEMINI_MIME_MAP[mimeType] || "audio/webm";
+  const base64Audio = buffer.toString("base64");
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text: GEMINI_STT_PROMPT }, { inline_data: { mime_type: geminiMime, data: base64Audio } }] }],
+    generationConfig: { temperature: 0 },
+  });
+
+  const attempts = GEMINI_API_KEYS.length;
+  let lastError = null;
+
+  for (let i = 0; i < attempts; i++) {
+    const key = currentGeminiKey();
+    let res;
+    try {
+      res = await fetch(`${geminiUrlFor(GEMINI_STT_MODEL)}?key=${key}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        signal: AbortSignal.timeout(20000),
+      });
+    } catch (e) {
+      lastError = new Error(`Could not reach Gemini STT: ${e.message}`);
+      console.warn(`[STT] Gemini key #${geminiKeyIndex + 1} network failure: ${e.message} — rotating...`);
+      rotateGeminiKey();
+      continue;
+    }
+
+    if ((res.status === 429 || res.status === 401 || res.status === 403 || res.status >= 500) && i < attempts - 1) {
+      const errBody = await res.json().catch(() => ({}));
+      lastError = new Error(`Gemini STT error ${res.status}: ${errBody.error?.message || res.statusText}`);
+      console.warn(`[STT] Gemini key #${geminiKeyIndex + 1} failed with ${res.status} — rotating...`);
+      rotateGeminiKey();
+      continue;
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`Gemini STT error ${res.status}: ${err.error?.message || res.statusText}`);
+    }
+
+    const data = await res.json();
+    const raw = (data.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+    if (!raw || raw === "[EMPTY]" || raw.replace(/[.,!?]+$/g, "").trim() === "[EMPTY]") return { text: "" };
+    return { text: raw };
+  }
+
+  throw lastError || new Error("All configured Gemini API keys failed for speech-to-text.");
+}
 
 // buffer: raw audio bytes (webm/opus from the browser's MediaRecorder)
-// filename: just needs a sensible extension so Groq can sniff the format
+// filename: kept for signature compatibility with the Groq path below
+// mimeType: passed through to whichever engine handles the request
 async function transcribe(buffer, filename = "clip.webm", mimeType = "audio/webm") {
-  if (!GroqKeys.hasGroqKey()) throw new Error("GROQ_API_KEY not set in .env — desktop mic needs it for speech-to-text.");
   if (!buffer || !buffer.length) return { text: "" };
+
+  if (USE_GEMINI) {
+    return geminiTranscribe(buffer, mimeType);
+  }
+
+  return groqTranscribe(buffer, filename, mimeType);
+}
+
+// ── Groq fallback (only used when GEMINI_API_KEY isn't configured) ─
+const GROQ_TRANSCRIBE_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
+const STT_MODEL = process.env.GROQ_STT_MODEL || "whisper-large-v3";
+
+async function groqTranscribe(buffer, filename, mimeType) {
+  if (!GroqKeys.hasGroqKey()) throw new Error("Neither GEMINI_API_KEY nor GROQ_API_KEY is set in .env — desktop mic needs one of them for speech-to-text.");
 
   const totalKeys = GroqKeys.groqKeyCount();
   let lastError = null;
@@ -48,20 +158,9 @@ async function transcribe(buffer, filename = "clip.webm", mimeType = "audio/webm
     const form = new FormData();
     form.append("file", new Blob([buffer], { type: mimeType }), filename);
     form.append("model", STT_MODEL);
-    // verbose_json gives per-segment no_speech_prob / avg_logprob / compression_ratio,
-    // which is what lets us tell "real speech" apart from Whisper hallucinating a
-    // generic phrase ("thank you", "okay", ".") on near-silent/noisy audio — the
-    // exact junk that was showing up in the mic-status log. Plain "json" gives no
-    // signal to filter on at all, so this used to just trust whatever came back.
     form.append("response_format", "verbose_json");
     form.append("language", "en");
     form.append("temperature", "0");
-    // Context hint for Whisper. These clips are short, isolated voice
-    // commands with no surrounding conversation to disambiguate from —
-    // exactly the condition that makes Whisper default to a stock phrase
-    // ("thank you", "so", ".") or mis-hear the first word of a command.
-    // Priming it with the kind of thing it's about to hear measurably
-    // helps both problems.
     form.append("prompt", "Voice commands spoken to a personal assistant named Jarvis: play, pause, skip, stop, resume, shuffle, volume up, volume down, play the song, open, close, search, what's the weather, set a timer, set a reminder, turn off the lights, good morning Jarvis.");
 
     let res;
@@ -100,33 +199,11 @@ async function transcribe(buffer, filename = "clip.webm", mimeType = "audio/webm
   throw lastError || new Error("All configured Groq API keys failed for speech-to-text.");
 }
 
-// ── Hallucination filtering ──
-// Whisper (all sizes, Groq's included) is well known to "hear" stock phrases
-// like "Thank you.", "Okay.", "Thanks for watching.", "So," or just "." when
-// fed silence, room tone, or a keyboard/breath sound — because those phrases
-// are extremely common at the end of its training clips. The VAD upstream
-// (public/jarvis.js _cloudVadTick) will always let a few of these slip
-// through no matter how it's tuned, so the filtering has to happen here too,
-// using signals Whisper itself gives us per segment:
-//   • no_speech_prob  — Whisper's own confidence that this segment is NOT speech
-//   • avg_logprob     — how confident it was about the words it chose (low = guessing)
-//   • compression_ratio — very repetitive/degenerate output has a high ratio
-const NO_SPEECH_PROB_MAX   = 0.5;   // above this, Whisper itself thinks it's silence
-const AVG_LOGPROB_MIN      = -1.0;  // below this, it was basically guessing
-const COMPRESSION_RATIO_MAX = 2.4;  // above this, output is repetitive garbage
+// ── Hallucination filtering (Groq path only — Gemini path filters via prompt) ──
+const NO_SPEECH_PROB_MAX   = 0.5;
+const AVG_LOGPROB_MIN      = -1.0;
+const COMPRESSION_RATIO_MAX = 2.4;
 
-// Stock phrases Whisper defaults to on silence/noise. Only used as a
-// *tie-breaker* on short, low-confidence segments — never used to reject
-// something the person actually clearly said with good confidence.
-//
-// IMPORTANT: "yes"/"ok"/"okay"/"no" are deliberately NOT in this set.
-// Jarvis regularly asks real yes/no questions ("coding, building, or
-// both, Sir?", voice-login confirmations, etc.) and short one-word
-// answers naturally get lower Whisper confidence than longer sentences
-// just because there's less audio to work with — so treating them as
-// "probably a hallucination" was silently discarding real answers, not
-// filtering noise. Keeping only phrases that are near-impossible to be
-// a genuine deliberate reply to Jarvis.
 const HALLUCINATION_PHRASES = new Set([
   "thank you", "thanks", "thanks for watching", "so",
   "bye", "you", "i'm not", "all right", "alright", ".", "",
@@ -135,8 +212,6 @@ const HALLUCINATION_PHRASES = new Set([
 function extractRealSpeech(data) {
   const segments = Array.isArray(data.segments) ? data.segments : null;
   if (!segments || !segments.length) {
-    // No segment info came back (shouldn't happen with verbose_json, but
-    // don't crash if Groq changes the shape) — fall back to plain text.
     return (data.text || "").trim();
   }
 
