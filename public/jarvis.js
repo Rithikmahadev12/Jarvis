@@ -1204,7 +1204,16 @@ const mic = {
     ws.onmessage = (ev) => {
       let msg;
       try { msg = JSON.parse(ev.data); } catch { return; }
-      if (!msg || !msg.text) return;
+      if (!msg) return;
+      // Fires the instant Deepgram's VAD notices speech starting, before
+      // any words have come back yet — cuts Jarvis off a beat sooner
+      // than waiting on the first interim transcript.
+      if (msg.type === "speech_started") {
+        if (isJarvisSpeaking()) stopSpeaking();
+        updateMicDebug("Mic: hearing you…");
+        return;
+      }
+      if (!msg.text) return;
       if (msg.type === "final") {
         this._streamInterim = "";
         updateLiveHearing(""); updateMicDebug(`Mic: "${msg.text}"`);
