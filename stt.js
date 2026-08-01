@@ -35,17 +35,44 @@ const GroqKeys = require("./groq-keys");
 
 // ── Deepgram ────────────────────────────────────────────────────
 const DEEPGRAM_API_KEY = (process.env.DEEPGRAM_API_KEY || "").trim();
-const DEEPGRAM_MODEL = process.env.DEEPGRAM_MODEL || "nova-2";
+const DEEPGRAM_MODEL = process.env.DEEPGRAM_MODEL || "nova-3";
 const DEEPGRAM_MIME_MAP = { "audio/webm": "audio/webm", "audio/wav": "audio/wav", "audio/mp4": "audio/mp4", "audio/mpeg": "audio/mpeg", "audio/ogg": "audio/ogg" };
+
+// Same recognition-boost vocabulary the live-streaming path uses (see
+// stt-stream.js for the full rationale) — built from this install's
+// actual wake word / owner name / cast device plus the app's real
+// command vocabulary, not just a couple of hardcoded words.
+const BASE_COMMAND_VOCAB = [
+  "jarvis", "play", "pause", "resume", "stop", "skip", "next", "previous",
+  "shuffle", "repeat", "volume up", "volume down", "mute", "unmute",
+  "open", "close", "search", "weather", "set a timer", "set a reminder",
+  "turn on the lights", "turn off the lights", "good morning", "good night",
+  "cast", "screen share", "call", "message", "dashboard", "build mode",
+  "map mode", "hologram", "monitor wall", "comms", "briefing", "schedule",
+];
+function projectKeyterms() {
+  const terms = [...BASE_COMMAND_VOCAB];
+  try {
+    const cfg = require("./config.json");
+    if (cfg?.owner?.username) terms.push(cfg.owner.username);
+    if (cfg?.behaviour?.wakeWord) terms.push(cfg.behaviour.wakeWord);
+    if (cfg?.castDevice) terms.push(cfg.castDevice);
+  } catch (_) { /* config.json optional */ }
+  const extra = (process.env.DEEPGRAM_KEYTERMS || "").split(",").map(s => s.trim()).filter(Boolean);
+  return [...new Set([...terms, ...extra])];
+}
+const PROJECT_KEYTERMS = projectKeyterms();
+const supportsKeyterm = (model) => /^nova-3/i.test(model) || /^flux/i.test(model);
 
 async function deepgramTranscribe(buffer, mimeType) {
   const contentType = DEEPGRAM_MIME_MAP[mimeType] || "audio/webm";
-  // keywords boosts recognition odds for this project's actual command
-  // vocabulary and the wake word itself — Deepgram's docs recommend
-  // this for short command-style utterances just like Groq's "prompt"
-  // field was doing before.
-  const keywords = ["jarvis:2", "shuffle:1", "resume:1"].map(k => `keywords=${encodeURIComponent(k)}`).join("&");
-  const url = `https://api.deepgram.com/v1/listen?model=${DEEPGRAM_MODEL}&language=en&smart_format=true&punctuate=true&${keywords}`;
+  // keyterm (nova-3) / keywords (older models) boosts recognition odds
+  // for this project's actual command vocabulary and the wake word
+  // itself — see the shared list built above.
+  const boostParam = supportsKeyterm(DEEPGRAM_MODEL)
+    ? PROJECT_KEYTERMS.map(k => `keyterm=${encodeURIComponent(k)}`).join("&")
+    : PROJECT_KEYTERMS.map(k => `keywords=${encodeURIComponent(k)}`).join("&");
+  const url = `https://api.deepgram.com/v1/listen?model=${DEEPGRAM_MODEL}&language=en&smart_format=true&numerals=true&punctuate=true&${boostParam}`;
 
   let res;
   try {
