@@ -63,8 +63,20 @@ function loadCambKeys() {
   for (const envName of Object.keys(process.env)) {
     const m = envName.match(/^CAMB_API_KEY(\d*)$/);
     if (!m) continue;
-    const value = process.env[envName];
+    const raw = process.env[envName];
+    if (!raw) continue;
+    // Defensive trim: a key pasted with a trailing space/newline (very easy
+    // to do from a browser dashboard's "copy" button, or a quoted .env
+    // value like CAMB_API_KEY1="abc123 ") produces an x-api-key header
+    // that LOOKS right when you eyeball it but doesn't match anything on
+    // Camb's side. Some APIs reject that instantly; others just never
+    // respond, which looks exactly like a network timeout even though
+    // the network is fine. Trimming here removes that whole class of bug.
+    const value = raw.trim();
     if (!value) continue;
+    if (value !== raw) {
+      console.warn(`[TTS] ${envName} had leading/trailing whitespace — trimmed it. Double-check how it was pasted into .env.`);
+    }
     const suffix = m[1]; // "" for bare CAMB_API_KEY, "1", "2", ... otherwise — kept as-is, never merged
     const sortKey = suffix === "" ? 0 : Number(suffix); // bare key sorts first, then 1,2,3...
     found.push({ sortKey, suffix, key: value, envName });
@@ -73,8 +85,16 @@ function loadCambKeys() {
 
   return found.map(({ suffix, key, envName }) => {
     const voiceEnvName = suffix === "" ? "CAMB_VOICE_ID" : `CAMB_VOICE_ID${suffix}`;
-    const voiceId = process.env[voiceEnvName] ? Number(process.env[voiceEnvName]) : baseVoiceId;
-    return { key, voiceId, label: envName }; // label is just for clearer logging below
+    const rawVoice = process.env[voiceEnvName];
+    const voiceId = rawVoice ? Number(rawVoice.trim()) : baseVoiceId;
+    if (rawVoice && Number.isNaN(voiceId)) {
+      console.warn(`[TTS] ${voiceEnvName}="${rawVoice}" isn't a valid number — falling back to ${baseVoiceId}.`);
+    }
+    // Masked preview (first 4 / last 4 chars only) so you can eyeball in
+    // the boot log whether a key looks truncated or duplicated without
+    // ever printing the real secret.
+    const masked = key.length > 10 ? `${key.slice(0, 4)}…${key.slice(-4)} (len ${key.length})` : `(len ${key.length})`;
+    return { key, voiceId, label: envName, masked }; // label/masked are just for clearer logging below
   });
 }
 
@@ -93,6 +113,7 @@ const CAMB_TIMEOUT_MS = Number(process.env.CAMB_TIMEOUT_MS || 8000);
 const CAMB_URL        = "https://client.camb.ai/apis/tts-stream";
 
 console.log(`[TTS] Loaded ${CAMB_KEYS.length} Camb.ai key(s): ${CAMB_KEYS.map(k => k.label).join(", ") || "(none)"}`);
+for (const k of CAMB_KEYS) console.log(`[TTS]   ${k.label} → ${k.masked}, voice_id=${k.voiceId}`);
 
 // Index of the key we START with each request. This is just an
 // optimization (skip straight to the one that worked last time) — every
@@ -213,12 +234,27 @@ async function synthesizeWithCamb(clean) {
         return { buffer: buf, mimeType: "audio/flac" }; // tts-stream returns audio/flac
       } catch (e) {
         // network/timeout error — treat as transient, worth one retry
-        // on this same key before assuming it's actually dead
+        // on this same key before assuming it's actually dead.
+        // e.name tells you WHICH kind of failure this is:
+        //   "TimeoutError"   → AbortSignal.timeout fired; Camb never responded
+        //                      in time (CAMB_TIMEOUT_MS). If EVERY key does
+        //                      this while one key gets a real HTTP response
+        //                      (like a 402), it's not a network/DNS problem —
+        //                      something about those specific keys/accounts
+        //                      is making Camb's server hang instead of
+        //                      rejecting them outright (e.g. an unverified
+        //                      trial account, or an abuse/rate throttle that
+        //                      silently stalls instead of returning 429).
+        //   "ENOTFOUND"/"EAI_AGAIN" → DNS can't resolve client.camb.ai.
+        //   "ECONNREFUSED"/"ECONNRESET" → something between you and Camb
+        //                      (firewall, VPN, antivirus) is dropping the
+        //                      connection.
+        const kind = e.name || e.code || "Error";
         if (keyTry === 0) {
-          console.warn(`[TTS] Camb.ai (${label}) error on first try (${e.message}) — retrying same key once`);
+          console.warn(`[TTS] Camb.ai (${label}) [${kind}] error on first try (${e.message}) — retrying same key once`);
           continue;
         }
-        console.error(`[TTS] Camb.ai (${label}) error after retry:`, e.message);
+        console.error(`[TTS] Camb.ai (${label}) [${kind}] error after retry:`, e.message);
       }
     }
   }
