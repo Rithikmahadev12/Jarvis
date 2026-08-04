@@ -653,6 +653,27 @@ async function switchCamera(deviceId) {
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const USE_CLOUD_STT = !!(window.isDesktopApp || !SR);
 
+// ── STT engine confirmation ──
+// Logged once at load so it's obvious at a glance (open devtools console)
+// which transport this session is actually using:
+//   - localhost / any normal browser tab, Chrome or Edge -> NATIVE (webkitSpeechRecognition), no Deepgram involved
+//   - Electron desktop app                                -> CLOUD (Deepgram), native SR doesn't work there
+//   - browser with no SpeechRecognition support at all     -> CLOUD (Deepgram), as a fallback
+(function logSttEngineChoice() {
+  const engine = USE_CLOUD_STT ? "CLOUD (Deepgram)" : "NATIVE (webkitSpeechRecognition)";
+  const reason = window.isDesktopApp
+    ? "running inside Electron desktop app"
+    : !SR
+      ? "no SpeechRecognition support in this browser"
+      : "localhost/browser tab with native SpeechRecognition available";
+  console.log(`%c[STT] Using ${engine} — ${reason}`, "color:#8fd8ff;font-weight:bold");
+  const label = USE_CLOUD_STT ? "Mic: ready (Deepgram cloud)" : "Mic: ready (Chrome/Edge native)";
+  const el1 = document.getElementById("mic-debug");
+  const el2 = document.getElementById("mic-debug-auth");
+  if (el1) el1.textContent = label;
+  if (el2) el2.textContent = label;
+})();
+
 const mic = {
   rec: null, active: false, retryCount: 0, maxRetries: 999, retryDelay: 150,
   retryTimer: null, onResult: null, onInterim: null, continuous: true,
