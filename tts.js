@@ -47,29 +47,52 @@ function loadCambKeys() {
   // those keys were never read in the first place. This has no upper
   // limit and no gap sensitivity: however many CAMB_API_KEY* vars exist,
   // all of them get picked up.
-  const found = []; // { n: number, key: string }
+  //
+  // IMPORTANT: CAMB_API_KEY (bare) and CAMB_API_KEY1 are DIFFERENT env
+  // vars and must stay DIFFERENT slots with DIFFERENT voice IDs
+  // (CAMB_VOICE_ID and CAMB_VOICE_ID1 respectively). An earlier version
+  // of this collapsed both onto "slot #1" by converting the suffix to a
+  // number (`m[1] ? Number(m[1]) : 1`), so bare CAMB_API_KEY and
+  // CAMB_API_KEY1 both landed on n===1 and BOTH got assigned
+  // CAMB_VOICE_ID — CAMB_VOICE_ID1 was never read at all. That's what
+  // caused "You are not allowed to use this voice_id" 403s: the
+  // CAMB_API_KEY1 account was being sent CAMB_API_KEY's voice ID.
+  // Keeping the raw string suffix (instead of coercing to a shared
+  // number) keeps every key on its own distinct voice.
+  const found = []; // { sortKey: number, suffix: string, key: string, envName: string }
   for (const envName of Object.keys(process.env)) {
     const m = envName.match(/^CAMB_API_KEY(\d*)$/);
     if (!m) continue;
     const value = process.env[envName];
     if (!value) continue;
-    const n = m[1] ? Number(m[1]) : 1; // bare CAMB_API_KEY counts as #1
-    found.push({ n, key: value });
+    const suffix = m[1]; // "" for bare CAMB_API_KEY, "1", "2", ... otherwise — kept as-is, never merged
+    const sortKey = suffix === "" ? 0 : Number(suffix); // bare key sorts first, then 1,2,3...
+    found.push({ sortKey, suffix, key: value, envName });
   }
-  found.sort((a, b) => a.n - b.n);
+  found.sort((a, b) => a.sortKey - b.sortKey);
 
-  return found.map(({ n, key }) => {
-    const voiceEnvName = n === 1 ? "CAMB_VOICE_ID" : `CAMB_VOICE_ID${n}`;
+  return found.map(({ suffix, key, envName }) => {
+    const voiceEnvName = suffix === "" ? "CAMB_VOICE_ID" : `CAMB_VOICE_ID${suffix}`;
     const voiceId = process.env[voiceEnvName] ? Number(process.env[voiceEnvName]) : baseVoiceId;
-    return { key, voiceId };
+    return { key, voiceId, label: envName }; // label is just for clearer logging below
   });
 }
 
 const CAMB_KEYS       = loadCambKeys();
 const CAMB_LANGUAGE   = process.env.CAMB_LANGUAGE || "en-us";
 const CAMB_MODEL      = process.env.CAMB_SPEECH_MODEL || "mars-8.1-flash-beta";
-const CAMB_TIMEOUT_MS = Number(process.env.CAMB_TIMEOUT_MS || 15000);
+// Lowered from 15000 -> 8000. With up to 2 tries per key (see keyTry loop
+// below), a single dead/slow key could previously eat ~30s+ of the
+// caller's budget (see public/jarvis.js's /api/tts fetch, which aborts
+// after 60s) — with several keys timing out back to back, that 60s
+// window was gone before later keys in the rotation ever got a real
+// chance to run. 8s per try still comfortably covers a healthy Camb.ai
+// response, while failing dead/unreachable keys fast enough that all
+// configured keys actually get tried within the request's real budget.
+const CAMB_TIMEOUT_MS = Number(process.env.CAMB_TIMEOUT_MS || 8000);
 const CAMB_URL        = "https://client.camb.ai/apis/tts-stream";
+
+console.log(`[TTS] Loaded ${CAMB_KEYS.length} Camb.ai key(s): ${CAMB_KEYS.map(k => k.label).join(", ") || "(none)"}`);
 
 // Index of the key we START with each request. This is just an
 // optimization (skip straight to the one that worked last time) — every
@@ -137,7 +160,7 @@ async function synthesizeWithCamb(clean) {
   // THIS request once it fails again.
   for (let attempt = 0; attempt < CAMB_KEYS.length; attempt++) {
     const idx = (_cambKeyIndex + attempt) % CAMB_KEYS.length;
-    const { key, voiceId } = CAMB_KEYS[idx];
+    const { key, voiceId, label } = CAMB_KEYS[idx];
 
     // Up to 2 tries for THIS key: the first try, plus one retry if that
     // first try looked like a transient blip rather than a dead key.
@@ -164,22 +187,22 @@ async function synthesizeWithCamb(clean) {
 
         if (CAMB_KEY_DEAD_CODES.has(res.status)) {
           const body = await res.text().catch(() => "");
-          console.warn(`[TTS] Camb key #${idx + 1} rejected (HTTP ${res.status}) — rotating to next key. Response: ${body.slice(0, 300) || "(empty body)"}`);
+          console.warn(`[TTS] Camb key ${label} rejected (HTTP ${res.status}) — rotating to next key. Response: ${body.slice(0, 300) || "(empty body)"}`);
           break; // no point retrying this key, it's genuinely done
         }
 
         if (CAMB_KEY_TRANSIENT_CODES.has(res.status)) {
           if (keyTry === 0) {
-            console.warn(`[TTS] Camb key #${idx + 1} got a transient HTTP ${res.status} — retrying same key once before rotating`);
+            console.warn(`[TTS] Camb key ${label} got a transient HTTP ${res.status} — retrying same key once before rotating`);
             continue; // give this same key one more shot
           }
-          console.warn(`[TTS] Camb key #${idx + 1} still failing after retry (HTTP ${res.status}) — rotating to next key`);
+          console.warn(`[TTS] Camb key ${label} still failing after retry (HTTP ${res.status}) — rotating to next key`);
           break;
         }
 
         if (!res.ok) {
           const body = await res.text().catch(() => "");
-          console.error(`[TTS] Camb.ai (key #${idx + 1}) returned ${res.status}: ${body.slice(0, 300)}`);
+          console.error(`[TTS] Camb.ai (${label}) returned ${res.status}: ${body.slice(0, 300)}`);
           break; // unrecognized failure — still worth trying another key
         }
 
@@ -192,10 +215,10 @@ async function synthesizeWithCamb(clean) {
         // network/timeout error — treat as transient, worth one retry
         // on this same key before assuming it's actually dead
         if (keyTry === 0) {
-          console.warn(`[TTS] Camb.ai (key #${idx + 1}) error on first try (${e.message}) — retrying same key once`);
+          console.warn(`[TTS] Camb.ai (${label}) error on first try (${e.message}) — retrying same key once`);
           continue;
         }
-        console.error(`[TTS] Camb.ai (key #${idx + 1}) error after retry:`, e.message);
+        console.error(`[TTS] Camb.ai (${label}) error after retry:`, e.message);
       }
     }
   }
