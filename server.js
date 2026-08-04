@@ -547,15 +547,46 @@ function youtubeSearchUrl(query) {
 // API key needed) and hand back a normal watch URL for that video.
 async function findYoutubeVideoId(query) {
   try {
+    // Bumped 6000 -> 10000ms and added a real User-Agent + Accept-Language.
+    // YouTube's search page can take longer than 6s to return from some
+    // residential connections, and a bare/incomplete header set makes it
+    // more likely YouTube serves a consent/interstitial page instead of
+    // real results (see the detection below).
     const res = await fetch(youtubeSearchUrl(query), {
-      signal: AbortSignal.timeout(6000),
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36" },
+      signal: AbortSignal.timeout(10000),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[MUSIC] YouTube search for "${query}" returned HTTP ${res.status}`);
+      return null;
+    }
     const html = await res.text();
+
+    // YouTube sometimes serves a cookie-consent interstitial (mostly to EU
+    // IPs, but also occasionally to non-browser-looking requests) instead
+    // of real search results. That page has no "videoId" in it, so the
+    // regex below just silently returns null — logging this case
+    // separately means the terminal will actually SAY "got a consent
+    // page" instead of a generic "couldn't find that one" with no clue why.
+    if (/consent\.youtube\.com|Before you continue to YouTube/i.test(html)) {
+      console.warn(`[MUSIC] YouTube served a consent/interstitial page for "${query}" instead of search results — no videoId available. This is YouTube-side bot detection, not a bug in your query.`);
+      return null;
+    }
+
     const match = html.match(/"videoId":"([a-zA-Z0-9_-]{11})"/);
-    return match ? match[1] : null;
-  } catch { return null; }
+    if (!match) {
+      console.warn(`[MUSIC] No videoId found in YouTube search results for "${query}" (page loaded, ${html.length} bytes, but the expected pattern wasn't in it — YouTube may have changed their page format).`);
+      return null;
+    }
+    return match[1];
+  } catch (e) {
+    const kind = e.name || e.code || "Error";
+    console.warn(`[MUSIC] YouTube search for "${query}" failed: [${kind}] ${e.message}`);
+    return null;
+  }
 }
 // Pulls real title/channel info for a video via YouTube's public oEmbed
 // endpoint (no API key needed) so the widget can show an actual artist
