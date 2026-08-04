@@ -426,10 +426,13 @@ async function speak(text, onEnd) {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ text }),
-      // Chatterbox on free CPU hardware genuinely takes a while to
-      // generate speech (not just a cold-start issue) — give it real
-      // room to finish rather than bailing to the browser voice early.
-      signal:  AbortSignal.timeout(60000),
+      // Camb.ai key rotation on the server can sweep through several
+      // configured keys per request (each with its own short timeout +
+      // one retry — see CAMB_TIMEOUT_MS in tts.js). Bumped from 60s to
+      // 90s so that sweep has real room to reach every configured key
+      // before this client-side abort cuts the request off early and
+      // falls back to the plain browser voice mid-rotation.
+      signal:  AbortSignal.timeout(90000),
     });
 
     // A newer speak() call arrived while we were waiting on the network —
