@@ -19,13 +19,31 @@ echo "[STARTUP] Beginning J.A.R.V.I.S boot sequence (background)..."
 # install itself succeeded. Adding it to PATH fixes that.
 export PATH="$HOME/.local/bin:$PATH"
 
-echo "[STARTUP] Installing Piper TTS (ONNX, no PyTorch)..."
-pip install piper-tts fastapi uvicorn --break-system-packages --quiet || \
-  echo "[STARTUP][WARN] pip install for Piper/uvicorn failed, voice server will be skipped."
+# On Windows (Git Bash / WSL edge cases) there's often no bare "pip" or
+# "python3" on PATH even when Python itself is installed — Windows'
+# installer usually only adds "python" and "py". Pick whichever of
+# python3/python/py actually exists instead of hardcoding one, so this
+# doesn't silently no-op with "pip: command not found" on Windows while
+# working fine on Render (Linux, where python3 always exists).
+PY=""
+for candidate in python3 python py; do
+  if command -v "$candidate" >/dev/null 2>&1; then PY="$candidate"; break; fi
+done
 
-echo "[STARTUP] Installing pychromecast (for Home Talk)..."
-pip install pychromecast --break-system-packages --quiet || \
-  echo "[STARTUP][WARN] pip install for pychromecast failed."
+if [ -z "$PY" ]; then
+  echo "[STARTUP][WARN] No Python interpreter (python3/python/py) found on PATH — Piper TTS, pychromecast, and Home Talk voice server will be skipped. Install Python 3 and re-run if you want those features."
+else
+  echo "[STARTUP] Using '$PY' for Python steps."
+  echo "[STARTUP] Installing Piper TTS (ONNX, no PyTorch)..."
+  "$PY" -m pip install piper-tts fastapi uvicorn --break-system-packages --quiet || \
+    "$PY" -m pip install piper-tts fastapi uvicorn --quiet || \
+    echo "[STARTUP][WARN] pip install for Piper/uvicorn failed, voice server will be skipped."
+
+  echo "[STARTUP] Installing pychromecast (for Home Talk)..."
+  "$PY" -m pip install pychromecast --break-system-packages --quiet || \
+    "$PY" -m pip install pychromecast --quiet || \
+    echo "[STARTUP][WARN] pip install for pychromecast failed."
+fi
 
 VOICE_DIR="./voice-server/voices"
 mkdir -p "$VOICE_DIR"
@@ -63,11 +81,15 @@ else
   echo "[STARTUP][WARN] No GROQ_API_KEY found in .env — Jarvis's AI brain will be unavailable until you add one."
 fi
 
-echo "[STARTUP] Launching voice server on :5050..."
-# Use "python3 -m uvicorn" instead of the bare "uvicorn" command. This works
-# regardless of whether pip's script shims are on PATH, since it just asks
-# the python interpreter to run the installed uvicorn module directly.
-python3 -m uvicorn voice-server.server:app --host 0.0.0.0 --port 5050 &
+if [ -n "$PY" ]; then
+  echo "[STARTUP] Launching voice server on :5050..."
+  # Use "<python> -m uvicorn" instead of the bare "uvicorn" command. This works
+  # regardless of whether pip's script shims are on PATH, since it just asks
+  # the python interpreter to run the installed uvicorn module directly.
+  "$PY" -m uvicorn voice-server.server:app --host 0.0.0.0 --port 5050 &
+else
+  echo "[STARTUP] Skipping voice server launch (no Python interpreter found earlier)."
+fi
 
 echo "[STARTUP] Background setup launched. (Node is already up on its own port and does not wait for this.)"
 
