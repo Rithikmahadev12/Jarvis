@@ -2261,6 +2261,7 @@ function launchMain() {
   setInterval(pollSchedule, 20000);
   setInterval(pollProactiveNudges, 60000);
   setInterval(pollMeetingPrep, 60000);
+  setInterval(pollSocialMoment, 90000);
   setInterval(pollHabits, 5 * 60000);
 
   setTimeout(() => checkMorningBriefing(), 2500);
@@ -2368,6 +2369,32 @@ async function pollMeetingPrep() {
     // server unreachable — try again next tick
   } finally {
     _meetingPrepBusy = false;
+  }
+}
+
+// ── SOCIAL MOMENT (Instagram) ──
+// Slightly slower cadence than the calendar-based nudges above (90s
+// vs 60s) since this is a lighter-weight, lower-urgency observation,
+// not a time-sensitive alert — see proactive.js "SOCIAL MOMENT NUDGE".
+// Silently does nothing if Instagram isn't connected (the endpoint
+// just returns { moment: null } in that case).
+let _socialBusy = false;
+async function pollSocialMoment() {
+  if (_socialBusy || !state.user) return;
+  _socialBusy = true;
+  try {
+    const tz  = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    const res = await fetch(`/api/proactive/social/${encodeURIComponent(state.user)}?tz=${encodeURIComponent(tz)}`);
+    const data = await res.json();
+    if (data?.moment?.text) {
+      addMsg("jarvis", data.moment.text);
+      mic.suspend();
+      speak(data.moment.text, () => mic.resume());
+    }
+  } catch {
+    // server unreachable — try again next tick
+  } finally {
+    _socialBusy = false;
   }
 }
 
