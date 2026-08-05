@@ -12,6 +12,7 @@
 const fs   = require("fs");
 const path = require("path");
 const GroqKeys = require("./groq-keys");
+const LocalLLM = require("./local-llm");
 
 // ── CONFIG ─────────────────────────────────────────────────────
 // GROQ_API_KEY → your key from console.groq.com. Add GROQ_API_KEY2,
@@ -127,6 +128,25 @@ async function groqFetchRaw(messages, options = {}) {
     reasoning_format = null,   // "parsed" | "raw" | "hidden"
   } = options;
 
+  // ── LOCAL MODE — try Ollama first ──────────────────────────────
+  // isLocalMode() is true whenever we're not on Render (i.e. running
+  // on the user's own machine). If Ollama is actually up and serving,
+  // use it instead of Groq — this is the ONLY place that decision
+  // gets made, per local-llm.js's own design. If Ollama isn't
+  // running, isn't reachable, or errors out, fall straight through
+  // to the normal Groq path below so nothing breaks.
+  if (LocalLLM.isLocalMode()) {
+    try {
+      const serving = await LocalLLM.isOllamaServing();
+      if (serving) {
+        const msg = await LocalLLM.ollamaChat(messages, { temperature, maxTokens, tools, tool_choice });
+        return msg;
+      }
+    } catch (e) {
+      console.warn(`[HERMES] Local Ollama call failed, falling back to Groq: ${e.message}`);
+    }
+  }
+
   if (!GroqKeys.hasGroqKey()) throw new Error("GROQ_API_KEY not set in .env");
 
   const body = { model, messages, temperature, max_tokens: maxTokens, stream: false };
@@ -221,86 +241,6 @@ async function groqFetchRaw(messages, options = {}) {
 
     const data = await res.json();
     return data.choices?.[0]?.message || {};
-  }
-
-  throw lastError || new Error("All configured Groq API keys failed.");
-}
-
-// ── STREAMING FETCH (SSE) ──────────────────────────────────────
-// Same wire format as groqFetchRaw but with stream:true — reads the
-// response body as an SSE token stream and calls onDelta(text) as
-// each piece of content arrives, so a caller (e.g. the site builder)
-// can forward it to a browser in real time instead of waiting on the
-// whole completion. Resolves with the full concatenated text once
-// the stream ends. Single-key attempt with one retry on failure —
-// mid-stream failover isn't meaningful once tokens are already
-// flowing to a client.
-async function groqFetchStream(messages, options = {}) {
-  const {
-    model            = MODELS.smart,
-    temperature      = 0.75,
-    maxTokens        = 1024,
-    onDelta          = () => {},
-    reasoning_effort = null,
-  } = options;
-
-  if (!GroqKeys.hasGroqKey()) throw new Error("GROQ_API_KEY not set in .env");
-
-  const body = { model, messages, temperature, max_tokens: maxTokens, stream: true };
-  if (reasoning_effort) body.reasoning_effort = reasoning_effort;
-
-  const totalKeys = GroqKeys.groqKeyCount();
-  let lastError = null;
-
-  for (let attempt = 0; attempt < totalKeys; attempt++) {
-    const key = GroqKeys.currentGroqKey();
-    const isLastKey = attempt === totalKeys - 1;
-    let res;
-    try {
-      res = await fetch(GROQ_API_URL, {
-        method:  "POST",
-        headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-        body:    JSON.stringify(body),
-        signal:  AbortSignal.timeout(120000),
-      });
-    } catch (e) {
-      lastError = new Error(`Could not reach Groq API: ${e.message}`);
-      if (isLastKey) throw lastError;
-      GroqKeys.rotateGroqKey();
-      continue;
-    }
-
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      lastError = new Error(`Groq API error ${res.status}: ${errBody.error?.message || res.statusText}`);
-      if ((res.status === 401 || res.status === 403 || res.status === 429 || res.status >= 500) && !isLastKey) {
-        GroqKeys.rotateGroqKey();
-        continue;
-      }
-      throw lastError;
-    }
-
-    let full = "";
-    let buf = "";
-    for await (const rawChunk of res.body) {
-      buf += Buffer.isBuffer(rawChunk) ? rawChunk.toString("utf8") : String(rawChunk);
-      let idx;
-      while ((idx = buf.indexOf("\n\n")) !== -1) {
-        const eventBlock = buf.slice(0, idx);
-        buf = buf.slice(idx + 2);
-        for (const line of eventBlock.split("\n")) {
-          if (!line.startsWith("data:")) continue;
-          const payload = line.slice(5).trim();
-          if (!payload || payload === "[DONE]") continue;
-          try {
-            const json = JSON.parse(payload);
-            const delta = json.choices?.[0]?.delta?.content || "";
-            if (delta) { full += delta; onDelta(delta); }
-          } catch { /* ignore malformed chunk */ }
-        }
-      }
-    }
-    return full;
   }
 
   throw lastError || new Error("All configured Groq API keys failed.");
@@ -435,33 +375,6 @@ const TOOLS = [
       parameters: {
         type: "object",
         properties: { query: { type: "string", description: "What to load in build mode, if the user named a specific object/part. Leave empty otherwise." } },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "build_website",
-      description: "Design and build a real, self-contained website and show it in an on-screen preview window — e.g. 'build me a site for a coffee place', 'jarvis, make a website for my bakery', 'design a landing page for a dog walking business'. STRICT RULE: if the user's message doesn't already contain both a business type AND a specific name, do NOT call this with a guessed/placeholder name or type — instead leave name empty (and business_type empty too if it's genuinely unclear) so Jarvis asks a clarifying question first ('what's it called, sir?' / 'what kind of business, and what's it called?'). Never fabricate a name like 'My Business' or a generic type just to fill the fields. Only call this with both fields actually filled in once the user has explicitly stated them, whether in this message or a follow-up. Not for the word 'build' when it means the 3D CAD workspace (that's open_build_mode).",
-      parameters: {
-        type: "object",
-        properties: {
-          business_type: { type: "string", description: "What kind of business/site this is, as the user described it, e.g. 'coffee shop', 'bakery', 'dog walking service', 'photography portfolio'." },
-          name: { type: "string", description: "The name of the business/site. Leave empty until the user has actually told you the name." },
-        },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "download_website",
-      description: "Download a website Jarvis previously built with build_website — e.g. 'hey jarvis download The Daily Grind', 'download that coffee site', 'download it' (referring to the site just built/shown). Use the name of the business/site as given earlier in the conversation if the user doesn't repeat it.",
-      parameters: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "The name of the site to download, as given earlier when it was built." },
-        },
       },
     },
   },
@@ -613,29 +526,6 @@ const TOOLS = [
         properties: { target: { type: "string", description: "The app name, file/folder path, or URL to open." } },
         required: ["target"],
       },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "control_app",
-      description: "Use this whenever the user wants Jarvis to actually DO something inside an app on their computer — not just launch it. Covers ANY app and ANY in-app action described in plain language: 'in Spotify play some jazz', 'open notepad and save the file as notes.txt', 'go to settings and turn on dark mode', 'in the browser search for flight prices to Tokyo', 'like the top post', 'mute my Discord mic'. This drives the real app using Jarvis's own screen vision — it looks at the actual screen, figures out the fastest way to reach the goal itself (clicking, typing, scrolling, pressing shortcuts), and adapts if something doesn't look like it expected, instead of following one fixed guessed sequence. Prefer this over open_on_computer + type_text whenever the request needs Jarvis to navigate or interact with the app's UI, not just open it or type raw text into whatever already has focus. Only works when Jarvis is running locally, not in the cloud. Takes a little longer than a plain open (it's actually looking at the screen step by step), so only use it when the request genuinely needs in-app action.",
-      parameters: {
-        type: "object",
-        properties: {
-          app: { type: "string", description: "The app or window this should happen in, e.g. 'Spotify', 'Notepad', 'Chrome', 'Discord'. Jarvis will bring it to the foreground (opening it first if needed) before starting." },
-          goal: { type: "string", description: "Plain-language description of the outcome to reach inside the app — describe WHAT should end up true (e.g. 'a jazz playlist is playing', 'the file is saved as notes.txt', 'dark mode is enabled'), not a fixed list of clicks, since the exact steps will be figured out live from the real screen." },
-        },
-        required: ["app", "goal"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "check_social_media",
-      description: "Look at the user's own connected Instagram and comment on their most recent post(s) — e.g. 'check my instagram', 'what do you think of my last post', 'did I post anything today', 'how does my latest photo look'. This actually looks at the real photo/video, not just the caption, and reacts to it naturally. Only covers the user's OWN account, never someone else's. Only works if Instagram has been connected (see instagram.js setup) — if not connected yet, this returns a needsAuth response with a link to connect.",
-      parameters: { type: "object", properties: {} },
     },
   },
   {
@@ -1318,7 +1208,6 @@ module.exports = {
   chatWithTools,
   codeChat,
   groqFetchRaw,
-  groqFetchStream,
   summarizeNewsSarcastically,
   ambientAssist,
   TOOLS,
