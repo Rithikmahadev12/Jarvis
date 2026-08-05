@@ -442,7 +442,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "build_website",
-      description: "Design and build a real, self-contained website and show it in an on-screen preview window — e.g. 'build me a site for a coffee place', 'jarvis, make a website for my bakery', 'design a landing page for a dog walking business'. If the user hasn't given the business/site a NAME yet, leave name empty so Jarvis asks for it ('what's the name, sir?') before building — never invent a name yourself. Once the user gives the name in their next message, call this again with both business_type and name filled in to actually build it. Not for the word 'build' when it means the 3D CAD workspace (that's open_build_mode).",
+      description: "Design and build a real, self-contained website and show it in an on-screen preview window — e.g. 'build me a site for a coffee place', 'jarvis, make a website for my bakery', 'design a landing page for a dog walking business'. STRICT RULE: if the user's message doesn't already contain both a business type AND a specific name, do NOT call this with a guessed/placeholder name or type — instead leave name empty (and business_type empty too if it's genuinely unclear) so Jarvis asks a clarifying question first ('what's it called, sir?' / 'what kind of business, and what's it called?'). Never fabricate a name like 'My Business' or a generic type just to fill the fields. Only call this with both fields actually filled in once the user has explicitly stated them, whether in this message or a follow-up. Not for the word 'build' when it means the 3D CAD workspace (that's open_build_mode).",
       parameters: {
         type: "object",
         properties: {
