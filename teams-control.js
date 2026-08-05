@@ -32,474 +32,68 @@ const os = require("os");
 const { URL } = require("url");
 const vision = require("./screen-vision");
 const agent = require("./jarvis-agent");
+const brain = require("./agent-brain");
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 function isWindows() { return os.platform() === "win32"; }
 
-// ── CONTACTS PAGE LOOKUP ───────────────────────────────────────────
-// Rather than a separate names→emails file to keep in sync by hand,
-// this reads Teams' own People > All Contacts list directly off the
-// screen — it's already the current, authoritative list of who you
-// actually have added, so there's nothing else to maintain.
+// ── CONTACT LOOKUP + ACTIONS (brain-driven) ────────────────────────
+// This used to be ~460 lines of hand-scripted steps: open the
+// Contacts page, click "All contacts", hover a row, click its icon,
+// verify, and a pile of fallback branches for when any one of those
+// missed — including a goal-driven fallback loop that was itself
+// still scoped to "recover within the Contacts page flow." The
+// recurring complaint was real: a missed click could land back on
+// "Active now" and the whole thing would sit there re-scanning the
+// wrong list.
 //
-// Flow: open Teams -> click the Contacts/People icon in the left
-// rail -> make sure "All contacts" is the selected tab -> scan down
-// the rows for a name match -> click the chat or call icon on THAT
-// row. If a full pass through the list finds nobody, wait a moment
-// and check again once (covers a contact added recently that hadn't
-// rendered into the list yet), then give up and fall back to the old
-// search-box flow.
-async function openContactsPage() {
-  await openTeams();
-  const clicked = await vision.findAndClick(
-    `the Contacts/People icon in the left sidebar of Teams — a small person/ID-card icon, ` +
-    `part of a vertical stack of icons that also includes Chat, Video meetings, an app icon, Teams/community, and Calendar`,
-    { forceVision: true }
-  );
-  if (!clicked) return false;
-  await sleep(1500);
+// Now this is all delegated to agent-brain.js's achieveGoal(): give
+// it the outcome that counts as "done" and the couple of routes that
+// exist (search box vs. Contacts page) as context, not as a fixed
+// script, and let it look at the real screen each round to pick
+// whichever is fastest and recover on its own when something doesn't
+// land right. See agent-brain.js's header for the loop/stuck
+// protection that specifically fixes the "keeps clicking Active now
+// and loops" symptom — it isn't Teams-specific, so it applies to
+// every call below and to any other app that routes through the same
+// module.
 
-  // Teams lands on "Active now" by default when you open Contacts —
-  // that list only shows people currently online/active, it's NOT the
-  // full contacts list, and its rows don't lay out the same way. If
-  // Jarvis proceeds to scan for a name here instead of on "All
-  // contacts", it ends up clicking around inside "Active now" (wrong
-  // list, sometimes no call icon on the row at all, sometimes a
-  // different person entirely) instead of the actual call icon on the
-  // right contact. So: click "All contacts", then VERIFY it actually
-  // became the selected tab before doing anything else — don't just
-  // assume the click landed.
-  const switchedToAllContacts = await ensureAllContactsTabSelected();
-  if (!switchedToAllContacts) {
-    // Couldn't confirm "All contacts" is selected — don't let a
-    // caller scan "Active now" thinking it's the full list. Bail out
-    // to the search-box flow instead, which doesn't depend on this
-    // tab at all.
-    return false;
-  }
-
-  // Confirm we're actually looking at the People/Contacts list before
-  // handing back to a caller that's about to spend up to ~2 full
-  // scroll-passes (14+ screenshots) scanning for a name here. Without
-  // this check, a click that missed the sidebar icon (wrong pixel,
-  // scaling issue, a flyout that hadn't rendered yet) used to send
-  // callers into that entire slow scan against whatever screen Teams
-  // actually landed on, find nothing, and only THEN fall back to the
-  // search box — several seconds wasted for a failure that was
-  // already knowable right here.
-  const onContactsPage = (await vision.lookAtScreen(
-    `Does this look like Microsoft Teams' Contacts/People page — a list of contact names, with tabs like "All contacts" / "Active now" near the top? Reply with only YES or NO.`
-  )).trim().toUpperCase();
-  return onContactsPage.startsWith("YES");
+// Reads back who a just-opened chat/call is actually with, straight
+// off the screen — used so the caller can report the real matched
+// name (closest-match fallback can land on a different display name,
+// nickname, or spelling than what was asked for).
+async function currentConversationName(fallback) {
+  const name = (await vision.lookAtScreen(
+    `Look at this Microsoft Teams window. What is the name of the person the current chat or call is with — read it ` +
+    `from the chat header, the call screen, or wherever the contact's name is currently shown? Reply with ONLY that ` +
+    `name and nothing else. If you genuinely can't tell, reply exactly: UNKNOWN.`
+  )).trim().replace(/^["']|["']$/g, "");
+  if (!name || /^unknown$/i.test(name)) return fallback;
+  return name;
 }
 
-// Clicks the "All contacts" tab and re-checks the screen afterward to
-// confirm it actually became the selected tab — "Active now" is
-// Teams' default landing tab, so a click that missed (wrong pixel, a
-// flyout still animating in, etc.) used to silently leave the caller
-// on "Active now" with no error to show for it. One retry before
-// giving up, since a missed click on the first try is usually just
-// timing (panel still rendering).
-async function ensureAllContactsTabSelected() {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    await vision.findAndClick(
-      `the "All contacts" tab/button near the top of the Teams People panel — NOT the "Active now" tab, even though "Active now" may currently be the selected/highlighted one`,
-      { forceVision: true }
-    ).catch(() => {});
-    await sleep(700);
-    const state = (await vision.lookAtScreen(
-      `In this Microsoft Teams People/Contacts panel, which tab is currently selected/highlighted — "All contacts" or "Active now"? Reply with only ALL_CONTACTS or ACTIVE_NOW or NEITHER.`
-    )).trim().toUpperCase();
-    if (state.includes("ALL_CONTACTS")) return true;
-  }
-  return false;
-}
-
-// Page Down to scroll further into the list, Home to jump back to
-// the top for a fresh pass.
-function scrollContactsList(direction) {
-  const key = direction === "top" ? "{HOME}" : "{PGDN}";
-  return agent.runCommand(isWindows()
-    ? `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${key}')"`
-    : `osascript -e 'tell application "System Events" to key code ${direction === "top" ? 115 : 121}'`
-  ).catch(() => {});
-}
-
-// Scans the "All contacts" list for personName and clicks that row's
-// chat/call/more-options icon. action: "chat" | "call" | "more".
-// Scrolls down a few screens for long lists; does a second full pass
-// after a short pause if nothing hits the first time (recently-added
-// contact that hadn't synced into view yet). Returns true/false —
-// never throws — so callers can decide whether to fall back.
-// ── GOAL-DRIVEN FALLBACK ────────────────────────────────────────
-// A scripted click aims at one specific, named target based on one
-// screenshot. When it misses — the target was a few pixels further
-// right than the model estimated, a hover state hadn't fully
-// rendered, whatever — retrying the exact same prompt just aims the
-// same way again and misses the same way again.
-//
-// This is the alternative: forget the specific target, state the
-// GOAL instead, and let the model look at whatever is actually on
-// screen right now (which might be a wrong tab, a stray popup, a
-// half-hovered row — anything) and decide the single next click that
-// moves toward that goal. Same technique joinMeetingByLink() already
-// uses for meeting-join flows, generalized here so any scripted step
-// in this file can drop back to it on a miss instead of just
-// retrying blind. doneCheckFn is called before AND after each click
-// so it exits the moment the goal is actually reached, even if that
-// happens to be step 1.
-async function goalDrivenClickFallback(goalDescription, doneCheckFn, opts = {}) {
-  const maxSteps = opts.maxSteps || 4;
-  const stepDelayMs = opts.stepDelayMs || 900;
-
-  for (let step = 0; step < maxSteps; step++) {
-    if (await doneCheckFn()) return true;
-
-    const next = await vision.locateElement(
-      `The goal right now is: ${goalDescription} — figure out the SINGLE most important thing to click next on the ` +
-      `current screen to make progress toward that goal. This might mean recovering from a wrong screen or tab, ` +
-      `dismissing something in the way, or clicking the actual target itself — use whatever is genuinely visible ` +
-      `right now, don't assume the screen matches any particular expected layout. Be precise about WHERE on the ` +
-      `element to click: if it's a small icon next to a name or label, click squarely on the icon's own pixels, not ` +
-      `the edge of the row or a neighboring, similar-looking element.`,
-      { forceVision: true, skipCache: true }
-    );
-    if (!next || !next.found) {
-      await sleep(stepDelayMs);
-      continue;
-    }
-    await vision.clickAt(next.x, next.y);
-    await sleep(stepDelayMs);
-    if (await doneCheckFn()) return true;
-  }
-  return false;
-}
-
-async function findContactRowAndClick(personName, action) {
-  const iconLabel = action === "chat" ? `the chat/message bubble icon`
-    : action === "more" ? `the "..." (more options) icon`
-    : `the phone/call icon`;
-  const maxScrolls = 6;
-
-  for (let pass = 0; pass < 2; pass++) {
-    await scrollContactsList("top");
-    await sleep(300);
-    for (let i = 0; i <= maxScrolls; i++) {
-      // Teams only renders a row's chat/call/more icons once the
-      // mouse is actually hovering that row — a screenshot taken cold
-      // simply doesn't have them in it. Find the row by its name text
-      // first (cheap, works off plain OCR since the name is always
-      // visible), hover there, give the hover state a beat to render,
-      // THEN look for the icon. Without this, "find the phone icon"
-      // was being asked of a screenshot where no phone icon actually
-      // existed yet — which is how the model ended up guessing at the
-      // nearest plausible thing, including the tab bar above the list.
-      const rowLoc = await vision.locateElement(
-        `the contact name ${JSON.stringify(personName)} (or the single closest visible match) as it appears in ` +
-        `the row/list of actual contacts in this Teams People page — the name text itself, not any icon, and NOT ` +
-        `the "All contacts" or "Active now" navigation items in the left sidebar.`,
-        { forceVision: true, skipCache: true }
-      );
-      if (!rowLoc || !rowLoc.found) {
-        await scrollContactsList("down");
-        await sleep(500);
-        continue;
-      }
-      await vision.moveMouseTo(rowLoc.x, rowLoc.y);
-      await sleep(400); // let the row's hover-reveal icons actually render
-
-      const iconClickDescription =
-        `In this Microsoft Teams "All contacts" list, the mouse is currently hovering the row for "${personName}" ` +
-        `(or the closest match), which should now be showing its hover icons. Click ${iconLabel} that appears on ` +
-        `THAT SPECIFIC hovered row — the icons sit to the right of the name, roughly level with it vertically. ` +
-        `Don't click the name/avatar itself, and don't click an icon belonging to a different row. ` +
-        `IMPORTANT: do NOT click the "All contacts" or "Active now" tab buttons near the top of this panel — those ` +
-        `are page tabs, not contact rows, even if the hovered row sits close beneath them.`;
-      const clicked = await vision.findAndClick(iconClickDescription, { forceVision: true, skipCache: true });
-      // A reported click isn't proof it hit the right target — verify
-      // the screen actually changed the way this action should change
-      // it before counting it as a hit. Without this, a click that
-      // landed on the row itself (opening a profile card) or on
-      // "Active now" content used to get reported back as a working
-      // call/chat/menu when nothing of the sort had actually happened.
-      const doneCheck = () => verifyRowActionTookEffect(action);
-      if (clicked && (await doneCheck())) return true;
-
-      // Whatever just got clicked was wrong — purge any cached
-      // coordinate under this exact description so nothing (this run
-      // or a future one) can replay that same bad click again. This
-      // matters even with skipCache above, because skipCache only
-      // stops READING the cache — a stale entry from a run before this
-      // fix could still be sitting in the persisted cache file.
-      vision.forgetElement(iconClickDescription);
-
-      // The scripted click missed — retrying the exact same coordinate
-      // logic just repeats the same mistake (e.g. a click that landed
-      // slightly short of the icon and hit "Active now" instead — a
-      // hardcoded "click the icon" prompt has no way to notice or
-      // correct that on retry, it'll aim the same way again). Instead,
-      // fall back to an open-ended goal loop: re-look at whatever is
-      // actually on screen right now (which might be "Active now", a
-      // stray popup, anything) and ask the model to figure out the
-      // single next click toward the real goal, same technique
-      // joinMeetingByLink already uses for less-predictable flows.
-      const goalFallbackWorked = await goalDrivenClickFallback(
-        `Get to the point where a ${action === "call" ? "phone call" : action === "chat" ? "chat conversation" : "options menu"} ` +
-        `has been opened/started for the Teams contact named "${personName}" (or the closest visible match), starting ` +
-        `from Teams' Contacts/People page. If "Active now" is currently showing instead of "All contacts", switch to ` +
-        `"All contacts" first — the target contact may not be in "Active now" at all.`,
-        doneCheck
-      );
-      if (goalFallbackWorked) return true;
-
-      // Still no luck — if that whole detour actually knocked the
-      // panel back onto "Active now" (the tab bar sits right above
-      // the topmost row, so an imprecise click near that first row can
-      // land on the tab above it instead), the rest of this scan would
-      // silently keep scrolling through the wrong list. Catch that
-      // here and fix the tab before continuing.
-      const stillOnAllContacts = (await vision.lookAtScreen(
-        `In this Microsoft Teams People panel, which tab is currently selected/highlighted — "All contacts" or "Active now"? Reply with only ALL_CONTACTS or ACTIVE_NOW or NEITHER.`
-      )).trim().toUpperCase();
-      if (stillOnAllContacts.includes("ACTIVE_NOW")) {
-        if (!(await ensureAllContactsTabSelected())) return false; // can't recover — let the caller fall back
-        await scrollContactsList("top");
-        await sleep(300);
-        continue; // re-scan this same screen now that we're back on the right tab
-      }
-
-      await scrollContactsList("down");
-      await sleep(500);
-    }
-    // Nobody matched anywhere in the list this pass — give Teams a
-    // moment in case the contact was just added and re-check once.
-    if (pass === 0) await sleep(1500);
-  }
-  return false;
-}
-
-// After clicking a row's chat/call/more icon, confirm the screen
-// actually reflects that action before trusting the click. If it
-// doesn't, whatever got clicked wasn't the right target (a profile
-// card, a no-op tap on "Active now", a miss) — worth another scan
-// pass rather than reporting a false success.
-async function verifyRowActionTookEffect(action) {
-  await sleep(600);
-  if (action === "chat") {
-    const opened = (await vision.lookAtScreen(
-      `Does this look like an open Microsoft Teams 1:1 chat conversation — a message compose box at the bottom, and either past messages or an empty conversation area? Reply with only YES or NO.`
-    )).trim().toUpperCase();
-    return opened.startsWith("YES");
-  }
-  if (action === "more") {
-    const menuOpen = (await vision.lookAtScreen(
-      `Does this look like a small context/dropdown menu is currently open in Microsoft Teams (options like "Video call", "Chat", "Remove from contacts", etc.)? Reply with only YES or NO.`
-    )).trim().toUpperCase();
-    return menuOpen.startsWith("YES");
-  }
-  // action === "call"
-  const callStarting = (await vision.lookAtScreen(
-    `Does this look like a Teams pre-call/lobby screen (camera preview, "Join now"/"Call" button) OR an active call already dialing/connected (a "Calling..." screen or an in-call toolbar with Mic/Camera/hang-up)? Reply with only YES or NO.`
-  )).trim().toUpperCase();
-  return callStarting.startsWith("YES");
-}
-
-// After clicking a call icon, Teams can land on one of two different
-// screens depending on how the call was placed — this handles both:
-//
-//   1. A pre-call LOBBY screen (camera preview, device picker, a
-//      "Join now"/"Call" button) — seen before the call is placed.
-//   2. Already dialing — a "Calling..." screen with the in-call
-//      toolbar visible at the top (Chat / View / More / Camera / Mic /
-//      Share), no lobby step at all. This is what calling straight
-//      from a Contacts row actually does — there's no "Join now" to
-//      click here, so the old lobby-only check silently did nothing
-//      and a muted mic would stay muted for the whole call.
-//
-// Note: the dropdown arrow next to the in-call Mic button opens a
-// device picker (which mic/speaker to USE — see openMicPicker below);
-// the plain Mic button itself is mute/unmute. This function only
-// handles mute/unmute — switching to a specific device is what
-// switchTeamsMicTo() further down is for.
-async function handlePreCallScreen() {
-  const onLobbyScreen = (await vision.lookAtScreen(
-    `Does this look like a Teams pre-call/lobby screen — camera preview, audio device options, a "Join now" or "Call" button? Reply with only YES or NO.`
-  )).trim().toUpperCase();
-
-  if (onLobbyScreen.startsWith("YES")) {
-    await vision.findAndClick(`the "Computer audio" option on this pre-call screen, if it isn't already selected`).catch(() => {});
-    await sleep(200);
-    const micLooksOff = (await vision.lookAtScreen(
-      `On this Teams pre-call screen, does the microphone toggle look OFF/muted (crossed-out mic icon, or a toggle in the off position)? Reply with only YES or NO.`
-    )).trim().toUpperCase();
-    if (micLooksOff.startsWith("YES")) {
-      await vision.findAndClick(`the muted microphone toggle on this pre-call screen, to turn it on`).catch(() => {});
-      await sleep(200);
-    }
-    await vision.findAndClick(`the "Join now" or "Call" button to start the call`).catch(() => {});
-    return true;
-  }
-
-  // Not a lobby — check whether we're actually dialing/live (a
-  // "Calling..." screen or an already-connected call, in-call toolbar
-  // showing at top) before assuming the call button click did
-  // anything. Previously this branch just assumed "not lobby = must
-  // be dialing" and returned success either way — so a click that
-  // landed on the wrong pixel (missed the call button entirely, hit
-  // nothing) still got reported back to the user as "Calling X now,
-  // Sir," even though nothing was actually happening. That's the
-  // "it said calling but never called them" symptom.
-  const isDialingOrLive = (await vision.lookAtScreen(
-    `Does this look like an active Teams call — a "Calling..." screen, or a live call with an in-call toolbar (Chat/Camera/Mic/Share buttons) visible at the top? Reply with only YES or NO.`
-  )).trim().toUpperCase();
-  if (!isDialingOrLive.startsWith("YES")) return false;
-
-  const micMuted = (await vision.lookAtScreen(
-    `Look at the "Mic" button in the Teams in-call toolbar at the top of the screen (next to the Camera button). Does it look muted/crossed-out? Reply with only YES or NO.`
-  )).trim().toUpperCase();
-  if (micMuted.startsWith("YES")) {
-    await vision.findAndClick(`the "Mic" button itself (not its small dropdown arrow) in the Teams in-call toolbar, to unmute it`).catch(() => {});
-  }
-  return true;
-}
-
-// ── OPEN ────────────────────────────────────────────────────────
-// Launches Teams via its own URI protocol where possible (fast,
-// reliable, and it's what Windows itself uses for Teams links), and
-// falls back to the plain app-alias launch on other platforms.
-// Forces the Teams window into a genuine maximized state via Win32
-// ShowWindow — launching via the ms-teams: protocol brings the
-// window to the foreground but does NOT control its size/state, so
-// Teams stays wherever it was last left: minimized, a small floating
-// window, snapped to half the screen, whatever. Vision models are
-// trained on overwhelmingly full-screen Teams screenshots, so when
-// the real window is smaller or positioned differently, they tend to
-// answer with where the sidebar icon "normally" sits in a maximized
-// layout instead of carefully grounding in the actual (differently
-// shaped) screenshot — which looks exactly like "it clicked where
-// the icon would be if this were full-screened." Forcing a real
-// maximize here removes that whole failure mode instead of trying to
-// out-prompt it.
-function ensureTeamsMaximized() {
-  if (!isWindows()) return Promise.resolve();
-  const ps = `
-$p = Get-Process | Where-Object { $_.MainWindowTitle -like '*Teams*' -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1;
-if ($p) {
-  Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class Win32Show { [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow); [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd); }';
-  [Win32Show]::ShowWindow($p.MainWindowHandle, 9) | Out-Null;
-  Start-Sleep -Milliseconds 150;
-  [Win32Show]::ShowWindow($p.MainWindowHandle, 3) | Out-Null;
-  [Win32Show]::SetForegroundWindow($p.MainWindowHandle) | Out-Null;
-}
-`.replace(/\r?\n/g, " ");
-  return new Promise((resolve) => {
-    exec(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"')}"`, { windowsHide: true, timeout: 10000 }, () => resolve());
-  });
-}
-
-async function openTeams() {
-  await agent.openTarget(isWindows() ? "ms-teams:" : "teams");
-  await sleep(2500); // give the window time to come to the foreground
-  await ensureTeamsMaximized();
-  await sleep(400); // let the maximize animation actually finish before any screenshot
-  return true;
-}
-
-async function openWhatsApp() {
-  await agent.openTarget(isWindows() ? "whatsapp:" : "whatsapp");
-  await sleep(2000);
-  return true;
-}
-
-// ── FOCUS TEAMS' SEARCH BOX AND SEARCH FOR A PERSON ───────────────
-// Ctrl+E is Teams' one genuinely stable shortcut across recent
-// desktop versions (confirmed on both classic and new Teams as of
-// this writing) — used here as the one hardcoded hotkey in this
-// file, everything after it is vision-guided.
-// Returns the name Jarvis actually opened a chat with — usually just
-// personName echoed back, but see the closest-match fallback below,
-// where it can differ from what was asked for.
-async function openChatViaSearchBox(personName) {
-  await openTeams();
-  await agent.runCommand(isWindows()
-    ? `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('^e')"`
-    : `osascript -e 'tell application "System Events" to keystroke "e" using command down'`);
-  await sleep(500);
-  await agent.typeText(personName);
-  await sleep(1600); // let search results render (bumped from 1200ms — a too-early screenshot on slower machines was part of what caused the stall)
-
-  // Prefer a "People" section entry over "Group Chats"/"Meeting with X"
-  // entries — the dropdown often lists the same name multiple times
-  // (a 1:1 person AND one or more meeting/group chats that happen to
-  // mention them), and a bare "named exactly X" description leaves the
-  // vision model to guess between them, which is how this used to stall
-  // with the dropdown just sitting there. Being explicit about section
-  // priority removes that ambiguity.
-  // forceVision: the same name legitimately appears multiple times in
-  // this dropdown (the typed query itself, a "People" entry, one or
-  // more "Meeting with X" / Group Chats entries) — telling them apart
-  // requires reading WHICH SECTION each occurrence sits under, which
-  // is exactly what the OCR fast-path can't do (it just grabs the
-  // first literal text match top-to-bottom, which is often the
-  // search box itself). This needs the vision model every time.
-  let clicked = await vision.findAndClick(
-    `In this Microsoft Teams search dropdown, find the result for "${personName}". ` +
-    `If there is an entry under a "People" section heading whose name matches "${personName}", click THAT one — ` +
-    `prefer it over any "Group Chats" or "Meeting with ${personName}" entries even if those also contain the name. ` +
-    `Only click a Group Chats/meeting entry if no plain "People" entry for this name exists. ` +
-    `Do not click the search box or the "Press enter to view all results" row at the top — only an actual result entry lower in the list.`,
-    { forceVision: true }
-  );
-  let matchedName = personName;
-
-  // ── CLOSEST-MATCH FALLBACK ───────────────────────────────────
-  // No exact hit — rather than give up, ask the vision model to
-  // read whatever names ARE actually showing in the dropdown and
-  // pick whichever one is closest to what was asked for (nickname,
-  // misspelling, partial name, contact saved under a different
-  // display name, etc.), then click that instead. One extra
-  // screenshot round-trip, only spent when the exact match already
-  // missed.
-  if (!clicked) {
-    const closest = (await vision.lookAtScreen(
-      `This is a Microsoft Teams search dropdown that should be listing people/chats matching "${personName}", but nothing matched exactly. ` +
-      `Look at the actual names visible in the dropdown right now, under the "People" section specifically if one exists, and tell me ONLY ` +
-      `the single closest matching name to "${personName}" (could be a nickname, a misspelling, a first-name-only match, or a saved display ` +
-      `name that's just different). Ignore "Group Chats"/"Meeting with X" entries unless there is no People entry at all. ` +
-      `Reply with just that name and nothing else. If genuinely nothing in the list is a plausible match, reply exactly: NONE.`
-    )).trim().replace(/^["']|["']$/g, "");
-
-    if (closest && !/^none$/i.test(closest)) {
-      clicked = await vision.findAndClick(
-        `the "People" section search result whose name is "${closest}" in the Teams search dropdown — ` +
-        `not a "Group Chats" or "Meeting with" entry, the plain person entry`,
-        { forceVision: true }
-      );
-      if (clicked) matchedName = closest;
-    }
-  }
-
-  if (!clicked) {
-    throw new Error(`Couldn't find "${personName}" in the Teams search results, ${await friendlyReason()}`);
-  }
-  await sleep(1500); // let the chat pane load
-  return matchedName;
-}
-
-// Public entry point: try the Contacts page first (reliable — a real
-// list of actual contacts, no dropdown ambiguity), and only fall back
-// to the search-box flow if they genuinely aren't in Contacts yet.
+// Public entry point: open a 1:1 chat with personName. Returns the
+// name Jarvis actually landed on (see currentConversationName above).
 async function openChatWith(personName) {
-  if (await openContactsPage() && (await findContactRowAndClick(personName, "chat"))) {
-    await sleep(1500); // let the chat pane load
-    return personName;
+  await openTeams();
+  const result = await brain.achieveGoal(
+    `Open a 1:1 chat conversation with the Microsoft Teams contact "${personName}" (or the single closest visible ` +
+    `match if that exact name isn't found — a nickname, misspelling, or different saved display name is fine, but ` +
+    `don't pick an unrelated person). Two ways to get there, use whichever looks fastest given what's already on ` +
+    `screen: (1) the search box — press Ctrl+E, type the name, then click the result under the "People" section ` +
+    `specifically (not a "Group Chats" or "Meeting with X" entry unless there's no plain People entry); or (2) the ` +
+    `Contacts/People icon in the left sidebar, then make sure the "All contacts" tab is selected — NOT "Active now", ` +
+    `which only lists people currently online and is the wrong list — then scroll to find the name and hover the row ` +
+    `to reveal its chat icon before clicking it. The goal is DONE when a chat conversation with this person is open: ` +
+    `a message compose box at the bottom, and either past messages or an empty conversation area.`,
+    { appHint: "Microsoft Teams" }
+  );
+  if (!result.success) {
+    throw new Error(`Couldn't open a chat with "${personName}" on Teams — ${result.reason}`);
   }
-  return openChatViaSearchBox(personName);
-}
-
-async function friendlyReason() {
-  return "either the name didn't match anyone or the search dropdown wasn't visible when Jarvis looked.";
+  await sleep(600);
+  return currentConversationName(personName);
 }
 
 // ── READ THE LATEST MESSAGE IN A CHAT ────────────────────────────
@@ -523,12 +117,8 @@ async function messageOnTeams(personName, text) {
   await agent.typeText(text);
   await sleep(200);
   // Enter sends in Teams by default (unless the tenant has changed
-  // that setting, which Jarvis can't detect) — SendKeys ENTER is the
-  // one hotkey step in the send path, matching the search-box hotkey
-  // above.
-  await agent.runCommand(isWindows()
-    ? `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')"`
-    : `osascript -e 'tell application "System Events" to key code 36'`);
+  // that setting, which Jarvis can't detect).
+  await brain.sendKeys("{ENTER}");
   return matchedName;
 }
 
@@ -536,55 +126,33 @@ async function messageOnTeams(personName, text) {
 // callType: "audio" | "video"
 // Returns the matched contact name (see openChatWith's closest-match
 // fallback — may differ from personName if the exact text didn't hit).
+// Same brain-driven approach as openChatWith above — one goal, the
+// model picks and adapts the route itself instead of a scripted
+// "try search box, then fall back to Contacts page" sequence.
 async function callOnTeams(personName, callType = "audio") {
-  // Search-box flow FIRST. It's a completely different mechanism from
-  // the Contacts-page row scan below — no scrolling, no hovering, no
-  // needing to tell "All contacts" apart from "Active now" at all,
-  // just Ctrl+E, type the name, click the "People" result. For a
-  // small contacts list especially, this is the more reliable path,
-  // so it's the primary one now rather than a fallback.
-  try {
-    const matchedName = await openChatViaSearchBox(personName);
-    const label = callType === "video" ? "video call button (camera icon)" : "audio call button (phone icon)";
-    const clicked = await vision.findAndClick(`the ${label} in the top-right toolbar of this Teams chat window`);
-    if (clicked && (await handlePreCallScreen())) {
-      await ensureRealMicSelected().catch(() => {});
-      return matchedName;
-    }
-  } catch { /* fall through to the Contacts-page path below */ }
-
-  // Search box didn't work out — fall back to the Contacts page's
-  // per-row call icon.
-  const onContacts = await openContactsPage();
-
-  if (onContacts && callType === "video") {
-    // The contacts row only shows a plain phone icon directly — video
-    // call lives one level in, behind "..." (more options).
-    if (await findContactRowAndClick(personName, "more")) {
-      await sleep(500);
-      const videoClicked = await vision.findAndClick(
-        `the "Video call" option in the menu that just opened`,
-        { forceVision: true }
-      );
-      if (videoClicked) {
-        await sleep(1500);
-        if (await handlePreCallScreen()) {
-          await ensureRealMicSelected().catch(() => {});
-          return personName;
-        }
-        throw new Error(`Clicked to call ${personName} on Teams, but the call never actually started — no lobby or dialing screen appeared. It's possible the click landed in the wrong place.`);
-      }
-    }
-  } else if (onContacts && await findContactRowAndClick(personName, "call")) {
-    await sleep(1500);
-    if (await handlePreCallScreen()) {
-      await ensureRealMicSelected().catch(() => {});
-      return personName;
-    }
-    throw new Error(`Clicked to call ${personName} on Teams, but the call never actually started — no lobby or dialing screen appeared. It's possible the click landed in the wrong place.`);
+  await openTeams();
+  const callLabel = callType === "video" ? "a video call" : "an audio call";
+  const result = await brain.achieveGoal(
+    `Start ${callLabel} with the Microsoft Teams contact "${personName}" (or the single closest visible match if that ` +
+    `exact name isn't found). Two ways to get there, use whichever looks fastest given what's already on screen: ` +
+    `(1) the search box — press Ctrl+E, type the name, click the "People" result, then click the ` +
+    `${callType === "video" ? "video call button (camera icon)" : "audio call button (phone icon)"} in the top-right ` +
+    `toolbar of that chat; or (2) the Contacts/People icon in the left sidebar, making sure "All contacts" is the ` +
+    `selected tab — NOT "Active now", which only lists people currently online and is the wrong list — then scroll ` +
+    `to find the name and hover the row to reveal its icons. On the Contacts page, a row's plain phone icon dials ` +
+    `AUDIO only; for a video call there instead click the row's "..." (more options) icon and choose "Video call" ` +
+    `from the menu that opens. If a pre-call lobby screen appears (camera preview, a "Join now"/"Call" button, ` +
+    `possibly a muted mic toggle), turn the mic on if it looks muted and click "Join now"/"Call" to actually start ` +
+    `the call — don't stop at the lobby. The goal is DONE when the call is actually dialing or connected: either the ` +
+    `lobby has been passed and a "Calling..." status is showing, or an in-call toolbar (mute/camera/hang-up) is visible.`,
+    { appHint: "Microsoft Teams", maxSteps: 16 }
+  );
+  if (!result.success) {
+    throw new Error(`Couldn't get a call started for "${personName}" — ${result.reason}`);
   }
-
-  throw new Error(`Couldn't get a call started for "${personName}" — neither the Teams search box nor the Contacts page got a call dialing.`);
+  await handlePreCallScreen().catch(() => {}); // safety net if the brain stopped right at the lobby
+  await ensureRealMicSelected().catch(() => {});
+  return currentConversationName(personName);
 }
 
 // ── JOIN TODAY'S MEETING ─────────────────────────────────────────
@@ -1044,5 +612,4 @@ module.exports = {
   switchTeamsMicTo,
   switchTeamsMicBack,
   ensureRealMicSelected,
-  goalDrivenClickFallback,
 };
