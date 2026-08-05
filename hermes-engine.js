@@ -526,6 +526,14 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "check_social_media",
+      description: "Look at the user's own connected Instagram and comment on their most recent post(s) — e.g. 'check my instagram', 'what do you think of my last post', 'did I post anything today', 'how does my latest photo look'. This actually looks at the real photo/video, not just the caption, and reacts to it naturally. Only covers the user's OWN account, never someone else's. Only works if Instagram has been connected (see instagram.js setup) — if not connected yet, this returns a needsAuth response with a link to connect.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "check_disk_space",
       description: "Check how much storage space is free/used on the user's own computer. Call for things like 'how much space do I have on my computer', 'check my disk space', 'how full is my drive/hard drive'. Only works when Jarvis is running locally on the user's machine, not in the cloud.",
       parameters: { type: "object", properties: {} },
