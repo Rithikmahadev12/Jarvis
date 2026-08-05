@@ -361,6 +361,33 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "build_website",
+      description: "Design and build a real, self-contained website and show it in an on-screen preview window — e.g. 'build me a site for a coffee place', 'jarvis, make a website for my bakery', 'design a landing page for a dog walking business'. If the user hasn't given the business/site a NAME yet, leave name empty so Jarvis asks for it ('what's the name, sir?') before building — never invent a name yourself. Once the user gives the name in their next message, call this again with both business_type and name filled in to actually build it. Not for the word 'build' when it means the 3D CAD workspace (that's open_build_mode).",
+      parameters: {
+        type: "object",
+        properties: {
+          business_type: { type: "string", description: "What kind of business/site this is, as the user described it, e.g. 'coffee shop', 'bakery', 'dog walking service', 'photography portfolio'." },
+          name: { type: "string", description: "The name of the business/site. Leave empty until the user has actually told you the name." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "download_website",
+      description: "Download a website Jarvis previously built with build_website — e.g. 'hey jarvis download The Daily Grind', 'download that coffee site', 'download it' (referring to the site just built/shown). Use the name of the business/site as given earlier in the conversation if the user doesn't repeat it.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "The name of the site to download, as given earlier when it was built." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_news",
       description: "Show the user current news headlines. Call for 'show me the news', 'world news', 'news widget', 'what's happening in the world', 'catch me up on the news', 'top headlines', or any request for a news rundown.",
       parameters: {
