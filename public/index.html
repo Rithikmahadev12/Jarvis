@@ -20,6 +20,7 @@
   <link rel="stylesheet" href="simple-chat-mode.css"/>
   <link rel="stylesheet" href="boot-reveal.css"/>
   <link rel="stylesheet" href="theme-minimal.css"/>
+  <link rel="stylesheet" href="build-window.css"/>
 
   <!-- PWA: lets this be "Added to Home Screen" as an app on a phone -->
   <link rel="manifest" href="manifest.json"/>
@@ -748,6 +749,47 @@
 
   </div><!-- /main-screen -->
 
+  <!-- ══ SITE BUILD WINDOW — floating OS-style window (not a full-screen mode).
+       Opens over whatever's on screen when "build me a site for X" fires,
+       streams the generated HTML live as it's written, then cross-fades
+       into a live preview of the finished page. Lives at body level for
+       the same stacking-context reason as #mode-taskbar below. ══ -->
+  <div id="build-win" class="build-win hidden" role="dialog" aria-label="Site build window">
+    <div class="build-win-inner">
+      <div class="build-win-titlebar" id="build-win-titlebar">
+        <div class="build-win-dots">
+          <span class="build-win-dot dot-close" id="build-win-close" title="Close"></span>
+          <span class="build-win-dot dot-min"></span>
+          <span class="build-win-dot dot-max"></span>
+        </div>
+        <div class="build-win-title">
+          <span class="build-win-title-name" id="build-win-title-name">site.build</span>
+          <span class="build-win-title-status" id="build-win-title-status">generating</span>
+        </div>
+        <div class="build-win-actions">
+          <button id="build-win-download" class="build-win-btn hidden">Download</button>
+        </div>
+      </div>
+      <div class="build-win-body">
+        <!-- CODE STREAM VIEW -->
+        <div class="build-win-code" id="build-win-code">
+          <div class="build-win-code-gutter" id="build-win-gutter"></div>
+          <pre class="build-win-code-pre"><code id="build-win-code-content"></code><span class="build-win-cursor"></span></pre>
+        </div>
+        <!-- LIVE PREVIEW VIEW -->
+        <iframe id="build-win-preview" class="build-win-preview hidden" title="Site preview"></iframe>
+        <!-- ERROR VIEW -->
+        <div class="build-win-error hidden" id="build-win-error"></div>
+      </div>
+      <div class="build-win-statusbar">
+        <span class="build-win-status-dot" id="build-win-status-dot"></span>
+        <span id="build-win-status-text">Connecting to build engine…</span>
+        <span class="build-win-status-spacer"></span>
+        <span id="build-win-bytecount">0 B</span>
+      </div>
+    </div>
+  </div>
+
   <!-- ══ MODE TASKBAR — bottom dock, switch modes by tap or by voice ("Jarvis, switch to map").
        Lives at body level (not inside #main-screen) on purpose: #main-screen is a fixed,
        z-indexed element and therefore its own stacking context, which was trapping the
@@ -802,6 +844,7 @@
        fallback (see the MIC ENGINE section in jarvis.js). -->
   <script src="desktop-bridge.js"></script>
   <script src="jarvis.js"></script>
+  <script src="build-window.js"></script>
   <script src="intro.js"></script>
   <script src="home-ui.js"></script>
   <script src="daily-briefing.js"></script>
