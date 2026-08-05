@@ -2897,6 +2897,36 @@ async function executeAssistantTool(name, args, ctx) {
       }
     }
 
+    // ── control_app ──────────────────────────────────────────────
+    // The generalized version of what teams-control.js does for
+    // Teams specifically — any app, any in-app goal, figured out live
+    // by agent-brain.js's achieveGoal() instead of a fixed script.
+    // open_on_computer only ever launches a window; this is what
+    // covers "then actually do something in it."
+    case "control_app": {
+      if (!JarvisAgent.isEnabled()) {
+        return { reply: `Can't do that from here, ${T} — this instance is running in the cloud, not on your computer.`, action: "CONTROL_APP", intent: "control_app" };
+      }
+      const appName = (args.app || "").trim();
+      const goal = (args.goal || "").trim();
+      if (!appName || !goal) {
+        return { reply: `What app, and what should I do in it, ${T}?`, action: "CONTROL_APP", intent: "control_app" };
+      }
+      const brain = require("./agent-brain");
+      try {
+        await JarvisAgent.openTarget(appName).catch(() => {}); // best-effort — app may already be open/foreground
+        await new Promise((r) => setTimeout(r, 1800)); // give the window a moment to come forward
+        const result = await brain.achieveGoal(goal, { appHint: appName, maxSteps: 16 });
+        if (!result.success) {
+          return { reply: `Couldn't quite get that done in ${appName}, ${T} — ${result.reason}`, action: "CONTROL_APP_FAILED", intent: "control_app", meta: { app: appName, goal, error: result.reason } };
+        }
+        return { reply: `Done, ${T} — ${result.reason || `handled that in ${appName}`}.`, action: "CONTROL_APP", intent: "control_app", meta: { app: appName, goal } };
+      } catch (e) {
+        console.error("[TOOLS] control_app failed:", e.message);
+        return { reply: `Couldn't do that in ${appName}, ${T} — ${e.message}`, action: "CONTROL_APP_FAILED", intent: "control_app", meta: { app: appName, goal, error: e.message } };
+      }
+    }
+
     case "check_disk_space":
       return await handleCheckDiskSpace(T);
 
