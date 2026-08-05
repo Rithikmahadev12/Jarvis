@@ -264,6 +264,36 @@ app.get("/api/sites/:slug/download", async (req, res) => {
   }
 });
 
+// GET /api/sites/stream/:buildId — SSE. Drives the actual site
+// generation (registered instantly by the build_website tool call)
+// and forwards each token from Groq to the browser as it arrives, so
+// the OS-style build window can show real code materializing instead
+// of a blank screen while the model thinks. Emits "chunk" events
+// while generating and one final "done" (or "error") event.
+app.get("/api/sites/stream/:buildId", async (req, res) => {
+  const buildId = String(req.params.buildId || "");
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  const send = (event, data) => { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+  const keepAlive = setInterval(() => { try { res.write(": ping\n\n"); } catch {} }, 15000);
+
+  try {
+    const site = await SiteBuilder.streamBuild(buildId, (delta, info) => {
+      send("chunk", { delta, fallback: !!info?.fallback });
+    });
+    send("done", { url: site.url, name: site.name, slug: site.slug });
+  } catch (e) {
+    send("error", { message: e.message });
+  } finally {
+    clearInterval(keepAlive);
+    res.end();
+  }
+});
+
 // ── FIND-OR-BUILD — "Jarvis, build me a drone" ──────────────────
 // Searches Sketchfab for the real thing first; only tells the client
 // to fall back to the AI feature-tree generator (/api/build/generate)
@@ -2835,15 +2865,19 @@ async function executeAssistantTool(name, args, ctx) {
         };
       }
       try {
-        const site = await SiteBuilder.buildSite(businessType, name);
+        // Instant — just registers the job. The real generation happens
+        // over SSE once the client connects to /api/sites/stream/:buildId,
+        // so the build window can show the HTML materializing live instead
+        // of the UI just sitting there while Groq thinks.
+        const buildId = SiteBuilder.startBuild(businessType, name);
         return {
-          reply: `Done, ${T} — I've built a site for ${site.name}. Have a look.`,
-          action: "OPEN_WEBSITE_BUILD",
+          reply: `On it, ${T} — building ${name} now. Watch it come together.`,
+          action: "START_WEBSITE_BUILD",
           intent: "website_build",
-          meta: { url: site.url, name: site.name, slug: site.slug },
+          meta: { buildId, name, businessType },
         };
       } catch (e) {
-        return { reply: `Couldn't build that, ${T}. ${e.message}`, action: "OPEN_WEBSITE_BUILD", intent: "website_build" };
+        return { reply: `Couldn't build that, ${T}. ${e.message}`, action: "START_WEBSITE_BUILD", intent: "website_build" };
       }
     }
 
