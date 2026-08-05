@@ -226,6 +226,86 @@ async function groqFetchRaw(messages, options = {}) {
   throw lastError || new Error("All configured Groq API keys failed.");
 }
 
+// ── STREAMING FETCH (SSE) ──────────────────────────────────────
+// Same wire format as groqFetchRaw but with stream:true — reads the
+// response body as an SSE token stream and calls onDelta(text) as
+// each piece of content arrives, so a caller (e.g. the site builder)
+// can forward it to a browser in real time instead of waiting on the
+// whole completion. Resolves with the full concatenated text once
+// the stream ends. Single-key attempt with one retry on failure —
+// mid-stream failover isn't meaningful once tokens are already
+// flowing to a client.
+async function groqFetchStream(messages, options = {}) {
+  const {
+    model            = MODELS.smart,
+    temperature      = 0.75,
+    maxTokens        = 1024,
+    onDelta          = () => {},
+    reasoning_effort = null,
+  } = options;
+
+  if (!GroqKeys.hasGroqKey()) throw new Error("GROQ_API_KEY not set in .env");
+
+  const body = { model, messages, temperature, max_tokens: maxTokens, stream: true };
+  if (reasoning_effort) body.reasoning_effort = reasoning_effort;
+
+  const totalKeys = GroqKeys.groqKeyCount();
+  let lastError = null;
+
+  for (let attempt = 0; attempt < totalKeys; attempt++) {
+    const key = GroqKeys.currentGroqKey();
+    const isLastKey = attempt === totalKeys - 1;
+    let res;
+    try {
+      res = await fetch(GROQ_API_URL, {
+        method:  "POST",
+        headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+        body:    JSON.stringify(body),
+        signal:  AbortSignal.timeout(120000),
+      });
+    } catch (e) {
+      lastError = new Error(`Could not reach Groq API: ${e.message}`);
+      if (isLastKey) throw lastError;
+      GroqKeys.rotateGroqKey();
+      continue;
+    }
+
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      lastError = new Error(`Groq API error ${res.status}: ${errBody.error?.message || res.statusText}`);
+      if ((res.status === 401 || res.status === 403 || res.status === 429 || res.status >= 500) && !isLastKey) {
+        GroqKeys.rotateGroqKey();
+        continue;
+      }
+      throw lastError;
+    }
+
+    let full = "";
+    let buf = "";
+    for await (const rawChunk of res.body) {
+      buf += Buffer.isBuffer(rawChunk) ? rawChunk.toString("utf8") : String(rawChunk);
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) !== -1) {
+        const eventBlock = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        for (const line of eventBlock.split("\n")) {
+          if (!line.startsWith("data:")) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try {
+            const json = JSON.parse(payload);
+            const delta = json.choices?.[0]?.delta?.content || "";
+            if (delta) { full += delta; onDelta(delta); }
+          } catch { /* ignore malformed chunk */ }
+        }
+      }
+    }
+    return full;
+  }
+
+  throw lastError || new Error("All configured Groq API keys failed.");
+}
+
 // ── TOOL DEFINITIONS ───────────────────────────────────────────
 // Real actions Jarvis can take. Groq decides WHEN to call these based
 // on the user's natural-language message — no regex/keyword matching
@@ -1238,6 +1318,7 @@ module.exports = {
   chatWithTools,
   codeChat,
   groqFetchRaw,
+  groqFetchStream,
   summarizeNewsSarcastically,
   ambientAssist,
   TOOLS,
