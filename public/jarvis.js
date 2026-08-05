@@ -3328,6 +3328,42 @@ function openNews(newsMeta) {
     iframe.onload = () => setTimeout(sendData, 250);
   }
 }
+// ── WEBSITE BUILD PANEL ─────────────────────────────────────────
+// "hey jarvis build me a site for X" lands here once the server has
+// generated a real static site — shown live in an iframe, with a
+// download button that fires the same download_website tool flow.
+function openWebsiteBuild(meta) {
+  const panel  = $("website-panel");
+  const iframe = $("website-iframe");
+  const title  = $("website-panel-title");
+  const dlBtn  = $("website-download-btn");
+  if (!panel || !iframe) return;
+  panel.style.display = "block";
+  iframe.src = meta?.url || "about:blank";
+  if (title) title.textContent = meta?.name || "Website";
+  if (dlBtn) dlBtn.dataset.slug = meta?.slug || "";
+  if (dlBtn) dlBtn.dataset.name = meta?.name || "";
+}
+function closeWebsitePanel() {
+  const panel  = $("website-panel");
+  const iframe = $("website-iframe");
+  if (panel) panel.style.display = "none";
+  if (iframe) iframe.src = "about:blank";
+  if (state.phase === "chatting") mic.resume();
+  _setTaskbarChatActive();
+}
+function downloadWebsiteFromPanel() {
+  const dlBtn = $("website-download-btn");
+  const slug = dlBtn?.dataset.slug;
+  if (!slug) return;
+  const a = document.createElement("a");
+  a.href = `/api/sites/${slug}/download`;
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 function closeNews() {
   const panel  = $("news-panel");
   const iframe = $("news-iframe");
@@ -3529,6 +3565,28 @@ async function handleAction(action, meta, replyText) {
       const url = meta?.url;
       speak(replyText, () => {
         if (url) window.open(url, "_blank", "noopener");
+        mic.resume();
+      });
+      break;
+    }
+    case "OPEN_WEBSITE_BUILD": {
+      speak(replyText, () => {
+        openWebsiteBuild(meta);
+        mic.resume();
+      });
+      break;
+    }
+    case "DOWNLOAD_WEBSITE": {
+      const url = meta?.url;
+      speak(replyText, () => {
+        if (url) {
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        }
         mic.resume();
       });
       break;
