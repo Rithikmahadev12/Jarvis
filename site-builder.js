@@ -84,27 +84,58 @@ function escapeHtml(s) {
   return String(s || "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
+// ── STREAMING BUILD ───────────────────────────────────────────
+// The chat tool call registers the build (instant, no network wait)
+// and hands the caller a buildId; the browser then opens the OS-style
+// build window and connects to /api/sites/stream/:buildId, which
+// drives streamBuild() below and forwards each token to the client as
+// it's generated — the window shows the actual HTML materializing
+// instead of a blank screen while Groq thinks.
+const pendingBuilds = new Map(); // buildId -> { businessType, name }
+
+function startBuild(businessType, name) {
+  const cleanName = (name || "").trim();
+  if (!cleanName) throw new Error("A business name is required");
+  const buildId = `b_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  pendingBuilds.set(buildId, { businessType: (businessType || "business").trim(), name: cleanName });
+  return buildId;
+}
+
+async function streamBuild(buildId, onDelta) {
+  const job = pendingBuilds.get(buildId);
+  if (!job) throw new Error("Unknown or already-completed build");
+  pendingBuilds.delete(buildId);
+  return buildSite(job.businessType, job.name, onDelta);
+}
+
 // ── BUILD ─────────────────────────────────────────────────────
-async function buildSite(businessType, name) {
+async function buildSite(businessType, name, onDelta) {
   const cleanName = (name || "").trim();
   const cleanType = (businessType || "business").trim();
   if (!cleanName) throw new Error("A business name is required");
 
   let html;
+  let streamedAny = false;
   try {
     if (!Hermes || !Hermes.isConfigured()) throw new Error("Build AI isn't configured — set GROQ_API_KEY in .env");
-    const raw = await Hermes.groqFetch(
-      [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: `Business type: ${cleanType}\nBusiness name: ${cleanName}\nBuild the full single-file website now.` },
-      ],
-      Hermes.MODELS.code,
-      0.7,
-      8000
-    );
+    const messages = [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: `Business type: ${cleanType}\nBusiness name: ${cleanName}\nBuild the full single-file website now.` },
+    ];
+    const raw = typeof onDelta === "function"
+      ? await Hermes.groqFetchStream(messages, {
+          model: Hermes.MODELS.code, temperature: 0.7, maxTokens: 8000,
+          onDelta: (d) => { streamedAny = true; onDelta(d); },
+        })
+      : await Hermes.groqFetch(messages, Hermes.MODELS.code, 0.7, 8000);
     html = extractHtml(raw);
   } catch (e) {
+    // Only substitute the fallback template if nothing had streamed yet —
+    // once real tokens are already in the window, restarting mid-stream
+    // would just garble what's on screen instead of recovering it.
+    if (streamedAny) throw e;
     html = fallbackHtml(cleanType, cleanName);
+    if (typeof onDelta === "function") onDelta(html, { fallback: true });
   }
 
   const slug = slugify(cleanName);
@@ -148,4 +179,4 @@ function zipSite(slug, destStream) {
   });
 }
 
-module.exports = { buildSite, findSiteByName, listSites, zipSite, SITES_DIR };
+module.exports = { buildSite, startBuild, streamBuild, findSiteByName, listSites, zipSite, SITES_DIR };
