@@ -2849,7 +2849,15 @@ function handleChatCommand(text, attachments) {
   //    outright) so ordinary chat like "that's bigger than I thought"
   //    never gets hijacked. ──
   const buildPanelOpen = $("build-panel")?.style.display === "block";
-  if (buildPanelOpen || /\bbuild\b/.test(cleanedLower)) {
+  // "build me a site/website" etc. is the AI website builder (server-side
+  // tool-calling → the OS-style build window), not the CAD engine below —
+  // never let the generic \bbuild\b match below swallow it, unless the CAD
+  // build panel is already open (then the user is almost certainly talking
+  // to that instead). Without this, EVERY "build a site for X" request was
+  // being misrouted into a CAD build prompt and the website tool was
+  // effectively unreachable from chat/voice.
+  const looksLikeWebsiteBuild = /\b(site|website|web\s*page|webpage|landing\s*page)\b/.test(cleanedLower);
+  if ((buildPanelOpen || /\bbuild\b/.test(cleanedLower)) && !(looksLikeWebsiteBuild && !buildPanelOpen)) {
     if (/\b(render|animate|play|run)\s+(it|this|the\s+build|my\s+build|the\s+model|the\s+mechanism)\b/.test(cleanedLower)) {
       postToBuild({ type: "BUILD_RUN" });
       const r = `Rendering it now, ${state.userTitle}.`;
