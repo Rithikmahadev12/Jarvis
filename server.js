@@ -16,6 +16,7 @@ const Google      = require("./google");
 const DIY         = require("./diy-builder");
 const Build       = require("./build-engine");
 const BuildAI     = require("./build-ai");
+const SiteBuilder = require("./site-builder");
 const Studio      = require("./studio");
 const Home        = require("./home");
 const Groq        = require("./hermes-engine");
@@ -246,6 +247,22 @@ app.get("/api/build/model/:uid", async (req, res) => {
 
 // Static cache of unpacked glTF models pulled from Sketchfab
 app.use("/build-cache", express.static(Build.CACHE_DIR));
+app.use("/sites", express.static(SiteBuilder.SITES_DIR));
+
+// GET /api/sites/:slug/download — zip a built site back up for the user.
+app.get("/api/sites/:slug/download", async (req, res) => {
+  const slug = String(req.params.slug || "").replace(/[^a-zA-Z0-9_-]/g, "");
+  const site = SiteBuilder.listSites().find((s) => s.slug === slug);
+  if (!site) return res.status(404).json({ error: "No such site" });
+  const filename = `${site.name.replace(/[^a-zA-Z0-9 _-]/g, "").trim() || "site"}.zip`;
+  res.setHeader("Content-Type", "application/zip");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  try {
+    await SiteBuilder.zipSite(slug, res);
+  } catch (e) {
+    if (!res.headersSent) res.status(500).json({ error: e.message });
+  }
+});
 
 // ── FIND-OR-BUILD — "Jarvis, build me a drone" ──────────────────
 // Searches Sketchfab for the real thing first; only tells the client
@@ -2803,6 +2820,45 @@ async function executeAssistantTool(name, args, ctx) {
 
     case "open_build_mode":
       return handleHologramOpen(args.query ? `build mode ${args.query}` : "build mode", T);
+
+    case "build_website": {
+      const businessType = (args.business_type || "").trim();
+      const name = (args.name || "").trim();
+      if (!name) {
+        return {
+          reply: businessType
+            ? `Certainly, ${T}. What should I call it?`
+            : `Happy to, ${T}. What kind of place, and what's it called?`,
+          action: "ASK_BUILD_WEBSITE",
+          intent: "website_build",
+          meta: { businessType },
+        };
+      }
+      try {
+        const site = await SiteBuilder.buildSite(businessType, name);
+        return {
+          reply: `Done, ${T} — I've built a site for ${site.name}. Have a look.`,
+          action: "OPEN_WEBSITE_BUILD",
+          intent: "website_build",
+          meta: { url: site.url, name: site.name, slug: site.slug },
+        };
+      } catch (e) {
+        return { reply: `Couldn't build that, ${T}. ${e.message}`, action: "OPEN_WEBSITE_BUILD", intent: "website_build" };
+      }
+    }
+
+    case "download_website": {
+      const name = (args.name || "").trim();
+      if (!name) return { reply: `Which site should I download, ${T}?`, action: "ASK_DOWNLOAD_WEBSITE", intent: "website_download" };
+      const site = SiteBuilder.findSiteByName(name);
+      if (!site) return { reply: `I don't have a site called ${name} built yet, ${T}.`, action: "ASK_DOWNLOAD_WEBSITE", intent: "website_download" };
+      return {
+        reply: `Downloading ${site.name} now, ${T}.`,
+        action: "DOWNLOAD_WEBSITE",
+        intent: "website_download",
+        meta: { url: `/api/sites/${site.slug}/download`, name: site.name },
+      };
+    }
 
     case "make_board":
       return await handleMakeBoard(args.topic, T);
