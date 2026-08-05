@@ -37,6 +37,7 @@ const InboxTriage = require("./inbox-triage");
 const Settings    = require("./settings");
 const Focus       = require("./focus");
 const MeetingPrep = require("./meeting-prep");
+const Instagram   = require("./instagram");
 
 const DATA_DIR   = path.join(__dirname, "data");
 const STORE_FILE = path.join(DATA_DIR, "proactive-briefing.json");
@@ -349,11 +350,73 @@ async function getOrGenerateToday(user, userTitle, tz) {
   catch { return null; }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ── SOCIAL MOMENT NUDGE ───────────────────────────────────────────
+// "Sir, you seemed to have a good time at the beach" — Jarvis
+// noticing a new Instagram post on its own and commenting on it,
+// the same unprompted way it already surfaces calendar/inbox nudges.
+//
+// Unlike checkNudges/checkMeetingPrep above, this is NOT day-scoped —
+// once Jarvis has reacted to a given post it should never repeat that
+// reaction later, even after the dedupe store's "date" field has
+// moved on to a new day, so this tracks lastSeenInstaId directly
+// rather than resetting through the `prior.date === today` pattern
+// the other two nudges use.
+// ═══════════════════════════════════════════════════════════════
+const SOCIAL_FRESHNESS_MS = 6 * 60 * 60 * 1000; // only react to posts from the last 6 hours
+
+async function checkSocialMoment(user, userTitle, tz) {
+  const key = userKey(user);
+  if (isQuietHours(tz)) return null;
+
+  const settings = Settings.load();
+  if (settings.proactiveNudges === false) return null;
+  if (Focus.isActive(key)) return null; // don't interrupt a heads-down session
+
+  if (!Instagram.isConfigured() || !Instagram.hasToken()) return null;
+
+  let media = [];
+  try {
+    const result = await Instagram.fetchRecentMedia(3);
+    if (result.needsAuth || result.error) return null;
+    media = result.media || [];
+  } catch { return null; }
+  if (!media.length) return null;
+
+  const all = loadAll();
+  const prior = all[key] || {};
+  const latest = media[0];
+
+  if (prior.lastSeenInstaId === latest.id) return null; // already reacted to this one
+
+  const ageMs = Date.now() - new Date(latest.timestamp).getTime();
+  const isFresh = Number.isFinite(ageMs) && ageMs >= 0 && ageMs <= SOCIAL_FRESHNESS_MS;
+  if (!isFresh) {
+    // Not new enough to react to (e.g. the very first check right
+    // after connecting the account, with a backlog of old posts) —
+    // still remember it so it never triggers a nudge once its window
+    // has passed, but don't say anything about it now.
+    all[key] = { ...prior, lastSeenInstaId: latest.id };
+    saveAll(all);
+    return null;
+  }
+
+  let text;
+  try { text = await Instagram.describePost(latest, { userTitle }); }
+  catch { return null; }
+
+  all[key] = { ...prior, lastSeenInstaId: latest.id };
+  saveAll(all);
+
+  return { text, post: latest, generatedAt: new Date().toISOString() };
+}
+
 module.exports = {
   getToday,
   getOrGenerateToday,
   runForUser,
   checkNudges,
   checkMeetingPrep,
+  checkSocialMoment,
   todayKey,
 };
