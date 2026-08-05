@@ -3569,6 +3569,13 @@ async function handleAction(action, meta, replyText) {
       });
       break;
     }
+    case "START_WEBSITE_BUILD": {
+      speak(replyText, () => {
+        window.BuildWindow?.open(meta);
+        mic.resume();
+      });
+      break;
+    }
     case "OPEN_WEBSITE_BUILD": {
       speak(replyText, () => {
         openWebsiteBuild(meta);
