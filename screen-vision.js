@@ -811,6 +811,8 @@ module.exports = {
   clickAt,
   moveMouseTo,
   findAndClick,
+  askVision, // exported for agent-brain.js's grounded next-action decisions
+  askText,
   GROQ_VISION_MODEL,
   GROQ_TEXT_MODEL,
   GEMINI_MODEL,
