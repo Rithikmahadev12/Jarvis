@@ -1,0 +1,240 @@
+/* ═══════════════════════════════════════════════════════════════
+   BUILD WINDOW — floating OS-style window for "build me a site for X".
+   Not a full-screen mode: a spotlighted, draggable window that opens
+   over whatever's already on screen, streams the generated HTML live
+   like a code editor, then cross-fades into a real preview.
+   ═══════════════════════════════════════════════════════════════ */
+
+.build-win {
+  position: fixed;
+  inset: 0;
+  z-index: 560; /* above the dashboard (500), below the taskbar (620) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, rgba(1,10,18,0.55) 0%, rgba(1,8,14,0.86) 100%);
+  backdrop-filter: blur(6px) saturate(1.1);
+  -webkit-backdrop-filter: blur(6px) saturate(1.1);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.build-win.hidden { display: none; }
+.build-win.open   { opacity: 1; pointer-events: auto; }
+
+.build-win-inner {
+  width: min(940px, 92vw);
+  height: min(660px, 86vh);
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, rgba(4,20,34,0.97) 0%, rgba(2,13,23,0.98) 100%);
+  border: 1px solid rgba(0,200,255,0.28);
+  border-radius: 12px;
+  box-shadow:
+    0 30px 90px rgba(0,0,0,0.55),
+    0 0 0 1px rgba(0,200,255,0.05),
+    0 0 60px rgba(0,200,255,0.12),
+    inset 0 1px 0 rgba(255,255,255,0.04);
+  overflow: hidden;
+  position: relative;
+  transform: scale(0.94) translateY(10px);
+  opacity: 0;
+  transition: transform 0.32s cubic-bezier(.2,.9,.25,1.15), opacity 0.28s ease;
+}
+.build-win.open .build-win-inner { transform: scale(1) translateY(0); opacity: 1; }
+
+/* thin glow line under the titlebar, like light escaping a real OS window */
+.build-win-inner::before {
+  content: "";
+  position: absolute; left: 0; right: 0; top: 42px; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0,200,255,0.35), transparent);
+  z-index: 2;
+}
+
+/* ── TITLEBAR ── */
+.build-win-titlebar {
+  height: 42px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 14px;
+  background: linear-gradient(180deg, rgba(0,200,255,0.05), rgba(0,200,255,0.015));
+  cursor: grab;
+  user-select: none;
+  position: relative;
+  z-index: 3;
+}
+.build-win-titlebar:active { cursor: grabbing; }
+
+.build-win-dots { display: flex; gap: 8px; flex: 0 0 auto; }
+.build-win-dot {
+  width: 11px; height: 11px; border-radius: 50%;
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.25);
+}
+.dot-close { background: #ff5f57; cursor: pointer; }
+.dot-close:hover { filter: brightness(1.25); box-shadow: 0 0 8px rgba(255,95,87,0.7); }
+.dot-min   { background: #ffbd2e; }
+.dot-max   { background: #28c840; }
+
+.build-win-title {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 9px;
+  min-width: 0;
+  font-family: var(--mono);
+  pointer-events: none;
+}
+.build-win-title-name {
+  color: var(--text-bright, #d8f4ff);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 46vw;
+}
+.build-win-title-status {
+  color: var(--blue, #00c8ff);
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.build-win-actions { flex: 0 0 auto; }
+.build-win-btn {
+  background: rgba(0,200,255,0.08);
+  border: 1px solid rgba(0,200,255,0.35);
+  color: var(--blue, #00c8ff);
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.build-win-btn:hover { background: rgba(0,200,255,0.18); box-shadow: 0 0 14px rgba(0,200,255,0.25); }
+.build-win-btn.hidden { display: none; }
+
+/* ── BODY ── */
+.build-win-body { flex: 1 1 auto; position: relative; min-height: 0; background: #030f1a; }
+
+/* — code stream view — */
+.build-win-code {
+  position: absolute; inset: 0;
+  display: flex;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.65;
+  transition: opacity 0.35s ease;
+}
+.build-win-code.leaving { opacity: 0; pointer-events: none; }
+
+.build-win-code-gutter {
+  flex: 0 0 auto;
+  padding: 16px 10px 16px 16px;
+  text-align: right;
+  color: rgba(0,200,255,0.28);
+  white-space: pre;
+  user-select: none;
+}
+.build-win-code-pre {
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 16px 20px 40px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #a8dff5;
+}
+.build-win-code-pre code { display: inline; }
+
+/* lightweight streamed-token syntax accents (see build-window.js) */
+.tok-tag   { color: #00c8ff; }
+.tok-attr  { color: #ffaa00; }
+.tok-str   { color: #7dffb0; }
+.tok-cmt   { color: #3a6a88; font-style: italic; }
+.tok-punct { color: #4a8aa8; }
+
+.build-win-cursor {
+  display: inline-block;
+  width: 7px; height: 15px;
+  margin-left: 1px;
+  background: var(--blue, #00c8ff);
+  box-shadow: 0 0 8px rgba(0,200,255,0.8);
+  vertical-align: text-bottom;
+  animation: bwBlink 0.9s step-end infinite;
+}
+.build-win-cursor.hidden { display: none; }
+@keyframes bwBlink { 50% { opacity: 0; } }
+
+/* — preview view — */
+.build-win-preview {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  border: none;
+  background: #fff;
+  opacity: 0;
+  transition: opacity 0.5s ease 0.05s;
+}
+.build-win-preview.hidden { display: none; }
+.build-win-preview.show { opacity: 1; }
+
+/* materialize sweep — plays once over the preview right as it appears */
+.build-win-sweep {
+  position: absolute; inset: 0; z-index: 5; pointer-events: none;
+  background: linear-gradient(100deg, transparent 40%, rgba(0,200,255,0.35) 50%, transparent 60%);
+  transform: translateX(-120%);
+}
+.build-win-sweep.play { animation: bwSweep 0.9s cubic-bezier(.3,.8,.4,1) forwards; }
+@keyframes bwSweep { to { transform: translateX(120%); } }
+
+/* — error view — */
+.build-win-error {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 10px;
+  padding: 30px;
+  text-align: center;
+  color: #ff8787;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+}
+.build-win-error.hidden { display: none; }
+
+/* ── STATUS BAR ── */
+.build-win-statusbar {
+  flex: 0 0 auto;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  background: rgba(0,200,255,0.03);
+  border-top: 1px solid rgba(0,200,255,0.12);
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.05em;
+  color: var(--text-dim, #2e5a78);
+}
+.build-win-status-spacer { flex: 1 1 auto; }
+.build-win-status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--amber, #ffaa00);
+  box-shadow: 0 0 6px rgba(255,170,0,0.7);
+  animation: bwPulse 1.1s ease-in-out infinite;
+}
+.build-win-status-dot.ok   { background: var(--green, #00ff88); box-shadow: 0 0 6px rgba(0,255,136,0.7); animation: none; }
+.build-win-status-dot.err  { background: var(--red, #ff3333);   box-shadow: 0 0 6px rgba(255,51,51,0.7);  animation: none; }
+@keyframes bwPulse { 50% { opacity: 0.35; transform: scale(0.8); } }
+
+@media (max-width: 620px) {
+  .build-win-inner { width: 96vw; height: 90vh; border-radius: 10px; }
+  .build-win-title-name { max-width: 36vw; }
+  .build-win-code { font-size: 11px; }
+  .build-win-code-gutter { display: none; }
+}
