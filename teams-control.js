@@ -38,6 +38,24 @@ function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 function isWindows() { return os.platform() === "win32"; }
 
+// ── LAUNCH THE APPS ────────────────────────────────────────────
+// Thin wrappers around jarvis-agent's generic app launcher (which
+// already knows the right platform-specific target — "ms-teams:" /
+// "whatsapp:" on Windows, "Microsoft Teams" / "WhatsApp" on macOS,
+// etc. — see APP_ALIASES in jarvis-agent.js). Best-effort: if the app
+// is already open and focused, this is a harmless no-op re-launch;
+// either way a short sleep gives the window time to come to the
+// front before the caller starts clicking around in it.
+async function openTeams() {
+  await agent.openTarget("teams");
+  await sleep(2500);
+}
+
+async function openWhatsApp() {
+  await agent.openTarget("whatsapp");
+  await sleep(2000);
+}
+
 // ── CONTACT LOOKUP + ACTIONS (brain-driven) ────────────────────────
 // This used to be ~460 lines of hand-scripted steps: open the
 // Contacts page, click "All contacts", hover a row, click its icon,
@@ -153,6 +171,28 @@ async function callOnTeams(personName, callType = "audio") {
   await handlePreCallScreen().catch(() => {}); // safety net if the brain stopped right at the lobby
   await ensureRealMicSelected().catch(() => {});
   return currentConversationName(personName);
+}
+
+// ── PRE-CALL LOBBY SAFETY NET ─────────────────────────────────────
+// callOnTeams's brain-driven goal already tries to get past the
+// pre-call lobby itself (see the goal prompt above), but if it
+// stopped one step short — lobby still showing, call not yet
+// actually dialing — this catches that: unmute if the mic looks
+// muted, then click through to actually start the call.
+async function handlePreCallScreen() {
+  await sleep(500);
+  const stillOnLobby = await vision.lookAtScreen(
+    `Is this a Microsoft Teams pre-call lobby screen (camera preview, a "Join now"/"Call" button, mic/camera toggles) ` +
+    `that hasn't actually started dialing yet? Reply with exactly one word: YES or NO.`
+  ).catch(() => "NO");
+  if (!/yes/i.test(String(stillOnLobby || ""))) return false;
+
+  await vision.findAndClick(
+    `a muted/crossed-out microphone toggle icon on this Teams pre-call lobby screen — only click it if the mic icon ` +
+    `visibly looks muted`
+  ).catch(() => {});
+  await sleep(200);
+  return vision.findAndClick(`the "Join now" or "Call" button on this Teams pre-call lobby screen`).catch(() => false);
 }
 
 // ── JOIN TODAY'S MEETING ─────────────────────────────────────────
