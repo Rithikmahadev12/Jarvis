@@ -1313,6 +1313,13 @@ select option { background: var(--bg2); }
 }
 .holo-close-btn:hover { background: var(--blue-mid); }
 
+.website-panel-title {
+  position: fixed; top: 22px; left: 18px; z-index: 210;
+  color: var(--blue); font-family: var(--mono); font-size: 0.7rem;
+  letter-spacing: 0.15em; text-transform: uppercase; opacity: 0.85;
+}
+.website-download-btn { right: 130px; }
+
 /* ═══════════════════════════════════════════════════════════════
    MODE TASKBAR — bottom dock used to switch between JARVIS modes
    (voice command equivalent: "Jarvis, switch to map")
