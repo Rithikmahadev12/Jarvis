@@ -15,8 +15,6 @@ const archiver = require("archiver");
 
 let Hermes = null;
 try { Hermes = require("./hermes-engine"); } catch { Hermes = null; }
-let LocalLLM = null;
-try { LocalLLM = require("./local-llm"); } catch { LocalLLM = null; }
 
 const SITES_DIR    = path.join(__dirname, "data", "sites");
 const REGISTRY_FILE = path.join(SITES_DIR, "registry.json");
@@ -277,38 +275,97 @@ async function streamBuild(buildId, onDelta) {
   return buildSite(job.businessType, job.name, onDelta);
 }
 
-// Env var override so the site builder can use a stronger local model
-// (e.g. "qwen2.5-coder:14b") for generation quality without changing
-// OLLAMA_MODEL used everywhere else in Jarvis for quick chat replies.
-const SITE_OLLAMA_MODEL = process.env.SITE_BUILDER_OLLAMA_MODEL || (LocalLLM && LocalLLM.OLLAMA_MODEL) || "llama3.2:3b";
-// CPU-only local generation of a full styled page can genuinely take
-// minutes, not seconds — keep this lower than Groq's budget so a
-// modest machine has a realistic shot at finishing before
-// OLLAMA_TIMEOUT_MS (in local-llm.js / .env, default 120s — bump that
-// too if this still times out).
-const SITE_OLLAMA_MAX_TOKENS = parseInt(process.env.SITE_BUILDER_OLLAMA_MAX_TOKENS || "", 10) || 8000;
-
-async function tryLocalOllama(cleanType, cleanName, onDelta) {
-  if (!LocalLLM || !LocalLLM.isLocalMode()) return null;
-  const serving = await LocalLLM.isOllamaServing().catch(() => false);
-  if (!serving) return null;
-  const pulled = await LocalLLM.isModelPulled(SITE_OLLAMA_MODEL).catch(() => false);
-  if (!pulled) {
-    console.warn(`[site-builder] Ollama is running but "${SITE_OLLAMA_MODEL}" isn't pulled — run: ollama pull ${SITE_OLLAMA_MODEL}. Falling back to Groq.`);
-    return null;
+// ── GEMINI ────────────────────────────────────────────────────
+// Same key-rotation/retry pattern already proven in screen-vision.js:
+// multiple keys so a 429 rotates instead of dying, a network-error
+// describer, and a fallback model on 404 (Google retires version
+// strings without much warning). Gemini's free tier has a MUCH higher
+// per-request token ceiling than Groq's 8000 TPM cap here, so this
+// uses the full rich prompt (with the concrete technique snippets)
+// same as the local-model path did.
+function loadGeminiKeys() {
+  const keys = [];
+  const primary = process.env.GEMINI_API_KEY || "";
+  for (const k of primary.split(",")) { const t = k.trim(); if (t) keys.push(t); }
+  for (let i = 2; ; i++) {
+    const k = process.env[`GEMINI_API_KEY${i}`];
+    if (!k) break;
+    const t = k.trim(); if (t) keys.push(t);
   }
-  const messages = [
-    { role: "system", content: SYSTEM_PROMPT_FULL },
-    { role: "user", content: `Business type: ${cleanType}\nBusiness name: ${cleanName}\nBuild the full single-file website now.` },
-  ];
-  // Ollama's bridge here doesn't stream — send the whole thing as one
-  // delta so the build window still shows *something* land, just not
-  // token-by-token. No TPM ceiling locally, so we can ask for a lot.
-  const raw = await LocalLLM.ollamaText(messages, SITE_OLLAMA_MODEL, 0.85, SITE_OLLAMA_MAX_TOKENS);
+  return keys;
+}
+const GEMINI_API_KEYS = loadGeminiKeys();
+let geminiKeyIndex = 0;
+const currentGeminiKey = () => GEMINI_API_KEYS[geminiKeyIndex % GEMINI_API_KEYS.length];
+const rotateGeminiKey = () => { geminiKeyIndex = (geminiKeyIndex + 1) % GEMINI_API_KEYS.length; };
+
+const SITE_GEMINI_MODEL = process.env.SITE_BUILDER_GEMINI_MODEL || process.env.GEMINI_MODEL || "gemini-flash-latest";
+const geminiUrlFor = (model) => `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+
+function describeGeminiNetworkError(e) {
+  const cause = e && e.cause;
+  const code = cause && cause.code;
+  if (e.name === "TimeoutError" || code === "UND_ERR_CONNECT_TIMEOUT") return "timed out connecting to Gemini (45s) — check your internet connection";
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return "DNS lookup for generativelanguage.googleapis.com failed";
+  if (code === "ECONNREFUSED") return "connection refused — a firewall, proxy, or VPN may be blocking outbound HTTPS";
+  if (code && /CERT|SSL|TLS/i.test(code)) return `TLS/certificate error (${code}) — a corporate proxy or antivirus may be intercepting HTTPS`;
+  return (cause && cause.message) || e.message || "unknown network error";
+}
+
+async function geminiGenerate(systemPrompt, userPrompt, maxOutputTokens) {
+  if (!GEMINI_API_KEYS.length) throw new Error("No GEMINI_API_KEY configured in .env");
+  const body = JSON.stringify({
+    system_instruction: { parts: [{ text: systemPrompt }] },
+    contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+    generationConfig: { temperature: 0.85, maxOutputTokens },
+  });
+
+  const doFetch = (key, model) => fetch(`${geminiUrlFor(model)}?key=${key}`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body,
+    signal: AbortSignal.timeout(45000),
+  });
+
+  let res, lastErrObj = null;
+  const attempts = GEMINI_API_KEYS.length;
+  for (let i = 0; i < attempts; i++) {
+    const key = currentGeminiKey();
+    try {
+      res = await doFetch(key, SITE_GEMINI_MODEL);
+    } catch (e) {
+      throw new Error(`Could not reach Gemini API: ${describeGeminiNetworkError(e)}`);
+    }
+    if (res.status !== 429) break;
+    lastErrObj = await res.json().catch(() => ({}));
+    console.warn(`[site-builder] Gemini key #${geminiKeyIndex + 1} hit its quota (429), rotating to the next key.`);
+    rotateGeminiKey();
+  }
+
+  if (!res.ok) {
+    const bodyText = await res.text().catch(() => "");
+    if (res.status === 404 && SITE_GEMINI_MODEL !== "gemini-flash-latest") {
+      const fallbackRes = await doFetch(currentGeminiKey(), "gemini-flash-latest").catch(() => null);
+      if (fallbackRes && fallbackRes.ok) {
+        const data = await fallbackRes.json();
+        return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      }
+    }
+    const quotaNote = res.status === 429 && attempts > 1 ? ` (all ${attempts} configured Gemini keys are rate-limited)` : "";
+    throw new Error(`Gemini request failed (${res.status})${quotaNote}: ${bodyText.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
+async function tryGemini(cleanType, cleanName, onDelta) {
+  if (!GEMINI_API_KEYS.length) return null;
+  const userPrompt = `Business type: ${cleanType}\nBusiness name: ${cleanName}\nBuild the full single-file website now.`;
+  const raw = await geminiGenerate(SYSTEM_PROMPT_FULL, userPrompt, 8192);
   const html = extractHtml(raw);
-  if (typeof onDelta === "function") onDelta(html, { local: true });
+  if (typeof onDelta === "function") onDelta(html, { gemini: true });
   return html;
 }
+
+
 
 // Groq's free/on_demand tier for qwen/qwen3.6-27b caps at 8000 TPM —
 // and that limit is charged against system+user+max_tokens REQUESTED,
@@ -349,7 +406,12 @@ async function buildSite(businessType, name, onDelta) {
   let html;
   let streamedAny = false;
   try {
-    html = await tryLocalOllama(cleanType, cleanName, onDelta);
+    try {
+      html = await tryGemini(cleanType, cleanName, onDelta);
+    } catch (e) {
+      console.warn(`[site-builder] Gemini generation failed, falling back to Groq: ${e.message}`);
+      html = null;
+    }
     if (!html) html = await tryGroq(cleanType, cleanName, onDelta, () => { streamedAny = true; });
   } catch (e) {
     // Log the real reason so a run of fallbacks is diagnosable instead
