@@ -11,6 +11,7 @@ const Personality = require("./personality");
 const Weather     = require("./weather");
 const News        = require("./news");
 const Spotify     = require("./spotify");
+const Instagram   = require("./instagram");
 const Google      = require("./google");
 const DIY         = require("./diy-builder");
 const Build       = require("./build-engine");
@@ -1048,6 +1049,39 @@ app.post("/api/spotify", async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// ── INSTAGRAM
+// One connected account (the owner's own) — same single-token shape
+// as Spotify above, not per-user like Google. See instagram.js's
+// header comment for the full setup (Professional account required,
+// Meta developer app, etc.) before this will actually connect.
+// ═══════════════════════════════════════════════════════════════
+app.get("/api/instagram/auth", (req, res) => {
+  if (!Instagram.isConfigured()) {
+    return res.status(400).send("<h2>Instagram isn't configured yet. Add INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET to .env — see instagram.js's header comment for the full setup.</h2>");
+  }
+  const url = Instagram.getAuthUrl(req.headers.host);
+  if (!url) return res.status(400).send("<h2>Could not build auth URL</h2>");
+  res.redirect(url);
+});
+app.get("/api/instagram/callback", async (req, res) => {
+  const { code, error, error_description } = req.query;
+  if (error) return res.send(`<h2>Instagram auth failed: ${error_description || error}</h2>`);
+  if (!code) return res.send("<h2>No code returned.</h2>");
+  const result = await Instagram.exchangeCode(code, req.headers.host);
+  if (result.error) return res.send(`<h2>Token exchange failed: ${result.error}</h2><p>Common cause: the account isn't set to Creator/Business yet, or the redirect URI in .env doesn't exactly match what's registered in the Meta app.</p>`);
+  res.send(`<html><body style="background:#010c14;color:#00c8ff;font-family:monospace;text-align:center;padding:60px"><h2>✓ Instagram connected</h2><p>Close this tab.</p></body></html>`);
+});
+app.post("/api/instagram/disconnect", (req, res) => {
+  Instagram.disconnect();
+  res.json({ success: true });
+});
+// On-demand: "check my instagram" / "what do you think of my last post"
+app.post("/api/instagram", async (req, res) => {
+  try { res.json(await Instagram.handleInstagramCommand(req.body.userTitle)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // ── GOOGLE (single "Sign in with Google" — one app-wide OAuth app)
 // ═══════════════════════════════════════════════════════════════
 // The deployer sets GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET once in .env
@@ -1267,6 +1301,27 @@ app.get("/api/proactive/meeting-prep/:user", async (req, res) => {
   try {
     const prep = await Proactive.checkMeetingPrep(userKey, profile?.title, req.query.tz);
     res.json({ prep: prep || null });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Sibling of /nudges and /meeting-prep above — see proactive.js's
+// "SOCIAL MOMENT NUDGE" section. This is the "Sir, you seemed to have
+// a good time at the beach" feature: Jarvis noticing a fresh
+// Instagram post on its own and commenting on it, unprompted. Cheap
+// to poll (one Instagram API call, only when connected); safe at the
+// same ~60s cadence as the other proactive endpoints.
+app.get("/api/proactive/social/:user", async (req, res) => {
+  const userKey = (req.params.user || "").toLowerCase().trim();
+  if (!userKey) return res.status(400).json({ error: "Missing user" });
+
+  const profiles = loadProfiles();
+  const profile  = profiles[userKey];
+
+  try {
+    const moment = await Proactive.checkSocialMoment(userKey, profile?.title, req.query.tz);
+    res.json({ moment: moment || null });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -2924,6 +2979,24 @@ async function executeAssistantTool(name, args, ctx) {
       } catch (e) {
         console.error("[TOOLS] control_app failed:", e.message);
         return { reply: `Couldn't do that in ${appName}, ${T} — ${e.message}`, action: "CONTROL_APP_FAILED", intent: "control_app", meta: { app: appName, goal, error: e.message } };
+      }
+    }
+
+    case "check_social_media": {
+      try {
+        const result = await Instagram.handleInstagramCommand(T);
+        if (result.needsAuth) {
+          return {
+            reply: `Instagram isn't connected yet, ${T} — head to /api/instagram/auth to connect it.`,
+            action: "SOCIAL_NEEDS_AUTH", intent: "social_media", meta: { authUrl: result.authUrl },
+          };
+        }
+        if (result.error) {
+          return { reply: `Couldn't check that, ${T} — ${result.error}`, action: "SOCIAL_FAILED", intent: "social_media" };
+        }
+        return { reply: result.reply, action: "SOCIAL_MEDIA", intent: "social_media", meta: { post: result.post } };
+      } catch (e) {
+        return { reply: `Couldn't check Instagram, ${T} — ${e.message}`, action: "SOCIAL_FAILED", intent: "social_media" };
       }
     }
 
