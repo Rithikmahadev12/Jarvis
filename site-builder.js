@@ -281,6 +281,12 @@ async function streamBuild(buildId, onDelta) {
 // (e.g. "qwen2.5-coder:14b") for generation quality without changing
 // OLLAMA_MODEL used everywhere else in Jarvis for quick chat replies.
 const SITE_OLLAMA_MODEL = process.env.SITE_BUILDER_OLLAMA_MODEL || (LocalLLM && LocalLLM.OLLAMA_MODEL) || "llama3.2:3b";
+// CPU-only local generation of a full styled page can genuinely take
+// minutes, not seconds — keep this lower than Groq's budget so a
+// modest machine has a realistic shot at finishing before
+// OLLAMA_TIMEOUT_MS (in local-llm.js / .env, default 120s — bump that
+// too if this still times out).
+const SITE_OLLAMA_MAX_TOKENS = parseInt(process.env.SITE_BUILDER_OLLAMA_MAX_TOKENS || "", 10) || 8000;
 
 async function tryLocalOllama(cleanType, cleanName, onDelta) {
   if (!LocalLLM || !LocalLLM.isLocalMode()) return null;
@@ -298,7 +304,7 @@ async function tryLocalOllama(cleanType, cleanName, onDelta) {
   // Ollama's bridge here doesn't stream — send the whole thing as one
   // delta so the build window still shows *something* land, just not
   // token-by-token. No TPM ceiling locally, so we can ask for a lot.
-  const raw = await LocalLLM.ollamaText(messages, SITE_OLLAMA_MODEL, 0.85, 16000);
+  const raw = await LocalLLM.ollamaText(messages, SITE_OLLAMA_MODEL, 0.85, SITE_OLLAMA_MAX_TOKENS);
   const html = extractHtml(raw);
   if (typeof onDelta === "function") onDelta(html, { local: true });
   return html;
