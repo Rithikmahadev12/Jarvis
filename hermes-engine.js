@@ -511,6 +511,21 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "control_app",
+      description: "Use this whenever the user wants Jarvis to actually DO something inside an app on their computer — not just launch it. Covers ANY app and ANY in-app action described in plain language: 'in Spotify play some jazz', 'open notepad and save the file as notes.txt', 'go to settings and turn on dark mode', 'in the browser search for flight prices to Tokyo', 'like the top post', 'mute my Discord mic'. This drives the real app using Jarvis's own screen vision — it looks at the actual screen, figures out the fastest way to reach the goal itself (clicking, typing, scrolling, pressing shortcuts), and adapts if something doesn't look like it expected, instead of following one fixed guessed sequence. Prefer this over open_on_computer + type_text whenever the request needs Jarvis to navigate or interact with the app's UI, not just open it or type raw text into whatever already has focus. Only works when Jarvis is running locally, not in the cloud. Takes a little longer than a plain open (it's actually looking at the screen step by step), so only use it when the request genuinely needs in-app action.",
+      parameters: {
+        type: "object",
+        properties: {
+          app: { type: "string", description: "The app or window this should happen in, e.g. 'Spotify', 'Notepad', 'Chrome', 'Discord'. Jarvis will bring it to the foreground (opening it first if needed) before starting." },
+          goal: { type: "string", description: "Plain-language description of the outcome to reach inside the app — describe WHAT should end up true (e.g. 'a jazz playlist is playing', 'the file is saved as notes.txt', 'dark mode is enabled'), not a fixed list of clicks, since the exact steps will be figured out live from the real screen." },
+        },
+        required: ["app", "goal"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "check_disk_space",
       description: "Check how much storage space is free/used on the user's own computer. Call for things like 'how much space do I have on my computer', 'check my disk space', 'how full is my drive/hard drive'. Only works when Jarvis is running locally on the user's machine, not in the cloud.",
       parameters: { type: "object", properties: {} },
