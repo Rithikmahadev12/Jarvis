@@ -601,6 +601,37 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "call_business_appointment",
+      description: "Place a REAL phone call over the actual telephone network (via AgentPhone, not Teams) to a real-world business to book/negotiate an appointment — 'call Great Clips and set an appointment for 10am', 'call the dentist and book me in for tomorrow at 2'. Jarvis will ask for the requested time; if unavailable it asks what IS available and reports back instead of booking on its own. Do NOT use call_on_teams for this — that only calls Teams contacts, not real phone numbers.",
+      parameters: {
+        type: "object",
+        properties: {
+          business_name: { type: "string", description: "Name of the business to call, as the user said it." },
+          business_number: { type: "string", description: "The business's phone number, ONLY if the user stated it in this message. Omit otherwise — Jarvis will check its known-business list or ask." },
+          requested_time: { type: "string", description: "The time/date the user wants, as naturally phrased, e.g. '10am today', 'tomorrow at 2pm'." },
+          special_note: { type: "string", description: "Any extra instruction the user wants relayed on the call if relevant, e.g. 'tell them his personal number is 555-1234, call him at that number if they need to talk to him'. Omit if none given." },
+        },
+        required: ["business_name", "requested_time"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "confirm_phone_appointment",
+      description: "Confirm or cancel THE pending phone-booked appointment that Jarvis most recently reported back about after calling a business and being offered an alternative time — call this when the user responds 'yes book that' / 'that works' / 'no don't bother' to that report. There's only ever one pending phone appointment per user at a time, so no id is needed.",
+      parameters: {
+        type: "object",
+        properties: {
+          confirmed: { type: "boolean", description: "true if the user said yes/book it, false if they said no/cancel." },
+        },
+        required: ["confirmed"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "message_on_teams",
       description: "Send a real chat message to a person on Microsoft Teams (vision-guided — opens the actual chat and types/sends it). Call this for phrasing like 'message X on teams', 'text X on teams', 'tell X ... on teams', 'let X know ... on teams'.",
       parameters: {
