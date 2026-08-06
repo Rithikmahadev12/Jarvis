@@ -128,14 +128,19 @@ async function groqFetchRaw(messages, options = {}) {
     reasoning_format = null,   // "parsed" | "raw" | "hidden"
   } = options;
 
-  // ── LOCAL MODE — try Ollama first ──────────────────────────────
+  // ── LOCAL MODE — try Ollama first, but ONLY for plain replies ───
   // isLocalMode() is true whenever we're not on Render (i.e. running
   // on the user's own machine). If Ollama is actually up and serving,
-  // use it instead of Groq — this is the ONLY place that decision
-  // gets made, per local-llm.js's own design. If Ollama isn't
-  // running, isn't reachable, or errors out, fall straight through
-  // to the normal Groq path below so nothing breaks.
-  if (LocalLLM.isLocalMode()) {
+  // use it instead of Groq — but only when this call has no `tools`.
+  // Small local models are both much slower AND much less reliable
+  // once you hand them a full function-calling schema (this project
+  // ships 36 tool definitions, ~27KB of JSON — reading that alone is
+  // most of the cost on CPU-only hardware, before it even generates a
+  // token). Anything that needs tool-calling stays on Groq, which is
+  // both faster (real inference hardware) and more accurate at
+  // picking the right tool anyway. If Ollama isn't running, isn't
+  // reachable, or errors out, fall straight through to Groq below.
+  if (LocalLLM.isLocalMode() && !(tools && tools.length)) {
     try {
       const serving = await LocalLLM.isOllamaServing();
       if (serving) {
