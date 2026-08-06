@@ -106,10 +106,22 @@ async function ensureAgentAndNumber(ownerName) {
   }
 
   if (!numberId) {
-    console.log("[AGENTPHONE] No phone number on file yet — buying one (this spends a small amount of your balance)...");
-    const number = await request("POST", "/numbers", {});
-    numberId = number.id;
-    await request("POST", `/agents/${agentId}/numbers`, { numberId });
+    // Before buying anything new, check whether this agent already
+    // has a number attached (e.g. one you provisioned by hand in the
+    // dashboard) — only buy a new one if it genuinely has none.
+    console.log("[AGENTPHONE] No number ID on file — checking whether the agent already has one attached...");
+    const existing = await request("GET", `/agents/${agentId}/numbers`);
+    const list = Array.isArray(existing) ? existing : (existing?.data || []);
+
+    if (list.length > 0) {
+      numberId = list[0].id;
+      console.log(`[AGENTPHONE] Found existing number already attached (${list[0].phoneNumber || numberId}) — using it, nothing purchased.`);
+    } else {
+      console.log("[AGENTPHONE] Agent has no number attached — buying one (this spends a small amount of your balance)...");
+      const number = await request("POST", "/numbers", {});
+      numberId = number.id;
+      await request("POST", `/agents/${agentId}/numbers`, { numberId });
+    }
   }
 
   const newState = { agentId, numberId, phoneNumber: state.phoneNumber || null };
