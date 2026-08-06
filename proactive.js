@@ -373,7 +373,19 @@ async function checkSocialMoment(user, userTitle, tz) {
   if (settings.proactiveNudges === false) return null;
   if (Focus.isActive(key)) return null; // don't interrupt a heads-down session
 
-  if (!Instagram.isConfigured() || !Instagram.hasToken()) return null;
+  if (!Instagram.isConfigured() || !Instagram.hasToken()) {
+    // No OAuth app set up — fall back to the lightweight "just a
+    // username" tracking path (see instagram.js). That path gates
+    // its own search+scrape to ~once/day internally, so it's safe to
+    // call on the same ~60s poll as everything else here; most calls
+    // just return null immediately without hitting the network.
+    if (!Instagram.getTrackedUsername()) return null;
+    try {
+      const result = await Instagram.dailyTrackedCheck(userTitle);
+      if (!result) return null;
+      return { text: result.reply, url: result.url, generatedAt: new Date().toISOString() };
+    } catch { return null; }
+  }
 
   let media = [];
   try {
