@@ -2742,6 +2742,48 @@ async function executeAssistantTool(name, args, ctx) {
       return { reply: `Calling ${matchedName} on Teams now${matchNote}, ${T}.`, action: "CALL", intent: "comms", meta: { person: matchedName, callType: isVideo ? "video" : "audio" } };
     }
 
+    // ── call_business_appointment / confirm_phone_appointment ──
+    // REAL phone calls over AgentPhone (actual PSTN), not Teams.
+    // See phone-agent.js for the full negotiate -> report -> confirm
+    // -> callback flow.
+    case "call_business_appointment": {
+      const PhoneAgent = require("./phone-agent");
+      const businessName = String(args.business_name || "").trim();
+      const requestedTime = String(args.requested_time || "").trim();
+      if (!businessName || !requestedTime) {
+        return { reply: `Which business, and what time, ${T}?` };
+      }
+      const ownerName = userName || require("./comms-router").defaultOwnerName();
+      try {
+        const result = await PhoneAgent.bookAppointment({
+          sessionId,
+          ownerName,
+          businessName,
+          businessNumber: args.business_number ? String(args.business_number).trim() : null,
+          requestedTime,
+          specialNote: args.special_note ? String(args.special_note).trim() : null,
+        });
+        return {
+          reply: result.reply,
+          action: `PHONE_${result.status}`,
+          intent: "phone_appointment",
+          meta: { businessName, requestedTime, status: result.status, callId: result.callId },
+        };
+      } catch (err) {
+        console.error("[TOOLS] call_business_appointment failed:", err.message);
+        return { reply: `Something went wrong calling ${businessName}, ${T} — ${err.message}`, action: "PHONE_CALL_FAILED", intent: "phone_appointment" };
+      }
+    }
+
+    case "confirm_phone_appointment": {
+      const PhoneAgent = require("./phone-agent");
+      const confirmed = !!args.confirmed;
+      const result = confirmed
+        ? await PhoneAgent.confirmPendingAppointment(sessionId)
+        : PhoneAgent.cancelPendingAppointment(sessionId);
+      return { reply: result.reply, action: `PHONE_${result.status}`, intent: "phone_appointment", meta: result };
+    }
+
     case "message_on_teams": {
       const Teams = require("./teams-control");
       const person = String(args.person || "").trim();
