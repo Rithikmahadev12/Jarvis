@@ -3,10 +3,19 @@
 // J.A.R.V.I.S — WEBSITE BUILDER
 // "hey jarvis build me a site for a coffee place" → Jarvis asks for
 // a name → generates a real, self-contained single-page site (HTML
-// + CSS + a little vanilla JS, no external deps) with Groq → saves
-// it to disk → server.js hands the caller a same-origin preview URL
-// to show in a window. "hey jarvis download <name>" later zips that
-// same folder back up for the user.
+// + CSS + a little vanilla JS, no external deps) → saves it to disk
+// → server.js hands the caller a same-origin preview URL to show in
+// a window. "hey jarvis download <name>" later zips that same folder
+// back up for the user.
+//
+// Generation falls through three tiers, in order:
+//   1. Ollama  — local install if `ollama serve` is reachable, else
+//                Ollama Cloud if OLLAMA_API_KEY is set. Uses the full
+//                rich prompt (no TPM cap to worry about either way).
+//   2. Groq    — compact prompt, kept under qwen3.6-27b's 8000 TPM cap.
+//   3. Gemini  — full rich prompt, much higher per-request ceiling.
+// If all three fail (or none are configured), a hardcoded static
+// template is used as a last resort so the feature never dead-ends.
 // ═══════════════════════════════════════════════════════════════
 
 const fs   = require("fs");
@@ -53,9 +62,9 @@ function slugify(name) {
 // what's actually generated. The full prompt below plus a realistic
 // output length blows straight through that. So:
 //   - PROMPT_CORE (~compact) is what actually gets sent to Groq.
-//   - PROMPT_FULL (core + concrete technique snippets) is reserved
-//     for local Ollama generation, which has no such cap — see
-//     buildSite() below, which prefers local whenever it's reachable.
+//   - PROMPT_FULL (core + concrete technique snippets) is used for
+//     both Ollama (local or cloud) and Gemini, neither of which has
+//     that kind of cap — see buildSite() below.
 const PROMPT_CORE = `You are an award-winning web designer — the kind whose portfolio gets featured on Awwwards and CSS Design Awards. A client just hired you to build ONE complete, self-contained website. Output raw HTML only.
 
 NEVER DO THIS (instant failure):
@@ -367,6 +376,44 @@ async function tryGemini(cleanType, cleanName, onDelta) {
 
 
 
+// ── OLLAMA (local, then cloud) ───────────────────────────────────
+// First tier of the chain. Two flavors, tried in order:
+//   1. Local install — only attempted if we're not on Render AND
+//      `ollama serve` actually answers (isOllamaServing() does a
+//      quick /api/tags probe). Free, but only exists on a dev box.
+//   2. Ollama Cloud — real hosted infra, used whenever OLLAMA_API_KEY
+//      is set in .env, regardless of local availability.
+// Returns null (rather than throwing) when neither is configured, so
+// buildSite() can fall straight through to Groq without extra noise
+// in the logs for the completely-unconfigured case.
+async function tryOllama(cleanType, cleanName, onDelta) {
+  if (!Hermes) return null;
+  const userPrompt = `Business type: ${cleanType}\nBusiness name: ${cleanName}\nBuild the full single-file website now.`;
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPT_FULL },
+    { role: "user", content: userPrompt },
+  ];
+
+  const localUp = Hermes.isLocalMode && Hermes.isLocalMode() && (await Hermes.isOllamaServing());
+  if (localUp) {
+    const msg = await Hermes.ollamaChat(messages, { temperature: 0.85, maxTokens: 8192 });
+    const html = extractHtml(msg.content || "");
+    if (typeof onDelta === "function") onDelta(html, { ollama: true });
+    return html;
+  }
+
+  if (Hermes.isCloudConfigured && Hermes.isCloudConfigured()) {
+    const msg = await Hermes.ollamaCloudChat(messages, {
+      model: Hermes.OLLAMA_CLOUD_MODEL, temperature: 0.85, maxTokens: 8192,
+    });
+    const html = extractHtml(msg.content || "");
+    if (typeof onDelta === "function") onDelta(html, { ollama: true, cloud: true });
+    return html;
+  }
+
+  return null; // neither local Ollama nor Ollama Cloud configured — let buildSite() move on to Groq
+}
+
 // Groq's free/on_demand tier for qwen/qwen3.6-27b caps at 8000 TPM —
 // and that limit is charged against system+user+max_tokens REQUESTED,
 // not just what's actually generated. So this path always uses the
@@ -407,12 +454,20 @@ async function buildSite(businessType, name, onDelta) {
   let streamedAny = false;
   try {
     try {
-      html = await tryGemini(cleanType, cleanName, onDelta);
+      html = await tryOllama(cleanType, cleanName, onDelta);
     } catch (e) {
-      console.warn(`[site-builder] Gemini generation failed, falling back to Groq: ${e.message}`);
+      console.warn(`[site-builder] Ollama generation failed, falling back to Groq: ${e.message}`);
       html = null;
     }
-    if (!html) html = await tryGroq(cleanType, cleanName, onDelta, () => { streamedAny = true; });
+    if (!html) {
+      try {
+        html = await tryGroq(cleanType, cleanName, onDelta, () => { streamedAny = true; });
+      } catch (e) {
+        console.warn(`[site-builder] Groq generation failed, falling back to Gemini: ${e.message}`);
+        html = null;
+      }
+    }
+    if (!html) html = await tryGemini(cleanType, cleanName, onDelta);
   } catch (e) {
     // Log the real reason so a run of fallbacks is diagnosable instead
     // of silently looking like "the AI just makes bad sites" — e.g. a
