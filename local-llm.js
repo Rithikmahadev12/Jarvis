@@ -52,6 +52,68 @@ const OLLAMA_TIMEOUT_MS = parseInt(process.env.OLLAMA_TIMEOUT_MS || "", 10) || 1
 // the 3rd one landed after the model had already been unloaded.
 const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || "30m";
 
+// ── OLLAMA CLOUD ────────────────────────────────────────────────
+// A completely different thing from local Ollama above: this talks
+// to ollama.com's own hosted infrastructure (real servers, real
+// GPUs) instead of the user's machine. Used as a genuine fallback
+// tier when Groq is out of quota — see hermes-engine.js. Docs:
+// https://docs.ollama.com/cloud
+const OLLAMA_CLOUD_URL   = "https://ollama.com";
+const OLLAMA_API_KEY     = process.env.OLLAMA_API_KEY || "";
+const OLLAMA_CLOUD_MODEL = process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:120b";
+
+function isCloudConfigured() {
+  return !!OLLAMA_API_KEY;
+}
+
+// Uses Ollama's native /api/chat shape (not the OpenAI-compat
+// endpoint — ollama.com's own docs recommend the native route for
+// cloud access). Response comes back as { message: { role, content,
+// tool_calls? } }, which is the same shape callers already expect
+// from groqFetchRaw/ollamaChat below.
+async function ollamaCloudChat(messages, options = {}) {
+  const {
+    model       = OLLAMA_CLOUD_MODEL,
+    temperature = 0.75,
+    maxTokens   = 1024,
+    tools       = null,
+    tool_choice = "auto",
+  } = options;
+
+  if (!OLLAMA_API_KEY) throw new Error("OLLAMA_API_KEY not set in .env");
+
+  const body = {
+    model,
+    messages,
+    stream: false,
+    options: { temperature, num_predict: maxTokens },
+  };
+  if (tools && tools.length) { body.tools = tools; body.tool_choice = tool_choice; }
+
+  let res;
+  try {
+    res = await fetch(`${OLLAMA_CLOUD_URL}/api/chat`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${OLLAMA_API_KEY}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
+    });
+  } catch (e) {
+    throw new Error(`Could not reach Ollama Cloud: ${e.message}`);
+  }
+
+  if (!res.ok) {
+    const body2 = await res.text().catch(() => "");
+    throw new Error(`Ollama Cloud API error ${res.status}: ${body2.slice(0, 300)}`);
+  }
+
+  const data = await res.json();
+  return data.message || {};
+}
+
 // ── ENVIRONMENT DETECTION ──────────────────────────────────────
 // Render sets RENDER=true (and other RENDER_* vars) on every
 // instance automatically — same pattern already used by
@@ -274,4 +336,6 @@ module.exports = {
   ollamaChat,
   ollamaText,
   ollamaVision,
+  isCloudConfigured,
+  ollamaCloudChat,
 };
