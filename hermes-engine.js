@@ -12,6 +12,7 @@
 const fs   = require("fs");
 const path = require("path");
 const GroqKeys = require("./groq-keys");
+const LocalLLM = require("./local-llm");
 
 // ── CONFIG ─────────────────────────────────────────────────────
 // GROQ_API_KEY → your key from console.groq.com. Add GROQ_API_KEY2,
@@ -109,7 +110,7 @@ function setCache(k, d) { cache.set(k, { data: d, ts: Date.now() }); }
 
 // ── CORE GROQ FETCH (OpenAI-compatible /v1/chat/completions) ──
 async function groqFetch(messages, model = MODELS.smart, temperature = 0.75, maxTokens = 1024) {
-  const msg = await groqFetchRaw(messages, { model, temperature, maxTokens });
+  const msg = await groqFetchRawWithFallback(messages, { model, temperature, maxTokens });
   return msg.content || "";
 }
 
@@ -224,6 +225,28 @@ async function groqFetchRaw(messages, options = {}) {
   }
 
   throw lastError || new Error("All configured Groq API keys failed.");
+}
+
+// Ollama Cloud fallback — only reached when Groq itself couldn't be
+// used at all (no key configured, or every configured key failed
+// above). Not tried first, not tried on every request: Groq stays
+// primary. This is a safety net for "ran out of Groq quota," not a
+// replacement.
+async function groqFetchRawWithFallback(messages, options = {}) {
+  try {
+    return await groqFetchRaw(messages, options);
+  } catch (e) {
+    if (LocalLLM.isCloudConfigured()) {
+      console.warn(`[HERMES] Groq unavailable (${e.message}) — falling back to Ollama Cloud...`);
+      try {
+        return await LocalLLM.ollamaCloudChat(messages, options);
+      } catch (cloudErr) {
+        console.error(`[HERMES] Ollama Cloud fallback also failed: ${cloudErr.message}`);
+        throw e; // surface the original Groq error, more useful than the fallback's
+      }
+    }
+    throw e;
+  }
 }
 
 // ── TOOL DEFINITIONS ───────────────────────────────────────────
@@ -716,7 +739,7 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
   const looksCompoundGenerate = /\b(type|write)\b/i.test(message) &&
     /\b(script|code|program|game|function|poem|essay|story|paragraph|text|snippet|class|component)\b/i.test(message);
 
-  const assistantMsg = await groqFetchRaw(messages, {
+  const assistantMsg = await groqFetchRawWithFallback(messages, {
     tools: TOOLS,
     tool_choice: "auto",
     maxTokens: looksCompoundGenerate ? 2048 : 900,
@@ -761,7 +784,7 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
         })),
         { role: "user", content: "Now generate the actual full content that was asked for and call type_text with it as the `text` argument (set new_file: true since an editor/app was just opened)." },
       ];
-      const followupMsg = await groqFetchRaw(followupMessages, {
+      const followupMsg = await groqFetchRawWithFallback(followupMessages, {
         tools: TOOLS,
         tool_choice: { type: "function", function: { name: "type_text" } },
         maxTokens: 1800,
@@ -989,7 +1012,7 @@ async function codeChat(message, options = {}) {
   };
 
   try {
-    const msg = await groqFetchRaw(messages, fetchOpts);
+    const msg = await groqFetchRawWithFallback(messages, fetchOpts);
     const reply = (msg.content || "").trim();
     if (!reply) throw new Error("Empty response from code model");
     return { reply, model: MODELS.code, source: "groq_code" };
@@ -997,7 +1020,7 @@ async function codeChat(message, options = {}) {
     // Coding model unavailable/renamed/rate-limited — fall back to the
     // general smart model rather than failing the whole request.
     console.error("[HERMES] Code model failed, falling back to smart model:", e.message);
-    const msg = await groqFetchRaw(messages, { ...fetchOpts, model: MODELS.smart, reasoning_effort: null });
+    const msg = await groqFetchRawWithFallback(messages, { ...fetchOpts, model: MODELS.smart, reasoning_effort: null });
     const reply = (msg.content || "").trim();
     if (!reply) throw new Error("Empty response from fallback model");
     return { reply, model: MODELS.smart, source: "groq_code_fallback" };
