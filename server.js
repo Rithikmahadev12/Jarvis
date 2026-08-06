@@ -2070,6 +2070,63 @@ async function routeDebrief(message, T, sessionId, userName, userTimezone) {
   };
 }
 
+// ── INSTAGRAM CONNECT (no-OAuth, username-only tracking) ──────────
+// "Jarvis, connect Instagram" -> ask for a username -> next message
+// is treated as the answer. See instagram.js's big comment block for
+// how the daily/on-demand check itself works (search + scrape, no
+// API key). This is checked early in /api/chat, same tier as the
+// daily-briefing/debrief pending-question routers above, so a bare
+// username reply never gets reinterpreted as smalltalk.
+const INSTAGRAM_CONNECT_RE = /\b(connect|link|hook up|set ?up|track|follow|add)\b[\s\S]*\binstagram\b|\binstagram\b[\s\S]*\b(connect|link|hook up|set ?up|track|follow|add)\b/i;
+
+// Strips the command words out of something like "jarvis connect
+// instagram natgeo" and, if exactly one plausible-handle token is
+// left over, returns it. Returns null if the message didn't include
+// an inline username (e.g. just "connect Instagram"), so the caller
+// knows to ask for one instead.
+function extractInstagramUsername(message) {
+  const stripped = String(message || "")
+    .replace(/\bjarvis\b/gi, "")
+    .replace(/\b(connect|link|hook ?up|set ?up|track|follow|add|please|to|my|the|an?|instagram|username|account|handle|is|for|on)\b/gi, "")
+    .replace(/[.,!?]+$/g, "")
+    .trim()
+    .replace(/^@/, "");
+  return /^[a-zA-Z0-9_.]{1,30}$/.test(stripped) ? stripped : null;
+}
+
+async function routeInstagramConnect(message, T, sessionId) {
+  // ── already mid-conversation, waiting on a username ──
+  if (Instagram.getPendingUsernameQuestion(sessionId)) {
+    Instagram.clearPendingUsernameQuestion(sessionId);
+
+    if (isNegative(message)) {
+      return { reply: `No problem, ${T} — just say "connect Instagram" whenever you're ready.`, action: "INSTAGRAM_CONNECT_CANCELLED", intent: "instagram" };
+    }
+
+    const candidate = String(message || "").trim().replace(/^@/, "").split(/\s+/)[0];
+    if (!/^[a-zA-Z0-9_.]{1,30}$/.test(candidate)) {
+      Instagram.setPendingUsernameQuestion(sessionId); // still waiting
+      return { reply: `That doesn't look like a username, ${T} — what's the Instagram handle?`, action: "INSTAGRAM_CONNECT", intent: "instagram" };
+    }
+
+    const result = await Instagram.handleConnectCommand(candidate, T);
+    return { reply: result.reply, action: result.ok ? "INSTAGRAM_CONNECTED" : "INSTAGRAM_CONNECT", intent: "instagram", meta: { username: candidate } };
+  }
+
+  // ── fresh "connect Instagram" request ──
+  if (INSTAGRAM_CONNECT_RE.test(message)) {
+    const inline = extractInstagramUsername(message);
+    if (inline) {
+      const result = await Instagram.handleConnectCommand(inline, T);
+      return { reply: result.reply, action: result.ok ? "INSTAGRAM_CONNECTED" : "INSTAGRAM_CONNECT", intent: "instagram", meta: { username: inline } };
+    }
+    Instagram.setPendingUsernameQuestion(sessionId);
+    return { reply: `Sure, ${T} — what's the Instagram username?`, action: "INSTAGRAM_CONNECT", intent: "instagram" };
+  }
+
+  return null;
+}
+
 // ── FOCUS MODE (heads-down sessions) ──────────────────────────────
 const FOCUS_ON_RE  = /\b(i'?m heads down|heads down|focus mode on|going dark|deep work mode|start focus(?: mode)?)\b/i;
 const FOCUS_OFF_RE = /\b(i'?m back|focus mode off|stop focus(?: mode)?|end focus(?: mode)?|resurfacing|coming up for air)\b/i;
@@ -3073,18 +3130,39 @@ async function executeAssistantTool(name, args, ctx) {
     }
 
     case "check_social_media": {
+      // Two independent Instagram paths: the real OAuth/Graph API
+      // (own account only, needs a Meta app) or the lightweight
+      // username-tracking path (any public account, search+scrape,
+      // no setup beyond "connect Instagram"). Prefer OAuth if it's
+      // actually connected; otherwise fall back to the tracked
+      // username, if one's been set.
       try {
-        const result = await Instagram.handleInstagramCommand(T);
-        if (result.needsAuth) {
-          return {
-            reply: `Instagram isn't connected yet, ${T} — head to /api/instagram/auth to connect it.`,
-            action: "SOCIAL_NEEDS_AUTH", intent: "social_media", meta: { authUrl: result.authUrl },
-          };
+        if (Instagram.isConfigured() && Instagram.hasToken()) {
+          const result = await Instagram.handleInstagramCommand(T);
+          if (result.needsAuth) {
+            return {
+              reply: `Instagram isn't connected yet, ${T} — head to /api/instagram/auth to connect it.`,
+              action: "SOCIAL_NEEDS_AUTH", intent: "social_media", meta: { authUrl: result.authUrl },
+            };
+          }
+          if (result.error) {
+            return { reply: `Couldn't check that, ${T} — ${result.error}`, action: "SOCIAL_FAILED", intent: "social_media" };
+          }
+          return { reply: result.reply, action: "SOCIAL_MEDIA", intent: "social_media", meta: { post: result.post } };
         }
-        if (result.error) {
-          return { reply: `Couldn't check that, ${T} — ${result.error}`, action: "SOCIAL_FAILED", intent: "social_media" };
+
+        if (Instagram.getTrackedUsername()) {
+          const result = await Instagram.checkTrackedAccount(T, { force: true });
+          if (result.error) {
+            return { reply: `Couldn't check that, ${T} — ${result.error}`, action: "SOCIAL_FAILED", intent: "social_media" };
+          }
+          return { reply: result.reply, action: "SOCIAL_MEDIA", intent: "social_media", meta: { url: result.url } };
         }
-        return { reply: result.reply, action: "SOCIAL_MEDIA", intent: "social_media", meta: { post: result.post } };
+
+        return {
+          reply: `Instagram isn't connected yet, ${T} — just say "connect Instagram" and give me a username.`,
+          action: "SOCIAL_NEEDS_AUTH", intent: "social_media",
+        };
       } catch (e) {
         return { reply: `Couldn't check Instagram, ${T} — ${e.message}`, action: "SOCIAL_FAILED", intent: "social_media" };
       }
@@ -3170,6 +3248,12 @@ app.post("/api/chat", async (req, res) => {
   //      morning briefing above ──
   const debriefResolution = await routeDebrief(message, T, sessionId, userName, userTimezone);
   if (debriefResolution) return res.json(debriefResolution);
+
+  // ── -0.35. Instagram connect (username-only, no OAuth) — same
+  //      "pending question must be caught before smalltalk" rule as
+  //      the briefing/debrief routers above ──
+  const instagramResolution = await routeInstagramConnect(message, T, sessionId);
+  if (instagramResolution) return res.json(instagramResolution);
 
   // ── -0.3. Focus mode on/off — checked before general routing so
   //      "I'm heads down" / "I'm back" never gets reinterpreted ──
