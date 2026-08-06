@@ -61,9 +61,30 @@ const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE || "30m";
 const OLLAMA_CLOUD_URL   = "https://ollama.com";
 const OLLAMA_API_KEY     = process.env.OLLAMA_API_KEY || "";
 const OLLAMA_CLOUD_MODEL = process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:120b";
+// Ollama Cloud's smaller/faster tier — used when a Groq call asks for
+// MODELS.fast specifically. Ollama's naming ("gpt-oss:20b") doesn't
+// match Groq's ("openai/gpt-oss-20b"), so callers should map through
+// mapGroqModelToOllamaCloud() below rather than forwarding a Groq
+// model string straight through — that mismatch is exactly what
+// causes a 404 "model not found" from ollama.com's API.
+const OLLAMA_CLOUD_MODEL_FAST = process.env.OLLAMA_CLOUD_MODEL_FAST || "gpt-oss:20b";
 
 function isCloudConfigured() {
   return !!OLLAMA_API_KEY;
+}
+
+// Groq model names ("openai/gpt-oss-20b") don't match Ollama Cloud's
+// own naming ("gpt-oss:20b") — this translates the handful Jarvis
+// actually uses so a caller can pass a Groq model straight through
+// without knowing Ollama's naming scheme. Anything unrecognized
+// (e.g. Groq's coding model) falls back to the general cloud model
+// rather than 404ing.
+const GROQ_TO_OLLAMA_CLOUD_MODEL = {
+  "openai/gpt-oss-20b":  OLLAMA_CLOUD_MODEL_FAST,
+  "openai/gpt-oss-120b": OLLAMA_CLOUD_MODEL,
+};
+function mapGroqModelToOllamaCloud(groqModel) {
+  return GROQ_TO_OLLAMA_CLOUD_MODEL[groqModel] || OLLAMA_CLOUD_MODEL;
 }
 
 // Uses Ollama's native /api/chat shape (not the OpenAI-compat
@@ -339,4 +360,6 @@ module.exports = {
   isCloudConfigured,
   ollamaCloudChat,
   OLLAMA_CLOUD_MODEL,
+  OLLAMA_CLOUD_MODEL_FAST,
+  mapGroqModelToOllamaCloud,
 };
