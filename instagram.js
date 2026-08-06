@@ -60,6 +60,7 @@ const CALLBACK_PATH = "/api/instagram/callback";
 
 const DATA_DIR    = path.join(__dirname, "data");
 const TOKEN_FILE  = path.join(DATA_DIR, "instagram-tokens.json");
+const HANDLE_FILE = path.join(DATA_DIR, "instagram-handle.json");
 
 function isConfigured() {
   return !!(APP_ID && APP_SECRET);
@@ -97,6 +98,208 @@ function hasToken() {
 
 function disconnect() {
   saveTokens({ access: null, userId: null, expiresAt: 0 });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── SIMPLE "JUST GIVE ME A USERNAME" TRACKING ─────────────────────
+//
+// The OAuth flow above is the "correct" way to read YOUR OWN account
+// through Instagram's real API, but it requires a Meta developer app,
+// a Professional account, etc. This is the lightweight alternative:
+// say "Jarvis, connect Instagram", give it any public username (not
+// necessarily your own — could be a friend's, a team's, whoever), and
+// Jarvis will search the web for that account's latest post and
+// comment on it — no app review, no login, no tokens.
+//
+// Trade-off: it's a web-search-and-scrape, not an API call, so it's
+// slower, less reliable (Instagram often serves a login wall to
+// logged-out visitors), and only sees whatever's publicly indexed —
+// but it's a one-line setup instead of a multi-step Meta app dance.
+// ═══════════════════════════════════════════════════════════════
+const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
+// How often the daily/proactive check is allowed to actually run the
+// search+scrape (as opposed to the OAuth path, this hits a search
+// engine and Instagram's own pages directly, so it's polled far less
+// aggressively — once a day, not once a minute).
+const TRACK_CHECK_INTERVAL_MS = 20 * 60 * 60 * 1000; // ~once/day
+
+function loadHandleData() {
+  ensureDataDir();
+  try {
+    return JSON.parse(fs.readFileSync(HANDLE_FILE, "utf8"));
+  } catch {
+    return { username: null, lastPostUrl: null, lastCheckedAt: 0 };
+  }
+}
+
+function saveHandleData(data) {
+  ensureDataDir();
+  fs.writeFileSync(HANDLE_FILE, JSON.stringify(data, null, 2), "utf8");
+}
+
+function getTrackedUsername() {
+  return loadHandleData().username;
+}
+
+function setTrackedUsername(rawUsername) {
+  const clean = String(rawUsername || "").trim().replace(/^@/, "").split(/\s+/)[0];
+  if (!/^[a-zA-Z0-9_.]{1,30}$/.test(clean)) return null;
+  saveHandleData({ username: clean, lastPostUrl: null, lastCheckedAt: 0 });
+  return clean;
+}
+
+function clearTrackedUsername() {
+  saveHandleData({ username: null, lastPostUrl: null, lastCheckedAt: 0 });
+}
+
+// ── PENDING "what's the username?" QUESTION (per chat session) ───
+// Mirrors the pattern briefing.js/debrief.js use for their own
+// follow-up questions — server.js checks this at the top of /api/chat
+// so whatever the user says next gets treated as the username instead
+// of being routed anywhere else.
+const pendingUsernameQuestions = new Map(); // sessionId -> true
+
+function setPendingUsernameQuestion(sessionId) {
+  if (sessionId) pendingUsernameQuestions.set(sessionId, true);
+}
+function getPendingUsernameQuestion(sessionId) {
+  return !!sessionId && pendingUsernameQuestions.get(sessionId) === true;
+}
+function clearPendingUsernameQuestion(sessionId) {
+  if (sessionId) pendingUsernameQuestions.delete(sessionId);
+}
+
+// "Jarvis, connect Instagram" (+ a username, given inline or as a
+// follow-up answer) lands here.
+async function handleConnectCommand(rawUsername, userTitle) {
+  const T = userTitle || "Sir";
+  const clean = setTrackedUsername(rawUsername);
+  if (!clean) return { reply: `That doesn't look like a valid username, ${T} — try again?`, ok: false };
+  return {
+    reply: `Got it, ${T} — I'll keep an eye on @${clean}'s Instagram and let you know when something new goes up.`,
+    ok: true,
+    username: clean,
+  };
+}
+
+// Searches the web for the account's most recent public post rather
+// than calling any Instagram API. "<username> instagram post" reliably
+// surfaces either the profile itself or a specific /p/ or /reel/ link
+// in the first few results — this just picks the best one found.
+async function findLatestPostViaSearch(username) {
+  const research = require("./research");
+  let results = [];
+  try {
+    results = await research.webSearch(`${username} instagram post`, { maxResults: 8 });
+  } catch (e) {
+    return { error: `couldn't search for that account (${e.message})` };
+  }
+
+  const directPost = results.find((r) => /instagram\.com\/[^/?]+\/(p|reel)\/[^/?]+/i.test(r.url));
+  const profile = results.find((r) => /^https?:\/\/(www\.)?instagram\.com\/[a-z0-9_.]+\/?(\?.*)?$/i.test(r.url));
+  const target = directPost || profile;
+
+  if (!target) return { error: `couldn't find @${username} on Instagram` };
+  return { url: target.url, isDirectPost: !!directPost, snippet: target.snippet || "" };
+}
+
+// Pulls Open Graph tags (og:image / og:description) off a public
+// Instagram URL. Instagram populates these server-side for link
+// previews, so — when it doesn't serve a login wall instead — this
+// works without any authentication.
+async function scrapeOgTags(url) {
+  const res = await fetch(url, {
+    headers: { "User-Agent": BROWSER_UA, "Accept-Language": "en-US,en;q=0.9" },
+    signal: AbortSignal.timeout(10000),
+  });
+  const html = await res.text();
+
+  const grab = (prop) => {
+    let m = html.match(new RegExp(`<meta[^>]+property=["']${prop}["'][^>]+content=["']([^"']*)["']`, "i"));
+    if (!m) m = html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+property=["']${prop}["']`, "i"));
+    if (!m) return null;
+    return m[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&#39;/g, "'").trim();
+  };
+
+  return { image: grab("og:image"), description: grab("og:description"), title: grab("og:title") };
+}
+
+// Turns whatever was scraped into the "glancing over your shoulder"
+// remark — looks at the image if there is one (same vision call the
+// OAuth path uses), otherwise falls back to the caption text.
+async function describeScraped(og, opts = {}) {
+  const T = opts.userTitle || "Sir";
+
+  if (og.image) {
+    try {
+      const imgRes = await fetch(og.image, { headers: { "User-Agent": BROWSER_UA }, signal: AbortSignal.timeout(10000) });
+      const buf = Buffer.from(await imgRes.arrayBuffer());
+      const base64 = buf.toString("base64");
+
+      const vision = require("./screen-vision");
+      const prompt =
+        `You're Jarvis, a witty and warm personal AI assistant, looking at someone's most recent Instagram post. ` +
+        `Make ONE short, natural, observational remark about it — the kind of thing you'd say glancing over their ` +
+        `shoulder, addressing them as "${T}". Be specific to what's actually IN the photo (setting, mood, activity, ` +
+        `who or what's in it — e.g. if it looks like a soccer match, say so) rather than generic. Warm and a little ` +
+        `playful is good; don't be over the top or gushing. One or two sentences, nothing more.` +
+        (og.description ? ` The caption was: "${truncate(og.description, 200)}" — you can nod to it, but the photo is the point.` : "");
+
+      const remark = await vision.askVision(base64, prompt);
+      return remark.trim();
+    } catch {
+      // Image fetch/vision failed — fall through to text-only below.
+    }
+  }
+
+  if (og.description) return `Saw the new post, ${T} — "${truncate(og.description, 140)}."`;
+  return null;
+}
+
+// The actual check: search -> scrape -> describe. Used both for
+// on-demand ("check my Instagram") and the daily proactive nudge.
+// force=true always produces a remark even if it's the same post as
+// last time (on-demand case); force=false (proactive) only speaks up
+// when the post is new.
+async function checkTrackedAccount(userTitle, opts = {}) {
+  const T = userTitle || "Sir";
+  const force = !!opts.force;
+  const data = loadHandleData();
+  if (!data.username) return { notTracking: true };
+
+  const found = await findLatestPostViaSearch(data.username);
+  if (found.error) return { error: found.error };
+
+  const isNew = found.url !== data.lastPostUrl;
+  if (!isNew && !force) return { unchanged: true, url: found.url };
+
+  let og = {};
+  try { og = await scrapeOgTags(found.url); } catch { og = {}; }
+
+  let remark = await describeScraped(og, { userTitle: T });
+  if (!remark) {
+    remark = `Found @${data.username}'s latest on Instagram, ${T}, but it's behind Instagram's login wall from here — I couldn't actually see it.`;
+  }
+
+  saveHandleData({ ...data, lastPostUrl: found.url, lastCheckedAt: Date.now() });
+  return { reply: remark, url: found.url, isNew };
+}
+
+// Gate for the proactive/daily poll — only actually runs the
+// search+scrape once every ~20 hours per tracked account, and only
+// speaks up (returns non-null) when there's something new to say.
+async function dailyTrackedCheck(userTitle) {
+  const data = loadHandleData();
+  if (!data.username) return null;
+  if (Date.now() - (data.lastCheckedAt || 0) < TRACK_CHECK_INTERVAL_MS) return null;
+
+  let result;
+  try { result = await checkTrackedAccount(userTitle, { force: false }); }
+  catch { return null; }
+
+  if (!result || result.error || result.notTracking || result.unchanged) return null;
+  return result;
 }
 
 // ── AUTH URL ────────────────────────────────────────────────────
@@ -296,4 +499,16 @@ module.exports = {
   describePost,
   handleInstagramCommand,
   loadTokens, // exported for the proactive dedupe store (checkSocialMoment) to read the connected userId, etc. if ever needed
+
+  // Simple username-based tracking (no OAuth) — see the big comment
+  // block above for how this differs from the API path.
+  getTrackedUsername,
+  setTrackedUsername,
+  clearTrackedUsername,
+  setPendingUsernameQuestion,
+  getPendingUsernameQuestion,
+  clearPendingUsernameQuestion,
+  handleConnectCommand,
+  checkTrackedAccount,
+  dailyTrackedCheck,
 };
