@@ -25,6 +25,12 @@ const archiver = require("archiver");
 let Hermes = null;
 try { Hermes = require("./hermes-engine"); } catch { Hermes = null; }
 
+// Ollama (local + cloud) lives in its own module, not on Hermes — see
+// local-llm.js's header comment: it's the single choke point every file
+// should route through for local/Ollama-Cloud access, Groq included.
+let LocalLLM = null;
+try { LocalLLM = require("./local-llm"); } catch { LocalLLM = null; }
+
 const SITES_DIR    = path.join(__dirname, "data", "sites");
 const REGISTRY_FILE = path.join(SITES_DIR, "registry.json");
 if (!fs.existsSync(SITES_DIR)) fs.mkdirSync(SITES_DIR, { recursive: true });
@@ -387,24 +393,24 @@ async function tryGemini(cleanType, cleanName, onDelta) {
 // buildSite() can fall straight through to Groq without extra noise
 // in the logs for the completely-unconfigured case.
 async function tryOllama(cleanType, cleanName, onDelta) {
-  if (!Hermes) return null;
+  if (!LocalLLM) return null;
   const userPrompt = `Business type: ${cleanType}\nBusiness name: ${cleanName}\nBuild the full single-file website now.`;
   const messages = [
     { role: "system", content: SYSTEM_PROMPT_FULL },
     { role: "user", content: userPrompt },
   ];
 
-  const localUp = Hermes.isLocalMode && Hermes.isLocalMode() && (await Hermes.isOllamaServing());
+  const localUp = LocalLLM.isLocalMode && LocalLLM.isLocalMode() && (await LocalLLM.isOllamaServing());
   if (localUp) {
-    const msg = await Hermes.ollamaChat(messages, { temperature: 0.85, maxTokens: 8192 });
+    const msg = await LocalLLM.ollamaChat(messages, { temperature: 0.85, maxTokens: 8192 });
     const html = extractHtml(msg.content || "");
     if (typeof onDelta === "function") onDelta(html, { ollama: true });
     return html;
   }
 
-  if (Hermes.isCloudConfigured && Hermes.isCloudConfigured()) {
-    const msg = await Hermes.ollamaCloudChat(messages, {
-      model: Hermes.OLLAMA_CLOUD_MODEL, temperature: 0.85, maxTokens: 8192,
+  if (LocalLLM.isCloudConfigured && LocalLLM.isCloudConfigured()) {
+    const msg = await LocalLLM.ollamaCloudChat(messages, {
+      model: LocalLLM.OLLAMA_CLOUD_MODEL, temperature: 0.85, maxTokens: 8192,
     });
     const html = extractHtml(msg.content || "");
     if (typeof onDelta === "function") onDelta(html, { ollama: true, cloud: true });
