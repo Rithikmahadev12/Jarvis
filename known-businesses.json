@@ -1,0 +1,3 @@
+{
+  "_comment": "Local phone book for phone-agent.js. Key = business name lowercased, value = E.164 phone number (e.g. +15551234567). Add entries here so you only ever give Jarvis a number once, or just tell Jarvis the number in the same sentence as the request and it'll save it automatically. Example: \"great clips\": \"+15551234567\""
+}
