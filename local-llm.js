@@ -338,4 +338,5 @@ module.exports = {
   ollamaVision,
   isCloudConfigured,
   ollamaCloudChat,
+  OLLAMA_CLOUD_MODEL,
 };
