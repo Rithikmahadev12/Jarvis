@@ -227,26 +227,35 @@ async function groqFetchRaw(messages, options = {}) {
   throw lastError || new Error("All configured Groq API keys failed.");
 }
 
-// Ollama Cloud fallback — only reached when Groq itself couldn't be
-// used at all (no key configured, or every configured key failed
-// above). Not tried first, not tried on every request: Groq stays
-// primary. This is a safety net for "ran out of Groq quota," not a
-// replacement.
+// ── PRIMARY: Ollama Cloud, with Groq as fallback ────────────────
+// Tries Ollama Cloud first on every request (if OLLAMA_API_KEY is
+// configured). Only falls back to Groq if Ollama Cloud isn't
+// configured, or the call actually fails (down, rate-limited, bad
+// key, etc.) — and logs clearly which one handled each request so
+// it's never a mystery which brain answered.
 async function groqFetchRawWithFallback(messages, options = {}) {
-  try {
-    return await groqFetchRaw(messages, options);
-  } catch (e) {
-    if (LocalLLM.isCloudConfigured()) {
-      console.warn(`[HERMES] Groq unavailable (${e.message}) — falling back to Ollama Cloud...`);
+  if (LocalLLM.isCloudConfigured()) {
+    try {
+      const msg = await LocalLLM.ollamaCloudChat(messages, options);
+      console.log(`[BRAIN] Answered by Ollama Cloud (${LocalLLM.OLLAMA_CLOUD_MODEL || "gpt-oss:120b"})`);
+      return msg;
+    } catch (e) {
+      console.warn(`[BRAIN] Ollama Cloud failed (${e.message}) — switching to Groq fallback...`);
       try {
-        return await LocalLLM.ollamaCloudChat(messages, options);
-      } catch (cloudErr) {
-        console.error(`[HERMES] Ollama Cloud fallback also failed: ${cloudErr.message}`);
-        throw e; // surface the original Groq error, more useful than the fallback's
+        const msg = await groqFetchRaw(messages, options);
+        console.log(`[BRAIN] Answered by Groq fallback (${options.model || MODELS.smart})`);
+        return msg;
+      } catch (groqErr) {
+        console.error(`[BRAIN] Groq fallback also failed: ${groqErr.message}`);
+        throw groqErr;
       }
     }
-    throw e;
   }
+
+  // No Ollama Cloud key configured at all — go straight to Groq, same as before.
+  const msg = await groqFetchRaw(messages, options);
+  console.log(`[BRAIN] Answered by Groq (${options.model || MODELS.smart})`);
+  return msg;
 }
 
 // ── TOOL DEFINITIONS ───────────────────────────────────────────
