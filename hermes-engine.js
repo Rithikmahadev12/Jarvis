@@ -12,7 +12,6 @@
 const fs   = require("fs");
 const path = require("path");
 const GroqKeys = require("./groq-keys");
-const LocalLLM = require("./local-llm");
 
 // ── CONFIG ─────────────────────────────────────────────────────
 // GROQ_API_KEY → your key from console.groq.com. Add GROQ_API_KEY2,
@@ -127,30 +126,6 @@ async function groqFetchRaw(messages, options = {}) {
     reasoning_effort = null,   // "low" | "medium" | "high" — reasoning models only (gpt-oss, qwen3.x)
     reasoning_format = null,   // "parsed" | "raw" | "hidden"
   } = options;
-
-  // ── LOCAL MODE — try Ollama first, but ONLY for plain replies ───
-  // isLocalMode() is true whenever we're not on Render (i.e. running
-  // on the user's own machine). If Ollama is actually up and serving,
-  // use it instead of Groq — but only when this call has no `tools`.
-  // Small local models are both much slower AND much less reliable
-  // once you hand them a full function-calling schema (this project
-  // ships 36 tool definitions, ~27KB of JSON — reading that alone is
-  // most of the cost on CPU-only hardware, before it even generates a
-  // token). Anything that needs tool-calling stays on Groq, which is
-  // both faster (real inference hardware) and more accurate at
-  // picking the right tool anyway. If Ollama isn't running, isn't
-  // reachable, or errors out, fall straight through to Groq below.
-  if (LocalLLM.isLocalMode() && !(tools && tools.length)) {
-    try {
-      const serving = await LocalLLM.isOllamaServing();
-      if (serving) {
-        const msg = await LocalLLM.ollamaChat(messages, { temperature, maxTokens, tools, tool_choice });
-        return msg;
-      }
-    } catch (e) {
-      console.warn(`[HERMES] Local Ollama call failed, falling back to Groq: ${e.message}`);
-    }
-  }
 
   if (!GroqKeys.hasGroqKey()) throw new Error("GROQ_API_KEY not set in .env");
 
