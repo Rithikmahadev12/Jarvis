@@ -3584,6 +3584,17 @@ async function handleAction(action, meta, replyText) {
       });
       break;
     }
+    // Opens the mini phone-call widget (see phone-widget.js) the
+    // moment Jarvis proposes a real phone call — it stays visible
+    // through confirm/dialing/on-the-call/ended on its own via SSE,
+    // this only needs to fire once to open it.
+    case "PHONE_CALL_WIDGET": {
+      speak(replyText, () => {
+        window.PhoneWidget?.open(meta);
+        mic.resume();
+      });
+      break;
+    }
     case "OPEN_WEBSITE_BUILD": {
       speak(replyText, () => {
         openWebsiteBuild(meta);
