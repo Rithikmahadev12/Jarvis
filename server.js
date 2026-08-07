@@ -914,9 +914,6 @@ app.post("/api/register", (req, res) => {
     updatedAt:      new Date().toISOString(),
   };
   saveProfiles(profiles);
-  if (process.env.AGENTPHONE_API_KEY) {
-    require("./inbound-agent").syncInboundPrompt().catch(e => console.error("[inbound-agent] prompt sync error:", e.message));
-  }
   res.json({ success: true });
 });
 app.get("/api/profile/:name", (req, res) => {
@@ -2752,17 +2749,18 @@ async function executeAssistantTool(name, args, ctx) {
     case "call_business_appointment": {
       const PhoneAgent = require("./phone-agent");
       const businessName = String(args.business_name || "").trim();
+      const businessNumber = args.business_number ? String(args.business_number).trim() : null;
       const requestedTime = String(args.requested_time || "").trim();
-      if (!businessName || !requestedTime) {
-        return { reply: `Which business, and what time, ${T}?` };
+      if (!requestedTime || (!businessName && !businessNumber)) {
+        return { reply: `Who should I call (a name or a number works), and what time, ${T}?` };
       }
       const ownerName = userName || require("./comms-router").defaultOwnerName();
       try {
         const result = await PhoneAgent.bookAppointment({
           sessionId,
           ownerName,
-          businessName,
-          businessNumber: args.business_number ? String(args.business_number).trim() : null,
+          businessName: businessName || null,
+          businessNumber,
           requestedTime,
           specialNote: args.special_note ? String(args.special_note).trim() : null,
         });
@@ -2770,11 +2768,11 @@ async function executeAssistantTool(name, args, ctx) {
           reply: result.reply,
           action: `PHONE_${result.status}`,
           intent: "phone_appointment",
-          meta: { businessName, requestedTime, status: result.status, callId: result.callId },
+          meta: { businessName: businessName || businessNumber, requestedTime, status: result.status, callId: result.callId },
         };
       } catch (err) {
         console.error("[TOOLS] call_business_appointment failed:", err.message);
-        return { reply: `Something went wrong calling ${businessName}, ${T} — ${err.message}`, action: "PHONE_CALL_FAILED", intent: "phone_appointment" };
+        return { reply: `Something went wrong calling ${businessName || "that number"}, ${T} — ${err.message}`, action: "PHONE_CALL_FAILED", intent: "phone_appointment" };
       }
     }
 
@@ -3835,20 +3833,6 @@ function startServer() {
     // non-Windows hosts and can be turned off via Settings (activityTracking)
     // or JARVIS_TRACK_ACTIVITY=false in .env.
     ActivityLog.startTracking();
-
-    // ── AGENTPHONE INBOUND: keep the "who am I speaking with" prompt
-    // in sync with config.json's users list, and log inbound calls
-    // Jarvis wasn't around to see live (hosted mode has no webhook —
-    // see inbound-agent.js for the full explanation). Both no-op
-    // quietly if AGENTPHONE_API_KEY isn't set.
-    if (process.env.AGENTPHONE_API_KEY) {
-      const InboundAgent = require("./inbound-agent");
-      InboundAgent.syncInboundPrompt().catch(e => console.error("[inbound-agent] prompt sync error:", e.message));
-      const checkInbound = () => {
-        InboundAgent.checkForNewInboundCalls().catch(e => console.error("[inbound-agent] call check error:", e.message));
-      };
-      setInterval(checkInbound, 5 * 60 * 1000);  // check every 5 minutes
-    }
   });
 }
 
