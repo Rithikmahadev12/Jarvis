@@ -1,29 +1,32 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Phone Agent v1.0
+// J.A.R.V.I.S — Phone Agent v2.0
 //
-// This is the actual "Hey Jarvis, call Great Clips and book me a
-// 10am" behavior, built on top of agentphone.js.
+// "Hey Jarvis, call the mechanic shop and ask their oil-change
+// price" behavior, built on top of agentphone.js, now wired to a
+// live widget on the frontend via call-session.js instead of just
+// blocking silently until the whole call is over.
 //
-// FLOW (exactly the one you described):
-//   1. bookAppointment(): Jarvis calls the business, asks for the
-//      requested time. If it's free, books it and we're done in one
-//      call. If NOT free, Jarvis asks what IS available, then ends
-//      the call WITHOUT committing to anything — real businesses
-//      don't want an assistant booking a slot the owner hasn't
-//      actually agreed to.
-//   2. If an alternative time came back, that's returned to the
-//      caller (server.js) as a "needs owner decision" result, along
-//      with a pending confirmation stored in memory here.
-//   3. Your server.js code reports that to the owner ("they can't do
-//      10, but 11:30 is open — want that instead?") and waits for a
-//      yes/no, same as any other pending-confirmation flow already
-//      in this codebase (see jarvis-agent.js's proposeAction/
-//      getPendingAction, schedule.js's setPendingConfirm).
-//   4. On "yes", call confirmPendingAppointment() — this places a
-//      SECOND call back to the same business confirming the new
-//      time. On "no", call cancelPendingAppointment() — no second
-//      call is made, nothing is booked.
+// FLOW:
+//   1. proposeCall(): looks up the number, emits "preparing" then
+//      "confirm" on the call's CallSession stream, and stores a
+//      pending confirmation keyed by the CHAT sessionId (mirrors
+//      jarvis-agent.js's proposeAction/getPendingAction pattern).
+//      Nothing is dialed yet.
+//   2. server.js's resolvePendingPhoneCall() catches the user's next
+//      yes/no ("do it" / "cancel") and calls confirmPendingCall() or
+//      cancelPendingCall().
+//   3. confirmPendingCall() kicks off _runCall() in the background
+//      (NOT awaited by the caller — the chat reply comes back
+//      instantly) which emits "dialing" -> "on_call" -> "ended" as
+//      the real call progresses, polling AgentPhone for status.
+//   4. If the business couldn't do the requested time but offered an
+//      alternative, that's stashed in pendingAltTime (same shape as
+//      before) so a plain "yes book that" / "no" reply routes to
+//      confirmPendingAppointment()/cancelPendingAppointment() and
+//      places a SECOND call locking in the new time. This part is
+//      unchanged from v1 — no live widget on the callback call, it's
+//      quick and single-purpose.
 //   5. Whoever handles the confirmed result should offer to add it
 //      to the calendar (schedule.js / google.js) — this file only
 //      handles the phone side, not the calendar side.
@@ -36,6 +39,14 @@
 // when it's actually relevant to bring up, same as a human assistant
 // would.
 //
+// ── RECONNAISSANCE VS. BOOKING ────────────────────────────────────
+// Most real calls aren't "book this exact slot" — they're "find out
+// their price / earliest opening / hours, don't commit to anything."
+// Pass `purpose` for that (free text — "ask their oil-change price
+// and earliest slot"). Only pass `commit: true` when the user has
+// actually authorized Jarvis to book on the spot; otherwise the call
+// is reconnaissance-only regardless of whether requestedTime is set.
+//
 // ── FINDING THE BUSINESS'S NUMBER ─────────────────────────────────
 // Jarvis has no phone-number lookup service wired in by default. Two
 // ways a number gets found, in order:
@@ -45,7 +56,7 @@
 //      Jarvis, once you tell it a number) can add entries to, keyed
 //      by name, so you only ever have to give a number once. See
 //      the file for the format.
-// If neither has it, bookAppointment() returns a NEEDS_NUMBER result
+// If neither has it, proposeCall() returns a NEEDS_NUMBER result
 // asking the owner for it — it never guesses a phone number.
 // ═══════════════════════════════════════════════════════════════
 
@@ -53,24 +64,42 @@ const fs = require("fs");
 const path = require("path");
 const AgentPhone = require("./agentphone");
 const GroqKeys = require("./groq-keys");
+const CallSession = require("./call-session");
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = process.env.GROQ_AGENT_MODEL || process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b";
 
-const KNOWN_BUSINESSES_PATH = path.join(__dirname, "data", "known-businesses.json");
+// NOTE: the shipped known-businesses.json lives at the repo root, not
+// under data/ — check both so an existing root file is actually found,
+// but always WRITE to the root path to match what's already there.
+const KNOWN_BUSINESSES_PATH = path.join(__dirname, "known-businesses.json");
+const KNOWN_BUSINESSES_PATH_LEGACY = path.join(__dirname, "data", "known-businesses.json");
 
-// One pending confirmation at a time per session — mirrors the same
-// sessionId-keyed singleton pattern jarvis-agent.js's proposeAction/
-// getPendingAction already uses, so the LLM tool-call for confirming
-// never needs to know or pass around an id.
-const pending = new Map(); // sessionId -> { ...details }
+// One pending call-confirmation, and one pending alt-time confirmation,
+// at a time per (chat) session — mirrors jarvis-agent.js's
+// proposeAction/getPendingAction singleton pattern.
+const pendingCalls = new Map();    // chatSessionId -> { callSessionId, ...details }
+const pendingAltTime = new Map();  // chatSessionId -> { ...details, alternativeTime }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Call statuses that mean "still ringing/connecting" — anything else
+// (that isn't completed/failed) is treated as "answered, in progress"
+// so the widget can flip to ON THE CALL. AgentPhone's exact status
+// vocabulary isn't guaranteed, so this errs toward a short allowlist
+// rather than guessing every possible "connected" string.
+const CONNECTING_STATUSES = new Set(["queued", "created", "initiated", "ringing", "dialing", "pending"]);
 
 // ── BUSINESS PHONE BOOK ───────────────────────────────────────────
 function loadKnownBusinesses() {
   try {
     return JSON.parse(fs.readFileSync(KNOWN_BUSINESSES_PATH, "utf8"));
   } catch {
-    return {};
+    try {
+      return JSON.parse(fs.readFileSync(KNOWN_BUSINESSES_PATH_LEGACY, "utf8"));
+    } catch {
+      return {};
+    }
   }
 }
 
@@ -96,8 +125,8 @@ async function summarizeCallOutcome({ transcripts, requestedTime, businessName }
     // No Groq configured — fall back to a dumb heuristic rather than
     // crashing the whole flow.
     const joined = (transcripts || []).map((t) => `${t.transcript} ${t.response}`).join(" ").toLowerCase();
-    const booked = joined.includes(String(requestedTime).toLowerCase()) && (joined.includes("booked") || joined.includes("confirmed") || joined.includes("all set"));
-    return { booked, alternativeTime: null, summary: "Groq not configured — could not analyze the call precisely.", raw: joined.slice(0, 500) };
+    const booked = !!requestedTime && joined.includes(String(requestedTime).toLowerCase()) && (joined.includes("booked") || joined.includes("confirmed") || joined.includes("all set"));
+    return { booked, alternativeTimeOffered: null, summary: "Groq not configured — could not analyze the call precisely.", raw: joined.slice(0, 500) };
   }
 
   const convo = (transcripts || [])
@@ -105,13 +134,13 @@ async function summarizeCallOutcome({ transcripts, requestedTime, businessName }
     .join("\n");
 
   const systemPrompt =
-    "You analyze a transcript of a phone call Jarvis (an AI assistant) placed to a business to book an appointment. " +
-    `The requested time was "${requestedTime}" at "${businessName}". ` +
+    "You analyze a transcript of a phone call Jarvis (an AI assistant) placed to a business on the owner's behalf. " +
+    `The goal of the call was: "${requestedTime || "gather information"}" at "${businessName}". ` +
     "Reply with ONLY a JSON object, no prose, no markdown fences, in this exact shape: " +
     '{"booked": boolean, "bookedTime": string|null, "alternativeTimeOffered": string|null, "summary": string}. ' +
     '"booked" is true only if the business explicitly confirmed a specific appointment. ' +
-    '"alternativeTimeOffered" is the next available time the business mentioned, if the requested time was not available and Jarvis did NOT book on the spot. ' +
-    '"summary" is one short sentence a human would want to hear, in plain language.';
+    '"alternativeTimeOffered" is the next available time the business mentioned, if a requested time was not available and Jarvis did NOT book on the spot. ' +
+    '"summary" is one or two short sentences a human would want to hear as a spoken report — plain language, specific numbers/times/prices if any were given, and end by saying what (if anything) still needs a decision. Address the owner directly, do not use their name (it will be appended separately).';
 
   const doFetch = (key) => fetch(GROQ_API_URL, {
     method: "POST",
@@ -159,7 +188,7 @@ async function summarizeCallOutcome({ transcripts, requestedTime, businessName }
 }
 
 // ── SYSTEM PROMPT BUILDER ──────────────────────────────────────────
-function buildSystemPrompt({ ownerName, businessName, requestedTime, specialNote, confirmMode, confirmedTime }) {
+function buildSystemPrompt({ ownerName, businessName, requestedTime, purpose, specialNote, confirmMode, confirmedTime, commit }) {
   const intro = `You are Jarvis, ${ownerName}'s personal AI assistant, calling ${businessName || "this business"} on ${ownerName}'s behalf. ` +
     `Start the call by clearly identifying yourself: "Hi, this is Jarvis, ${ownerName}'s personal assistant." Be brief, polite, and businesslike.`;
 
@@ -168,11 +197,15 @@ function buildSystemPrompt({ ownerName, businessName, requestedTime, specialNote
     task = `You (Jarvis) already spoke with them earlier${requestedTime ? ` about booking at ${requestedTime}` : ""}, and they offered ${confirmedTime} instead. ` +
       `${ownerName} has now confirmed ${confirmedTime} works. Start by briefly reminding them you spoke earlier today, then confirm you'd like to lock in ${confirmedTime}. ` +
       `Get a clear yes, thank them, and end the call politely. Do not renegotiate the time.`;
-  } else {
+  } else if (commit && requestedTime) {
     task = `Ask if they can book an appointment at ${requestedTime}. ` +
       `If YES, confirm it clearly out loud (repeat the time back) and end the call — you're done, do not keep talking. ` +
       `If NO, ask them what the next available time is, get a clear specific answer, THEN politely say you'll check with ${ownerName} and get back to them, and end the call. ` +
       `Do NOT book any time other than the exact one requested without checking back first — you are not authorized to accept alternative times on this call.`;
+  } else {
+    const goal = purpose || (requestedTime ? `ask about availability around ${requestedTime}` : "ask a couple of quick questions and report back");
+    task = `Your goal on this call: ${goal}. This is reconnaissance only — do NOT book, confirm, pay for, or commit ${ownerName} to anything on this call. ` +
+      `Get clear, specific answers (prices, times, hours, availability — whatever is relevant), thank them, and end the call politely once you have what you need.`;
   }
 
   const note = specialNote
@@ -182,14 +215,25 @@ function buildSystemPrompt({ ownerName, businessName, requestedTime, specialNote
   return `${intro}\n\n${task}${note}`;
 }
 
-// ── STEP 1: the negotiating call ───────────────────────────────────
-async function bookAppointment({ sessionId, ownerName, businessName, businessNumber, requestedTime, specialNote }) {
-  const toNumber = businessNumber || lookupBusinessNumber(businessName || "");
-  // When the user only gave a number ("call this number and tell him...")
-  // there's no name to display — fall back to something that still reads
-  // naturally in a reply sentence instead of printing "undefined".
+// ── CONFIRM-STEP COPY ────────────────────────────────────────────
+function buildConfirmMessage({ ownerName, businessName, toNumber, requestedTime, purpose, commit }) {
   const label = businessName || "them";
+  let goal;
+  if (commit && requestedTime) goal = `ask about booking an appointment for ${requestedTime}`;
+  else if (purpose) goal = purpose.replace(/[.\s]+$/, "");
+  else if (requestedTime) goal = `ask about availability around ${requestedTime}`;
+  else goal = "ask a couple of quick questions";
+  const commitNote = commit ? "" : " — no commitment, just gathering information";
+  return `I'll ring ${label} to ${goal}${commitNote}. Shall I ring them, ${ownerName}? I'll call ${toNumber}.`;
+}
+
+// ── STEP 1: propose the call, wait for the owner's go-ahead ────────
+function proposeCall({ callSessionId, sessionId, ownerName, businessName, businessNumber, requestedTime, purpose, specialNote, commit }) {
+  CallSession.emit(callSessionId, "preparing", { businessName: businessName || null, businessNumber: businessNumber || null });
+
+  const toNumber = businessNumber || lookupBusinessNumber(businessName || "");
   if (!toNumber) {
+    CallSession.emit(callSessionId, "needs_number", { businessName: businessName || null });
     return {
       status: "NEEDS_NUMBER",
       reply: businessName
@@ -197,77 +241,163 @@ async function bookAppointment({ sessionId, ownerName, businessName, businessNum
         : `What number should I call, ${ownerName}?`,
     };
   }
-  if (businessNumber && businessName) saveKnownBusiness(businessName, businessNumber);
 
-  const systemPrompt = buildSystemPrompt({ ownerName, businessName, requestedTime, specialNote, confirmMode: false });
+  const confirmMsg = buildConfirmMessage({ ownerName, businessName, toNumber, requestedTime, purpose, commit });
+  CallSession.emit(callSessionId, "confirm", {
+    businessName: businessName || "them",
+    businessNumber: toNumber,
+    message: confirmMsg,
+  });
+
+  pendingCalls.set(sessionId, {
+    sessionId,
+    callSessionId,
+    ownerName,
+    businessName: businessName || null,
+    businessNumber: toNumber,
+    requestedTime: requestedTime || null,
+    purpose: purpose || null,
+    specialNote: specialNote || null,
+    commit: !!commit,
+    createdAt: Date.now(),
+  });
+
+  return { status: "CONFIRM", reply: confirmMsg, callSessionId };
+}
+
+function getPendingCall(sessionId) {
+  return pendingCalls.get(sessionId) || null;
+}
+
+function cancelPendingCall(sessionId) {
+  const p = pendingCalls.get(sessionId);
+  pendingCalls.delete(sessionId);
+  if (p) CallSession.emit(p.callSessionId, "cancelled", {});
+  return { status: "CANCELLED", reply: p ? `No problem — I won't call ${p.businessName || "them"}.` : "Nothing to cancel." };
+}
+
+// ── STEP 2: owner said "do it" — dial in the background ────────────
+// Deliberately NOT awaited by callers: the chat reply needs to come
+// back instantly so the widget can open, and everything past this
+// point streams over CallSession events instead of a return value.
+function confirmPendingCall(sessionId) {
+  const p = pendingCalls.get(sessionId);
+  pendingCalls.delete(sessionId);
+  if (!p) return { status: "NOT_FOUND", reply: "I don't have a call queued up anymore — want me to try again?" };
+
+  if (p.businessNumber && p.businessName) saveKnownBusiness(p.businessName, p.businessNumber);
+
+  _runCall(p).catch((e) => {
+    console.error("[PHONE-AGENT] Call run failed:", e.message);
+    CallSession.emit(p.callSessionId, "ended", { ok: false, summary: `Something went wrong on that call, ${p.ownerName} — ${e.message}` });
+  });
+
+  return { status: "DIALING", reply: `Ringing ${p.businessName || "them"} now, ${p.ownerName}.`, callSessionId: p.callSessionId };
+}
+
+// ── THE ACTUAL CALL: dial, poll for pickup, poll for completion ────
+async function _runCall(p) {
+  const { callSessionId, ownerName, businessName, businessNumber, requestedTime, purpose, specialNote, commit } = p;
+  const label = businessName || "them";
+
+  CallSession.emit(callSessionId, "dialing", { businessName: label, businessNumber });
+
+  const systemPrompt = buildSystemPrompt({ ownerName, businessName, requestedTime, purpose, specialNote, commit, confirmMode: false });
 
   let call;
   try {
     call = await AgentPhone.placeOutboundCall({
-      toNumber,
+      toNumber: businessNumber,
       systemPrompt,
       initialGreeting: `Hi, this is Jarvis, ${ownerName}'s personal assistant.`,
       ownerName,
     });
   } catch (e) {
-    return { status: "CALL_FAILED", reply: `I couldn't get the call to ${label} to go through, ${ownerName} — ${e.message}` };
+    CallSession.emit(callSessionId, "ended", { ok: false, summary: `I couldn't get the call to ${label} to go through, ${ownerName} — ${e.message}` });
+    return;
   }
 
-  let finished;
-  try {
-    finished = await AgentPhone.waitForCallCompletion(call.id);
-  } catch (e) {
-    return { status: "CALL_FAILED", reply: `The call to ${label} didn't wrap up cleanly, ${ownerName} — ${e.message}`, callId: call.id };
+  let seenConnected = false;
+  let finished = null;
+  const start = Date.now();
+  const timeoutMs = 5 * 60 * 1000;
+
+  while (Date.now() - start < timeoutMs) {
+    let current;
+    try {
+      current = await AgentPhone.getCall(call.id);
+    } catch {
+      await sleep(3000);
+      continue;
+    }
+    if (!seenConnected && current.status && !CONNECTING_STATUSES.has(current.status) && current.status !== "completed" && current.status !== "failed") {
+      seenConnected = true;
+      CallSession.emit(callSessionId, "on_call", { businessName: label, businessNumber });
+    }
+    if (current.status === "completed" || current.status === "failed") { finished = current; break; }
+    await sleep(3000);
   }
+
+  if (!finished) {
+    CallSession.emit(callSessionId, "ended", { ok: false, summary: `The call to ${label} didn't wrap up in time, ${ownerName} — it may still go through.`, callId: call.id });
+    return;
+  }
+  if (!seenConnected) CallSession.emit(callSessionId, "on_call", { businessName: label, businessNumber });
 
   if (finished.status === "failed") {
-    return { status: "CALL_FAILED", reply: `The call to ${label} didn't connect, ${ownerName}.`, callId: call.id };
+    CallSession.emit(callSessionId, "ended", { ok: false, summary: `The call to ${label} didn't connect, ${ownerName}.`, callId: call.id });
+    return;
   }
 
-  const outcome = await summarizeCallOutcome({
-    transcripts: finished.transcripts,
-    requestedTime,
-    businessName: businessName || "the business",
-  });
-
-  if (outcome.booked) {
-    return {
-      status: "BOOKED",
-      reply: `Done, ${ownerName} — ${label} confirmed you for ${outcome.bookedTime || requestedTime}. Want me to put that on your calendar?`,
-      outcome,
+  let outcome;
+  try {
+    outcome = await summarizeCallOutcome({
+      transcripts: finished.transcripts,
+      requestedTime: requestedTime || purpose || "",
+      businessName: businessName || "the business",
+    });
+  } catch (e) {
+    CallSession.emit(callSessionId, "ended", {
+      ok: true,
+      summary: `The call with ${label} wrapped up, but I had trouble analyzing the transcript, ${ownerName} — ${e.message}`,
+      recordingUrl: finished.recordingUrl || finished.recording_url || null,
       callId: call.id,
-    };
+    });
+    return;
   }
+
+  const chips = [];
+  if (outcome.booked) chips.push("booked");
+  if (outcome.alternativeTimeOffered) chips.push("needs decision");
+  if (!outcome.booked && !outcome.alternativeTimeOffered) chips.push("info gathered");
 
   if (outcome.alternativeTimeOffered) {
-    pending.set(sessionId, {
+    pendingAltTime.set(p.sessionId, {
       ownerName,
       businessName,
-      businessNumber: toNumber,
+      businessNumber,
       requestedTime,
       alternativeTime: outcome.alternativeTimeOffered,
       specialNote,
       createdAt: Date.now(),
     });
-    return {
-      status: "NEEDS_OWNER_DECISION",
-      reply: `${label} can't do ${requestedTime}, ${ownerName} — but ${outcome.alternativeTimeOffered} is open. Want me to call back and lock that in?`,
-      outcome,
-      callId: call.id,
-    };
   }
 
-  return {
-    status: "UNCLEAR",
-    reply: `I called ${label}, ${ownerName}, but I'm not fully sure how it landed: ${outcome.summary}`,
-    outcome,
+  CallSession.emit(callSessionId, "ended", {
+    ok: true,
+    booked: !!outcome.booked,
+    bookedTime: outcome.bookedTime || null,
+    alternativeTime: outcome.alternativeTimeOffered || null,
+    summary: outcome.summary || (outcome.booked ? `Booked for ${outcome.bookedTime || requestedTime}.` : "Call finished."),
+    chips,
+    recordingUrl: finished.recordingUrl || finished.recording_url || null,
     callId: call.id,
-  };
+  });
 }
 
-// ── STEP 2a: owner said yes — call back and confirm ─────────────────
+// ── STEP 3a: owner said yes to the ALTERNATIVE time — call back ────
 async function confirmPendingAppointment(sessionId) {
-  const p = pending.get(sessionId);
+  const p = pendingAltTime.get(sessionId);
   if (!p) return { status: "NOT_FOUND", reply: "I don't have that pending appointment anymore — want me to call again from scratch?" };
   const label = p.businessName || "them";
 
@@ -293,7 +423,7 @@ async function confirmPendingAppointment(sessionId) {
     return { status: "CALL_FAILED", reply: `The confirmation call to ${label} didn't go through, ${p.ownerName} — ${e.message}` };
   }
 
-  pending.delete(sessionId);
+  pendingAltTime.delete(sessionId);
   return {
     status: "CONFIRMED",
     reply: `That works — ${label} has you down for ${p.alternativeTime}, ${p.ownerName}. Shall I put that in your calendar?`,
@@ -302,22 +432,25 @@ async function confirmPendingAppointment(sessionId) {
   };
 }
 
-// ── STEP 2b: owner said no ────────────────────────────────────────
+// ── STEP 3b: owner said no to the alternative ───────────────────────
 function cancelPendingAppointment(sessionId) {
-  const p = pending.get(sessionId);
-  pending.delete(sessionId);
+  const p = pendingAltTime.get(sessionId);
+  pendingAltTime.delete(sessionId);
   return { status: "CANCELLED", reply: p ? `No problem — I won't book that with ${p.businessName || "them"}.` : "Nothing to cancel." };
 }
 
-function getPending(sessionId) {
-  return pending.get(sessionId) || null;
+function getPendingAppointment(sessionId) {
+  return pendingAltTime.get(sessionId) || null;
 }
 
 module.exports = {
-  bookAppointment,
+  proposeCall,
+  getPendingCall,
+  confirmPendingCall,
+  cancelPendingCall,
   confirmPendingAppointment,
   cancelPendingAppointment,
-  getPending,
+  getPendingAppointment,
   saveKnownBusiness,
   lookupBusinessNumber,
 };
