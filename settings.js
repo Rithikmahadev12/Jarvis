@@ -36,6 +36,11 @@ const DEFAULTS = {
   // no morning task was set. Off switch for anyone who'd rather not have
   // window titles logged at all.
   activityTracking: true,
+  // Spoken PIN code for inbound phone calls (see inbound-agent.js /
+  // "jarvis set number code to ____"). When set, a caller who speaks
+  // this code during an inbound call skips the name-matching gate and
+  // is treated as the owner for the rest of that call. null/"" = off.
+  numberCode: null,
   // add more toggles here as needed, e.g.:
   // notifications: true,
   // homeTalk: false,
