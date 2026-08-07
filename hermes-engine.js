@@ -511,6 +511,21 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "open_url",
+      description: "Call when the user names or pastes a specific website/URL and wants Jarvis to actually open it, read it, crawl it, or pull real content from it — e.g. 'open example.com', 'go check what's on this page', 'pull up jarvis.dev and tell me what it says', 'crawl this site for me'. Not for general topic research with no specific site named (use open_research for that) and not for quick factual questions.",
+      parameters: {
+        type: "object",
+        properties: {
+          url:      { type: "string", description: "The URL or site to open (with or without https://)." },
+          question: { type: "string", description: "What the user wants to know from the page, if they asked something specific. Leave empty if they just want it opened/summarized." },
+        },
+        required: ["url"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "open_build_mode",
       description: "Open Build Mode — the hand-tracked 3D CAD workspace. Call this whenever the user says things like 'build mode', 'jarvis build mode', 'show me a 3d model of X', 'holographic view', or otherwise wants the 3D building workspace opened. Not for the word 'build' used generically (e.g. 'build me a website').",
       parameters: {
