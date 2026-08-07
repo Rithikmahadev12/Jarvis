@@ -634,6 +634,28 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "set_phone_code",
+      description: "Set or change the spoken PIN code for Jarvis's inbound phone line — 'jarvis set number code to 2014', 'set my phone code to 4471', 'change the call-in code'. Once set, anyone who speaks this code during a call TO Jarvis's number is treated as the owner and can talk to Jarvis freely for that call, without needing a voice/name match. Say 'turn off the number code' / 'remove the phone code' to disable it (pass code as an empty string or the word 'off').",
+      parameters: {
+        type: "object",
+        properties: {
+          code: { type: "string", description: "The PIN, exactly as the user said it (digits, e.g. '2014'). Pass an empty string or 'off' to disable the code entirely." },
+        },
+        required: ["code"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_phone_status",
+      description: "Report Jarvis's current real phone number and account status — 'what's my Jarvis number', 'what number do I call', 'is the phone backup working', 'did the phone switch to a backup'. Also surfaces it out loud the moment an account failover has happened, even if the user didn't ask about it directly.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "message_on_teams",
       description: "Send a real chat message to a person on Microsoft Teams (vision-guided — opens the actual chat and types/sends it). Call this for phrasing like 'message X on teams', 'text X on teams', 'tell X ... on teams', 'let X know ... on teams'.",
       parameters: {
