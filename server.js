@@ -914,6 +914,9 @@ app.post("/api/register", (req, res) => {
     updatedAt:      new Date().toISOString(),
   };
   saveProfiles(profiles);
+  if (process.env.AGENTPHONE_API_KEY) {
+    require("./inbound-agent").syncInboundPrompt().catch(e => console.error("[inbound-agent] prompt sync error:", e.message));
+  }
   res.json({ success: true });
 });
 app.get("/api/profile/:name", (req, res) => {
@@ -3832,6 +3835,20 @@ function startServer() {
     // non-Windows hosts and can be turned off via Settings (activityTracking)
     // or JARVIS_TRACK_ACTIVITY=false in .env.
     ActivityLog.startTracking();
+
+    // ── AGENTPHONE INBOUND: keep the "who am I speaking with" prompt
+    // in sync with config.json's users list, and log inbound calls
+    // Jarvis wasn't around to see live (hosted mode has no webhook —
+    // see inbound-agent.js for the full explanation). Both no-op
+    // quietly if AGENTPHONE_API_KEY isn't set.
+    if (process.env.AGENTPHONE_API_KEY) {
+      const InboundAgent = require("./inbound-agent");
+      InboundAgent.syncInboundPrompt().catch(e => console.error("[inbound-agent] prompt sync error:", e.message));
+      const checkInbound = () => {
+        InboundAgent.checkForNewInboundCalls().catch(e => console.error("[inbound-agent] call check error:", e.message));
+      };
+      setInterval(checkInbound, 5 * 60 * 1000);  // check every 5 minutes
+    }
   });
 }
 
