@@ -448,6 +448,20 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "set_osint_tier",
+      description: "Change how deep future 'jarvis lookup ...' searches go for THIS user, e.g. 'jarvis osint tier medium', 'set lookup tier to high', 'switch osint to low'. This is a per-user setting saved to their profile, not a one-off. 'low' is fast/cheap (name→email/LinkedIn mapping), 'medium' is deeper research for hard-to-find people, 'high' and 'xhigh' are OSINT-grade investigative tiers that SixtyFour grants access to case-by-case — those may fail with an access error if the account isn't approved for them.",
+      parameters: {
+        type: "object",
+        properties: {
+          tier: { type: "string", enum: ["low", "medium", "high", "xhigh"], description: "The tier to switch to." },
+        },
+        required: ["tier"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "lookup_accounts",
       description: "Look up a person by name, email address, or username and pull back a short public profile plus the accounts/social profiles publicly connected to them (LinkedIn, X/Twitter, Instagram, GitHub, etc). Call this for phrasing like 'jarvis lookup <name/email/username>', 'look up jane@example.com', 'find accounts for the username xyz123', 'who is this person and what accounts do they have'. Opens a small slide-in panel with clickable links — this tool just needs at least one of name, email, or username.",
       parameters: {
