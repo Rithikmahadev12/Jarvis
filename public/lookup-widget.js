@@ -46,10 +46,11 @@ window.LookupWidget = (function () {
     el.querySelector(".lw-dot").classList.toggle("pulse", !!pulse);
   }
 
-  function setQueryLine(query) {
+  function setQueryLine(query, tier) {
     ensureEl();
     const who = (query && (query.name || query.email || query.username)) || "";
-    el.querySelector(".lw-query").textContent = who ? `LOOKUP: ${who}` : "";
+    const tierTag = tier ? ` · ${String(tier).toUpperCase()} TIER` : "";
+    el.querySelector(".lw-query").textContent = who ? `LOOKUP: ${who}${tierTag}` : "";
   }
 
   function escapeHtml(s) {
@@ -141,7 +142,7 @@ window.LookupWidget = (function () {
     pollAttempts = 0;
 
     setState("searching", "SEARCHING", { pulse: true });
-    setQueryLine(meta.query);
+    setQueryLine(meta.query, meta.tier);
     renderMessage("Pulling public records and profiles now...");
 
     el.classList.remove("hidden");
@@ -158,4 +159,4 @@ window.LookupWidget = (function () {
   }
 
   return { show, close };
-})();lookup-widget.js
+})();
