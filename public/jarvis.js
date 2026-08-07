@@ -3429,6 +3429,16 @@ async function handleAction(action, meta, replyText) {
       speak(replyText, () => mic.resume());
       break;
     }
+    case "SHOW_LOOKUP": {
+      // Only ever appears on an explicit "jarvis lookup ..." command
+      // (see lookup_accounts in hermes-engine.js) — slides in, polls
+      // for the SixtyFour result, then shows clickable account links.
+      speak(replyText, () => mic.resume());
+      if (window.LookupWidget && meta) {
+        window.LookupWidget.show({ taskId: meta.taskId, query: meta.query });
+      }
+      break;
+    }
     case "SHOW_HOLOGRAM": {
       const query = meta?.query || "";
       speak(replyText, () => {
