@@ -2846,6 +2846,65 @@ async function executeAssistantTool(name, args, ctx) {
       return { reply: result.reply, action: `PHONE_${result.status}`, intent: "phone_appointment", meta: result };
     }
 
+    // ── set_phone_code ──────────────────────────────────────────
+    // The spoken PIN inbound-agent.js weaves into the inbound system
+    // prompt (see buildInboundSystemPrompt's "Number code" section).
+    // Saved via settings.js (synced/persisted like every other
+    // toggle), then immediately re-pushed to AgentPhone so it takes
+    // effect on the very next inbound call, not just after a restart.
+    case "set_phone_code": {
+      const raw = String(args.code ?? "").trim();
+      const turningOff = !raw || /^off$/i.test(raw);
+      const code = turningOff ? null : raw.replace(/[^0-9a-zA-Z]/g, "");
+      if (!turningOff && !code) {
+        return { reply: `What should the code be, ${T}?` };
+      }
+      Settings.save({ numberCode: code });
+      try {
+        const InboundAgent = require("./inbound-agent");
+        await InboundAgent.syncInboundPrompt();
+      } catch (e) {
+        console.error("[TOOLS] set_phone_code: prompt sync failed:", e.message);
+        return {
+          reply: turningOff
+            ? `Turned off the phone code, ${T}, but I couldn't sync that to AgentPhone just now — ${e.message}`
+            : `Saved the code, ${T}, but I couldn't sync that to AgentPhone just now — ${e.message}`,
+          action: "PHONE_CODE_SET", intent: "phone_settings",
+        };
+      }
+      return {
+        reply: turningOff
+          ? `Done — the phone code is off, ${T}. Callers go back to the name check only.`
+          : `Got it, ${T} — say "${code}" on a call to my number and I'll skip straight to talking with you.`,
+        action: "PHONE_CODE_SET", intent: "phone_settings", meta: { code },
+      };
+    }
+
+    // ── get_phone_status ─────────────────────────────────────────
+    // Reports the live number + account, and speaks any pending
+    // backup-account switch notice exactly once (see agentphone.js's
+    // consumeSwitchNotice()) — this is also how a switch that
+    // happened silently mid-call gets surfaced to the owner.
+    case "get_phone_status": {
+      const AgentPhone = require("./agentphone");
+      if (!AgentPhone.isConfigured()) {
+        return { reply: `I don't have a real phone number set up yet, ${T} — add AGENTPHONE_API_KEY to the .env to turn that on.`, action: "PHONE_STATUS", intent: "phone_settings" };
+      }
+      const status = AgentPhone.getStatus();
+      const notice = AgentPhone.consumeSwitchNotice();
+      const numLine = status.phoneNumber
+        ? `Your Jarvis number right now is ${status.phoneNumber}${status.isBackup ? ` (backup account #${status.activeIndex + 1} of ${status.totalAccounts})` : ""}.`
+        : `I don't have a number provisioned yet, ${T} — it gets bought automatically the first time it's needed.`;
+      const switchLine = notice
+        ? ` Heads up — I switched to a backup phone account${notice.newNumber ? `, the new number is ${notice.newNumber}` : ""} because the previous one stopped working (${notice.reason}).`
+        : "";
+      return {
+        reply: `${numLine}${switchLine}`,
+        action: "PHONE_STATUS", intent: "phone_settings",
+        meta: { ...status, switchAnnounced: !!notice },
+      };
+    }
+
     case "message_on_teams": {
       const Teams = require("./teams-control");
       const person = String(args.person || "").trim();
@@ -3875,6 +3934,7 @@ function startServer() {
     console.log(`  Google:        ${Google.isConfigured() ? "✓ configured — users can Sign in with Google" : "✗ add GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET to .env"}`);
     console.log(`  Weather:       ${process.env.OPENWEATHER_API_KEY ? "✓ configured" : "✗ add OPENWEATHER_API_KEY to .env"}`);
     console.log(`  GitHub deploy: ${process.env.GITHUB_TOKEN ? "✓ configured" : "✗ add GITHUB_TOKEN + GITHUB_REPO to .env"}`);
+    console.log(`  AgentPhone:    ${require("./agentphone").isConfigured() ? `✓ configured — ${require("./agentphone").accountCount()} account(s) on file` : "✗ add AGENTPHONE_API_KEY to .env for real phone calling"}`);
     console.log(`  Training data: /data/training_data.json`);
     console.log(`  Learned:       /data/learned/`);
     console.log(`  Memory sync:   ${Persistence.isConfigured() ? "✓ Supabase — memory survives restarts" : "✗ local-only — memory LOST on restart (set SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET)"}\n`);
@@ -3900,6 +3960,21 @@ function startServer() {
     // non-Windows hosts and can be turned off via Settings (activityTracking)
     // or JARVIS_TRACK_ACTIVITY=false in .env.
     ActivityLog.startTracking();
+
+    // ── INBOUND PHONE AGENT: sync the answering prompt + poll for calls ──
+    // AgentPhone hosted mode has no live webhook (see agentphone.js's
+    // header comment), so this is how Jarvis finds out someone called
+    // IN: push the current name-list/number-code prompt once at boot
+    // (and again any time it changes — see the set_phone_code tool),
+    // then poll periodically for inbound calls to log who called.
+    const AgentPhone = require("./agentphone");
+    if (AgentPhone.isConfigured()) {
+      const InboundAgent = require("./inbound-agent");
+      InboundAgent.syncInboundPrompt().catch(e => console.error("[inbound-agent] initial sync failed:", e.message));
+      setInterval(() => {
+        InboundAgent.checkForNewInboundCalls().catch(e => console.error("[inbound-agent] poll failed:", e.message));
+      }, 2 * 60 * 1000); // every 2 minutes
+    }
   });
 }
 
