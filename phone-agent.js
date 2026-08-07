@@ -227,6 +227,23 @@ function buildConfirmMessage({ ownerName, businessName, toNumber, requestedTime,
   return `I'll ring ${label} to ${goal}${commitNote}. Shall I ring them, ${ownerName}? I'll call ${toNumber}.`;
 }
 
+// ── SWITCH NOTICE HELPER ────────────────────────────────────────
+// Prepends a one-time "switched to backup, new number is X" line
+// (see agentphone.js's consumeSwitchNotice()) to whatever reply is
+// about to be shown/said, so the owner actually hears about a
+// failover instead of it happening silently in the background.
+function withSwitchNotice(reply) {
+  let notice;
+  try {
+    notice = AgentPhone.consumeSwitchNotice();
+  } catch {
+    notice = null;
+  }
+  if (!notice) return reply;
+  const line = `Quick heads up — I had to switch to a backup phone account${notice.newNumber ? `, the number's now ${notice.newNumber}` : ""}. `;
+  return line + reply;
+}
+
 // ── STEP 1: propose the call, wait for the owner's go-ahead ────────
 function proposeCall({ callSessionId, sessionId, ownerName, businessName, businessNumber, requestedTime, purpose, specialNote, commit }) {
   CallSession.emit(callSessionId, "preparing", { businessName: businessName || null, businessNumber: businessNumber || null });
@@ -236,13 +253,13 @@ function proposeCall({ callSessionId, sessionId, ownerName, businessName, busine
     CallSession.emit(callSessionId, "needs_number", { businessName: businessName || null });
     return {
       status: "NEEDS_NUMBER",
-      reply: businessName
+      reply: withSwitchNotice(businessName
         ? `I don't have a phone number on file for ${businessName}, ${ownerName} — what's their number?`
-        : `What number should I call, ${ownerName}?`,
+        : `What number should I call, ${ownerName}?`),
     };
   }
 
-  const confirmMsg = buildConfirmMessage({ ownerName, businessName, toNumber, requestedTime, purpose, commit });
+  const confirmMsg = withSwitchNotice(buildConfirmMessage({ ownerName, businessName, toNumber, requestedTime, purpose, commit }));
   CallSession.emit(callSessionId, "confirm", {
     businessName: businessName || "them",
     businessNumber: toNumber,
@@ -292,7 +309,7 @@ function confirmPendingCall(sessionId) {
     CallSession.emit(p.callSessionId, "ended", { ok: false, summary: `Something went wrong on that call, ${p.ownerName} — ${e.message}` });
   });
 
-  return { status: "DIALING", reply: `Ringing ${p.businessName || "them"} now, ${p.ownerName}.`, callSessionId: p.callSessionId };
+  return { status: "DIALING", reply: withSwitchNotice(`Ringing ${p.businessName || "them"} now, ${p.ownerName}.`), callSessionId: p.callSessionId };
 }
 
 // ── THE ACTUAL CALL: dial, poll for pickup, poll for completion ────
@@ -313,9 +330,15 @@ async function _runCall(p) {
       ownerName,
     });
   } catch (e) {
-    CallSession.emit(callSessionId, "ended", { ok: false, summary: `I couldn't get the call to ${label} to go through, ${ownerName} — ${e.message}` });
+    CallSession.emit(callSessionId, "ended", { ok: false, summary: withSwitchNotice(`I couldn't get the call to ${label} to go through, ${ownerName} — ${e.message}`) });
     return;
   }
+
+  // placeOutboundCall may have transparently failed over to a backup
+  // AgentPhone account to actually get this call out — surface that
+  // now rather than let it go unnoticed.
+  const dialNotice = withSwitchNotice("");
+  if (dialNotice) CallSession.emit(callSessionId, "dialing", { businessName: label, businessNumber, note: dialNotice.trim() });
 
   let seenConnected = false;
   let finished = null;
@@ -339,13 +362,13 @@ async function _runCall(p) {
   }
 
   if (!finished) {
-    CallSession.emit(callSessionId, "ended", { ok: false, summary: `The call to ${label} didn't wrap up in time, ${ownerName} — it may still go through.`, callId: call.id });
+    CallSession.emit(callSessionId, "ended", { ok: false, summary: withSwitchNotice(`The call to ${label} didn't wrap up in time, ${ownerName} — it may still go through.`), callId: call.id });
     return;
   }
   if (!seenConnected) CallSession.emit(callSessionId, "on_call", { businessName: label, businessNumber });
 
   if (finished.status === "failed") {
-    CallSession.emit(callSessionId, "ended", { ok: false, summary: `The call to ${label} didn't connect, ${ownerName}.`, callId: call.id });
+    CallSession.emit(callSessionId, "ended", { ok: false, summary: withSwitchNotice(`The call to ${label} didn't connect, ${ownerName}.`), callId: call.id });
     return;
   }
 
@@ -359,7 +382,7 @@ async function _runCall(p) {
   } catch (e) {
     CallSession.emit(callSessionId, "ended", {
       ok: true,
-      summary: `The call with ${label} wrapped up, but I had trouble analyzing the transcript, ${ownerName} — ${e.message}`,
+      summary: withSwitchNotice(`The call with ${label} wrapped up, but I had trouble analyzing the transcript, ${ownerName} — ${e.message}`),
       recordingUrl: finished.recordingUrl || finished.recording_url || null,
       callId: call.id,
     });
@@ -388,7 +411,7 @@ async function _runCall(p) {
     booked: !!outcome.booked,
     bookedTime: outcome.bookedTime || null,
     alternativeTime: outcome.alternativeTimeOffered || null,
-    summary: outcome.summary || (outcome.booked ? `Booked for ${outcome.bookedTime || requestedTime}.` : "Call finished."),
+    summary: withSwitchNotice(outcome.summary || (outcome.booked ? `Booked for ${outcome.bookedTime || requestedTime}.` : "Call finished.")),
     chips,
     recordingUrl: finished.recordingUrl || finished.recording_url || null,
     callId: call.id,
@@ -420,13 +443,13 @@ async function confirmPendingAppointment(sessionId) {
     });
     await AgentPhone.waitForCallCompletion(call.id);
   } catch (e) {
-    return { status: "CALL_FAILED", reply: `The confirmation call to ${label} didn't go through, ${p.ownerName} — ${e.message}` };
+    return { status: "CALL_FAILED", reply: withSwitchNotice(`The confirmation call to ${label} didn't go through, ${p.ownerName} — ${e.message}`) };
   }
 
   pendingAltTime.delete(sessionId);
   return {
     status: "CONFIRMED",
-    reply: `That works — ${label} has you down for ${p.alternativeTime}, ${p.ownerName}. Shall I put that in your calendar?`,
+    reply: withSwitchNotice(`That works — ${label} has you down for ${p.alternativeTime}, ${p.ownerName}. Shall I put that in your calendar?`),
     businessName: p.businessName,
     time: p.alternativeTime,
   };
