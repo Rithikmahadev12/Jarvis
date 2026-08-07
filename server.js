@@ -578,6 +578,27 @@ function saveProfiles(p) { ensureDataDir(); fs.writeFileSync(PROFILES_FILE, JSON
 function loadMemories() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(MEMORIES_FILE, "utf8")); } catch { return {}; } }
 function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON.stringify(m, null, 2), "utf8"); }
 
+// ── PER-USER OSINT/LOOKUP TIER ──────────────────────────────────
+// "jarvis osint tier medium" (see set_osint_tier tool below) saves
+// the chosen SixtyFour tier onto that user's profile so it's
+// remembered for every "jarvis lookup ..." they do afterward,
+// without touching anyone else's setting or the .env default.
+function getOsintTier(userName) {
+  const userKey = (userName || "").toLowerCase().trim();
+  if (!userKey) return null;
+  const profiles = loadProfiles();
+  return profiles[userKey]?.osintTier || null;
+}
+function setOsintTier(userName, tier) {
+  const userKey = (userName || "").toLowerCase().trim();
+  if (!userKey) return false;
+  const profiles = loadProfiles();
+  if (!profiles[userKey]) profiles[userKey] = { name: userName };
+  profiles[userKey].osintTier = tier;
+  saveProfiles(profiles);
+  return true;
+}
+
 // ── MUSIC LIBRARY ────────────────────────────────────────────
 // No YouTube API key needed. Each entry is a real youtube.com/watch
 // URL — grab one straight from your browser. Tacking on
@@ -3081,6 +3102,24 @@ async function executeAssistantTool(name, args, ctx) {
     case "get_weather":
       return await handleWeatherFetch(args.location ? `weather in ${args.location}` : "weather", T);
 
+    // ── set_osint_tier — "jarvis osint tier medium" ──
+    case "set_osint_tier": {
+      const tier = String(args.tier || "").toLowerCase();
+      if (!SixtyFour.isValidTier(tier)) {
+        return { reply: `That's not a tier I know, ${T}. It's low, medium, high, or xhigh.`, action: "CHAT", intent: "set_osint_tier" };
+      }
+      setOsintTier(userName, tier);
+      const gatedNote = (tier === "high" || tier === "xhigh")
+        ? ` That one's access-gated on SixtyFour's side, so it'll only work if your account has been approved for it — otherwise lookups will come back with an access error.`
+        : "";
+      return {
+        reply: `Done, ${T} — lookups will run at the "${tier}" tier from now on.${gatedNote}`,
+        action: "OSINT_TIER_SET",
+        intent: "set_osint_tier",
+        meta: { tier },
+      };
+    }
+
     // ── lookup_accounts — "jarvis lookup <name/email/username>" ──
     // Kicks off an async SixtyFour job and hands the browser a
     // task_id to poll. The widget itself does all the waiting —
@@ -3097,7 +3136,8 @@ async function executeAssistantTool(name, args, ctx) {
       if (!query.name && !query.email && !query.username) {
         return { reply: `Who — or what name, email, or username — should I look up, ${T}?`, action: "CHAT", intent: "lookup_accounts" };
       }
-      const started = await SixtyFour.startLookup(query);
+      const tier = getOsintTier(userName); // falls back to SIXTYFOUR_TIER / "low" inside sixtyfour.js if null
+      const started = await SixtyFour.startLookup({ ...query, tier });
       if (started.error) {
         return { reply: `Couldn't start that lookup, ${T}. ${started.error}`, action: "CHAT", intent: "lookup_accounts" };
       }
@@ -3106,7 +3146,7 @@ async function executeAssistantTool(name, args, ctx) {
         reply: `On it, ${T} — pulling up what's publicly connected to "${who}" now.`,
         action: "SHOW_LOOKUP",
         intent: "lookup_accounts",
-        meta: { taskId: started.taskId, query },
+        meta: { taskId: started.taskId, query, tier: started.tier },
       };
     }
 
