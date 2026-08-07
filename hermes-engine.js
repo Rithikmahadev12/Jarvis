@@ -777,6 +777,35 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "run_in_sandbox",
+      description: "Run code, a shell command, or a whole small project in Jarvis's OWN cloud computer (an isolated E2B sandbox) — NOT the user's PC. Use this whenever the user says things like 'try this on your computer', 'test this out on your computer', 'run this on your pc/sandbox', 'test this before giving it to me', or asks Jarvis to build/verify a script or backend actually works. Unlike run_computer_command/open_on_computer (which only work when Jarvis happens to be running locally on the user's own machine), this ALWAYS works, cloud-hosted or not, because it's Jarvis's own separate computer, not the user's. Prefer this over just describing code when the user wants it actually verified/executed. For a multi-file project (e.g. a small backend), pass `files` plus `install_command`/`run_command`; for a one-off snippet, pass `code` (+ `language`) or a single `command`.",
+      parameters: {
+        type: "object",
+        properties: {
+          code: { type: "string", description: "A single Python or JavaScript snippet to execute directly (for quick one-off checks). Omit if using command or files instead." },
+          language: { type: "string", enum: ["python", "javascript"], description: "Language for `code`. Defaults to python." },
+          command: { type: "string", description: "A single shell command to run in the sandbox (e.g. 'npm init -y && npm install express'). Omit if using code or files instead." },
+          files: {
+            type: "array",
+            description: "Files to write into a fresh project directory before running install_command/run_command — use this for anything more than a one-off snippet, e.g. testing a small backend.",
+            items: {
+              type: "object",
+              properties: {
+                path: { type: "string", description: "Relative file path within the project, e.g. 'server.js' or 'routes/users.js'." },
+                content: { type: "string", description: "The full file content, written by you." },
+              },
+              required: ["path", "content"],
+            },
+          },
+          install_command: { type: "string", description: "Run once after files are written, before run_command, e.g. 'npm install'. Only used with `files`." },
+          run_command: { type: "string", description: "The command that actually runs/tests the project, e.g. 'npm test' or 'node server.js & sleep 2 && curl -s localhost:3000/health'. Only used with `files`." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_calendar",
       description: "Check the user's real Google Calendar for upcoming events. Call this whenever the user asks about their calendar/schedule/agenda/meetings, e.g. 'what's on my calendar today', 'do I have any meetings tomorrow', 'what's my schedule this week'. This is a REAL, direct connection to their actual Google Calendar (via the Google sign-in they've already completed) — never say you don't have access; call this tool instead.",
       parameters: {
