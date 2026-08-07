@@ -13,6 +13,7 @@ const SixtyFour   = require("./sixtyfour");
 const News        = require("./news");
 const Spotify     = require("./spotify");
 const Instagram   = require("./instagram");
+const Computer    = require("./computer");
 const Google      = require("./google");
 const DIY         = require("./diy-builder");
 const Build       = require("./build-engine");
@@ -62,6 +63,15 @@ process.on("unhandledRejection", (reason) => {
 process.on("uncaughtException", (err) => {
   console.error("[CRASH GUARD] Uncaught exception (server staying up):", err);
 });
+
+// Make sure a live E2B sandbox doesn't keep running (and billing)
+// after Jarvis itself shuts down — Render sends SIGTERM on every
+// redeploy/restart, so this fires far more often than a manual stop.
+async function shutdownComputer() {
+  try { await Computer.killSandbox(); } catch { /* best effort */ }
+}
+process.on("SIGTERM", () => { shutdownComputer().finally(() => process.exit(0)); });
+process.on("SIGINT",  () => { shutdownComputer().finally(() => process.exit(0)); });
 
 // ── VOICE MISHEARING CORRECTION ─────────────────────────────────────────────
 // Speech-to-text sometimes hears a close-but-wrong word for the handful of
@@ -1183,6 +1193,35 @@ app.post("/api/instagram/disconnect", (req, res) => {
   Instagram.disconnect();
   res.json({ success: true });
 });
+
+// ═══════════════════════════════════════════════════════════════
+// ── COMPUTER (E2B cloud sandbox)
+// Direct REST access to Jarvis's own sandbox, for the front-end
+// (or curl) to use outside the chat flow — same underlying module
+// as the run_in_sandbox tool the AI brain calls during /api/chat.
+// See computer.js's header comment for setup (just an E2B_API_KEY).
+// ═══════════════════════════════════════════════════════════════
+app.get("/api/computer/status", (req, res) => {
+  res.json({ configured: Computer.isConfigured(), running: Computer.isRunning() });
+});
+app.post("/api/computer/run", async (req, res) => {
+  if (!Computer.isConfigured()) return res.status(400).json({ error: "E2B isn't configured — add E2B_API_KEY to .env." });
+  try {
+    const { command, code, language, files, install_command, run_command } = req.body || {};
+    if (Array.isArray(files) && files.length) {
+      return res.json(await Computer.testProject({ files, installCmd: install_command, testCmd: run_command }));
+    }
+    if (command) return res.json(await Computer.runCommand(command));
+    if (code) return res.json(await Computer.runCode(code, { language }));
+    return res.status(400).json({ error: "Provide `command`, `code`, or `files`." });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+app.post("/api/computer/stop", async (req, res) => {
+  try { await Computer.killSandbox(); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
 // On-demand: "check my instagram" / "what do you think of my last post"
 app.post("/api/instagram", async (req, res) => {
   try { res.json(await Instagram.handleInstagramCommand(req.body.userTitle)); }
@@ -1877,6 +1916,74 @@ async function handleRunComputerCommand(command, T, sessionId) {
     return { reply: `${spoken}, ${T}.`, action: "RUN_COMMAND", intent: "run_command", meta: { command: cmd, output } };
   } catch (e) {
     return { reply: `That command failed, ${T}. ${e.message}`, action: "RUN_COMMAND", intent: "run_command" };
+  }
+}
+
+// ── COMPUTER (E2B): run code / commands / a whole project on
+//      Jarvis's own cloud sandbox — works everywhere, unlike the
+//      JarvisAgent local-machine handlers above. No confirmation
+//      step needed: this never touches the user's own machine, only
+//      Jarvis's own disposable, isolated sandbox. ──────────────────
+function trimForSpeech(text, max = 260) {
+  const clean = (text || "").trim();
+  return clean.length > max ? `${clean.slice(0, max)}... — full output below.` : clean;
+}
+
+async function handleRunInSandbox(args, T) {
+  if (!Computer.isConfigured()) {
+    return {
+      reply: `I don't have a sandbox to run that in yet, ${T} — add E2B_API_KEY to .env (free key at e2b.dev) and restart me, and I'll be able to test things out on my own computer.`,
+      action: "SANDBOX_NOT_CONFIGURED",
+      intent: "run_in_sandbox",
+    };
+  }
+
+  try {
+    // ── Multi-file project (build + install + run/test) ──
+    if (Array.isArray(args.files) && args.files.length) {
+      const result = await Computer.testProject({
+        files: args.files,
+        installCmd: args.install_command,
+        testCmd: args.run_command,
+      });
+      const last = result.log[result.log.length - 1];
+      const output = last ? (last.stdout || last.stderr || "(no output)") : "Files written, nothing to run.";
+      const verdict = result.ok ? "and it worked" : "but it hit a problem";
+      return {
+        reply: `Tried it on my own computer, ${T} — wrote ${args.files.length} file${args.files.length === 1 ? "" : "s"}, ran it, ${verdict}. ${trimForSpeech(output)}`,
+        action: "SANDBOX_PROJECT_RESULT",
+        intent: "run_in_sandbox",
+        meta: { ok: result.ok, dir: result.dir, log: result.log },
+      };
+    }
+
+    // ── Single shell command ──
+    if (args.command) {
+      const result = await Computer.runCommand(args.command);
+      const output = result.stdout || result.stderr || "(no output)";
+      return {
+        reply: `Ran that on my own computer, ${T} — ${result.ok ? "worked fine" : "it failed"}. ${trimForSpeech(output)}`,
+        action: "SANDBOX_COMMAND_RESULT",
+        intent: "run_in_sandbox",
+        meta: { ok: result.ok, command: args.command, output },
+      };
+    }
+
+    // ── Quick code snippet ──
+    if (args.code) {
+      const result = await Computer.runCode(args.code, { language: args.language || "python" });
+      const output = result.stdout || result.text || result.stderr || "(no output)";
+      return {
+        reply: `Tested that snippet on my own computer, ${T} — ${result.ok ? "ran clean" : "it errored"}. ${trimForSpeech(result.error || output)}`,
+        action: "SANDBOX_CODE_RESULT",
+        intent: "run_in_sandbox",
+        meta: { ok: result.ok, output, error: result.error },
+      };
+    }
+
+    return { reply: `What should I actually run on my computer, ${T} — some code, a command, or a set of files?`, action: "RUN_IN_SANDBOX", intent: "run_in_sandbox" };
+  } catch (e) {
+    return { reply: `Couldn't get that running on my own computer, ${T} — ${e.message}`, action: "SANDBOX_FAILED", intent: "run_in_sandbox" };
   }
 }
 
@@ -3438,6 +3545,9 @@ async function executeAssistantTool(name, args, ctx) {
 
     case "run_computer_command":
       return await handleRunComputerCommand(args.command, T, sessionId);
+
+    case "run_in_sandbox":
+      return await handleRunInSandbox(args, T);
 
     case "type_text":
       return await handleTypeText(args.text, T, sessionId, !!args.new_file);
