@@ -602,16 +602,18 @@ const TOOLS = [
     type: "function",
     function: {
       name: "call_business_appointment",
-      description: "Place a REAL phone call over the actual telephone network (via AgentPhone, not Teams) to a real-world business to book/negotiate an appointment — 'call Great Clips and set an appointment for 10am', 'call the dentist and book me in for tomorrow at 2', or just 'call 555-123-4567 and tell them I want 5pm Tuesday'. A business_name OR a business_number is enough — you don't need both. Jarvis will ask for the requested time; if unavailable it asks what IS available and reports back instead of booking on its own. Do NOT use call_on_teams for this — that only calls Teams contacts, not real phone numbers.",
+      description: "Place a REAL phone call over the actual telephone network (via AgentPhone, not Teams) to a real-world business — either to book/negotiate an appointment ('call Great Clips and set an appointment for 10am') or to just gather information with no commitment ('call the mechanic shop and ask their oil-change price and earliest slot', 'call the restaurant and ask if they take reservations for 6 people'). A business_name OR a business_number is enough — you don't need both. This only PROPOSES the call and asks the user to confirm ('shall I ring them?') — it does NOT dial immediately; the actual call happens once the user says 'do it' / 'yes'. Do NOT use call_on_teams for this — that only calls Teams contacts, not real phone numbers.",
       parameters: {
         type: "object",
         properties: {
           business_name: { type: "string", description: "Name of the business to call, as the user said it. Omit if the user only gave a phone number with no name." },
           business_number: { type: "string", description: "The business's phone number, if the user stated it in this message (e.g. they just gave you a raw number to call). Omit otherwise — Jarvis will check its known-business list or ask." },
-          requested_time: { type: "string", description: "The time/date the user wants, as naturally phrased, e.g. '10am today', 'tomorrow at 2pm'." },
+          requested_time: { type: "string", description: "The specific time/date the user wants an appointment for, as naturally phrased, e.g. '10am today', 'tomorrow at 2pm'. Omit for purely informational calls (price checks, hours, availability) that aren't about a specific slot." },
+          purpose: { type: "string", description: "What Jarvis should actually find out or accomplish on the call, in a short natural phrase, e.g. 'ask their oil-change price for a 2019 C300 and their earliest slot' or 'ask if they take reservations for 6 people tonight'. Use this for reconnaissance-style calls; combine with requested_time if there's also a specific slot in mind. At least one of requested_time or purpose is required." },
+          commit: { type: "boolean", description: "true ONLY if the user has explicitly authorized Jarvis to actually book/commit on this call if the requested_time is available. Defaults to false — most calls should be reconnaissance-only (get the info, don't commit to anything) and report back before booking." },
           special_note: { type: "string", description: "Any extra instruction the user wants relayed on the call if relevant, e.g. 'tell them his personal number is 555-1234, call him at that number if they need to talk to him'. Omit if none given." },
         },
-        required: ["requested_time"],
+        required: [],
       },
     },
   },
