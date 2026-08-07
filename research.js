@@ -374,6 +374,136 @@ async function searchHackerNews(name) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// ── FIRECRAWL — real search + page opening/scraping ──────────
+// Used for anything that means "actually go open a site / crawl
+// it / pull real page content" — much more reliable than the raw
+// DuckDuckGo HTML scrape below, and it's the only thing here that
+// can actually open a specific URL and read what's on it.
+// ═══════════════════════════════════════════════════════════════
+const FIRECRAWL_KEY = process.env.FIRECRAWL_API_KEY;
+const FIRECRAWL_BASE = "https://api.firecrawl.dev/v1";
+
+function hasFirecrawl() {
+  return !!FIRECRAWL_KEY;
+}
+
+async function firecrawlRequest(endpoint, body, timeoutMs = 15000) {
+  if (!FIRECRAWL_KEY) return null;
+  try {
+    const res = await fetch(`${FIRECRAWL_BASE}/${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${FIRECRAWL_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "");
+      console.warn(`[FIRECRAWL] ${endpoint} HTTP ${res.status}: ${errText.slice(0, 200)}`);
+      return null;
+    }
+    return await res.json();
+  } catch (e) {
+    console.warn(`[FIRECRAWL] ${endpoint} error:`, e.message);
+    return null;
+  }
+}
+
+// Real ranked web search results via Firecrawl (replaces the fragile
+// DuckDuckGo HTML scrape as the primary path — falls back to it below
+// if Firecrawl isn't configured or the call fails).
+async function firecrawlSearch(query, opts = {}) {
+  const limit = opts.limit || 6;
+  const cacheKey = `fc-search:${query.toLowerCase()}:${limit}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const data = await firecrawlRequest("search", { query, limit });
+  if (!data || data.success === false) return null;
+
+  const items = data.data?.web || data.data || [];
+  if (!Array.isArray(items) || items.length === 0) return null;
+
+  const results = items
+    .filter(r => r && (r.url || r.link))
+    .map(r => ({
+      title: cleanText(r.title || r.metadata?.title || ""),
+      url: r.url || r.link,
+      snippet: cleanText(r.description || r.snippet || r.markdown || ""),
+    }))
+    .filter(r => r.title && r.url)
+    .slice(0, limit);
+
+  if (results.length === 0) return null;
+  setCache(cacheKey, results);
+  return results;
+}
+
+// Actually opens a URL and pulls back its readable content (markdown).
+// This is the "open a site and read it" capability — nothing else in
+// this file can fetch and read a specific page's real content.
+async function firecrawlScrape(url, opts = {}) {
+  const cacheKey = `fc-scrape:${url}`;
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const data = await firecrawlRequest("scrape", {
+    url,
+    formats: ["markdown"],
+    onlyMainContent: true,
+  }, opts.timeoutMs || 20000);
+
+  if (!data || data.success === false || !data.data) return null;
+
+  const page = data.data;
+  const result = {
+    url: page.metadata?.sourceURL || url,
+    title: page.metadata?.title || null,
+    description: page.metadata?.description || null,
+    content: cleanText(page.markdown || ""),
+  };
+  if (!result.content) return null;
+
+  setCache(cacheKey, result);
+  return result;
+}
+
+// High-level "open this site for me" helper — scrapes the page and
+// hands back a trimmed, spoken-friendly summary of what's on it.
+async function openSite(url, userTitle) {
+  const T = userTitle || "Sir";
+  if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+
+  if (!hasFirecrawl()) {
+    return {
+      reply: `I don't have a way to actually open pages yet, ${T} — Firecrawl isn't configured. Add FIRECRAWL_API_KEY to the .env and I'll be able to pull real page content.`,
+      url,
+      content: null,
+    };
+  }
+
+  const page = await firecrawlScrape(url);
+  if (!page) {
+    return {
+      reply: `I couldn't pull anything back from that page, ${T} — it may be blocking crawlers or the URL might be off.`,
+      url,
+      content: null,
+    };
+  }
+
+  const summary = truncate(page.content, 900);
+  const label = page.title ? `"${page.title}"` : "that page";
+  return {
+    reply: `Pulled up ${label}, ${T}. ${summary}`,
+    url: page.url,
+    title: page.title,
+    content: page.content,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // ── DEEP RESEARCH — real live web search ─────────────────────
 // Unlike research()/searchDuckDuckGo() above (which only use DDG's
 // "Instant Answer" API — great for encyclopedic facts, useless for
@@ -388,6 +518,16 @@ async function webSearch(query, opts = {}) {
   const cacheKey = `websearch:${query.toLowerCase()}`;
   const cached = getCached(cacheKey);
   if (cached) return cached;
+
+  // Prefer Firecrawl when configured — real ranked results, no HTML
+  // scraping fragility. Falls through to the DDG scrape on failure.
+  if (hasFirecrawl()) {
+    const fcResults = await firecrawlSearch(query, { limit: maxResults });
+    if (fcResults && fcResults.length) {
+      setCache(cacheKey, fcResults);
+      return fcResults;
+    }
+  }
 
   try {
     const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
@@ -741,6 +881,24 @@ async function research(rawQuery, userTitle) {
   const wiki = wikiResult.status === "fulfilled" ? wikiResult.value : null;
 
   if (!ddg && !wiki) {
+    // Last resort before giving up: Firecrawl search + a quick scrape
+    // of the top hit, so "quick facts" queries aren't limited to what
+    // DDG's Instant Answer API happens to know.
+    if (hasFirecrawl()) {
+      const results = await firecrawlSearch(query, { limit: 3 });
+      const top = results && results[0];
+      if (top) {
+        const page = await firecrawlScrape(top.url);
+        const text = page?.content || top.snippet;
+        if (text) {
+          return {
+            reply: `${truncate(text, 500)}`,
+            sources: { ddg: false, wiki: false, firecrawl: true, url: top.url },
+            query,
+          };
+        }
+      }
+    }
     console.log(`[RESEARCH] No results for: "${query}"`);
     return null;
   }
@@ -829,4 +987,8 @@ module.exports = {
   deepResearch,
   isDeepResearchQuery,
   extractLocationPhrase,
+  hasFirecrawl,
+  firecrawlSearch,
+  firecrawlScrape,
+  openSite,
 };
