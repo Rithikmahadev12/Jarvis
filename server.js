@@ -3308,6 +3308,26 @@ async function executeAssistantTool(name, args, ctx) {
       return { reply: spoken, action: "OPEN_RESEARCH", intent: "research", meta: { url, topic } };
     }
 
+    case "open_url": {
+      const targetUrl = (args.url || "").trim();
+      if (!targetUrl) return { reply: `What site do you want me to open, ${T}?`, action: "ASK_URL", intent: "browse" };
+      try {
+        const result = await Research.openSite(targetUrl, T);
+        let spoken = result.reply;
+        if (args.question && result.content) {
+          spoken = `${result.reply}`; // page content is already summarized above; keep the source snippet in meta for the caller to reason over if needed
+        }
+        return {
+          reply: spoken,
+          action: "OPEN_URL",
+          intent: "browse",
+          meta: { url: result.url, title: result.title || null, content: result.content || null, question: args.question || null },
+        };
+      } catch (e) {
+        return { reply: `Couldn't open that page, ${T}: ${e.message}`, action: "OPEN_URL", intent: "browse" };
+      }
+    }
+
     case "control_home": {
       try {
         const reply = await Home.executeVoiceCommand(args.query || "", T);
@@ -4015,6 +4035,7 @@ function startServer() {
     console.log(`  Spotify:       ${Spotify.isConfigured() ? "✓ configured" : "✗ add SPOTIFY_CLIENT_ID to .env"}`);
     console.log(`  Google:        ${Google.isConfigured() ? "✓ configured — users can Sign in with Google" : "✗ add GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET to .env"}`);
     console.log(`  Weather:       ${process.env.OPENWEATHER_API_KEY ? "✓ configured" : "✗ add OPENWEATHER_API_KEY to .env"}`);
+    console.log(`  Firecrawl:     ${process.env.FIRECRAWL_API_KEY ? "✓ configured" : "✗ add FIRECRAWL_API_KEY to .env (web search + site opening will fall back to raw DDG scraping)"}`);
     console.log(`  GitHub deploy: ${process.env.GITHUB_TOKEN ? "✓ configured" : "✗ add GITHUB_TOKEN + GITHUB_REPO to .env"}`);
     console.log(`  AgentPhone:    ${require("./agentphone").isConfigured() ? `✓ configured — ${require("./agentphone").accountCount()} account(s) on file` : "✗ add AGENTPHONE_API_KEY to .env for real phone calling"}`);
     console.log(`  Training data: /data/training_data.json`);
