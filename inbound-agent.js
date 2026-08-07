@@ -40,6 +40,7 @@
 const fs = require("fs");
 const path = require("path");
 const AgentPhone = require("./agentphone");
+const Settings = require("./settings");
 const { askGroqForJSON } = require("./groq-json");
 
 const CONFIG_PATH = path.join(__dirname, "config.json");
@@ -86,11 +87,21 @@ function defaultOwnerName() {
 }
 
 // ── PROMPT BUILDER ────────────────────────────────────────────────
-function buildInboundSystemPrompt(users) {
+// numberCode is optional — the spoken PIN set via Settings.save({
+// numberCode }) / "jarvis set number code to ____" (see server.js's
+// set_phone_code tool). When set, it lets the owner skip the
+// name-matching gate entirely just by speaking it, from ANY phone,
+// without Jarvis needing to recognize their voice or a caller-ID
+// match. Omitted from the prompt entirely when no code is set.
+function buildInboundSystemPrompt(users, numberCode) {
   const names = users.map((u) => {
     const aliasNote = u.aliases && u.aliases.length ? ` (or: ${u.aliases.join(", ")})` : "";
     return `- ${u.name}${aliasNote}`;
   }).join("\n");
+
+  const codeSection = numberCode
+    ? `\n\n## Number code — instant owner access\nIf the caller says the code "${numberCode}" at ANY point (spoken as digits, spelled out, or as a number — "two oh one four" and "2014" both count), treat that alone as proof they're the owner. Skip the name question (or drop it immediately if you already asked) and say something like "got it — go ahead" before continuing. Don't ask them to repeat it or confirm it out loud beyond that. This works even if they already failed the name match earlier in the same call.`
+    : "";
 
   return (
 `You're Jarvis, answering a phone call on this number. Sound like a real assistant picking up the phone — warm, quick, natural. Not a script, not a narrator.
@@ -103,7 +114,7 @@ Open with something like "Hi, this is Jarvis — who am I speaking with?" Compar
 ${names || "(no one enrolled yet)"}
 
 Clear match → drop straight into helping them, e.g. "Hey, what can I do for you?" — then just be Jarvis for the rest of the call.
-No match, they won't give a name, or you're not confident → one short apology and out: "Sorry, I think you've got the wrong number" — then invoke end_call in that same turn. Don't try to help first.
+No match, they won't give a name, or you're not confident → one short apology and out: "Sorry, I think you've got the wrong number" — then invoke end_call in that same turn. Don't try to help first.${codeSection}
 
 ## Don't guess at mangled audio
 Phone audio garbles names sometimes. If what you heard doesn't sound like a real name, say "sorry, didn't catch that — who's calling?" once. If it's still unclear, treat it as no match and wrap up per the rule above — don't keep asking, don't invent a name that sounds close enough.
@@ -117,8 +128,8 @@ Caller goes quiet → one "still there?" then actually wait, don't fill the gap.
 ## Wrap warm AND actually hang up
 When the caller sounds done — "bye," "talk later," "that's all" — say one short warm line and invoke end_call in the SAME turn. Saying goodbye alone doesn't end the call; always pair it with end_call.
 
-## Once matched
-Never make up information about their schedule, accounts, or anything you don't actually have. If you don't know something, say so.`
+## Once matched (or code-verified)
+Never make up information about their schedule, accounts, or anything you don't actually have. If you don't know something, say so. You do NOT have live access to calendar, reminders, email, smart-home, or anything else Jarvis normally reaches on the owner's computer during this call — you're a phone conversation only. If they ask you to do or check something like that, say you'll take care of it after the call, don't pretend you already did.`
   );
 }
 
@@ -126,7 +137,8 @@ Never make up information about their schedule, accounts, or anything you don't 
 async function syncInboundPrompt() {
   const users = loadUsers();
   const ownerName = defaultOwnerName();
-  const prompt = buildInboundSystemPrompt(users);
+  const numberCode = (Settings.load().numberCode || "").toString().trim() || null;
+  const prompt = buildInboundSystemPrompt(users, numberCode);
 
   try {
     fs.mkdirSync(path.dirname(PROMPT_TXT_PATH), { recursive: true });
