@@ -294,6 +294,33 @@ app.get("/api/sites/stream/:buildId", async (req, res) => {
   }
 });
 
+// GET /api/phone/stream/:callSessionId — SSE. Drives the live phone
+// call widget: preparing -> confirm -> dialing -> on_call -> ended,
+// pushed by phone-agent.js via call-session.js as a real call
+// actually progresses. Any events that already fired before this
+// connection lands are replayed first (see call-session.js).
+app.get("/api/phone/stream/:callSessionId", (req, res) => {
+  const id = String(req.params.callSessionId || "");
+  const CallSession = require("./call-session");
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  const ok = CallSession.subscribe(id, res);
+  if (!ok) {
+    res.write(`event: error\ndata: ${JSON.stringify({ message: "That call session doesn't exist (it may have already ended and expired)." })}\n\n`);
+  }
+
+  const keepAlive = setInterval(() => { try { res.write(": ping\n\n"); } catch {} }, 15000);
+  req.on("close", () => {
+    clearInterval(keepAlive);
+    CallSession.unsubscribe(id, res);
+  });
+});
+
 // ── FIND-OR-BUILD — "Jarvis, build me a drone" ──────────────────
 // Searches Sketchfab for the real thing first; only tells the client
 // to fall back to the AI feature-tree generator (/api/build/generate)
@@ -2164,6 +2191,27 @@ function routeFocusMode(message, T, userName) {
   return null;
 }
 
+// ── Pending phone-call confirmation ("do it" / "cancel") ──────────
+// Mirrors resolvePendingAgentAction below, but for the
+// propose-call -> confirm -> dial flow in phone-agent.js. Checked at
+// the very top of the message handler for the same reason: a bare
+// "yes"/"do it" reply must resolve the call BEFORE anything else
+// gets a chance to reinterpret it.
+async function resolvePendingPhoneCall(message, T, sessionId) {
+  const PhoneAgent = require("./phone-agent");
+  const pending = PhoneAgent.getPendingCall(sessionId);
+  if (!pending) return null;
+
+  if (isNegative(message)) {
+    const result = PhoneAgent.cancelPendingCall(sessionId);
+    return { reply: result.reply, action: "PHONE_CALL_CANCELLED", intent: "phone_appointment", meta: { callSessionId: pending.callSessionId } };
+  }
+  if (!isAffirmative(message)) return null; // not a yes/no reply — let normal routing handle it
+
+  const result = PhoneAgent.confirmPendingCall(sessionId);
+  return { reply: result.reply, action: "PHONE_CALL_DIALING", intent: "phone_appointment", meta: { callSessionId: result.callSessionId } };
+}
+
 async function resolvePendingAgentAction(message, T, sessionId) {
   const pending = JarvisAgent.getPendingAction(sessionId);
   if (!pending) return null;
@@ -2744,35 +2792,48 @@ async function executeAssistantTool(name, args, ctx) {
 
     // ── call_business_appointment / confirm_phone_appointment ──
     // REAL phone calls over AgentPhone (actual PSTN), not Teams.
-    // See phone-agent.js for the full negotiate -> report -> confirm
-    // -> callback flow.
+    // This tool call only PROPOSES the call and returns instantly —
+    // see phone-agent.js's proposeCall(). The owner's next "do it" /
+    // "cancel" is caught by resolvePendingPhoneCall() below, which is
+    // what actually dials. Live progress (preparing/confirm/dialing/
+    // on the call/ended) streams to the frontend widget over
+    // /api/phone/stream/:callSessionId — see call-session.js.
     case "call_business_appointment": {
       const PhoneAgent = require("./phone-agent");
+      const CallSession = require("./call-session");
       const businessName = String(args.business_name || "").trim();
       const businessNumber = args.business_number ? String(args.business_number).trim() : null;
-      const requestedTime = String(args.requested_time || "").trim();
-      if (!requestedTime || (!businessName && !businessNumber)) {
-        return { reply: `Who should I call (a name or a number works), and what time, ${T}?` };
+      const requestedTime = args.requested_time ? String(args.requested_time).trim() : null;
+      const purpose = args.purpose ? String(args.purpose).trim() : null;
+      if (!requestedTime && !purpose) {
+        return { reply: `What should I ask them, ${T}?` };
+      }
+      if (!businessName && !businessNumber) {
+        return { reply: `Who should I call (a name or a number works), ${T}?` };
       }
       const ownerName = userName || require("./comms-router").defaultOwnerName();
       try {
-        const result = await PhoneAgent.bookAppointment({
+        const callSessionId = CallSession.create({ businessName, businessNumber, requestedTime, purpose });
+        const result = PhoneAgent.proposeCall({
+          callSessionId,
           sessionId,
           ownerName,
           businessName: businessName || null,
           businessNumber,
           requestedTime,
+          purpose,
           specialNote: args.special_note ? String(args.special_note).trim() : null,
+          commit: !!args.commit,
         });
         return {
           reply: result.reply,
-          action: `PHONE_${result.status}`,
+          action: result.status === "NEEDS_NUMBER" ? "PHONE_NEEDS_NUMBER" : "PHONE_CALL_WIDGET",
           intent: "phone_appointment",
-          meta: { businessName: businessName || businessNumber, requestedTime, status: result.status, callId: result.callId },
+          meta: { callSessionId, businessName: businessName || businessNumber, requestedTime, purpose, status: result.status },
         };
       } catch (err) {
         console.error("[TOOLS] call_business_appointment failed:", err.message);
-        return { reply: `Something went wrong calling ${businessName || "that number"}, ${T} — ${err.message}`, action: "PHONE_CALL_FAILED", intent: "phone_appointment" };
+        return { reply: `Something went wrong setting up that call, ${T} — ${err.message}`, action: "PHONE_CALL_FAILED", intent: "phone_appointment" };
       }
     }
 
@@ -3281,6 +3342,12 @@ app.post("/api/chat", async (req, res) => {
   // anything else gets a chance to reinterpret "yes" as something else.
   const pendingResolution = await resolvePendingAgentAction(message, T, sessionId);
   if (pendingResolution) return res.json(pendingResolution);
+
+  // ── -0.9. Pending phone-call confirmation ("do it" to ring, or
+  //      "cancel") — must also be caught before smalltalk/regex
+  //      routing reinterprets a bare "do it" as something else. ──
+  const pendingPhoneResolution = await resolvePendingPhoneCall(message, T, sessionId);
+  if (pendingPhoneResolution) return res.json(pendingPhoneResolution);
 
   // ── -0.5. Daily briefing (ask about a goal only if asked; never launches
   //      the old full-screen experience) ──
