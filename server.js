@@ -9,6 +9,7 @@ const AI          = require("./ai-engine");
 const Research    = require("./research");
 const Personality = require("./personality");
 const Weather     = require("./weather");
+const SixtyFour   = require("./sixtyfour");
 const News        = require("./news");
 const Spotify     = require("./spotify");
 const Instagram   = require("./instagram");
@@ -1097,6 +1098,18 @@ app.get("/api/activity/:user", async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/weather", async (req, res) => {
   try { res.json(await Weather.handleWeatherCommand(req.body.message || "weather")); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── LOOKUP (SixtyFour people-intelligence) ──
+// "jarvis lookup <name/email/username>" kicks a job off through
+// the lookup_accounts tool below, which hands back a task_id. The
+// lookup-widget.js slide-in panel polls this status route until
+// SixtyFour finishes, then renders the profile + clickable links.
+// ═══════════════════════════════════════════════════════════════
+app.get("/api/lookup/status/:taskId", async (req, res) => {
+  try { res.json(await SixtyFour.getStatus(req.params.taskId)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3067,6 +3080,35 @@ async function executeAssistantTool(name, args, ctx) {
 
     case "get_weather":
       return await handleWeatherFetch(args.location ? `weather in ${args.location}` : "weather", T);
+
+    // ── lookup_accounts — "jarvis lookup <name/email/username>" ──
+    // Kicks off an async SixtyFour job and hands the browser a
+    // task_id to poll. The widget itself does all the waiting —
+    // this just needs to return fast so the voice reply doesn't stall.
+    case "lookup_accounts": {
+      if (!SixtyFour.isConfigured()) {
+        return { reply: `SixtyFour isn't set up yet, ${T} — add SIXTYFOUR_API_KEY to the .env file.`, action: "CHAT", intent: "lookup_accounts" };
+      }
+      const query = {
+        name:     (args.name || "").trim()     || undefined,
+        email:    (args.email || "").trim()    || undefined,
+        username: (args.username || "").trim() || undefined,
+      };
+      if (!query.name && !query.email && !query.username) {
+        return { reply: `Who — or what name, email, or username — should I look up, ${T}?`, action: "CHAT", intent: "lookup_accounts" };
+      }
+      const started = await SixtyFour.startLookup(query);
+      if (started.error) {
+        return { reply: `Couldn't start that lookup, ${T}. ${started.error}`, action: "CHAT", intent: "lookup_accounts" };
+      }
+      const who = query.name || query.email || query.username;
+      return {
+        reply: `On it, ${T} — pulling up what's publicly connected to "${who}" now.`,
+        action: "SHOW_LOOKUP",
+        intent: "lookup_accounts",
+        meta: { taskId: started.taskId, query },
+      };
+    }
 
     case "open_build_mode":
       return handleHologramOpen(args.query ? `build mode ${args.query}` : "build mode", T);
