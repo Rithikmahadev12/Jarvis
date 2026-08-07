@@ -19,10 +19,20 @@
 const API_KEY  = process.env.SIXTYFOUR_API_KEY || "";
 const BASE_URL = "https://api.sixtyfour.ai";
 // "low" (default) is the fast/cheap tier — fine for a voice-command
-// lookup. "medium" digs deeper but takes longer. The "high"/"xhigh"
-// OSINT-grade tiers are sales-gated on SixtyFour's side and are
-// intentionally not used here.
-const TIER = process.env.SIXTYFOUR_TIER || "low";
+// lookup. "medium" digs deeper but takes longer. "high"/"xhigh" are
+// OSINT-grade tiers that are sales-gated on SixtyFour's side — a
+// user can still ask for them via the osint tier command, but the
+// request will 403 unless their org has been granted access.
+const DEFAULT_TIER = process.env.SIXTYFOUR_TIER || "low";
+const VALID_TIERS = ["micro", "low", "medium", "high", "xhigh"];
+
+function isConfigured() {
+  return !!API_KEY;
+}
+
+function isValidTier(tier) {
+  return VALID_TIERS.includes(String(tier || "").toLowerCase());
+}
 
 // What we want back for each field. Keys become properties on
 // result.structured_data; the string is the instruction SixtyFour's
@@ -43,10 +53,6 @@ const STRUCT = {
   summary:        "A two to three sentence public-facing summary of who this person is, based only on what's publicly findable.",
 };
 
-function isConfigured() {
-  return !!API_KEY;
-}
-
 function buildLeadInfo({ name, email, username } = {}) {
   const lead = {};
   if (name)     lead.name     = String(name).trim();
@@ -56,7 +62,10 @@ function buildLeadInfo({ name, email, username } = {}) {
 }
 
 // ── START A LOOKUP ──────────────────────────────────────────────
-async function startLookup({ name, email, username } = {}) {
+// `tier` is optional — pass the caller's chosen OSINT tier (see
+// "jarvis osint tier ..." in server.js) to override DEFAULT_TIER
+// for just this request.
+async function startLookup({ name, email, username, tier } = {}) {
   if (!isConfigured()) {
     return { error: "SixtyFour API key not configured. Add SIXTYFOUR_API_KEY to your .env file. Get a key at app.sixtyfour.ai." };
   }
@@ -66,24 +75,26 @@ async function startLookup({ name, email, username } = {}) {
     return { error: "Need a name, email, or username to look up." };
   }
 
+  const useTier = isValidTier(tier) ? String(tier).toLowerCase() : DEFAULT_TIER;
+
   try {
     const res = await fetch(`${BASE_URL}/people-intelligence-async`, {
       method: "POST",
       headers: { "x-api-key": API_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ lead_info, struct: STRUCT, tier: TIER }),
+      body: JSON.stringify({ lead_info, struct: STRUCT, tier: useTier }),
       signal: AbortSignal.timeout(15000),
     });
 
     if (!res.ok) {
       if (res.status === 401 || res.status === 403) {
-        return { error: "SixtyFour rejected the request (401/403). Check SIXTYFOUR_API_KEY." };
+        return { error: `SixtyFour rejected the request (${res.status}). ${res.status === 403 ? `The "${useTier}" tier may not be enabled for your account — check with SixtyFour, or switch to "medium" or "low".` : "Check SIXTYFOUR_API_KEY."}` };
       }
       return { error: `SixtyFour returned ${res.status} starting the lookup.` };
     }
 
     const data = await res.json();
     if (!data.task_id) return { error: "SixtyFour didn't return a task ID." };
-    return { taskId: data.task_id, query: lead_info };
+    return { taskId: data.task_id, query: lead_info, tier: useTier };
   } catch (e) {
     return { error: `SixtyFour lookup failed to start: ${e.message}` };
   }
@@ -173,4 +184,4 @@ function normalizeResult(result) {
   };
 }
 
-module.exports = { isConfigured, startLookup, getStatus };
+module.exports = { isConfigured, isValidTier, startLookup, getStatus, VALID_TIERS };
