@@ -165,8 +165,9 @@ function buildSystemPrompt({ ownerName, businessName, requestedTime, specialNote
 
   let task;
   if (confirmMode) {
-    task = `${ownerName} has confirmed the appointment time of ${confirmedTime}. Your ONLY job on this call is to confirm that exact time with them and get a clear yes. ` +
-      `Once they confirm, thank them and end the call politely. Do not renegotiate the time.`;
+    task = `You (Jarvis) already spoke with them earlier${requestedTime ? ` about booking at ${requestedTime}` : ""}, and they offered ${confirmedTime} instead. ` +
+      `${ownerName} has now confirmed ${confirmedTime} works. Start by briefly reminding them you spoke earlier today, then confirm you'd like to lock in ${confirmedTime}. ` +
+      `Get a clear yes, thank them, and end the call politely. Do not renegotiate the time.`;
   } else {
     task = `Ask if they can book an appointment at ${requestedTime}. ` +
       `If YES, confirm it clearly out loud (repeat the time back) and end the call — you're done, do not keep talking. ` +
@@ -184,10 +185,16 @@ function buildSystemPrompt({ ownerName, businessName, requestedTime, specialNote
 // ── STEP 1: the negotiating call ───────────────────────────────────
 async function bookAppointment({ sessionId, ownerName, businessName, businessNumber, requestedTime, specialNote }) {
   const toNumber = businessNumber || lookupBusinessNumber(businessName || "");
+  // When the user only gave a number ("call this number and tell him...")
+  // there's no name to display — fall back to something that still reads
+  // naturally in a reply sentence instead of printing "undefined".
+  const label = businessName || "them";
   if (!toNumber) {
     return {
       status: "NEEDS_NUMBER",
-      reply: `I don't have a phone number on file for ${businessName}, ${ownerName} — what's their number?`,
+      reply: businessName
+        ? `I don't have a phone number on file for ${businessName}, ${ownerName} — what's their number?`
+        : `What number should I call, ${ownerName}?`,
     };
   }
   if (businessNumber && businessName) saveKnownBusiness(businessName, businessNumber);
@@ -203,30 +210,30 @@ async function bookAppointment({ sessionId, ownerName, businessName, businessNum
       ownerName,
     });
   } catch (e) {
-    return { status: "CALL_FAILED", reply: `I couldn't get the call to ${businessName} to go through, ${ownerName} — ${e.message}` };
+    return { status: "CALL_FAILED", reply: `I couldn't get the call to ${label} to go through, ${ownerName} — ${e.message}` };
   }
 
   let finished;
   try {
     finished = await AgentPhone.waitForCallCompletion(call.id);
   } catch (e) {
-    return { status: "CALL_FAILED", reply: `The call to ${businessName} didn't wrap up cleanly, ${ownerName} — ${e.message}`, callId: call.id };
+    return { status: "CALL_FAILED", reply: `The call to ${label} didn't wrap up cleanly, ${ownerName} — ${e.message}`, callId: call.id };
   }
 
   if (finished.status === "failed") {
-    return { status: "CALL_FAILED", reply: `The call to ${businessName} didn't connect, ${ownerName}.`, callId: call.id };
+    return { status: "CALL_FAILED", reply: `The call to ${label} didn't connect, ${ownerName}.`, callId: call.id };
   }
 
   const outcome = await summarizeCallOutcome({
     transcripts: finished.transcripts,
     requestedTime,
-    businessName,
+    businessName: businessName || "the business",
   });
 
   if (outcome.booked) {
     return {
       status: "BOOKED",
-      reply: `Done, ${ownerName} — ${businessName} confirmed you for ${outcome.bookedTime || requestedTime}. Want me to put that on your calendar?`,
+      reply: `Done, ${ownerName} — ${label} confirmed you for ${outcome.bookedTime || requestedTime}. Want me to put that on your calendar?`,
       outcome,
       callId: call.id,
     };
@@ -237,13 +244,14 @@ async function bookAppointment({ sessionId, ownerName, businessName, businessNum
       ownerName,
       businessName,
       businessNumber: toNumber,
+      requestedTime,
       alternativeTime: outcome.alternativeTimeOffered,
       specialNote,
       createdAt: Date.now(),
     });
     return {
       status: "NEEDS_OWNER_DECISION",
-      reply: `${businessName} can't do ${requestedTime}, ${ownerName} — but ${outcome.alternativeTimeOffered} is open. Want me to call back and lock that in?`,
+      reply: `${label} can't do ${requestedTime}, ${ownerName} — but ${outcome.alternativeTimeOffered} is open. Want me to call back and lock that in?`,
       outcome,
       callId: call.id,
     };
@@ -251,7 +259,7 @@ async function bookAppointment({ sessionId, ownerName, businessName, businessNum
 
   return {
     status: "UNCLEAR",
-    reply: `I called ${businessName}, ${ownerName}, but I'm not fully sure how it landed: ${outcome.summary}`,
+    reply: `I called ${label}, ${ownerName}, but I'm not fully sure how it landed: ${outcome.summary}`,
     outcome,
     callId: call.id,
   };
@@ -261,10 +269,12 @@ async function bookAppointment({ sessionId, ownerName, businessName, businessNum
 async function confirmPendingAppointment(sessionId) {
   const p = pending.get(sessionId);
   if (!p) return { status: "NOT_FOUND", reply: "I don't have that pending appointment anymore — want me to call again from scratch?" };
+  const label = p.businessName || "them";
 
   const systemPrompt = buildSystemPrompt({
     ownerName: p.ownerName,
     businessName: p.businessName,
+    requestedTime: p.requestedTime,
     specialNote: p.specialNote,
     confirmMode: true,
     confirmedTime: p.alternativeTime,
@@ -280,13 +290,13 @@ async function confirmPendingAppointment(sessionId) {
     });
     await AgentPhone.waitForCallCompletion(call.id);
   } catch (e) {
-    return { status: "CALL_FAILED", reply: `The confirmation call to ${p.businessName} didn't go through, ${p.ownerName} — ${e.message}` };
+    return { status: "CALL_FAILED", reply: `The confirmation call to ${label} didn't go through, ${p.ownerName} — ${e.message}` };
   }
 
   pending.delete(sessionId);
   return {
     status: "CONFIRMED",
-    reply: `That works — ${p.businessName} has you down for ${p.alternativeTime}, ${p.ownerName}. Shall I put that in your calendar?`,
+    reply: `That works — ${label} has you down for ${p.alternativeTime}, ${p.ownerName}. Shall I put that in your calendar?`,
     businessName: p.businessName,
     time: p.alternativeTime,
   };
@@ -296,7 +306,7 @@ async function confirmPendingAppointment(sessionId) {
 function cancelPendingAppointment(sessionId) {
   const p = pending.get(sessionId);
   pending.delete(sessionId);
-  return { status: "CANCELLED", reply: p ? `No problem — I won't book that with ${p.businessName}.` : "Nothing to cancel." };
+  return { status: "CANCELLED", reply: p ? `No problem — I won't book that with ${p.businessName || "them"}.` : "Nothing to cancel." };
 }
 
 function getPending(sessionId) {
