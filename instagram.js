@@ -115,6 +115,14 @@ function disconnect() {
 // slower, less reliable (Instagram often serves a login wall to
 // logged-out visitors), and only sees whatever's publicly indexed —
 // but it's a one-line setup instead of a multi-step Meta app dance.
+//
+// IF E2B IS CONFIGURED (see computer.js), this gets a lot more
+// reliable: instead of a plain fetch() (which Instagram's login wall
+// blocks constantly), Jarvis opens the profile in a REAL headless
+// Chromium browser running in its own cloud sandbox — same as a
+// person actually visiting the page — and looks at what loads. Falls
+// straight back to the plain search+scrape path above if E2B isn't
+// set up, or if the sandbox browse attempt fails for any reason.
 // ═══════════════════════════════════════════════════════════════
 const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
@@ -257,17 +265,122 @@ async function describeScraped(og, opts = {}) {
   return null;
 }
 
-// The actual check: search -> scrape -> describe. Used both for
-// on-demand ("check my Instagram") and the daily proactive nudge.
-// force=true always produces a remark even if it's the same post as
-// last time (on-demand case); force=false (proactive) only speaks up
-// when the post is new.
+// Opens the profile directly in a real browser inside Jarvis's E2B
+// sandbox (see computer.js) — this is the "Jarvis, open Instagram
+// yourself and go look" path. Renders JS like a real visitor would,
+// so it succeeds at loading a public profile a lot more often than a
+// bare fetch() does. Returns null (never throws) if E2B isn't
+// configured or the attempt fails for any reason, so callers can
+// always fall straight back to findLatestPostViaSearch/scrapeOgTags.
+async function findLatestPostViaSandbox(username) {
+  let Computer;
+  try { Computer = require("./computer"); } catch { return null; }
+  if (!Computer.isConfigured()) return null;
+
+  const profileUrl = `https://www.instagram.com/${encodeURIComponent(username)}/`;
+  let page;
+  try {
+    page = await Computer.browsePage(profileUrl, { waitMs: 3000 });
+  } catch {
+    return null;
+  }
+  if (!page || !page.ok) return null;
+
+  // Instagram serves og:image/og:description in the rendered HTML
+  // the same as it does to a plain fetch, but the sandbox's real
+  // browser gets a real page (not a login-wall stub) far more often.
+  const grab = (prop) => {
+    let m = page.html.match(new RegExp(`<meta[^>]+property=["']${prop}["'][^>]+content=["']([^"']*)["']`, "i"));
+    if (!m) m = page.html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]+property=["']${prop}["']`, "i"));
+    if (!m) return null;
+    return m[1].replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&#39;/g, "'").trim();
+  };
+  const image = grab("og:image");
+  const description = grab("og:description");
+
+  // Prefer a direct post/reel link if one shows up in the rendered
+  // page's markup (it usually does once past the login wall);
+  // otherwise the profile URL itself + og:image is enough to work with.
+  const postLinkMatch = page.html.match(/href=["'](\/[a-z0-9_.]+\/(?:p|reel)\/[a-zA-Z0-9_-]+\/?)["']/i);
+  const url = postLinkMatch ? `https://www.instagram.com${postLinkMatch[1]}` : profileUrl;
+
+  if (!image && !description && !page.screenshotBase64) return null;
+
+  return { url, image, description, screenshotBase64: page.screenshotBase64 };
+}
+
+// Same "look at the photo and make an observation" step as
+// describeScraped(), but works directly off the sandbox's own
+// screenshot when Instagram didn't hand over a clean og:image (e.g.
+// a partially-loaded login wall still shows the post behind it) —
+// so the sandbox path degrades gracefully instead of just failing.
+async function describeSandboxFind(found, opts = {}) {
+  const T = opts.userTitle || "Sir";
+  const vision = require("./screen-vision");
+
+  const base64 = found.image
+    ? await (async () => {
+        try {
+          const imgRes = await fetch(found.image, { headers: { "User-Agent": BROWSER_UA }, signal: AbortSignal.timeout(10000) });
+          return Buffer.from(await imgRes.arrayBuffer()).toString("base64");
+        } catch { return null; }
+      })()
+    : found.screenshotBase64;
+
+  if (!base64) {
+    return found.description ? `Saw the new post, ${T} — "${truncate(found.description, 140)}."` : null;
+  }
+
+  try {
+    const prompt = found.image
+      ? `You're Jarvis, a witty and warm personal AI assistant, looking at someone's most recent Instagram post. ` +
+        `Make ONE short, natural, observational remark about it — the kind of thing you'd say glancing over their ` +
+        `shoulder, addressing them as "${T}". Be specific to what's actually IN the photo (setting, mood, activity, ` +
+        `who or what's in it) rather than generic. Warm and a little playful is good; don't be over the top or gushing. ` +
+        `One or two sentences, nothing more.` +
+        (found.description ? ` The caption was: "${truncate(found.description, 200)}" — you can nod to it, but the photo is the point.` : "")
+      : `You're Jarvis, a witty and warm personal AI assistant. You just opened someone's Instagram profile yourself ` +
+        `in your own browser to check for a new post, addressing them as "${T}". This is a screenshot of what the ` +
+        `page actually showed. If you can make out a real post, comment on it naturally like glancing over their ` +
+        `shoulder (specific to what's IN the image). If it's just a login wall or you genuinely can't tell, say so ` +
+        `plainly and briefly instead of guessing. One or two sentences, nothing more.`;
+    const remark = await vision.askVision(base64, prompt);
+    return remark.trim();
+  } catch {
+    return found.description ? `Saw the new post, ${T} — "${truncate(found.description, 140)}."` : null;
+  }
+}
+
+// The actual check: sandbox browse (if E2B configured) -> falls back
+// to search -> scrape -> describe. Used both for on-demand ("check my
+// Instagram") and the daily proactive nudge. force=true always
+// produces a remark even if it's the same post as last time
+// (on-demand case); force=false (proactive) only speaks up when the
+// post is new.
 async function checkTrackedAccount(userTitle, opts = {}) {
   const T = userTitle || "Sir";
   const force = !!opts.force;
   const data = loadHandleData();
   if (!data.username) return { notTracking: true };
 
+  // ── Tier 1: Jarvis's own sandboxed browser (best quality, needs E2B) ──
+  const sandboxFind = await findLatestPostViaSandbox(data.username);
+  if (sandboxFind) {
+    const isNew = sandboxFind.url !== data.lastPostUrl;
+    if (isNew || force) {
+      const remark = await describeSandboxFind(sandboxFind, { userTitle: T });
+      if (remark) {
+        saveHandleData({ ...data, lastPostUrl: sandboxFind.url, lastCheckedAt: Date.now() });
+        return { reply: remark, url: sandboxFind.url, isNew, via: "sandbox" };
+      }
+    } else {
+      return { unchanged: true, url: sandboxFind.url };
+    }
+    // sandboxFind existed but couldn't produce a remark — fall through
+    // to the search+scrape path below rather than giving up.
+  }
+
+  // ── Tier 2: web search + plain-fetch OG scrape (no setup needed) ──
   const found = await findLatestPostViaSearch(data.username);
   if (found.error) return { error: found.error };
 
@@ -283,7 +396,7 @@ async function checkTrackedAccount(userTitle, opts = {}) {
   }
 
   saveHandleData({ ...data, lastPostUrl: found.url, lastCheckedAt: Date.now() });
-  return { reply: remark, url: found.url, isNew };
+  return { reply: remark, url: found.url, isNew, via: "search" };
 }
 
 // Gate for the proactive/daily poll — only actually runs the
