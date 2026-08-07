@@ -148,6 +148,32 @@ async function placeOutboundCall({ toNumber, systemPrompt, initialGreeting, voic
   return call; // { id, status, ... }
 }
 
+// ── PUSH A DEFAULT SYSTEM PROMPT TO THE AGENT RECORD ─────────────
+// This is what an INBOUND call falls back to (someone dials your
+// Jarvis number directly) since there's no per-call systemPrompt to
+// inject the way there is for outbound calls. Updates the agent's
+// default so you don't have to hand-paste it into the dashboard
+// every time the prompt logic changes (e.g. when you add/remove a
+// user in config.json's "users" list) — see inbound-agent.js.
+async function setAgentDefaultSystemPrompt(systemPrompt, ownerName) {
+  if (!systemPrompt) throw new Error("setAgentDefaultSystemPrompt requires systemPrompt");
+  const { agentId } = await ensureAgentAndNumber(ownerName);
+  await request("PATCH", `/agents/${agentId}`, { systemPrompt });
+  return { agentId };
+}
+
+// ── LIST RECENT CALLS (used to find inbound calls after the fact) ─
+// Hosted mode has no live webhook, so Jarvis can't react mid-call —
+// this is how inbound-agent.js finds out an inbound call happened at
+// all, by polling after the fact instead of during the call.
+async function listCalls({ direction, limit = 20 } = {}) {
+  const qs = new URLSearchParams();
+  if (direction) qs.set("direction", direction);
+  if (limit) qs.set("limit", String(limit));
+  const res = await request("GET", `/calls?${qs.toString()}`);
+  return Array.isArray(res) ? res : (res?.data || []);
+}
+
 // ── POLL A CALL UNTIL IT'S OVER ──────────────────────────────────
 async function getCall(callId) {
   return request("GET", `/calls/${callId}`);
@@ -166,6 +192,8 @@ async function waitForCallCompletion(callId, { pollMs = 4000, timeoutMs = 5 * 60
 module.exports = {
   ensureAgentAndNumber,
   placeOutboundCall,
+  setAgentDefaultSystemPrompt,
+  listCalls,
   getCall,
   waitForCallCompletion,
 };
