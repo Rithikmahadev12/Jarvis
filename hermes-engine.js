@@ -448,6 +448,21 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "lookup_accounts",
+      description: "Look up a person by name, email address, or username and pull back a short public profile plus the accounts/social profiles publicly connected to them (LinkedIn, X/Twitter, Instagram, GitHub, etc). Call this for phrasing like 'jarvis lookup <name/email/username>', 'look up jane@example.com', 'find accounts for the username xyz123', 'who is this person and what accounts do they have'. Opens a small slide-in panel with clickable links — this tool just needs at least one of name, email, or username.",
+      parameters: {
+        type: "object",
+        properties: {
+          name:     { type: "string", description: "The person's name, if that's what was given." },
+          email:    { type: "string", description: "The person's email address, if that's what was given." },
+          username: { type: "string", description: "A username/handle, if that's what was given." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "play_music",
       description: "Play a song in the on-screen now-playing widget (audio pulled from YouTube in the background — not Spotify, Jarvis doesn't use Spotify for playback, and it never opens a browser tab for this). Call this whenever the user asks to play music or a song, named or not. If they don't name a song, leave query empty so Jarvis asks what to play. If they respond with something like 'you pick', 'surprise me', 'whatever you think', or 'play something good', set pick_for_me to true so Jarvis chooses based on the conversation's mood. IMPORTANT: 'jarvis play <anything>' is ALWAYS this tool, even if the name sounds unusual or could be misread as referring to video/recording — Jarvis has no tool that plays back a saved recording or clip, so never route a 'play' request to start_recording, stop_recording, or clip_recording instead. This includes phrases like 'play back in black' or 'play back <song>' — 'back' there is normally just part of the song title (e.g. AC/DC's 'Back in Black') or filler word, NOT the verb 'play back' meaning review old footage; treat the whole phrase after 'play' as the song query (e.g. query: 'back in black') and call play_music, not stop_recording.",
       parameters: {
