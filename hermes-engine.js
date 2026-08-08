@@ -913,33 +913,6 @@ const TOOLS = [
       parameters: { type: "object", properties: {} },
     },
   },
-  {
-    type: "function",
-    function: {
-      name: "build_website",
-      description: "Generate a real, downloadable website for a business and show it materializing live in the build window — e.g. 'build me a site for a barbershop', 'make a website for my bakery called Sweet Rise', 'jarvis build a landing page for my gym'. This is the generic sense of 'build' + a website/site/page — use this, NOT open_build_mode, whenever the user wants a website. If they gave a business type but no name, still call this tool with whatever you have; the server will ask for the missing piece rather than you asking in plain text or writing the site's code yourself. NEVER hand-write HTML/CSS/JS in the chat reply for a website request — always call this tool instead and let the build window show the result.",
-      parameters: {
-        type: "object",
-        properties: {
-          business_type: { type: "string", description: "What kind of business/site this is, e.g. 'barbershop', 'bakery', 'photography portfolio'. Leave empty if not stated." },
-          name:          { type: "string", description: "The business/site's name, if the user gave one. Leave empty if not stated — the server will ask for it." },
-        },
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "download_website",
-      description: "Download a previously built website as a zip — e.g. 'download that site', 'download the barbershop website', 'give me the files for Sweet Rise'. Only for a site build_website already created, not for starting a new build.",
-      parameters: {
-        type: "object",
-        properties: {
-          name: { type: "string", description: "The name of the site to download, if the user named one. Leave empty if not stated — the server will ask for it." },
-        },
-      },
-    },
-  },
 ];
 
 // ── TOOL-CALLING CHAT ──────────────────────────────────────────
