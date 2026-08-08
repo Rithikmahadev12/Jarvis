@@ -31,6 +31,8 @@ const OwnBrain    = require("./own-brain");
 const OwnBrainTrainer = require("./own-brain-trainer");
 const Reminders   = require("./reminders");
 const Habits      = require("./habits");
+const Todos       = require("./todos");
+const NightBrief  = require("./night-brief");
 const Boards      = require("./boards");
 const Briefing    = require("./briefing");
 const InboxTriage = require("./inbox-triage");
@@ -2082,6 +2084,14 @@ async function routeDailyBriefing(message, T, sessionId, userName, userTimezone)
     return null;
   }
 
+  const nightFindings = NightBrief.getUndelivered(T);
+  if (nightFindings && DAILY_BRIEFING_RE.test(message)) {
+    NightBrief.markDelivered();
+    const existing = Briefing.getToday(userName);
+    const rest = existing ? "\n\n" + formatTaskBriefingReply(existing, T) : "";
+    return { reply: nightFindings.text + rest, action: "DAILY_BRIEFING", intent: "daily_briefing" };
+  }
+
   if (!DAILY_BRIEFING_RE.test(message)) return null;
 
   // Already have today's task-based briefing set — just replay it,
@@ -3648,6 +3658,10 @@ app.post("/api/chat", async (req, res) => {
   //      reinterpret a bare "no" as something unrelated. ──
   const habitResolution = Habits.route(message, T, userTimezone, sessionId);
   if (habitResolution) return res.json(habitResolution);
+
+  // ── -0.15. Todos — simple task list add/complete/list routing ──
+  const todoResolution = Todos.route(message, T);
+  if (todoResolution) return res.json(todoResolution);
 
   // ── 0. Home Talk toggle — checked first so it never collides with
   //      smart-home / smalltalk / AI routing below ──
