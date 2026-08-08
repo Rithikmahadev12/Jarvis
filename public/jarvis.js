@@ -1928,25 +1928,10 @@ async function attemptFaceLogin() {
 
   let ok;
   try {
-    // getUserMedia can hang indefinitely (not just reject) if the permission
-    // prompt is hidden behind the window or the camera is wedged by another
-    // process — so race it against a timeout instead of waiting forever on
-    // a silent "STARTING CAMERA…". If THIS is what's happening to you, the
-    // 8s timeout below will fire and tell you explicitly.
-    const withTimeout = (p, ms, label) => Promise.race([
-      p,
-      new Promise((_, rej) => setTimeout(() => rej(new Error(`${label}_TIMEOUT`)), ms)),
-    ]);
-    console.log("[FACE-LOGIN] requesting camera…");
-    await withTimeout(getAuthCameraStream($("auth-face-video")), 8000, "CAMERA");
-    console.log("[FACE-LOGIN] camera stream acquired");
+    await getAuthCameraStream($("auth-face-video"));
     ok = await ensureFaceApiLoaded();
   } catch (e) {
-    console.error("[FACE-LOGIN] failed:", e.name || e.message, e.message);
-    const msg = (e.message || "").includes("CAMERA_TIMEOUT")
-      ? "Camera never responded — the permission prompt may be hidden, or another app has it locked. Check the browser address bar for a blocked-camera icon, close other apps using the webcam, and try again."
-      : `Camera access failed (${e.name || e.message}). Face ID sign-in unavailable.`;
-    showAuthFeedback(msg);
+    showAuthFeedback("Camera access is needed for Face ID sign-in.");
     return;
   }
   if (!ok) { showAuthFeedback("Face recognition failed to load — check your connection."); return; }
@@ -4237,22 +4222,7 @@ async function requestCameraAccess() {
     addMsg("system", `Camera online. ${state.availableCameras.length} camera(s) detected.`);
     updateMood(5);
     await loadFaceModels();
-  } catch (e) {
-    // Surface the REAL browser error instead of a generic message —
-    // NotFoundError = no camera detected by the OS, NotReadableError =
-    // camera is locked by another tab/app, NotAllowedError = permission
-    // was denied/blocked. Knowing which one it is tells you exactly what
-    // to fix instead of guessing.
-    console.error("[CAMERA] getUserMedia failed:", e.name, e.message);
-    const reasons = {
-      NotFoundError: "No camera was detected on this device.",
-      NotReadableError: "The camera is already in use by another tab, window, or app (close them and reload).",
-      NotAllowedError: "Camera permission was denied or blocked for this site.",
-      OverconstrainedError: "No camera matches the requested settings.",
-    };
-    const reason = reasons[e.name] || `${e.name}: ${e.message}`;
-    addMsg("system", `Camera unavailable — ${reason}`);
-  }
+  } catch { addMsg("system", "Camera declined — face recognition unavailable."); }
 }
 
 let faceApiLoaded = false;
