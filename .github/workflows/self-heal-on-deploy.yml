@@ -1,0 +1,44 @@
+name: Self-Heal On Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab to test
+
+jobs:
+  self-heal-on-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2   # need the last commit message for the loop guard
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install --omit=dev
+
+      - name: Boot health check + auto self-heal if broken
+        env:
+          # Same repo/token used by github-deploy.js + safe-deploy.js to
+          # clone, branch, commit, and open/merge the fix PR.
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_BRANCH: main
+          # Model access for generating the fix (same as Night Shift Research).
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEY2: ${{ secrets.GROQ_API_KEY2 }}
+          GROQ_MODEL: ${{ secrets.GROQ_MODEL }}
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          OLLAMA_CLOUD_MODEL: ${{ secrets.OLLAMA_CLOUD_MODEL }}
+          # So server.js's other integrations don't explode on boot just
+          # because a key's missing in this environment — pass through
+          # whatever's already configured as repo secrets.
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
+        run: node scripts/self-heal-on-deploy.js
