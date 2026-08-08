@@ -387,7 +387,20 @@ window.RetinaScan = (function () {
 
       return true;
     } catch (e) {
-      console.warn('[RETINA] Camera error:', e.message);
+      // Same as jarvis.js's requestCameraAccess: report the actual
+      // getUserMedia error name so "can't find camera" is diagnosable
+      // instead of a black box. This runs at LOGIN, before CameraObserver
+      // ever touches anything, so if this is where it's failing, the
+      // observer changes are not the cause.
+      console.error('[RETINA] Camera error:', e.name, e.message);
+      const reasons = {
+        NotFoundError: 'no camera detected',
+        NotReadableError: 'camera is in use by another tab/app',
+        NotAllowedError: 'camera permission denied/blocked',
+        OverconstrainedError: 'no camera matches requested settings',
+      };
+      const statusEl = document.getElementById('retina-status');
+      if (statusEl) statusEl.textContent = `CAMERA ERROR: ${reasons[e.name] || e.name}`;
       return false;
     }
   }
