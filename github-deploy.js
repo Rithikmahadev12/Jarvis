@@ -1,4 +1,14 @@
 "use strict";
+// ═══════════════════════════════════════════════════════════════
+// J.A.R.V.I.S — GitHub Deploy Helpers
+// Thin wrapper around the GitHub REST API for branches/commits/PRs.
+//
+// v2 additions (for safe-deploy.js):
+//   - getBranchSha()     exported (was internal-only before)
+//   - updateBranchRef()  force-move a branch ref -> used for rollback
+//   - getFileContent()   read a file's current content from a branch
+// Nothing about the original behavior changed — only new exports added.
+// ═══════════════════════════════════════════════════════════════
 const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
 const REPO   = process.env.GITHUB_REPO;   // "yourname/jarvis"
 const BRANCH = process.env.GITHUB_BRANCH || "main";
@@ -51,4 +61,34 @@ async function mergePullRequest(prNumber) {
   return gh(`/repos/${REPO}/pulls/${prNumber}/merge`, { method: "PUT" });
 }
 
-module.exports = { createFeatureBranch, commitFile, openPullRequest, mergePullRequest };
+// ── NEW ────────────────────────────────────────────────────────
+
+// Force a branch's ref to point at a specific commit SHA.
+// Used by safe-deploy.js to roll `main` back to a known-good backup
+// commit if something ever needs to be undone after a merge.
+async function updateBranchRef(branch, sha, force = true) {
+  return gh(`/repos/${REPO}/git/refs/heads/${branch}`, {
+    method: "PATCH",
+    body: JSON.stringify({ sha, force }),
+  });
+}
+
+// Read a file's current raw content + sha from a given branch (default: main).
+async function getFileContent(filePath, branch = BRANCH) {
+  const url = `/repos/${REPO}/contents/${filePath}?ref=${branch}`;
+  const data = await gh(url);
+  const content = Buffer.from(data.content, "base64").toString("utf8");
+  return { content, sha: data.sha };
+}
+
+module.exports = {
+  createFeatureBranch,
+  commitFile,
+  openPullRequest,
+  mergePullRequest,
+  getBranchSha,
+  updateBranchRef,
+  getFileContent,
+  REPO,
+  BRANCH,
+};
