@@ -1479,11 +1479,21 @@ app.get("/api/proactive/social/:user", async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 // ── PERSONALITY
 // ═══════════════════════════════════════════════════════════════
-app.post("/api/personality/comment", (req, res) => {
-  const { scene, userTitle, sessionMinutes, previousScene, userTimezone } = req.body;
+app.post("/api/personality/comment", async (req, res) => {
+  const { scene, userTitle, sessionMinutes, previousScene, userTimezone, image } = req.body;
   const T = userTitle || "Sir";
   if (scene === previousScene && scene === "idle") return res.json({ reply: null });
-  res.json({ reply: Personality.getCameraComment(scene, T, sessionMinutes, userTimezone) || null });
+  try {
+    // If the client sent an actual webcam frame, let JARVIS react to what's
+    // really in it (movie-accurate: specific, observational, dry wit) instead
+    // of picking a generic scripted line off the "scene" mood label alone.
+    const reply = image
+      ? await Personality.getWebcamComment(image, scene, T, sessionMinutes, userTimezone)
+      : Personality.getCameraComment(scene, T, sessionMinutes, userTimezone);
+    res.json({ reply: reply || null });
+  } catch (e) {
+    res.json({ reply: Personality.getCameraComment(scene, T, sessionMinutes, userTimezone) || null });
+  }
 });
 app.post("/api/personality/smalltalk", (req, res) => {
   const { message, userTitle, userTimezone } = req.body;
