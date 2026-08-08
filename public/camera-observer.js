@@ -17,29 +17,9 @@ window.CameraObserver = (function () {
     expressionHoldCount:  0,        // how many frames same expression held
     previousScene:        null,
     checkInterval:        null,
-    // Movie-accurate JARVIS is restrained, not chatty — a remark every
-    // 15-20 min, not a running commentary. Randomized within that window
-    // per session so it doesn't feel like a metronome.
-    COMMENT_COOLDOWN_MS:  (15 + Math.random() * 5) * 60 * 1000,
+    COMMENT_COOLDOWN_MS:  9 * 60 * 1000,   // minimum 9 min between proactive comments
     EXPRESSION_FRAMES:    3,                // frames expression must hold before reacting
   };
-
-  // ── GRAB A REAL FRAME (for vision-grounded commentary) ─────
-  // Only called right when we've already decided a comment is due —
-  // not every tick — so this doesn't spend a vision-model call every
-  // 90 seconds for no reason.
-  function captureFrameBase64(videoEl) {
-    try {
-      if (!videoEl.videoWidth) return null;
-      const c = document.createElement("canvas");
-      c.width = videoEl.videoWidth;
-      c.height = videoEl.videoHeight;
-      c.getContext("2d").drawImage(videoEl, 0, 0);
-      return c.toDataURL("image/jpeg", 0.85).split(",")[1];
-    } catch (e) {
-      return null;
-    }
-  }
 
   // ── UTILITIES ──────────────────────────────────────────────
   const minutesSince = ts => (Date.now() - ts) / 60000;
@@ -146,11 +126,6 @@ window.CameraObserver = (function () {
     if (!isUrgent && !isStressed && !isIdleCheckin) return;
 
     // ── Fetch comment from server ──
-    // Grab one real frame now (only now — not every tick) so JARVIS can
-    // react to something actually happening in the room instead of just
-    // the facial-expression label.
-    const frame = captureFrameBase64(videoEl);
-
     try {
       const res = await fetch("/api/personality/comment", {
         method: "POST",
@@ -162,7 +137,6 @@ window.CameraObserver = (function () {
           lastSpokenMinutes: Math.floor(lastSpokenMinutes),
           previousScene:    obs.previousScene,
           userTimezone:     (Intl.DateTimeFormat().resolvedOptions().timeZone) || null,
-          image:            frame || undefined,
         }),
       });
 
