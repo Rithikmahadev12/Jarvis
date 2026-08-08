@@ -5,16 +5,6 @@
 // Genuine JARVIS voice — dry, precise, witty, never robotic.
 // ═══════════════════════════════════════════════════════════════
 
-// Lazy-required inside getWebcamComment (not at top) so a missing/broken
-// screen-vision.js (e.g. screenshot-desktop not installed on this OS)
-// can't crash the whole personality module on require — the webcam
-// comment path just falls back to the scripted getCameraComment lines.
-let ScreenVision = null;
-function loadScreenVision() {
-  if (!ScreenVision) ScreenVision = require("./screen-vision");
-  return ScreenVision;
-}
-
 // ── TIMEZONE-AWARE CLOCK ──────────────────────────────────────
 // IMPORTANT: never use new Date().getHours() directly for anything
 // user-facing — that reads the SERVER's local clock, which is often
@@ -464,46 +454,6 @@ function getCameraComment(scene, T, sessionMinutes, tz) {
   }
 }
 
-// ── WEBCAM COMMENT (vision-grounded, movie-accurate JARVIS) ────
-// Unlike getCameraComment above (which only ever knows an abstract
-// "scene" label like "stressed" or "lateNight" from facial-expression
-// data), this one is actually handed a real frame and asked to riff on
-// what's ACTUALLY in it — the way JARVIS in the films comments on
-// specific things Tony is doing, not generic mood check-ins. Falls back
-// to getCameraComment if vision isn't configured or the call fails, so
-// this never breaks the observer loop.
-async function getWebcamComment(base64Image, scene, T, sessionMinutes, tz) {
-  try {
-    const sv = loadScreenVision();
-    if (!sv.isConfigured()) return getCameraComment(scene, T, sessionMinutes, tz);
-
-    const time = getTimeContext(tz);
-    const h = getHourInTZ(tz);
-
-    const prompt = `You are J.A.R.V.I.S. — Tony Stark's AI from the Iron Man films. Formal, ` +
-      `impeccably composed British diction; dry, deadpan wit delivered completely ` +
-      `straight-faced; understated, never crude, never mean, never explains the joke. ` +
-      `Economical with words. You address the user as "${T}".\n\n` +
-      `You're glancing at the user through their webcam. Make ONE brief remark — a single ` +
-      `short sentence, two at most — grounded in something SPECIFIC you can actually see ` +
-      `right now: their posture, expression, what's on the desk, what they're eating or ` +
-      `drinking, what they're wearing, the state of the room, anything concrete. Do not ` +
-      `write a generic "how are you doing" check-in — react to the actual scene the way ` +
-      `JARVIS would, with a dry aside or a raised-eyebrow observation. If the frame is ` +
-      `unremarkable, it's fine to be understated rather than inventing drama.\n\n` +
-      `Context: it's ${time} (${h}:00)${sessionMinutes ? `, they've been at this for about ` +
-      `${Math.round(sessionMinutes)} minutes this session` : ""}.\n\n` +
-      `Reply with ONLY the spoken line — no stage directions, no quotation marks, no preamble.`;
-
-    const raw = await sv.askVision(base64Image, prompt);
-    const line = (raw || "").trim().replace(/^["']|["']$/g, "");
-    return line || getCameraComment(scene, T, sessionMinutes, tz);
-  } catch (e) {
-    console.warn("[PERSONALITY] Webcam comment failed, falling back to scripted line:", e.message);
-    return getCameraComment(scene, T, sessionMinutes, tz);
-  }
-}
-
 // ── PROACTIVE TRIGGER LOGIC ───────────────────────────────────
 function shouldSpeakProactively(state) {
   const { sessionMinutes, lastSpokenMinutesAgo, lastUserMessageMinutesAgo, currentScene } = state;
@@ -590,7 +540,6 @@ module.exports = {
   routeSmallTalk,
   routePersonalNews,
   getCameraComment,
-  getWebcamComment,
   getScreenRoast,
   shouldSpeakProactively,
   buildJarvisResponse,
