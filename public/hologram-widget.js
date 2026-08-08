@@ -1265,6 +1265,7 @@ OBJECTS.molecule = buildMolecule;
     w.card.classList.add('dismissing');
     setTimeout(() => {
       w.card.remove();
+      w.renderer.dispose();
       w.scene.traverse(c => {
         if (c.geometry) c.geometry.dispose();
         if (c.material) {
@@ -1272,20 +1273,6 @@ OBJECTS.molecule = buildMolecule;
           else c.material.dispose();
         }
       });
-      // renderer.dispose() alone frees three.js-side resources (programs,
-      // textures) but does NOT release the underlying WebGL context — the
-      // browser only reclaims that once the canvas is garbage-collected,
-      // which isn't immediate/guaranteed. Browsers cap concurrent live
-      // WebGL contexts (commonly ~8-16); opening/dismissing several
-      // hologram widgets in a session was leaking contexts toward that
-      // ceiling, which is what later made MediaPipe Hands' own internal
-      // "getContext('webgl')" call in hand-tracking.js fail with
-      // "Failed to create WebGL canvas context" when it tried to process
-      // a video frame. forceContextLoss() releases the context immediately.
-      w.renderer.dispose();
-      try { w.renderer.forceContextLoss(); } catch (e) {}
-      w.renderer.domElement = null;
-      w.renderer = null;
     }, 300);
   }
 
