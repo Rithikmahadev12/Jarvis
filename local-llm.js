@@ -68,6 +68,14 @@ const OLLAMA_CLOUD_MODEL = process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:120b";
 // model string straight through — that mismatch is exactly what
 // causes a 404 "model not found" from ollama.com's API.
 const OLLAMA_CLOUD_MODEL_FAST = process.env.OLLAMA_CLOUD_MODEL_FAST || "gpt-oss:20b";
+// Vision-capable Ollama Cloud model. qwen3-vl:235b-cloud is Alibaba's
+// current flagship vision-language model, free to use on Ollama Cloud
+// with just an API key (no local GPU/download needed), and it's
+// specifically trained as a "visual agent" — reading a screenshot and
+// pointing at/reasoning about individual UI elements, which is exactly
+// the "where do I click/move the cursor" job screen-vision.js's
+// locateElement() needs. Docs: https://ollama.com/blog/qwen3-vl
+const OLLAMA_CLOUD_VISION_MODEL = process.env.OLLAMA_CLOUD_VISION_MODEL || "qwen3-vl:235b-cloud";
 
 function isCloudConfigured() {
   return !!OLLAMA_API_KEY;
@@ -345,6 +353,57 @@ async function ollamaVision(base64Image, prompt) {
   });
 }
 
+function hasCloudVisionModel() {
+  return !!OLLAMA_API_KEY; // qwen3-vl:235b-cloud needs no separate opt-in — just the API key
+}
+
+// Same job as ollamaVision() above, but against ollama.com's hosted
+// compute instead of a local install — no GPU, no multi-GB local
+// download, works anywhere the server can reach the internet. Good
+// free option for locateElement()/clickAt() (screen-vision.js) since
+// qwen3-vl is specifically tuned as a GUI/visual agent.
+async function ollamaCloudVision(base64Image, prompt, model = OLLAMA_CLOUD_VISION_MODEL) {
+  if (!OLLAMA_API_KEY) throw new Error("OLLAMA_API_KEY not set in .env");
+
+  const attempt = async () => {
+    let res;
+    try {
+      res = await fetch(`${OLLAMA_CLOUD_URL}/api/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${OLLAMA_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          messages: [{ role: "user", content: prompt, images: [base64Image] }],
+        }),
+        signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS),
+      });
+    } catch (e) {
+      throw new Error(`Could not reach Ollama Cloud: ${e.message}`);
+    }
+    if (!res.ok) {
+      const body2 = await res.text().catch(() => "");
+      throw new Error(`Ollama Cloud vision error ${res.status}: ${body2.slice(0, 300)}`);
+    }
+    const data = await res.json();
+    return data?.message?.content || "";
+  };
+
+  const startedAt = Date.now();
+  console.log(`[OLLAMA-CLOUD-VISION] sending request to ${model}...`);
+  try {
+    const result = await attempt();
+    console.log(`[OLLAMA-CLOUD-VISION] ${model} responded in ${Date.now() - startedAt}ms`);
+    return result;
+  } catch (e) {
+    console.error(`[OLLAMA-CLOUD-VISION] ${model} failed after ${Date.now() - startedAt}ms: ${e.message}`);
+    throw e;
+  }
+}
+
 module.exports = {
   OLLAMA_URL,
   OLLAMA_MODEL,
@@ -359,7 +418,10 @@ module.exports = {
   ollamaVision,
   isCloudConfigured,
   ollamaCloudChat,
+  ollamaCloudVision,
+  hasCloudVisionModel,
   OLLAMA_CLOUD_MODEL,
   OLLAMA_CLOUD_MODEL_FAST,
+  OLLAMA_CLOUD_VISION_MODEL,
   mapGroqModelToOllamaCloud,
 };
