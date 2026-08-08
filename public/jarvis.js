@@ -4222,7 +4222,22 @@ async function requestCameraAccess() {
     addMsg("system", `Camera online. ${state.availableCameras.length} camera(s) detected.`);
     updateMood(5);
     await loadFaceModels();
-  } catch { addMsg("system", "Camera declined — face recognition unavailable."); }
+  } catch (e) {
+    // Surface the REAL browser error instead of a generic message —
+    // NotFoundError = no camera detected by the OS, NotReadableError =
+    // camera is locked by another tab/app, NotAllowedError = permission
+    // was denied/blocked. Knowing which one it is tells you exactly what
+    // to fix instead of guessing.
+    console.error("[CAMERA] getUserMedia failed:", e.name, e.message);
+    const reasons = {
+      NotFoundError: "No camera was detected on this device.",
+      NotReadableError: "The camera is already in use by another tab, window, or app (close them and reload).",
+      NotAllowedError: "Camera permission was denied or blocked for this site.",
+      OverconstrainedError: "No camera matches the requested settings.",
+    };
+    const reason = reasons[e.name] || `${e.name}: ${e.message}`;
+    addMsg("system", `Camera unavailable — ${reason}`);
+  }
 }
 
 let faceApiLoaded = false;
