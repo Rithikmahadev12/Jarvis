@@ -1928,10 +1928,25 @@ async function attemptFaceLogin() {
 
   let ok;
   try {
-    await getAuthCameraStream($("auth-face-video"));
+    // getUserMedia can hang indefinitely (not just reject) if the permission
+    // prompt is hidden behind the window or the camera is wedged by another
+    // process — so race it against a timeout instead of waiting forever on
+    // a silent "STARTING CAMERA…". If THIS is what's happening to you, the
+    // 8s timeout below will fire and tell you explicitly.
+    const withTimeout = (p, ms, label) => Promise.race([
+      p,
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`${label}_TIMEOUT`)), ms)),
+    ]);
+    console.log("[FACE-LOGIN] requesting camera…");
+    await withTimeout(getAuthCameraStream($("auth-face-video")), 8000, "CAMERA");
+    console.log("[FACE-LOGIN] camera stream acquired");
     ok = await ensureFaceApiLoaded();
   } catch (e) {
-    showAuthFeedback("Camera access is needed for Face ID sign-in.");
+    console.error("[FACE-LOGIN] failed:", e.name || e.message, e.message);
+    const msg = (e.message || "").includes("CAMERA_TIMEOUT")
+      ? "Camera never responded — the permission prompt may be hidden, or another app has it locked. Check the browser address bar for a blocked-camera icon, close other apps using the webcam, and try again."
+      : `Camera access failed (${e.name || e.message}). Face ID sign-in unavailable.`;
+    showAuthFeedback(msg);
     return;
   }
   if (!ok) { showAuthFeedback("Face recognition failed to load — check your connection."); return; }
