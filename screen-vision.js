@@ -63,6 +63,7 @@ const fs = require("fs");
 const path = require("path");
 const screenshot = require("screenshot-desktop");
 const GroqKeys = require("./groq-keys");
+const LocalLLM = require("./local-llm");
 
 // ── ELEMENT-LOCATION CACHE ─────────────────────────────────────
 // The single biggest source of vision-model calls (and the thing
@@ -200,7 +201,7 @@ const USE_GEMINI = GEMINI_API_KEYS.length > 0;
 const OCR_MIN_CONFIDENCE = 40;
 
 function isConfigured() {
-  return !!(GroqKeys.hasGroqKey() || GEMINI_API_KEYS.length);
+  return !!(GroqKeys.hasGroqKey() || GEMINI_API_KEYS.length || LocalLLM.hasCloudVisionModel());
 }
 
 // ── CAPTURE ─────────────────────────────────────────────────────
@@ -575,6 +576,26 @@ async function askVision(base64Image, prompt) {
   return groqChatRequest(GROQ_VISION_MODEL, messages);
 }
 
+// Vision call specifically for locating/reasoning about UI elements
+// ("where do I click", "where is this on screen"). Ollama Cloud's
+// qwen3-vl:235b-cloud is purpose-tuned as a GUI/visual agent (reading
+// screenshots and pointing at elements), it's free with just an
+// OLLAMA_API_KEY (no local GPU needed), and it doesn't compete with
+// Gemini/Groq's free-tier quota — so when it's configured, try it
+// FIRST for this specific job, and fall back to the normal
+// Gemini→Groq chain (askVision) if it's not configured or fails.
+async function askVisionForLocating(base64Image, prompt) {
+  if (LocalLLM.hasCloudVisionModel()) {
+    try {
+      const reply = await LocalLLM.ollamaCloudVision(base64Image, prompt);
+      if (reply) return reply;
+    } catch (e) {
+      console.error("[VISION] Ollama Cloud vision failed, falling back to Gemini/Groq:", e.message);
+    }
+  }
+  return askVision(base64Image, prompt);
+}
+
 // ── "LOOK AT MY SCREEN" ─────────────────────────────────────────
 // General-purpose: describe the screen, or answer a specific
 // question about it ("what does that error say", "is the build
@@ -693,7 +714,7 @@ async function locateElement(description, opts = {}) {
     `{"found": true, "x": <int>, "y": <int>} with x/y being the pixel center of the element, as precise integer ` +
     `pixel coordinates within this exact ${width}x${height} image. If you cannot find it, reply {"found": false}.`;
 
-  const raw = await askVision(base64, prompt);
+  const raw = await askVisionForLocating(base64, prompt);
   let parsed;
   try {
     parsed = JSON.parse(raw.replace(/```json|```/g, "").trim());
@@ -812,6 +833,7 @@ module.exports = {
   moveMouseTo,
   findAndClick,
   askVision, // exported for agent-brain.js's grounded next-action decisions
+  askVisionForLocating,
   askText,
   GROQ_VISION_MODEL,
   GROQ_TEXT_MODEL,
