@@ -57,6 +57,7 @@ async function main() {
       console.error("[BOUNTY-SCAN] Scan error:", result.error);
     } else {
       console.log(`[BOUNTY-SCAN] Queued ${result.queued.length} easy candidate(s), ` +
+        `auto-posted ${result.autoPosted.length} (BOUNTY_AUTO_PUBLISH), ` +
         `${result.flagged_medium.length} medium (flagged for closer review), ` +
         `skipped ${result.skipped.length}, ${result.errors.length} error(s).`);
     }
