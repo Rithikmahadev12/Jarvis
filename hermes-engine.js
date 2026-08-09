@@ -469,6 +469,26 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "check_bounty_replies",
+      description: "Re-read GitHub threads for posted bounty offers to see if the maintainer has replied yes/no — 'did anyone reply to my bounty offers', 'check bounty replies', 'has anyone said yes'. Only reads and classifies; never posts or codes anything.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "code_bounty_candidate",
+      description: "Have Jarvis actually write a fix and open a DRAFT (unmerged) pull request for a bounty candidate the maintainer has already said yes to. Only call this when the user clearly asks, e.g. 'code bounty 3', 'go ahead and fix that issue', 'write the patch for candidate 5'. Only works on candidates already in 'awaiting_code' status — check_bounty_replies must have found a yes first.",
+      parameters: {
+        type: "object",
+        properties: { candidate_id: { type: "number", description: "The candidate's queue id, e.g. 3 for 'bounty 3'." } },
+        required: ["candidate_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "check_wallet_balance",
       description: "Check the balance of Jarvis's linked Solana wallet (SOL and USDC) and total recorded earnings — 'how much money have I made', 'check the wallet', 'what's my SOL balance'.",
       parameters: { type: "object", properties: {}, required: [] },
