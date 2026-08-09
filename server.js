@@ -15,7 +15,10 @@ const Spotify     = require("./spotify");
 const Instagram   = require("./instagram");
 const Computer    = require("./computer");
 const Google      = require("./google");
-const AgentMail   = require("./agentmail");
+const AgentMail   = require("./agent-mail"); // was "./agentmail" — didn't match the actual filename, so every AgentMail.* call below was throwing on require
+const GithubBounty = require("./github-bounty");
+const SolanaWallet  = require("./solana-wallet");
+const WalletSetup   = require("./wallet-setup");
 const DIY         = require("./diy-builder");
 const Build       = require("./build-engine");
 const BuildAI     = require("./build-ai");
@@ -1158,6 +1161,83 @@ app.post("/api/agentmail/verify/:service", async (req, res) => {
     const { fromContains, subjectContains, timeoutMs } = req.body || {};
     res.json(await AgentMail.checkVerificationFor(req.params.service, { fromContains, subjectContains, timeoutMs }));
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── GITHUB BOUNTY HUNTER
+// Scanning just searches + drafts — never posts anything on its own.
+// Only /approve actually talks to GitHub (posts the offer comment).
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/bounty/scan", async (req, res) => {
+  try { res.json(await GithubBounty.scanForBounties(req.body || {})); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/bounty/pending", (req, res) => {
+  try { res.json(GithubBounty.listPending()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/bounty/history", (req, res) => {
+  try { res.json(GithubBounty.listHistory()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/bounty/stats", (req, res) => {
+  try { res.json(GithubBounty.getStats()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.patch("/api/bounty/:id", (req, res) => {
+  try { res.json(GithubBounty.editCandidate(req.params.id, req.body || {})); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Explicit human "go ahead" — the only path that ever posts to GitHub.
+app.post("/api/bounty/:id/approve", async (req, res) => {
+  try { res.json(await GithubBounty.approveCandidate(req.params.id)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/bounty/:id/reject", (req, res) => {
+  try { res.json(GithubBounty.rejectCandidate(req.params.id, req.body?.reason)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── SOLANA WALLET (read-only — Jarvis never holds a private key,
+// so it can watch balances/payments but can never move funds)
+// ═══════════════════════════════════════════════════════════════
+app.get("/api/wallet/balances", async (req, res) => {
+  try { res.json(await SolanaWallet.getBalances()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/wallet/payment-link", (req, res) => {
+  try { res.json(SolanaWallet.buildPaymentLink(req.body || {})); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/wallet/check-payments", async (req, res) => {
+  try { res.json(await SolanaWallet.checkIncomingPayments(req.body || {})); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/wallet/earnings", (req, res) => {
+  try { res.json({ entries: SolanaWallet.listEarnings(), totalUsd: SolanaWallet.totalEarningsUsd() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/wallet/earnings", (req, res) => {
+  try { res.json(SolanaWallet.recordEarning(req.body || {})); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Generates a brand-new wallet by running make_wallet.py on THIS
+// machine. Only makes sense called locally — see wallet-setup.js.
+app.post("/api/wallet/generate", async (req, res) => {
+  try { res.json(await WalletSetup.generateWallet(req.body || {})); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -2930,6 +3010,78 @@ async function executeAssistantTool(name, args, ctx) {
     case "get_agenda":
       return Reminders.buildAgendaReply(T, userTimezone, args.scope === "today" ? "today" : "");
 
+    // ── GitHub bounty hunting ──
+    // scan_github_bounties only searches + drafts; it never posts.
+    // approve_bounty_candidate is the one path that actually comments
+    // on GitHub, and only fires when the owner explicitly says so.
+    case "scan_github_bounties": {
+      if (!GithubBounty.isConfigured()) {
+        return { reply: `I don't have a GitHub token for this yet, ${T} — add GITHUB_BOUNTY_TOKEN to the .env file.` };
+      }
+      const result = await GithubBounty.scanForBounties({});
+      if (result.error) return { reply: `Scan failed, ${T}: ${result.error}` };
+      const queuedCount = result.queued.length;
+      const flaggedCount = result.flagged_medium.length;
+      if (queuedCount === 0 && flaggedCount === 0) {
+        return { reply: `Swept the usual queues, ${T} — nothing that looked both feasible and worth your name on right now.` };
+      }
+      const lines = [...result.queued, ...result.flagged_medium]
+        .slice(0, 5)
+        .map(c => `#${c.id} "${c.title}" — $${c.priceUsd}`)
+        .join("; ");
+      return {
+        reply: `Found ${queuedCount + flaggedCount} candidate${queuedCount + flaggedCount === 1 ? "" : "s"}, ${T}: ${lines}. Say "list bounty candidates" for the full queue, or "approve bounty <id>" to have me post an offer.`,
+        action: "BOUNTY_SCAN", intent: "bounty",
+      };
+    }
+
+    case "list_bounty_candidates": {
+      const pending = GithubBounty.listPending();
+      if (pending.length === 0) return { reply: `Nothing in the bounty queue right now, ${T}.` };
+      const lines = pending.slice(0, 8).map(c => `#${c.id} "${c.title}" (${c.difficulty}, $${c.priceUsd}) — ${c.url}`).join("\n");
+      return { reply: `Pending bounty candidates, ${T}:\n${lines}`, action: "BOUNTY_LIST", intent: "bounty" };
+    }
+
+    case "approve_bounty_candidate": {
+      const id = args.candidate_id;
+      if (!id) return { reply: `Which candidate should I approve, ${T}? Give me the number.` };
+      const result = await GithubBounty.approveCandidate(id);
+      if (result.error) return { reply: `Couldn't post that one, ${T}: ${result.error}` };
+      return { reply: `Posted, ${T} — offered $${result.priceUsd} on "${result.title}". ${result.commentUrl}`, action: "BOUNTY_APPROVED", intent: "bounty" };
+    }
+
+    case "reject_bounty_candidate": {
+      const id = args.candidate_id;
+      if (!id) return { reply: `Which candidate should I drop, ${T}?` };
+      const result = GithubBounty.rejectCandidate(id, args.reason);
+      if (result.error) return { reply: `${result.error}` };
+      return { reply: `Dropped "${result.title}" from the queue, ${T}.`, action: "BOUNTY_REJECTED", intent: "bounty" };
+    }
+
+    // ── Solana wallet (read-only) ──
+    case "check_wallet_balance": {
+      if (!SolanaWallet.isConfigured()) {
+        return { reply: `No wallet address on file yet, ${T} — add SOLANA_WALLET_ADDRESS to the .env file.` };
+      }
+      const balances = await SolanaWallet.getBalances();
+      const solPart = balances.sol?.sol != null ? `${balances.sol.sol.toFixed(3)} SOL` : "unknown SOL";
+      const usdcPart = balances.usdc?.usdc != null ? `${balances.usdc.usdc.toFixed(2)} USDC` : "unknown USDC";
+      const total = SolanaWallet.totalEarningsUsd();
+      return { reply: `Wallet's holding ${solPart} and ${usdcPart}, ${T}. Recorded earnings so far: $${total.toFixed(2)}.`, action: "WALLET_BALANCE", intent: "wallet" };
+    }
+
+    case "generate_solana_wallet": {
+      if (WalletSetup.hasExistingWallet() && !args.overwrite) {
+        return { reply: `There's already a wallet set up, ${T}. Say "overwrite" explicitly if you really want a fresh one — the old address's funds would need wallet.json backed up first.` };
+      }
+      const result = await WalletSetup.generateWallet({ overwrite: !!args.overwrite });
+      if (result.error) return { reply: `Couldn't generate a wallet, ${T}: ${result.error}` };
+      return {
+        reply: `New wallet generated, ${T}. Address: ${result.address}. ${result.warning} I'll need a restart to start watching it.`,
+        action: "WALLET_GENERATED", intent: "wallet",
+      };
+    }
+
     // ── call_on_teams / message_on_teams / join_teams_meeting ──
     // These exist because comms-router.js's regexes are a hard
     // gatekeeper BEFORE this tool-calling block ever runs (see the
@@ -4114,6 +4266,26 @@ async function boot() {
 
   bootstrapOwnerAccount();
   Improve.ensureDirs();
+
+  // ── Auto-generate a Solana wallet on first boot, if one isn't
+  // already set up. Runs make_wallet.py right here on this machine —
+  // never in a cloud job — so the private key is created and stays
+  // exactly where it's generated. Entirely non-fatal: if Python/pip
+  // isn't available (e.g. a bare cloud deploy with no Python), this
+  // just logs a note and Jarvis carries on without wallet features.
+  if (!SolanaWallet.isConfigured() && !WalletSetup.hasExistingWallet()) {
+    try {
+      const result = await WalletSetup.generateWallet({});
+      if (result.error) {
+        console.log(`[WALLET] Skipping auto wallet setup: ${result.error}`);
+      } else {
+        console.log(`[WALLET] Auto-generated a Solana wallet on first boot: ${result.address}`);
+        console.log(`[WALLET] ${result.warning}`);
+      }
+    } catch (e) {
+      console.log(`[WALLET] Skipping auto wallet setup: ${e.message}`);
+    }
+  }
 
   Improve.startImprovementLoop(5 * 60 * 1000);
   Trainer.startTrainingLoop(15 * 60 * 1000);
