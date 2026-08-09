@@ -323,6 +323,69 @@ async function approveCandidate(id) {
   }
 }
 
+// ── MAINTAINER REPLY CHECK ──────────────────────────────────────
+// For every posted-but-not-yet-resolved candidate, pulls new comments
+// on the issue since we posted, and asks the model whether the
+// maintainer's response reads as a clear go-ahead, a clear decline,
+// or neither. This NEVER writes code and NEVER opens a PR itself —
+// it only updates candidate.maintainerReply. codeApprovedCandidates()
+// (bounty-coder.js) is the only thing that acts on a "yes".
+const REPLY_SYSTEM_PROMPT = `You are reading GitHub issue comments to decide whether the REPO MAINTAINER (not a bystander) has clearly said "yes, go ahead" to a specific work offer that was posted. Reply with ONLY this JSON, no prose:
+{
+  "verdict": "approved" | "declined" | "unclear",
+  "reason": "one short sentence"
+}
+Only use "approved" if a maintainer-sounding reply is unambiguously affirmative (e.g. "sounds good", "go for it", "yes please"). Requests for more detail, silence, or a bystander commenting counts as "unclear". An explicit "no"/"someone's already on it"/closed issue counts as "declined". Be conservative — a false "approved" causes unwanted code changes to be proposed on someone else's repo.`;
+
+async function checkPostedForReplies() {
+  const store = loadStore();
+  const results = { approved: [], declined: [], unclear: [], errors: [] };
+  const toCheck = store.history.filter(c => c.status === "posted" && !c.maintainerReply);
+
+  for (const c of toCheck) {
+    try {
+      const comments = await ghFetch(`/repos/${c.owner}/${c.repo}/issues/${c.issueNumber}/comments?since=${c.postedAt}`);
+      const others = (Array.isArray(comments) ? comments : []).filter(cm => !(c.commentUrl || "").includes(String(cm.id)));
+      if (others.length === 0) continue; // nothing new yet, check again next scan
+
+      const transcript = others.map(cm => `${cm.user?.login || "someone"}: ${String(cm.body || "").slice(0, 500)}`).join("\n---\n");
+      const verdict = await groqJSON(REPLY_SYSTEM_PROMPT,
+        `Our offer on "${c.title}" (${c.url}):\n${c.proposalText}\n\nNew comments since we posted:\n${transcript}`);
+
+      c.maintainerReply = { verdict: verdict.verdict, reason: verdict.reason, checkedAt: new Date().toISOString() };
+      if (verdict.verdict === "approved") {
+        c.status = "awaiting_code"; // bounty-coder.js picks this up
+        results.approved.push({ id: c.id, key: c.key, title: c.title });
+      } else if (verdict.verdict === "declined") {
+        c.status = "declined";
+        results.declined.push({ id: c.id, key: c.key, title: c.title });
+      } else {
+        results.unclear.push({ id: c.id, key: c.key, title: c.title });
+      }
+    } catch (e) {
+      results.errors.push({ issue: c.key, error: e.message });
+    }
+  }
+
+  saveStore(store);
+  return results;
+}
+
+function listAwaitingCode() {
+  return loadStore().history.filter(c => c.status === "awaiting_code");
+}
+
+// Used by bounty-coder.js to move a candidate to its final state once
+// the code step has run (successfully or not).
+function updateCandidateStatus(id, updates = {}) {
+  const store = loadStore();
+  const c = store.history.find(x => x.id === Number(id));
+  if (!c) return { error: `No history candidate with id ${id}.` };
+  Object.assign(c, updates);
+  saveStore(store);
+  return c;
+}
+
 function rejectCandidate(id, reason) {
   const store = loadStore();
   const idx = store.pending.findIndex(x => x.id === Number(id));
@@ -359,4 +422,12 @@ module.exports = {
   approveCandidate,
   rejectCandidate,
   getStats,
+  checkPostedForReplies,
+  listAwaitingCode,
+  updateCandidateStatus,
+  // exported so bounty-coder.js can reuse the same auth'd GitHub
+  // client and Groq JSON helper instead of duplicating them
+  ghFetch,
+  groqJSON,
+  GITHUB_TOKEN,
 };
