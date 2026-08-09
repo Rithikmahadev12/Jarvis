@@ -35,6 +35,7 @@ const REPO_ROOT = path.join(__dirname, "..");
 
 const Persistence   = require(path.join(REPO_ROOT, "persistence.js"));
 const GithubBounty   = require(path.join(REPO_ROOT, "github-bounty.js"));
+const BountyCoder     = require(path.join(REPO_ROOT, "bounty-coder.js"));
 const SolanaWallet    = require(path.join(REPO_ROOT, "solana-wallet.js"));
 
 async function main() {
@@ -58,6 +59,27 @@ async function main() {
       console.log(`[BOUNTY-SCAN] Queued ${result.queued.length} easy candidate(s), ` +
         `${result.flagged_medium.length} medium (flagged for closer review), ` +
         `skipped ${result.skipped.length}, ${result.errors.length} error(s).`);
+    }
+  }
+
+  if (GithubBounty.isConfigured()) {
+    console.log("[BOUNTY-SCAN] Checking posted offers for maintainer replies...");
+    try {
+      const replyResult = await GithubBounty.checkPostedForReplies();
+      console.log(`[BOUNTY-SCAN] Replies — approved: ${replyResult.approved.length}, ` +
+        `declined: ${replyResult.declined.length}, unclear: ${replyResult.unclear.length}, ` +
+        `errors: ${replyResult.errors.length}.`);
+
+      if (replyResult.approved.length > 0) {
+        console.log(`[BOUNTY-SCAN] Writing draft fixes for ${replyResult.approved.length} approved candidate(s)...`);
+        const codeResults = await BountyCoder.codeAllAwaiting();
+        for (const r of codeResults) {
+          if (r.error) console.warn(`[BOUNTY-SCAN] Candidate #${r.candidateId} needs manual code:`, r.error);
+          else console.log(`[BOUNTY-SCAN] Opened draft PR for candidate #${r.candidateId}: ${r.prUrl}`);
+        }
+      }
+    } catch (e) {
+      console.warn("[BOUNTY-SCAN] Reply check / coding step failed:", e.message);
     }
   }
 
