@@ -17,6 +17,7 @@ const Computer    = require("./computer");
 const Google      = require("./google");
 const AgentMail   = require("./agent-mail"); // was "./agentmail" — didn't match the actual filename, so every AgentMail.* call below was throwing on require
 const GithubBounty = require("./github-bounty");
+const BountyCoder = require("./bounty-coder");
 const SolanaWallet  = require("./solana-wallet");
 const WalletSetup   = require("./wallet-setup");
 const DIY         = require("./diy-builder");
@@ -1201,6 +1202,27 @@ app.post("/api/bounty/:id/approve", async (req, res) => {
 
 app.post("/api/bounty/:id/reject", (req, res) => {
   try { res.json(GithubBounty.rejectCandidate(req.params.id, req.body?.reason)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Re-checks every posted offer's GitHub thread for a maintainer reply.
+// Only flips status to "awaiting_code" on a clear yes — never codes
+// anything itself.
+app.post("/api/bounty/check-replies", async (req, res) => {
+  try { res.json(await GithubBounty.checkPostedForReplies()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/bounty/awaiting-code", (req, res) => {
+  try { res.json(GithubBounty.listAwaitingCode()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// The one step that actually writes code and opens a (draft, unmerged)
+// PR against someone else's repo. Only runs on candidates already
+// marked awaiting_code by a confirmed maintainer yes.
+app.post("/api/bounty/:id/code", async (req, res) => {
+  try { res.json(await BountyCoder.codeCandidate(req.params.id)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -3056,6 +3078,31 @@ async function executeAssistantTool(name, args, ctx) {
       const result = GithubBounty.rejectCandidate(id, args.reason);
       if (result.error) return { reply: `${result.error}` };
       return { reply: `Dropped "${result.title}" from the queue, ${T}.`, action: "BOUNTY_REJECTED", intent: "bounty" };
+    }
+
+    // Re-reads maintainer replies on posted offers. A clear "yes"
+    // flips a candidate to awaiting_code; nothing gets coded here.
+    case "check_bounty_replies": {
+      const result = await GithubBounty.checkPostedForReplies();
+      const total = result.approved.length + result.declined.length + result.unclear.length;
+      if (total === 0) return { reply: `No new replies on any posted offers yet, ${T}.` };
+      const parts = [];
+      if (result.approved.length) parts.push(`${result.approved.length} said yes (${result.approved.map(c => `#${c.id}`).join(", ")})`);
+      if (result.declined.length) parts.push(`${result.declined.length} declined`);
+      if (result.unclear.length) parts.push(`${result.unclear.length} unclear`);
+      const extra = result.approved.length ? ` Say "code bounty <id>" to draft a fix, or I'll pick them up on the next scheduled scan.` : "";
+      return { reply: `${parts.join(", ")}, ${T}.${extra}`, action: "BOUNTY_REPLIES", intent: "bounty" };
+    }
+
+    // The only voice path that writes actual code and opens a PR —
+    // only works on a candidate already confirmed "awaiting_code"
+    // by a maintainer's real yes (see check_bounty_replies above).
+    case "code_bounty_candidate": {
+      const id = args.candidate_id;
+      if (!id) return { reply: `Which candidate should I draft code for, ${T}?` };
+      const result = await BountyCoder.codeCandidate(id);
+      if (result.error) return { reply: `Couldn't draft a fix for that one, ${T}: ${result.error}` };
+      return { reply: `Draft fix pushed, ${T} — opened a draft PR on ${result.file}: ${result.prUrl}. Still needs your (or the maintainer's) review before it's mergeable.`, action: "BOUNTY_CODED", intent: "bounty" };
     }
 
     // ── Solana wallet (read-only) ──
