@@ -1,136 +1,126 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Store Routes (mount into server.js)
+// J.A.R.V.I.S — Store Routes (direct wallet-to-wallet, no processor)
 //
-// Add these two lines near the other `require`s / route registrations
-// in server.js — that's the only edit server.js needs:
+// Add these two lines near the other route registrations in server.js
+// (this is the only server.js edit needed):
 //
 //   const StoreRoutes = require("./store-routes");
 //   StoreRoutes.mount(app);
 //
 // Endpoints:
-//   GET  /api/store/products              — full catalog (dashboard)
-//   POST /api/store/products/:id/approve  — publish a pending product
+//   GET  /store/:productId               — public checkout page (email + QR)
+//   POST /api/store/checkout             — { productId, buyerEmail } -> order + pay URI
+//   GET  /api/store/order/:id/status     — poll from the checkout page itself
+//   GET  /api/store/products             — full catalog (dashboard)
+//   POST /api/store/products/:id/approve
 //   POST /api/store/products/:id/reject
-//   GET  /api/store/sales                 — sales ledger
-//   POST /api/store/webhook/helio         — Helio payment webhook,
-//        verifies HELIO_WEBHOOK_SHARED_TOKEN, records the sale, and
-//        auto-delivers the product by email via AgentMail.
+//   GET  /api/store/sales                — sales ledger
+//
+// Actual payment DETECTION happens out-of-band in
+// scripts/scheduled-store-poll.js, not here — there's no webhook to
+// receive since there's no processor. This file just creates orders
+// and lets the checkout page ask "am I paid yet?".
 // ═══════════════════════════════════════════════════════════════
 
-const express    = require("express");
-const HelioStore = require("./helio-store");
-const AgentMail  = require("./agent-mail");
-
-const WEBHOOK_TOKEN = process.env.HELIO_WEBHOOK_SHARED_TOKEN || "";
+const express = require("express");
+const Store   = require("./direct-store");
 
 function mount(app) {
   app.get("/api/store/products", (req, res) => {
-    res.json({ products: HelioStore.listProducts() });
+    res.json({ products: Store.listProducts() });
   });
 
   app.post("/api/store/products/:id/approve", (req, res) => {
-    res.json(HelioStore.approveProduct(req.params.id));
+    res.json(Store.approveProduct(req.params.id));
   });
 
   app.post("/api/store/products/:id/reject", (req, res) => {
-    res.json(HelioStore.rejectProduct(req.params.id, req.body?.reason || ""));
+    res.json(Store.rejectProduct(req.params.id, req.body?.reason || ""));
   });
 
   app.get("/api/store/sales", (req, res) => {
-    res.json({ sales: HelioStore.listSales(), totalUsd: HelioStore.totalSalesUsd() });
+    res.json({ sales: Store.listSales(), totalUsd: Store.totalSalesUsd() });
   });
 
-  // Needs the RAW body to compare against the shared token cleanly —
-  // express.json() elsewhere in server.js is fine, this route just
-  // reads the parsed body since Helio's auth is a header, not an
-  // HMAC-over-raw-body signature (see helio-store.js comment for the
-  // upgrade path to HMAC verification if you register webhooks that way).
-  app.post("/api/store/webhook/helio", express.json(), async (req, res) => {
-    if (WEBHOOK_TOKEN) {
-      const auth = req.headers["authorization"] || "";
-      const token = auth.replace(/^Bearer\s+/i, "");
-      if (token !== WEBHOOK_TOKEN) {
-        console.warn("[store-webhook] rejected: bad/missing Authorization token");
-        return res.status(401).json({ error: "invalid webhook token" });
-      }
-    } else {
-      console.warn("[store-webhook] HELIO_WEBHOOK_SHARED_TOKEN not set — accepting unverified webhook. Set it in .env.");
+  app.post("/api/store/checkout", express.json(), (req, res) => {
+    const { productId, buyerEmail } = req.body || {};
+    const order = Store.createOrder({ productId, buyerEmail });
+    res.json(order);
+  });
+
+  app.get("/api/store/order/:id/status", (req, res) => {
+    const order = Store.getOrder(req.params.id);
+    if (!order) return res.status(404).json({ error: "No such order." });
+    res.json({ status: order.status, signature: order.signature || null });
+  });
+
+  app.get("/store/:productId", (req, res) => {
+    const product = Store.getProduct(req.params.productId);
+    if (!product || product.status !== "published") {
+      return res.status(404).send("<h1>Product not found</h1>");
     }
-
-    // Always 200 quickly so Helio doesn't retry-storm us; do the real
-    // work after responding is fine here since it's just file I/O + one
-    // outbound email call, nothing that needs to block the response.
-    res.status(200).json({ received: true });
-
-    try {
-      const body = req.body || {};
-      const txn = body.transactionObject || body.transaction || body;
-      const paylinkId = txn.paylinkId || txn.paylink || body.paylink;
-      const status = txn.transactionStatus || body.event;
-      if (!paylinkId || (status && status !== "SUCCESS" && status !== "CREATED")) return;
-
-      const amountRaw = Number(txn.totalAmount ?? txn.meta?.amount ?? 0);
-      const amountUsd = amountRaw > 0 ? amountRaw / 1_000_000 : null;
-      const buyerEmail = txn.customerDetails?.email || txn.meta?.email || body.email || null;
-
-      const sale = HelioStore.recordSale({
-        paylinkId,
-        amountUsd,
-        buyerEmail,
-        txSignature: txn.transactionSignature || null,
-      });
-
-      const product = HelioStore.getProductByPaylinkId(paylinkId);
-      if (product && buyerEmail && product.deliverable) {
-        await deliverProduct(product, buyerEmail, sale.id);
-      } else if (!buyerEmail) {
-        console.warn(`[store-webhook] sale ${sale.id} has no buyer email — "requireEmail" may be off for this Pay Link. Deliver manually.`);
-      }
-    } catch (e) {
-      console.error("[store-webhook] error processing payment:", e.message);
-    }
+    res.send(checkoutPageHtml(product));
   });
 }
 
-async function deliverProduct(product, buyerEmail, saleId) {
-  const inbox = await AgentMail.getOrCreateInbox("store-delivery", { displayName: "Jarvis Store" });
-  if (inbox.error) {
-    console.error("[store-webhook] can't deliver — AgentMail inbox unavailable:", inbox.error);
-    return;
-  }
+function checkoutPageHtml(product) {
+  const escapedName = String(product.name).replace(/</g, "&lt;");
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapedName}</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 480px; margin: 60px auto; padding: 0 20px; color: #111; }
+  h1 { font-size: 1.4rem; } .price { font-size: 2rem; font-weight: 700; margin: 8px 0 24px; }
+  input { width: 100%; padding: 12px; font-size: 1rem; box-sizing: border-box; border: 1px solid #ccc; border-radius: 8px; }
+  button { width: 100%; padding: 12px; font-size: 1rem; margin-top: 12px; background: #111; color: #fff; border: none; border-radius: 8px; cursor: pointer; }
+  #qr { margin: 24px auto; width: 220px; }
+  #status { margin-top: 16px; text-align: center; color: #666; }
+</style></head>
+<body>
+  <h1>${escapedName}</h1>
+  <div class="price">$${product.priceUsd} USDC</div>
+  <p>${(product.description || "").replace(/</g, "&lt;")}</p>
 
-  const attachments = [];
-  if (product.deliverable?.type === "file" && product.deliverable.path) {
-    const fs = require("fs");
-    try {
-      const content = fs.readFileSync(product.deliverable.path).toString("base64");
-      attachments.push({
-        filename: require("path").basename(product.deliverable.path),
-        content,
-        contentType: product.deliverable.contentType || "application/octet-stream",
-      });
-    } catch (e) {
-      console.error("[store-webhook] couldn't read deliverable file:", e.message);
-    }
-  }
+  <div id="emailStep">
+    <input id="email" type="email" placeholder="Your email (for delivery)" />
+    <button onclick="startCheckout()">Continue</button>
+  </div>
 
-  const textBody = product.deliverable?.type === "text"
-    ? product.deliverable.content
-    : `Thanks for your purchase of "${product.name}"! Your file is attached.`;
+  <div id="payStep" style="display:none; text-align:center;">
+    <p>Scan with a Solana wallet app (Phantom, Solflare, etc.) to pay:</p>
+    <div id="qr"></div>
+    <p><a id="payLink" href="#">Or open in your wallet app</a></p>
+    <div id="status">Waiting for payment...</div>
+  </div>
 
-  const sent = await AgentMail.sendMessage(inbox.inbox_id, {
-    to: buyerEmail,
-    subject: `Your purchase: ${product.name}`,
-    text: textBody,
-    attachments: attachments.length ? attachments : undefined,
+<script>
+async function startCheckout() {
+  const buyerEmail = document.getElementById('email').value;
+  if (!buyerEmail) return alert('Enter an email so we know where to send it.');
+  const res = await fetch('/api/store/checkout', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ productId: '${product.id}', buyerEmail })
   });
+  const order = await res.json();
+  if (order.error) return alert(order.error);
 
-  if (sent.error) {
-    console.error(`[store-webhook] delivery email failed for sale ${saleId}:`, sent.error);
-  } else {
-    HelioStore.markDelivered(saleId);
-  }
+  document.getElementById('emailStep').style.display = 'none';
+  document.getElementById('payStep').style.display = 'block';
+  new QRCode(document.getElementById('qr'), { text: order.payUri, width: 220, height: 220 });
+  document.getElementById('payLink').href = order.payUri;
+
+  const poll = setInterval(async () => {
+    const s = await (await fetch('/api/store/order/' + order.id + '/status')).json();
+    if (s.status === 'paid') {
+      clearInterval(poll);
+      document.getElementById('status').textContent = 'Paid! Check your email for your download.';
+    }
+  }, 5000);
+}
+</script>
+</body></html>`;
 }
 
 module.exports = { mount };
