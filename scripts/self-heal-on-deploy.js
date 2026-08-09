@@ -41,6 +41,17 @@ const SafeDeploy = require(path.join(__dirname, "..", "safe-deploy"));
 const REPO_ROOT   = path.join(__dirname, "..");
 const PROBE_PORT  = "39872";
 const BOOT_TIMEOUT_MS = 12000;
+// After a crash is first seen, wait this long and check again before
+// touching any code. Covers the common false alarm where this repo
+// deployed fine but depends on another file/service (a separate repo,
+// an env var, a migration) that the dev just hasn't pushed/updated
+// yet — retrying a few minutes later often resolves itself with zero
+// code changes needed, so there's nothing to self-heal in that case.
+const RECHECK_DELAY_MS = 2 * 60 * 1000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // ── Loop guard ────────────────────────────────────────────────
 function lastCommitIsSelfHeal() {
@@ -125,8 +136,23 @@ async function main() {
   console.log(`[SELF-HEAL-DEPLOY] Deploy FAILED to boot (exit code ${health.code}). Crash output:`);
   console.log(health.stderr.slice(-2000));
 
-  const relFilePath = findCulpritFile(health.stderr);
-  const bugDescription = `App crashes on boot immediately after the latest deploy to main. Crash output:\n${health.stderr.slice(-1500)}`;
+  console.log(`[SELF-HEAL-DEPLOY] Waiting ${RECHECK_DELAY_MS / 1000}s before touching anything — ` +
+    `this might just be a dependency (another repo/file/env var) that hasn't finished updating yet...`);
+  await sleep(RECHECK_DELAY_MS);
+
+  console.log("[SELF-HEAL-DEPLOY] Rechecking boot health...");
+  const recheck = await bootHealthCheck();
+
+  if (recheck.healthy) {
+    console.log("[SELF-HEAL-DEPLOY] Boots cleanly now — whatever it was waiting on must have caught up. Nothing to heal, no code touched.");
+    return;
+  }
+
+  console.log(`[SELF-HEAL-DEPLOY] Still crashing after the wait (exit code ${recheck.code}). Proceeding with self-heal. Latest crash output:`);
+  console.log(recheck.stderr.slice(-2000));
+
+  const relFilePath = findCulpritFile(recheck.stderr);
+  const bugDescription = `App crashes on boot immediately after the latest deploy to main (confirmed still crashing after a ${RECHECK_DELAY_MS / 1000}s recheck, so this isn't just another file/service catching up late). Crash output:\n${recheck.stderr.slice(-1500)}`;
 
   console.log(`[SELF-HEAL-DEPLOY] Suspected culprit file: ${relFilePath}`);
   console.log("[SELF-HEAL-DEPLOY] Handing off to the safe-deploy self-heal pipeline (fresh clone, guarded fix, boot-tested before shipping)...");
