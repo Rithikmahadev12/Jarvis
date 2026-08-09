@@ -7,11 +7,16 @@
 // OTP codes, "confirm your email" links, etc).
 //
 // This module is intentionally just the PLUMBING: create an inbox,
-// remember it per-service, list/search its messages, and pull a
-// verification code/link out of the latest one. It does NOT go fill
-// out signup forms on websites by itself — pair it with the existing
-// computer/UI-automation tools (computer.js, ui-automation.js) when
-// you wire up an actual "sign up for X" flow later.
+// remember it per-service, list/search its messages, pull a
+// verification code/link out of the latest one, and (via
+// sendMessage) send ordinary transactional email from an inbox
+// Jarvis already owns. It does NOT go fill out signup forms on
+// websites by itself — pair it with the existing computer/
+// UI-automation tools (computer.js, ui-automation.js) if you wire up
+// an actual "sign up for X" flow later. And it never creates
+// accounts on OTHER services by itself either — see the note in
+// helio-store.js for why that stays a manual, one-time human step
+// for anything involving money.
 //
 // Docs: https://www.agentmail.to/docs
 // Get a free API key at: https://www.agentmail.to (console → API Keys)
@@ -183,6 +188,24 @@ async function waitForMessage(inboxId, { fromContains, subjectContains, timeoutM
   return { error: `No matching email arrived within ${Math.round(timeoutMs / 1000)}s.` };
 }
 
+// ── SEND A MESSAGE ─────────────────────────────────────────────
+// For ordinary transactional email FROM an inbox Jarvis already
+// owns — e.g. delivering a purchased digital product after a Helio
+// payment (see helio-store.js / store-routes.js). This is a normal
+// "send an email" action, not a signup: it doesn't create any new
+// account or agree to anything on Jarvis's behalf.
+// attachments: [{ filename, content /* base64 */, contentType }]
+async function sendMessage(inboxId, { to, subject, text, html, attachments } = {}) {
+  if (!inboxId) return { error: "Missing inboxId." };
+  if (!to || !subject || (!text && !html)) {
+    return { error: "to, subject, and text or html are required." };
+  }
+  return api(`/inboxes/${encodeURIComponent(inboxId)}/messages/send`, {
+    method: "POST",
+    body: { to, subject, text, html, attachments },
+  });
+}
+
 // ── HIGH-LEVEL HELPER: "give me an email to sign up for X" ────
 async function signupAddressFor(serviceName) {
   const inbox = await getOrCreateInbox(serviceName, { displayName: `Jarvis (${serviceName})` });
@@ -208,6 +231,7 @@ module.exports = {
   listMessages,
   getMessage,
   searchMessages,
+  sendMessage,
   waitForMessage,
   extractVerificationCode,
   extractVerificationLink,
