@@ -26,6 +26,28 @@
 // target repo (GITHUB_BOUNTY_TOKEN, falling back to the existing
 // GITHUB_TOKEN). Use a token tied to whatever GitHub account you
 // actually want maintainers to see and pay.
+//
+// ── BOUNTY_AUTO_PUBLISH ────────────────────────────────────────
+// Same idea as direct-store.js's STORE_AUTO_PUBLISH. Default is
+// "false": every candidate lands in the pending queue as
+// "pending_review" and a human calls approveCandidate() before
+// anything is posted to GitHub. Set BOUNTY_AUTO_PUBLISH=true as a
+// repo/Actions secret and scanForBounties() will post the offer
+// comment itself for any "easy", high-confidence candidate the
+// moment it's found — no queue, no manual approve step.
+//
+// This only auto-skips the "should we even offer on this" review.
+// It does NOT skip the separate, more important gate later in the
+// pipeline: coding only ever happens after checkPostedForReplies()
+// reads an ACTUAL maintainer reply and classifies it as a clear
+// yes (see the "awaiting_code" status below and bounty-coder.js).
+// So with this on, the fully autonomous loop is: scan finds an
+// issue -> auto-posts an offer -> next scheduled run checks for a
+// maintainer reply -> only if they said yes, bounty-coder.js codes
+// it and opens a draft PR for you to review. "Medium" candidates
+// still always land in the queue for manual review regardless of
+// this flag, since they're explicitly the ones Jarvis is less sure
+// about.
 // ═══════════════════════════════════════════════════════════════
 
 const fs   = require("fs");
@@ -42,6 +64,7 @@ const MIN_PRICE   = Number(process.env.BOUNTY_MIN_PRICE_USD) || 5;
 const MAX_PRICE   = Number(process.env.BOUNTY_MAX_PRICE_USD) || 40;
 const MAX_PER_SCAN = Number(process.env.BOUNTY_MAX_PER_SCAN) || 8;
 const MIN_CONFIDENCE = Number(process.env.BOUNTY_MIN_CONFIDENCE) || 0.6;
+const AUTO_PUBLISH = String(process.env.BOUNTY_AUTO_PUBLISH || "false").toLowerCase() === "true";
 
 // Comma-separated allowlist, e.g. "javascript,typescript,python" —
 // empty means "any language".
@@ -208,7 +231,7 @@ async function scanForBounties({ queries = DEFAULT_QUERIES, maxPerScan = MAX_PER
     return { error: "No GitHub token configured. Set GITHUB_BOUNTY_TOKEN (or GITHUB_TOKEN) in .env." };
   }
   const store = loadStore();
-  const results = { queued: [], flagged_medium: [], skipped: [], errors: [] };
+  const results = { queued: [], flagged_medium: [], skipped: [], errors: [], autoPosted: [] };
 
   outer:
   for (const query of queries) {
@@ -269,6 +292,28 @@ async function scanForBounties({ queries = DEFAULT_QUERIES, maxPerScan = MAX_PER
         status: "pending_review",
         discoveredAt: new Date().toISOString(),
       };
+
+      // Auto-publish only ever applies to "easy" candidates — medium
+      // ones always go to the manual queue, auto-publish or not.
+      if (AUTO_PUBLISH && evaluation.difficulty === "easy") {
+        try {
+          const comment = await postComment(candidate.owner, candidate.repo, candidate.issueNumber, candidate.proposalText);
+          candidate.status = "posted";
+          candidate.postedAt = new Date().toISOString();
+          candidate.commentUrl = comment.html_url;
+          candidate.autoPublished = true;
+          store.history.push(candidate);
+          results.autoPosted.push({ id: candidate.id, key, title: issue.title, priceUsd, commentUrl: comment.html_url });
+        } catch (e) {
+          // Couldn't post it automatically — don't lose the candidate,
+          // just fall back to the manual queue same as non-auto mode.
+          candidate.status = "pending_review";
+          store.pending.push(candidate);
+          results.errors.push({ issue: key, error: `Auto-publish failed, left for manual review: ${e.message}` });
+        }
+        continue;
+      }
+
       store.pending.push(candidate);
       (evaluation.difficulty === "easy" ? results.queued : results.flagged_medium).push({ id: candidate.id, key, title: issue.title, priceUsd });
     }
