@@ -216,6 +216,12 @@ app.use(express.static(path.join(__dirname, "public"), {
 app.use("/soundeffects", express.static(path.join(__dirname, "soundeffects")));
 
 // ═══════════════════════════════════════════════════════════════
+// ── STORE — direct wallet-to-wallet checkout (no processor)
+// ═══════════════════════════════════════════════════════════════
+const StoreRoutes = require("./store-routes");
+StoreRoutes.mount(app);
+
+// ═══════════════════════════════════════════════════════════════
 // ── COMMS
 // ═══════════════════════════════════════════════════════════════
 const attachComms = require("./comms-server");
