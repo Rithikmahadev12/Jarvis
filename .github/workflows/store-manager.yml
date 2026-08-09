@@ -2,27 +2,17 @@ name: Store Manager
 
 on:
   schedule:
-    # Once a day at ~9am Pacific. Adjust the cron / TZ to taste —
-    # runs.js itself just does one product per invocation, so more
-    # frequent runs mean more products per day.
-    - cron: "0 17 * * *"
-  workflow_dispatch: {}   # trigger manually from the Actions tab to test
+    - cron: "0 17 * * *"   # once a day, ~9am Pacific (adjust to taste)
+  workflow_dispatch: {}
 
 jobs:
   store-run:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Install dependencies
-        run: npm install --omit=dev
-
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: npm install --omit=dev
       - name: Generate + publish a product
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -30,12 +20,9 @@ jobs:
           SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GROQ_API_KEY2: ${{ secrets.GROQ_API_KEY2 }}
-          HELIO_API_KEY: ${{ secrets.HELIO_API_KEY }}
-          HELIO_SECRET_KEY: ${{ secrets.HELIO_SECRET_KEY }}
-          HELIO_WALLET_ID: ${{ secrets.HELIO_WALLET_ID }}
-          HELIO_USDC_CURRENCY_ID: ${{ secrets.HELIO_USDC_CURRENCY_ID }}
-          HELIO_SOLANA_ENGINE_ID: ${{ secrets.HELIO_SOLANA_ENGINE_ID }}
+          SOLANA_WALLET_ADDRESS: ${{ secrets.SOLANA_WALLET_ADDRESS }}
+          SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
           STORE_PRICE_USD: ${{ secrets.STORE_PRICE_USD }}
           STORE_AUTO_PUBLISH: ${{ secrets.STORE_AUTO_PUBLISH }}
-          STORE_WEBHOOK_URL: ${{ secrets.STORE_WEBHOOK_URL }}
+          STORE_BASE_URL: ${{ secrets.STORE_BASE_URL }}
         run: node scripts/scheduled-store-run.js
