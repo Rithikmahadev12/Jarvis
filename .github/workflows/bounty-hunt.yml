@@ -56,6 +56,7 @@ jobs:
           BOUNTY_MIN_PRICE_USD: ${{ secrets.BOUNTY_MIN_PRICE_USD }}
           BOUNTY_MAX_PRICE_USD: ${{ secrets.BOUNTY_MAX_PRICE_USD }}
           BOUNTY_LANGUAGES: ${{ secrets.BOUNTY_LANGUAGES }}
+          BOUNTY_AUTO_PUBLISH: ${{ secrets.BOUNTY_AUTO_PUBLISH }}
           # SOLANA_WALLET_ADDRESS is NOT needed here — the address
           # lives in data/wallet-config.json, which gets pulled down
           # automatically from Supabase by scheduled-bounty-scan.js.
