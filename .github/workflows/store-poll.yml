@@ -1,0 +1,25 @@
+name: Store Poll
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # every 10 minutes — checks pending orders, delivers on payment
+  workflow_dispatch: {}
+
+jobs:
+  store-poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: npm install --omit=dev
+      - name: Check pending orders + deliver paid ones
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
+          SOLANA_WALLET_ADDRESS: ${{ secrets.SOLANA_WALLET_ADDRESS }}
+          SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+          AGENTMAIL_API_KEY: ${{ secrets.AGENTMAIL_API_KEY }}
+          AGENTMAIL_DOMAIN: ${{ secrets.AGENTMAIL_DOMAIN }}
+        run: node scripts/scheduled-store-poll.js
