@@ -107,6 +107,11 @@ async function ollamaCloudChat(messages, options = {}) {
     maxTokens   = 1024,
     tools       = null,
     tool_choice = "auto",
+    // Pass "json" to force strict JSON-object output — Ollama's native
+    // /api/chat supports this the same way Groq's response_format:
+    // {type:"json_object"} does. Used by callers (e.g. github-bounty.js's
+    // triage step) that need to JSON.parse() the reply.
+    format      = null,
   } = options;
 
   if (!OLLAMA_API_KEY) throw new Error("OLLAMA_API_KEY not set in .env");
@@ -118,6 +123,7 @@ async function ollamaCloudChat(messages, options = {}) {
     options: { temperature, num_predict: maxTokens },
   };
   if (tools && tools.length) { body.tools = tools; body.tool_choice = tool_choice; }
+  if (format) body.format = format;
 
   let res;
   try {
