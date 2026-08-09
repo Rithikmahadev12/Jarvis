@@ -15,6 +15,7 @@ const Spotify     = require("./spotify");
 const Instagram   = require("./instagram");
 const Computer    = require("./computer");
 const Google      = require("./google");
+const AgentMail   = require("./agentmail");
 const DIY         = require("./diy-builder");
 const Build       = require("./build-engine");
 const BuildAI     = require("./build-ai");
@@ -1132,6 +1133,31 @@ app.get("/api/activity/:user", async (req, res) => {
 app.post("/api/weather", async (req, res) => {
   try { res.json(await Weather.handleWeatherCommand(req.body.message || "weather")); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── AGENTMAIL (disposable/persistent inboxes for signups) ──
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/agentmail/inbox", async (req, res) => {
+  try {
+    const { service, forceNew, displayName } = req.body || {};
+    res.json(await AgentMail.getOrCreateInbox(service || "general", { forceNew, displayName }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/agentmail/inbox/:service/messages", async (req, res) => {
+  try {
+    const inbox = await AgentMail.getOrCreateInbox(req.params.service);
+    if (inbox.error) return res.status(400).json(inbox);
+    res.json(await AgentMail.listMessages(inbox.inbox_id, { limit: Number(req.query.limit) || 10 }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/agentmail/verify/:service", async (req, res) => {
+  try {
+    const { fromContains, subjectContains, timeoutMs } = req.body || {};
+    res.json(await AgentMail.checkVerificationFor(req.params.service, { fromContains, subjectContains, timeoutMs }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -3470,6 +3496,42 @@ async function executeAssistantTool(name, args, ctx) {
     case "read_email": {
       const idx = Number(args?.index);
       return await handleReadEmail({ index: Number.isFinite(idx) ? idx : undefined, sender: args?.sender }, T, sessionId);
+    }
+
+    case "create_agent_email": {
+      if (!AgentMail.isConfigured()) {
+        return { reply: `AgentMail isn't set up yet, ${T} — add AGENTMAIL_API_KEY to the .env file and I'll be able to mint real inboxes.`, action: "AGENTMAIL", intent: "create_agent_email" };
+      }
+      const service = args?.service || "general";
+      const result = await AgentMail.signupAddressFor(service);
+      if (result.error) return { reply: `Couldn't create an inbox for ${service}, ${T}: ${result.error}`, action: "AGENTMAIL", intent: "create_agent_email" };
+      const verb = result.reused ? "already have" : "just created";
+      return {
+        reply: `${T}, you ${verb} a Jarvis inbox for ${service}: ${result.email}. I can use that to sign up and pull out any verification code that comes back.`,
+        action: "AGENTMAIL",
+        intent: "create_agent_email",
+        meta: { email: result.email, inbox_id: result.inbox_id, service },
+      };
+    }
+
+    case "check_agent_email": {
+      if (!AgentMail.isConfigured()) {
+        return { reply: `AgentMail isn't set up yet, ${T} — add AGENTMAIL_API_KEY to the .env file first.`, action: "AGENTMAIL", intent: "check_agent_email" };
+      }
+      const service = args?.service || "general";
+      const timeoutMs = Math.min(Math.max(Number(args?.wait_seconds) || 20, 5), 120) * 1000;
+      const result = await AgentMail.checkVerificationFor(service, { timeoutMs });
+      if (result.error) return { reply: `Nothing new for ${service} yet, ${T} — ${result.error}`, action: "AGENTMAIL", intent: "check_agent_email" };
+      const bits = [];
+      if (result.code) bits.push(`the code is ${result.code}`);
+      if (result.link) bits.push(`there's also a link: ${result.link}`);
+      const summary = bits.length ? bits.join(", ") : "an email came in but I couldn't spot a code or link — want me to read it in full?";
+      return {
+        reply: `Got it, ${T} — ${summary}`,
+        action: "AGENTMAIL",
+        intent: "check_agent_email",
+        meta: { code: result.code || null, link: result.link || null, service },
+      };
     }
 
     case "get_calendar": {
