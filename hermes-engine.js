@@ -586,6 +586,35 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "create_agent_email",
+      description: "Create (or reuse) a REAL email inbox Jarvis controls, to hand out when signing the user up for something — a trial, a newsletter, a service, an account. Call this when the user asks you to sign up for/register for/create an account on something, or asks for 'an email to use for X'. Reuses the same address per service so re-running signup flows or checking mail later works. Needs AGENTMAIL_API_KEY configured; if missing, say so plainly instead of pretending it worked.",
+      parameters: {
+        type: "object",
+        properties: {
+          service: { type: "string", description: "Short name of the thing being signed up for, e.g. 'notion', 'spotify-trial', 'acme-newsletter'. Used to remember which inbox belongs to which signup." },
+        },
+        required: ["service"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "check_agent_email",
+      description: "Check the Jarvis-controlled inbox for a given service (created earlier with create_agent_email) for a new message, and try to pull out a verification code or confirmation link from it. Call this right after triggering a signup/verification email, or when the user asks 'did the code come through' / 'check that signup email'.",
+      parameters: {
+        type: "object",
+        properties: {
+          service:      { type: "string", description: "Same service name used with create_agent_email." },
+          wait_seconds: { type: "number", description: "How long to wait for the email to arrive before giving up, in seconds (default 20, max 120)." },
+        },
+        required: ["service"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "make_board",
       description: "Create a small floating on-screen info board about a topic and display it right on the main screen (not a page or panel). Call this for things like 'make a board on how you work', 'make me a board about the solar system', 'jarvis, board on X'. The board is written by you and saved so it can be pulled back up later, even after the page is refreshed.",
       parameters: {
@@ -968,7 +997,7 @@ async function chatWithTools({ message, userTitle = "Sir", memories = [], contex
   // is a free, behavior-preserving token cut.
   const systemPrompt = getSystemPrompt(T, memories, context, [], true) + `
 
-You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, reading a specific email in full once they pick one, checking their real Google Calendar, showing/hiding the live camera feed fullscreen, starting/stopping a downloadable screen/tab/webcam recording, instantly clipping the last N seconds of screen or webcam activity, noticing when the user needs a break, and (when Jarvis is running on the user's own computer) opening apps/files/URLs, checking disk space, running shell commands, typing text into the active window, and scanning for/neutralizing security threats. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. COMPOUND REQUESTS matter here: if the user asks for more than one thing in the same message (e.g. "open VS Code and type a flappy bird script"), call ALL the relevant tools in that SAME response — do not stop after the first one. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. After check_email lists unread emails and the user replies with something like "read the first one" or "the one from Sarah", call read_email with the right index or sender. If nothing calls for a tool, just answer normally in plain text.
+You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, reading a specific email in full once they pick one, checking their real Google Calendar, showing/hiding the live camera feed fullscreen, starting/stopping a downloadable screen/tab/webcam recording, instantly clipping the last N seconds of screen or webcam activity, noticing when the user needs a break, and (when Jarvis is running on the user's own computer) opening apps/files/URLs, checking disk space, running shell commands, typing text into the active window, scanning for/neutralizing security threats, and (when AgentMail is configured) creating a real email inbox to sign the user up for something and checking it for verification codes/links. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. COMPOUND REQUESTS matter here: if the user asks for more than one thing in the same message (e.g. "open VS Code and type a flappy bird script"), call ALL the relevant tools in that SAME response — do not stop after the first one. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. After check_email lists unread emails and the user replies with something like "read the first one" or "the one from Sarah", call read_email with the right index or sender. If nothing calls for a tool, just answer normally in plain text.
 
 Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use this to compute datetime_iso for reminders.`;
 
