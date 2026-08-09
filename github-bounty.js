@@ -52,6 +52,16 @@
 // still always land in the queue for manual review regardless of
 // this flag, since they're explicitly the ones Jarvis is less sure
 // about.
+//
+// Turning the flag on also sweeps the EXISTING pending queue: any
+// "easy" candidate already sitting there un-reviewed (found before
+// the flag was set, or left behind by a failed auto-post) gets its
+// offer posted too, at the start of the very next scan — see
+// autoPublishBacklog() below. From there it flows through the same
+// pipeline as everything else: scheduled-bounty-scan.js already
+// runs checkPostedForReplies() and BountyCoder.codeAllAwaiting()
+// right after every scan, so a backlog candidate that gets a "yes"
+// reply is coded automatically in a later run, same as any other.
 // ═══════════════════════════════════════════════════════════════
 
 const fs   = require("fs");
@@ -262,13 +272,62 @@ Requirements for the comment:
   return reply.trim();
 }
 
+// ── BACKLOG SWEEP ──────────────────────────────────────────────
+// When AUTO_PUBLISH just got turned on, there can already be "easy"
+// candidates sitting in the pending queue from before (either found
+// while auto-publish was off, or left behind by a failed auto-post
+// attempt). This posts the offer for any of those too, so turning
+// the flag on doesn't leave old candidates stuck waiting for a
+// manual approve that's never coming. Same "easy only" restriction
+// as the inline auto-publish path above. Called automatically at the
+// top of scanForBounties() when AUTO_PUBLISH is true; also exported
+// standalone so it can be triggered on its own (dashboard/voice) if
+// the flag gets turned on between scheduled scans.
+async function autoPublishBacklog() {
+  const store = loadStore();
+  const results = { autoPosted: [], errors: [] };
+  if (!AUTO_PUBLISH || !isConfigured()) return results;
+
+  const backlog = store.pending.filter(c => c.difficulty === "easy");
+  for (const c of backlog) {
+    const idx = store.pending.findIndex(x => x.id === c.id);
+    if (idx === -1) continue;
+    try {
+      const comment = await postComment(c.owner, c.repo, c.issueNumber, c.proposalText);
+      c.status = "posted";
+      c.postedAt = new Date().toISOString();
+      c.commentUrl = comment.html_url;
+      c.autoPublished = true;
+      c.autoPublishedFromBacklog = true;
+      store.pending.splice(idx, 1);
+      store.history.push(c);
+      results.autoPosted.push({ id: c.id, key: c.key, title: c.title, priceUsd: c.priceUsd, commentUrl: comment.html_url });
+    } catch (e) {
+      results.errors.push({ issue: c.key, error: `Backlog auto-publish failed: ${e.message}` });
+    }
+  }
+
+  saveStore(store);
+  return results;
+}
+
 // ── SCAN ─────────────────────────────────────────────────────────
 async function scanForBounties({ queries = DEFAULT_QUERIES, maxPerScan = MAX_PER_SCAN } = {}) {
   if (!isConfigured()) {
     return { error: "No GitHub token configured. Set GITHUB_BOUNTY_TOKEN (or GITHUB_TOKEN) in .env." };
   }
+
+  // Sweep any pre-existing "easy" candidates left pending from before
+  // AUTO_PUBLISH was turned on (or from a prior failed auto-post).
+  const backlogResult = AUTO_PUBLISH
+    ? await autoPublishBacklog()
+    : { autoPosted: [], errors: [] };
+
   const store = loadStore();
-  const results = { queued: [], flagged_medium: [], skipped: [], errors: [], autoPosted: [] };
+  const results = {
+    queued: [], flagged_medium: [], skipped: [], errors: [...backlogResult.errors],
+    autoPosted: [...backlogResult.autoPosted],
+  };
 
   outer:
   for (const query of queries) {
@@ -381,9 +440,14 @@ function editCandidate(id, updates = {}) {
   return c;
 }
 
-// Only function in this module that actually talks to GitHub in a
-// way that's visible to the outside world. Never called from
-// scanForBounties() — only from an explicit human "approve" action.
+// Posts the offer comment for a single approved candidate — the core
+// GitHub-writing action, used both by the explicit human "approve"
+// action below and by the AUTO_PUBLISH paths above/in
+// autoPublishBacklog(), which call postComment() directly the same
+// way rather than going through this function (they need to move
+// the candidate between store.pending/store.history as part of a
+// batch, so they inline the same steps instead of loading/saving the
+// store twice per candidate).
 async function approveCandidate(id) {
   if (!isConfigured()) return { error: "No GitHub token configured." };
   const store = loadStore();
@@ -497,6 +561,7 @@ function getStats() {
 module.exports = {
   isConfigured,
   scanForBounties,
+  autoPublishBacklog,
   listPending,
   listHistory,
   getCandidate,
