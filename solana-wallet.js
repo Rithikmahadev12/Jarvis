@@ -110,7 +110,34 @@ async function getBalances() {
 }
 
 // ── PAYMENT REQUEST LINKS (Solana Pay URI scheme) ────────────────
-function buildPaymentLink({ amount, token = "usdc", label = "Jarvis", message = "" } = {}) {
+// A "reference" is how Solana Pay lets you tell orders apart without
+// any third-party processor: it's just 32 random bytes, base58-
+// encoded like a Solana address. Wallets that support the spec (all
+// major ones — Phantom, Solflare, Backpack, etc.) automatically
+// include it as an extra tagged account in the transfer transaction.
+// findTransactionByReference() below then searches the chain for
+// exactly that tag, whether or not it holds any funds itself.
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function base58Encode(bytes) {
+  let digits = [0];
+  for (const byte of bytes) {
+    let carry = byte;
+    for (let i = 0; i < digits.length; i++) {
+      carry += digits[i] << 8;
+      digits[i] = carry % 58;
+      carry = Math.floor(carry / 58);
+    }
+    while (carry > 0) { digits.push(carry % 58); carry = Math.floor(carry / 58); }
+  }
+  for (const byte of bytes) { if (byte === 0) digits.push(0); else break; }
+  return digits.reverse().map(d => BASE58_ALPHABET[d]).join("");
+}
+function generateReference() {
+  const crypto = require("crypto");
+  return base58Encode(crypto.randomBytes(32));
+}
+
+function buildPaymentLink({ amount, token = "usdc", label = "Jarvis", message = "", reference } = {}) {
   const address = getAddress();
   if (!address) return { error: "No wallet address set (data/wallet-config.json empty and SOLANA_WALLET_ADDRESS unset)." };
   const params = new URLSearchParams();
@@ -118,7 +145,25 @@ function buildPaymentLink({ amount, token = "usdc", label = "Jarvis", message = 
   if (token === "usdc") params.set("spl-token", USDC_MINT);
   if (label) params.set("label", label);
   if (message) params.set("message", message);
-  return { uri: `solana:${address}?${params.toString()}` };
+  if (reference) params.set("reference", reference);
+  return { uri: `solana:${address}?${params.toString()}`, reference: reference || null };
+}
+
+// ── FIND A PAYMENT BY ITS REFERENCE TAG ──────────────────────────
+// Searches the chain for a transaction that included this reference
+// account — i.e. "has THIS specific order been paid yet?" Read-only,
+// same as everything else in this file.
+async function findTransactionByReference(reference) {
+  if (!reference) return { error: "Missing reference." };
+  const sigs = await rpc("getSignaturesForAddress", [reference, { limit: 5 }]);
+  const confirmed = (sigs || []).find(s => !s.err);
+  if (!confirmed) return { found: false };
+  return {
+    found: true,
+    signature: confirmed.signature,
+    blockTime: confirmed.blockTime ? new Date(confirmed.blockTime * 1000).toISOString() : null,
+    explorerUrl: `https://explorer.solana.com/tx/${confirmed.signature}`,
+  };
 }
 
 // ── INCOMING PAYMENT WATCHER ──────────────────────────────────────
@@ -182,6 +227,8 @@ module.exports = {
   getUsdcBalance,
   getBalances,
   buildPaymentLink,
+  generateReference,
+  findTransactionByReference,
   checkIncomingPayments,
   recordEarning,
   listEarnings,
