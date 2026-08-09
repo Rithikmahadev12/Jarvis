@@ -4,25 +4,22 @@
 //
 // Runs on GitHub's own servers on a schedule (see
 // .github/workflows/store-manager.yml), so it works whether your PC
-// is on, off, or asleep — same mechanism as bounty-hunt.yml and
-// night-shift-research.yml. Each run:
+// is on, off, or asleep. Each run:
 //
-//   1. Pulls data/ down from Supabase (same as the other scheduled
-//      jobs) so it sees the existing catalog/sales history.
+//   1. Pulls data/ down from Supabase so it sees the existing catalog.
 //   2. Picks a topic it hasn't made a product for yet, asks Groq to
 //      write it, and saves it as a markdown file.
-//   3. Calls HelioStore.publishProduct() — creates the Pay Link via
-//      the Helio API (requires HELIO_API_KEY/SECRET_KEY/WALLET_ID to
-//      already be set as Actions secrets — see helio-store.js for the
-//      one-time manual setup) and adds it to the local catalog.
+//   3. Calls Store.publishProduct() — purely local, no external
+//      account/API needed (see direct-store.js: this sells straight
+//      to your wallet, no processor in the loop).
 //   4. By default the product lands as "pending_review" — open the
 //      dashboard and approve/reject it. Set STORE_AUTO_PUBLISH=true
 //      as a repo secret if you want it to go live with zero review.
 //   5. Pushes data/ back up to Supabase.
 //
 // Required Actions secrets: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
-// SUPABASE_BUCKET, GROQ_API_KEY, HELIO_API_KEY, HELIO_SECRET_KEY,
-// HELIO_WALLET_ID, and optionally STORE_AUTO_PUBLISH.
+// SUPABASE_BUCKET, GROQ_API_KEY, and optionally STORE_AUTO_PUBLISH,
+// STORE_PRICE_USD.
 // ═══════════════════════════════════════════════════════════════
 
 const fs   = require("fs");
@@ -30,7 +27,7 @@ const path = require("path");
 
 const REPO_ROOT = path.join(__dirname, "..");
 const Persistence = require(path.join(REPO_ROOT, "persistence.js"));
-const HelioStore   = require(path.join(REPO_ROOT, "helio-store.js"));
+const Store        = require(path.join(REPO_ROOT, "direct-store.js"));
 const Groq         = require(path.join(REPO_ROOT, "hermes-engine.js"));
 
 const PRODUCTS_DIR = path.join(REPO_ROOT, "data", "store", "products");
@@ -65,16 +62,15 @@ async function main() {
     console.error("[STORE-RUN] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_BUCKET not set.");
     process.exit(1);
   }
-  if (!HelioStore.isConfigured()) {
-    console.error("[STORE-RUN] Helio isn't configured:", HelioStore.configStatus().missing?.join(", "));
-    console.error("[STORE-RUN] Create the account + API key manually at app.hel.io first, then add the secrets.");
+  if (!Store.isConfigured()) {
+    console.error("[STORE-RUN] No wallet address configured yet — nothing to sell to. Run make_wallet.py first.");
     process.exit(1);
   }
 
   console.log("[STORE-RUN] Pulling latest state from Supabase...");
   await Persistence.pullAll();
 
-  const existing = HelioStore.listProducts().map(p => p.name);
+  const existing = Store.listProducts().map(p => p.name);
   const topic = pickTopic(existing);
   console.log(`[STORE-RUN] Generating product for topic: ${topic}`);
 
@@ -84,20 +80,19 @@ async function main() {
   const filePath = path.join(PRODUCTS_DIR, `${Date.now()}-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 50)}.md`);
   fs.writeFileSync(filePath, markdown, "utf8");
 
-  const webhookUrl = process.env.STORE_WEBHOOK_URL || ""; // your deployed server's /api/store/webhook/helio URL
-  const product = await HelioStore.publishProduct({
+  const product = Store.publishProduct({
     name,
     priceUsd: PRICE_USD,
     description: `Instant digital download: ${name}`,
     deliverable: { type: "file", path: filePath, contentType: "text/markdown" },
-    webhookUrl: webhookUrl || undefined,
   });
 
   if (product.error) {
     console.error("[STORE-RUN] Failed to publish product:", product.error);
     process.exit(1);
   }
-  console.log(`[STORE-RUN] Created "${product.name}" — status: ${product.status} — pay link: ${product.payUrl}`);
+  const checkoutUrl = `${process.env.STORE_BASE_URL || "https://your-app.onrender.com"}/store/${product.id}`;
+  console.log(`[STORE-RUN] Created "${product.name}" — status: ${product.status} — checkout: ${checkoutUrl}`);
 
   console.log("[STORE-RUN] Pushing updated state to Supabase...");
   await Persistence.flush();
