@@ -32,6 +32,7 @@ const path = require("path");
 const { execSync, spawn } = require("child_process");
 const archiver = require("archiver");
 const Groq   = require("./hermes-engine");
+const LocalLLM = require("./local-llm");
 const Deploy = require("./github-deploy");
 
 const LIVE_DIR    = __dirname;
@@ -127,12 +128,37 @@ function cleanupClone() {
 }
 
 // ── 3. FIX ────────────────────────────────────────────────────
+// Ollama Cloud first, Groq second. Reversed from hermes-engine's
+// normal default (Groq first, Ollama Cloud only as a last-resort
+// fallback) specifically for self-heal fixes — deliberate per-call
+// choice here, not a global change to how the rest of the app talks
+// to the model.
+async function generateFixRaw(systemPrompt, userPrompt, relFilePath) {
+  const messages = [
+    { role: "system", content: systemPrompt },
+    { role: "user", content: userPrompt },
+  ];
+
+  if (LocalLLM.isCloudConfigured()) {
+    try {
+      const msg = await LocalLLM.ollamaCloudChat(messages, { temperature: 0.3, maxTokens: 2048 });
+      const content = (msg.content || "").trim();
+      if (content) return content;
+      throw new Error("Ollama Cloud returned an empty response");
+    } catch (e) {
+      console.warn(`[SAFE-DEPLOY] Ollama Cloud fix attempt failed (${e.message}) — falling back to Groq...`);
+    }
+  }
+
+  if (!Groq.isConfigured()) throw new Error("No Groq/Hermes key configured — can't generate a fix (and Ollama Cloud wasn't available or failed)");
+  // Matches the original call shape: (prompt, context) where context
+  // is just the filename, appended into Groq's own system prompt.
+  return Groq.generateCode(userPrompt, relFilePath);
+}
+
 async function generateFix(relFilePath, bugDescription, originalCode) {
-  if (!Groq.isConfigured()) throw new Error("No Groq/Hermes key configured — can't generate a fix");
-
-  const prompt = `You are fixing a bug in one file of a larger Node.js application called J.A.R.V.I.S.
-
-FILE: ${relFilePath}
+  const systemPrompt = `You are an expert developer fixing a bug in one file of a larger Node.js application called J.A.R.V.I.S. Return ONLY the code — no markdown backticks, no explanation.`;
+  const prompt = `FILE: ${relFilePath}
 BUG TO FIX: ${bugDescription}
 
 RULES — these are not optional:
@@ -148,7 +174,7 @@ RULES — these are not optional:
 ORIGINAL FILE:
 ${originalCode}`;
 
-  let code = await Groq.generateCode(prompt, relFilePath);
+  let code = await generateFixRaw(systemPrompt, prompt, relFilePath);
   if (!code) throw new Error("Model returned no fix");
 
   // Strip markdown fences if the model added them anyway.
