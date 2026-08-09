@@ -57,6 +57,11 @@ jobs:
           BOUNTY_MAX_PRICE_USD: ${{ secrets.BOUNTY_MAX_PRICE_USD }}
           BOUNTY_LANGUAGES: ${{ secrets.BOUNTY_LANGUAGES }}
           BOUNTY_AUTO_PUBLISH: ${{ secrets.BOUNTY_AUTO_PUBLISH }}
+          # Triage (scan step) tries Ollama Cloud first, Groq as
+          # fallback — see github-bounty.js's groqJSON(). Leave
+          # OLLAMA_API_KEY unset to skip straight to Groq as before.
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          BOUNTY_OLLAMA_MODEL: ${{ secrets.BOUNTY_OLLAMA_MODEL }}
           # SOLANA_WALLET_ADDRESS is NOT needed here — the address
           # lives in data/wallet-config.json, which gets pulled down
           # automatically from Supabase by scheduled-bounty-scan.js.
