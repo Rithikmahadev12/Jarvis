@@ -426,6 +426,69 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "scan_github_bounties",
+      description: "Search GitHub for open, unassigned issues Jarvis might be able to fix, and draft (but NOT post) offer comments for the feasible ones. Use for 'find some github issues to fix', 'go look for bounties', 'any easy issues out there'. This never posts anything by itself — it only fills a review queue.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_bounty_candidates",
+      description: "List the GitHub issues currently queued for review after a scan — 'what's in the bounty queue', 'show me the candidates'.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "approve_bounty_candidate",
+      description: "Post the drafted offer comment for a specific bounty candidate to its GitHub issue. This is the ONLY action that actually posts anything publicly — only call it when the user clearly approves a specific candidate by number, e.g. 'approve bounty 3', 'go ahead and post that one'.",
+      parameters: {
+        type: "object",
+        properties: { candidate_id: { type: "number", description: "The candidate's queue id, e.g. 3 for 'bounty 3'." } },
+        required: ["candidate_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "reject_bounty_candidate",
+      description: "Drop a queued bounty candidate without posting anything — 'skip that one', 'reject bounty 3', 'not that issue'.",
+      parameters: {
+        type: "object",
+        properties: {
+          candidate_id: { type: "number", description: "The candidate's queue id." },
+          reason:       { type: "string", description: "Optional short reason." },
+        },
+        required: ["candidate_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "check_wallet_balance",
+      description: "Check the balance of Jarvis's linked Solana wallet (SOL and USDC) and total recorded earnings — 'how much money have I made', 'check the wallet', 'what's my SOL balance'.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generate_solana_wallet",
+      description: "Generate a brand-new Solana wallet locally on this machine (runs make_wallet.py, saves the private key to a local gitignored file, writes the public address into .env) — 'make me a solana wallet', 'set up a wallet for me', 'generate a wallet address'. Only call this when the user clearly wants a NEW wallet created, not just to check an existing one.",
+      parameters: {
+        type: "object",
+        properties: { overwrite: { type: "boolean", description: "Set true only if the user explicitly confirms replacing an existing wallet." } },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_agenda",
       description: "Get the user's upcoming reminders/timers/events — 'what's on my agenda', 'what do I have today', 'do I have anything coming up'.",
       parameters: {
