@@ -1,0 +1,65 @@
+name: Bounty Hunt
+
+on:
+  schedule:
+    # Runs at the top of every hour; the job itself checks whether
+    # it's currently ~8am or ~9pm in America/Los_Angeles and exits
+    # immediately otherwise. Doing it this way (instead of two fixed
+    # UTC cron lines) keeps it correct across daylight saving changes.
+    # Change the TZ below if that's not your timezone.
+    - cron: "0 * * * *"
+  workflow_dispatch: {}   # lets you trigger it manually from the Actions tab to test
+
+jobs:
+  bounty-hunt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if it's ~8am or ~9pm Pacific (skipped for manual runs)
+        id: gate
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manually triggered — running now regardless of time."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          HOUR=$(TZ="America/Los_Angeles" date +%H)
+          echo "Current Pacific hour: $HOUR"
+          if [ "$HOUR" = "08" ] || [ "$HOUR" = "21" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout repo
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        run: npm install --omit=dev
+
+      - name: Run bounty scan
+        if: steps.gate.outputs.run == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEY2: ${{ secrets.GROQ_API_KEY2 }}
+          GITHUB_BOUNTY_TOKEN: ${{ secrets.GITHUB_BOUNTY_TOKEN }}
+          BOUNTY_MIN_PRICE_USD: ${{ secrets.BOUNTY_MIN_PRICE_USD }}
+          BOUNTY_MAX_PRICE_USD: ${{ secrets.BOUNTY_MAX_PRICE_USD }}
+          BOUNTY_LANGUAGES: ${{ secrets.BOUNTY_LANGUAGES }}
+          # SOLANA_WALLET_ADDRESS is NOT needed here — the address
+          # lives in data/wallet-config.json, which gets pulled down
+          # automatically from Supabase by scheduled-bounty-scan.js.
+          # This is only a fallback for if you'd rather set it manually.
+          SOLANA_WALLET_ADDRESS: ${{ secrets.SOLANA_WALLET_ADDRESS }}
+          SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+        run: node scripts/scheduled-bounty-scan.js
