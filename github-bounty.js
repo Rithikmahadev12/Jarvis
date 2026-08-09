@@ -3,7 +3,7 @@
 // J.A.R.V.I.S — GitHub Issue Bounty Hunter
 //
 // Scans public GitHub repos for open, unassigned issues Jarvis might
-// realistically be able to fix, has Groq triage each one for
+// realistically be able to fix, has a model triage each one for
 // feasibility/difficulty, and drafts an offer comment ("I can take
 // this on for $X — here's my plan"). It does NOT post anything, open
 // a PR, or make any commitment on its own — every candidate sits in
@@ -11,10 +11,14 @@
 // "approve bounty <id>", or the /api/bounty/:id/approve route from
 // the dashboard). Only approval actually hits the GitHub API.
 //
+// Triage model order: Ollama Cloud first, Groq as fallback. If
+// OLLAMA_API_KEY isn't set, this skips straight to Groq — same
+// behavior as before. See groqJSON() below.
+//
 // Why the human gate matters here, specifically:
-//   - Groq's "feasible/easy" call is a heuristic read of the issue
-//     text, not a guarantee. Jarvis hasn't cloned the repo, built it,
-//     or run its test suite, so it can be wrong about scope.
+//   - The triage model's "feasible/easy" call is a heuristic read of
+//     the issue text, not a guarantee. Jarvis hasn't cloned the repo,
+//     built it, or run its test suite, so it can be wrong about scope.
 //   - A price offer posted in public, under your GitHub identity, is
 //     a real commitment to a real maintainer. Getting that wrong
 //     costs reputation, not just money.
@@ -137,11 +141,31 @@ async function postComment(owner, repo, issueNumber, body) {
   });
 }
 
-// ── GROQ TRIAGE ──────────────────────────────────────────────────
+// ── TRIAGE MODEL: OLLAMA CLOUD FIRST, GROQ AS FALLBACK ───────────
+// The scan step (evaluateIssue's feasibility/difficulty call, and
+// checkPostedForReplies' maintainer-verdict call) tries Ollama Cloud
+// first — same hosted service local-llm.js already wires up for
+// hermes-engine.js, just tried in the OPPOSITE order here: Ollama
+// Cloud primary, Groq secondary. Only needs OLLAMA_API_KEY set; if
+// it's not configured at all, this skips straight to Groq exactly
+// like before. If Ollama Cloud IS configured but the call itself
+// fails (quota, timeout, bad response), it falls through to the same
+// multi-key Groq path that used to be the only option.
+const LocalLLM = require("./local-llm");
+
+async function ollamaCloudJSON(systemPrompt, userPrompt, { model } = {}) {
+  const useModel = model || process.env.BOUNTY_OLLAMA_MODEL || LocalLLM.OLLAMA_CLOUD_MODEL_FAST;
+  const msg = await LocalLLM.ollamaCloudChat(
+    [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+    { model: useModel, temperature: 0.2, maxTokens: 1024, format: "json" }
+  );
+  return JSON.parse(msg.content || "{}");
+}
+
 // Direct fetch (mirrors jarvis-agent.js's askGroq) so we can force
 // response_format: json_object — hermes-engine's shared helper
 // doesn't expose that option.
-async function groqJSON(systemPrompt, userPrompt, { model } = {}) {
+async function groqJSONOnly(systemPrompt, userPrompt, { model } = {}) {
   if (!GroqKeys.hasGroqKey()) throw new Error("GROQ_API_KEY not set in .env");
   const useModel = model || process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b";
   const totalKeys = GroqKeys.groqKeyCount();
@@ -178,6 +202,19 @@ async function groqJSON(systemPrompt, userPrompt, { model } = {}) {
     }
   }
   throw lastError || new Error("Groq triage failed.");
+}
+
+// Public entry point every caller in this file already uses — same
+// name and signature as before, so nothing downstream needs to change.
+async function groqJSON(systemPrompt, userPrompt, opts = {}) {
+  if (LocalLLM.isCloudConfigured()) {
+    try {
+      return await ollamaCloudJSON(systemPrompt, userPrompt, opts);
+    } catch (e) {
+      console.warn(`[BOUNTY] Ollama Cloud triage failed (${e.message}) — falling back to Groq...`);
+    }
+  }
+  return groqJSONOnly(systemPrompt, userPrompt, opts);
 }
 
 const TRIAGE_SYSTEM_PROMPT = `You are a careful software engineer triaging GitHub issues to decide whether an AI coding assistant could realistically fix one, unsupervised, without ever having built or run the target repo. Be conservative — false "easy" calls waste a maintainer's time and damage trust. Reply with ONLY this JSON shape, no prose, no markdown fences:
