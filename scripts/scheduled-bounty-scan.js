@@ -60,6 +60,9 @@ async function main() {
         `auto-posted ${result.autoPosted.length} (BOUNTY_AUTO_PUBLISH), ` +
         `${result.flagged_medium.length} medium (flagged for closer review), ` +
         `skipped ${result.skipped.length}, ${result.errors.length} error(s).`);
+      for (const e of result.errors) {
+        console.error(`[BOUNTY-SCAN]   error — ${e.query ? `query "${e.query}"` : `issue ${e.issue}`}: ${e.error}`);
+      }
     }
   }
 
