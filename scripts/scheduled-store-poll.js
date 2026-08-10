@@ -81,13 +81,19 @@ async function main() {
     console.error("[STORE-POLL] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_BUCKET not set.");
     process.exit(1);
   }
+
+  console.log("[STORE-POLL] Pulling latest state from Supabase...");
+  await Persistence.pullAll();
+
+  // Checked AFTER the pull, not before — the wallet address lives in
+  // data/wallet-config.json, which only exists locally once pullAll()
+  // has fetched it down from Supabase. A fresh checkout (e.g. every
+  // GitHub Actions run) has no data/ at all yet, so checking this
+  // first would always fail even when a wallet really is configured.
   if (!SolanaWallet.isConfigured()) {
     console.error("[STORE-POLL] No wallet address configured yet — nothing to check payments against.");
     process.exit(1);
   }
-
-  console.log("[STORE-POLL] Pulling latest state from Supabase...");
-  await Persistence.pullAll();
 
   const pending = Store.listPendingOrders();
   console.log(`[STORE-POLL] ${pending.length} pending order(s) to check.`);
