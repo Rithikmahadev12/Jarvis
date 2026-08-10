@@ -57,6 +57,10 @@ jobs:
           BOUNTY_MAX_PRICE_USD: ${{ secrets.BOUNTY_MAX_PRICE_USD }}
           BOUNTY_LANGUAGES: ${{ secrets.BOUNTY_LANGUAGES }}
           BOUNTY_AUTO_PUBLISH: ${{ secrets.BOUNTY_AUTO_PUBLISH }}
+          # Delay (ms) between consecutive auto-posted GitHub comments,
+          # to stay under GitHub's secondary rate limit. 3000 by
+          # default; only set this secret if you need to tune it.
+          BOUNTY_POST_PACING_MS: ${{ secrets.BOUNTY_POST_PACING_MS }}
           # Triage (scan step) tries Ollama Cloud first, Groq as
           # fallback — see github-bounty.js's groqJSON(). Leave
           # OLLAMA_API_KEY unset to skip straight to Groq as before.
