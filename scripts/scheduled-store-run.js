@@ -62,13 +62,19 @@ async function main() {
     console.error("[STORE-RUN] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_BUCKET not set.");
     process.exit(1);
   }
+
+  console.log("[STORE-RUN] Pulling latest state from Supabase...");
+  await Persistence.pullAll();
+
+  // Checked AFTER the pull — the wallet address lives in
+  // data/wallet-config.json, which only exists locally once pullAll()
+  // has fetched it down from Supabase. A fresh checkout has no data/
+  // yet, so checking this first would always fail even with a wallet
+  // actually configured.
   if (!Store.isConfigured()) {
     console.error("[STORE-RUN] No wallet address configured yet — nothing to sell to. Run make_wallet.py first.");
     process.exit(1);
   }
-
-  console.log("[STORE-RUN] Pulling latest state from Supabase...");
-  await Persistence.pullAll();
 
   const existing = Store.listProducts().map(p => p.name);
   const topic = pickTopic(existing);
