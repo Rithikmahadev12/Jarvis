@@ -283,13 +283,25 @@ Requirements for the comment:
 // top of scanForBounties() when AUTO_PUBLISH is true; also exported
 // standalone so it can be triggered on its own (dashboard/voice) if
 // the flag gets turned on between scheduled scans.
+// Small pause between consecutive comment-posting calls to GitHub.
+// GitHub's secondary rate limiter throttles bursts of content-creating
+// requests (comments, in this case) fired back-to-back — exactly what
+// a tight loop like the one below does with no pacing. GitHub's own
+// guidance is roughly "no more than 1 write per second, in bursts";
+// this sits comfortably under that.
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+const POST_PACING_MS = Number(process.env.BOUNTY_POST_PACING_MS) || 3000;
+
 async function autoPublishBacklog() {
   const store = loadStore();
   const results = { autoPosted: [], errors: [] };
   if (!AUTO_PUBLISH || !isConfigured()) return results;
 
   const backlog = store.pending.filter(c => c.difficulty === "easy");
-  for (const c of backlog) {
+  for (let i = 0; i < backlog.length; i++) {
+    const c = backlog[i];
     const idx = store.pending.findIndex(x => x.id === c.id);
     if (idx === -1) continue;
     try {
@@ -304,7 +316,16 @@ async function autoPublishBacklog() {
       results.autoPosted.push({ id: c.id, key: c.key, title: c.title, priceUsd: c.priceUsd, commentUrl: comment.html_url });
     } catch (e) {
       results.errors.push({ issue: c.key, error: `Backlog auto-publish failed: ${e.message}` });
+      // A rate limit means every further attempt this run will also
+      // fail (and adds to the pile-up) — stop here and let whatever's
+      // left wait for the next scheduled run instead of hammering
+      // through the rest of the backlog into more errors.
+      if (/rate limit/i.test(e.message)) {
+        results.errors.push({ issue: "*", error: "Rate limited — stopping backlog sweep early, will resume next run." });
+        break;
+      }
     }
+    if (i < backlog.length - 1) await sleep(POST_PACING_MS);
   }
 
   saveStore(store);
@@ -407,6 +428,10 @@ async function scanForBounties({ queries = DEFAULT_QUERIES, maxPerScan = MAX_PER
           store.pending.push(candidate);
           results.errors.push({ issue: key, error: `Auto-publish failed, left for manual review: ${e.message}` });
         }
+        // Same pacing as autoPublishBacklog() — avoid bursting GitHub's
+        // secondary rate limiter when several "easy" issues in a row
+        // get auto-posted in the same scan.
+        await sleep(POST_PACING_MS);
         continue;
       }
 
