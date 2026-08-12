@@ -496,32 +496,75 @@ async function approveCandidate(id) {
 
 // ── MAINTAINER REPLY CHECK ──────────────────────────────────────
 // For every posted-but-not-yet-resolved candidate, pulls new comments
-// on the issue since we posted, and asks the model whether the
-// maintainer's response reads as a clear go-ahead, a clear decline,
-// or neither. This NEVER writes code and NEVER opens a PR itself —
-// it only updates candidate.maintainerReply. codeApprovedCandidates()
-// (bounty-coder.js) is the only thing that acts on a "yes".
-const REPLY_SYSTEM_PROMPT = `You are reading GitHub issue comments to decide whether the REPO MAINTAINER (not a bystander) has clearly said "yes, go ahead" to a specific work offer that was posted. Reply with ONLY this JSON, no prose:
+// on the issue since we last looked, and asks the model whether the
+// maintainer's response reads as clear agreement to PAY the price we
+// offered, a clear decline, or neither. This NEVER writes code and
+// NEVER opens a PR itself — it only updates candidate.maintainerReply.
+// codeApprovedCandidates() (bounty-coder.js) is the only thing that
+// acts on a "yes".
+//
+// "Approved" requires the maintainer to have actually engaged with
+// the PRICE, not just the issue — general enthusiasm about the work
+// ("yeah someone should fix this") does not authorize spending
+// someone's money. A countered price is never auto-accepted; it's
+// left "unclear" for a human to decide.
+//
+// An "unclear" verdict is NOT a dead end: unlike approved/declined,
+// it doesn't stop future checks. The first time a reply comes back
+// unclear, Jarvis posts one short follow-up asking the maintainer to
+// explicitly confirm the price, then keeps checking for a real answer
+// on every later scan (without re-nudging every time).
+const REPLY_SYSTEM_PROMPT = `You are reading GitHub issue comments to decide whether the REPO MAINTAINER (not a bystander) has clearly agreed to PAY the price stated in a work offer that was posted. Reply with ONLY this JSON, no prose:
 {
   "verdict": "approved" | "declined" | "unclear",
   "reason": "one short sentence"
 }
-Only use "approved" if a maintainer-sounding reply is unambiguously affirmative (e.g. "sounds good", "go for it", "yes please"). Requests for more detail, silence, or a bystander commenting counts as "unclear". An explicit "no"/"someone's already on it"/closed issue counts as "declined". Be conservative — a false "approved" causes unwanted code changes to be proposed on someone else's repo.`;
+Rules:
+- "approved" requires the maintainer to clearly accept moving forward AT the price we offered (e.g. "sounds good, go ahead", "yes, $20 works", "approved, ship it"). Agreement or excitement about the ISSUE itself with no reaction to the PRICE (e.g. "yeah someone should fix this", "thanks for looking into it") is NOT payment confirmation — mark that "unclear".
+- If the maintainer proposes a different price than what was offered, mark "unclear" — never auto-accept a different number.
+- If the maintainer says the work should be free/unpaid/volunteer, or otherwise objects to paying, mark "declined".
+- Requests for more detail, silence, a bystander commenting, or any reply that doesn't address payment at all counts as "unclear".
+- An explicit "no" / "someone's already on it" / closed issue counts as "declined".
+- Be conservative — a false "approved" causes unwanted code changes AND an unwanted payment commitment on someone else's repo.`;
+
+function clarifyingReplyText(c) {
+  return `Just following up — happy to go ahead on this once you give an explicit thumbs up on the $${c.priceUsd} estimate. If the scope turns out bigger once I'm in the code I'll flag that before doing anything, but wanted a clear yes on the price before starting.`;
+}
 
 async function checkPostedForReplies() {
   const store = loadStore();
   const results = { approved: [], declined: [], unclear: [], errors: [] };
-  const toCheck = store.history.filter(c => c.status === "posted" && !c.maintainerReply);
+  // Unlike approved/declined, "unclear" never permanently drops a
+  // candidate — it stays in rotation so a later, clearer reply still
+  // gets picked up.
+  const toCheck = store.history.filter(c =>
+    c.status === "posted" && (!c.maintainerReply || c.maintainerReply.verdict === "unclear"));
 
   for (const c of toCheck) {
     try {
-      const comments = await ghFetch(`/repos/${c.owner}/${c.repo}/issues/${c.issueNumber}/comments?since=${c.postedAt}`);
+      const since = c.maintainerReply?.checkedAt || c.postedAt;
+      const comments = await ghFetch(`/repos/${c.owner}/${c.repo}/issues/${c.issueNumber}/comments?since=${since}`);
       const others = (Array.isArray(comments) ? comments : []).filter(cm => !(c.commentUrl || "").includes(String(cm.id)));
-      if (others.length === 0) continue; // nothing new yet, check again next scan
+
+      if (others.length === 0) {
+        // No new comments. If we're sitting on a prior "unclear" and
+        // haven't nudged yet, ask once for an explicit price
+        // confirmation — but only once, so we don't spam the thread
+        // every scan while waiting.
+        if (c.maintainerReply?.verdict === "unclear" && !c.clarificationPostedAt) {
+          try {
+            await postComment(c.owner, c.repo, c.issueNumber, clarifyingReplyText(c));
+            c.clarificationPostedAt = new Date().toISOString();
+          } catch (e) {
+            results.errors.push({ issue: c.key, error: `clarifying reply failed: ${e.message}` });
+          }
+        }
+        continue; // nothing new yet, check again next scan
+      }
 
       const transcript = others.map(cm => `${cm.user?.login || "someone"}: ${String(cm.body || "").slice(0, 500)}`).join("\n---\n");
       const verdict = await groqJSON(REPLY_SYSTEM_PROMPT,
-        `Our offer on "${c.title}" (${c.url}):\n${c.proposalText}\n\nNew comments since we posted:\n${transcript}`);
+        `Our offer on "${c.title}" (${c.url}), priced at $${c.priceUsd}:\n${c.proposalText}\n\nNew comments since we last checked:\n${transcript}`);
 
       c.maintainerReply = { verdict: verdict.verdict, reason: verdict.reason, checkedAt: new Date().toISOString() };
       if (verdict.verdict === "approved") {
