@@ -622,6 +622,31 @@ function setOsintTier(userName, tier) {
   return true;
 }
 
+// ── PER-USER MUSIC PLATFORM ─────────────────────────────────────
+// "jarvis music platform 2" (see set_music_platform tool below)
+// switches which source play_music pulls fresh (not-in-library)
+// songs from. Saved per-user, same pattern as the OSINT tier above.
+//   1 = YouTube (default)
+//   2 = Audius  (free, actually streams full audio — unlike Discogs,
+//       which is just a discography/marketplace database with no
+//       audio, or Spotify, which has no free streaming API)
+const MUSIC_PLATFORMS = { 1: "youtube", 2: "audius" };
+function getMusicPlatform(userName) {
+  const userKey = (userName || "").toLowerCase().trim();
+  if (!userKey) return "youtube";
+  const profiles = loadProfiles();
+  return profiles[userKey]?.musicPlatform || "youtube";
+}
+function setMusicPlatform(userName, platform) {
+  const userKey = (userName || "").toLowerCase().trim();
+  if (!userKey) return false;
+  const profiles = loadProfiles();
+  if (!profiles[userKey]) profiles[userKey] = { name: userName };
+  profiles[userKey].musicPlatform = platform;
+  saveProfiles(profiles);
+  return true;
+}
+
 // ── MUSIC LIBRARY ────────────────────────────────────────────
 // No YouTube API key needed. Each entry is a real youtube.com/watch
 // URL — grab one straight from your browser. Tacking on
@@ -3663,9 +3688,27 @@ async function executeAssistantTool(name, args, ctx) {
       return await handleNewsFetch(msg, T, args.display === "widget" ? "widget" : "page");
     }
 
+    case "set_music_platform": {
+      const raw = args.platform;
+      const num = Number(raw);
+      const byNumber = MUSIC_PLATFORMS[num];
+      const byName = typeof raw === "string" && /audius/i.test(raw)
+        ? "audius"
+        : (typeof raw === "string" && /you\s*tube/i.test(raw) ? "youtube" : null);
+      const platform = byNumber || byName;
+
+      if (!platform) {
+        return { reply: `Music platform 1 is YouTube, and 2 is Audius, ${T} — which one?`, action: "ASK_MUSIC_PLATFORM", intent: "music" };
+      }
+      setMusicPlatform(userName, platform);
+      const label = platform === "audius" ? "Audius" : "YouTube";
+      return { reply: `Music's switched to ${label}, ${T}.`, action: "SET_MUSIC_PLATFORM", intent: "music", meta: { platform } };
+    }
+
     case "play_music": {
       const query = (args.query || "").trim();
       const pickForMe = !!args.pick_for_me;
+      const platform = getMusicPlatform(userName); // "youtube" (default) or "audius"
 
       if (!query && !pickForMe) {
         return { reply: `What do you want to hear, ${T}?`, action: "ASK_MUSIC", intent: "music" };
@@ -3683,7 +3726,7 @@ async function executeAssistantTool(name, args, ctx) {
           const found = await lookupAlbumMetadata(song.title, artist);
           if (found) { album = found.album || album; artwork = artwork || found.artwork || ""; if (!artist) artist = found.artist || artist; }
         }
-        return { reply: `Playing "${song.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: song.url, title: song.title, artist, album, artwork } };
+        return { reply: `Playing "${song.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: song.url, source: "youtube", title: song.title, artist, album, artwork } };
       }
 
       const hit = lookupMusicByKeyword(query);
@@ -3695,7 +3738,33 @@ async function executeAssistantTool(name, args, ctx) {
           const found = await lookupAlbumMetadata(hit.title, artist);
           if (found) { album = found.album || album; artwork = artwork || found.artwork || ""; if (!artist) artist = found.artist || artist; }
         }
-        return { reply: `Playing "${hit.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: hit.url, title: hit.title, artist, album, artwork } };
+        return { reply: `Playing "${hit.title}", ${T}.`, action: "PLAY_MUSIC", intent: "music", meta: { playUrl: hit.url, source: "youtube", title: hit.title, artist, album, artwork } };
+      }
+
+      // Not in the local library — go pull it fresh from whichever
+      // platform this user currently has selected.
+      if (platform === "audius") {
+        const Audius = require("./audius");
+        const track = await Audius.searchAudiusTrack(query);
+        if (track) {
+          let album = "";
+          const found = await lookupAlbumMetadata(track.title, track.artist);
+          if (found) album = found.album || "";
+          return {
+            reply: `That's not in my library yet, ${T} — playing it from Audius now.`,
+            action: "PLAY_MUSIC_SEARCH",
+            intent: "music",
+            meta: {
+              playUrl: track.streamUrl,
+              source: "audius",
+              title: track.title,
+              artist: track.artist,
+              album,
+              artwork: track.artwork || "",
+            },
+          };
+        }
+        return { reply: `Couldn't find that on Audius, ${T}.`, action: "ASK_MUSIC", intent: "music" };
       }
 
       const videoId = await findYoutubeVideoId(query);
@@ -3717,6 +3786,7 @@ async function executeAssistantTool(name, args, ctx) {
           intent: "music",
           meta: {
             playUrl: `https://www.youtube.com/watch?v=${videoId}`,
+            source: "youtube",
             title,
             artist,
             album,
