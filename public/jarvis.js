@@ -3439,6 +3439,11 @@ async function handleAction(action, meta, replyText) {
       }
       break;
     }
+    case "SHOW_PC_VIEW": {
+      speak(replyText, () => mic.resume());
+      if (window.PcViewWidget) window.PcViewWidget.show(meta && meta.streamUrl);
+      break;
+    }
     case "SHOW_HOLOGRAM": {
       const query = meta?.query || "";
       speak(replyText, () => {
