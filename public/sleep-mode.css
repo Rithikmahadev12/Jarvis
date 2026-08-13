@@ -34,10 +34,10 @@
    driven from JS each frame (see sleep-mode.js buildWashBackground()). */
 .sm-wash {
   position: absolute;
-  inset: -15%;
+  inset: -8%;
   z-index: 0;
   pointer-events: none;
-  filter: blur(70px);
+  filter: blur(50px);
   opacity: 0;
   transition: opacity 0.6s ease;
   will-change: opacity, background;
@@ -87,7 +87,38 @@
   align-items: center;
 }
 
+/* ── art halo — a colorful glowing "frame" hugging the album art
+   itself, echoing the edge-of-screen ring but scaled to the art box.
+   Same masked picture-frame trick as .sm-frame-glow/.sm-frame-core:
+   background/opacity driven from JS each frame (see sleep-mode.js
+   buildArtHaloBackground()/tick()). */
+.sm-art-halo {
+  position: absolute;
+  inset: -9px;
+  border-radius: 27px;
+  z-index: 0;
+  pointer-events: none;
+  filter: blur(4px);
+  opacity: 0;
+  will-change: opacity, background;
+}
+.sm-art-halo-core {
+  position: absolute;
+  inset: -3px;
+  border-radius: 23px;
+  z-index: 0;
+  pointer-events: none;
+  padding: 2.5px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  will-change: opacity, background;
+}
+
 .sm-art {
+  position: relative;
+  z-index: 1;
   width: 190px;
   height: 190px;
   border-radius: 20px;
