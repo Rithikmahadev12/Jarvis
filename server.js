@@ -847,6 +847,26 @@ async function pickSongForMood(contextText) {
 // already has a captured faceDescriptor for them. Plain password-based
 // bootstrap has been removed — new accounts are created through the
 // "CREATE ACCOUNT" screen, which now enrolls a face instead of a password.
+// Keeps config.json's owner.username in sync when the owner renames
+// themself — several other modules (stt.js/stt-stream.js for name
+// recognition boosting, inbound-agent.js for phone-call owner
+// matching, and bootstrapOwnerAccount() below on the next restart)
+// read the owner's name straight from config.json, not profiles.json,
+// so a stale value there would leave those pointed at the old name
+// even though profiles.json itself renamed cleanly.
+function syncOwnerUsernameInConfig(newName) {
+  const configPath = path.join(__dirname, "config.json");
+  if (!fs.existsSync(configPath)) return;
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    if (!config.owner) return;
+    config.owner.username = newName;
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf8");
+  } catch (e) {
+    console.warn("[RENAME] Couldn't update config.json's owner.username:", e.message);
+  }
+}
+
 function bootstrapOwnerAccount() {
   const configPath = path.join(__dirname, "config.json");
   if (!fs.existsSync(configPath)) return;
@@ -879,7 +899,12 @@ function bootstrapOwnerAccount() {
   // before a wallet was ever added to config.json) — backfill the
   // wallet onto it if config.json has one now and the profile
   // doesn't yet, so it takes effect without a full account reset.
-  if (owner.wallet?.address && !profiles[key].wallet?.address) {
+  // Gated on role === "owner" (not just "a profile sits at this key")
+  // so that if config.json's owner.username is ever stale — e.g. the
+  // owner renamed and syncOwnerUsernameInConfig somehow didn't run —
+  // this can't hand the owner's real wallet to some unrelated account
+  // that happens to occupy the old freed-up username.
+  if (owner.wallet?.address && profiles[key]?.role === "owner" && !profiles[key].wallet?.address) {
     profiles[key].wallet = { ...owner.wallet };
     profiles[key].updatedAt = new Date().toISOString();
     saveProfiles(profiles);
@@ -1090,6 +1115,9 @@ app.post("/api/rename-user", (req, res) => {
   profiles[newKey] = { ...profiles[oldKey], name: cleanNew, updatedAt: new Date().toISOString() };
   if (newKey !== oldKey) delete profiles[oldKey];
   saveProfiles(profiles);
+  // Owner accounts also live in config.json — see syncOwnerUsernameInConfig
+  // above for why that has to stay in sync too, not just profiles.json.
+  if (profiles[newKey].role === "owner") syncOwnerUsernameInConfig(cleanNew);
   res.json({ success: true, name: cleanNew });
 });
 
@@ -3771,6 +3799,9 @@ async function executeAssistantTool(name, args, ctx) {
       profiles[newKey] = { ...profiles[oldKey], name: newName, updatedAt: new Date().toISOString() };
       if (newKey !== oldKey) delete profiles[oldKey];
       saveProfiles(profiles);
+      // Same owner/config.json sync as /api/rename-user — see
+      // syncOwnerUsernameInConfig's header comment for why.
+      if (profiles[newKey].role === "owner") syncOwnerUsernameInConfig(newName);
 
       return {
         reply: `Done — you're ${newName} now.`,
