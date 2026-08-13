@@ -3865,7 +3865,11 @@ async function executeAssistantTool(name, args, ctx) {
       }
 
       // Not in the local library — go pull it fresh from whichever
-      // platform this user currently has selected.
+      // platform this user currently has selected. Audius is tried
+      // first whenever it's the selected/preferred source; if it has
+      // no track, an error, or times out (searchAudiusTrack swallows
+      // all of that and just returns null), we silently fall back to
+      // YouTube rather than telling the user we couldn't find it.
       if (platform === "audius") {
         const Audius = require("./audius");
         const track = await Audius.searchAudiusTrack(query);
@@ -3887,7 +3891,8 @@ async function executeAssistantTool(name, args, ctx) {
             },
           };
         }
-        return { reply: `Couldn't find that on Audius, ${T}.`, action: "ASK_MUSIC", intent: "music" };
+        // Audius came up empty — fall through to the YouTube search
+        // below instead of giving up.
       }
 
       const videoId = await findYoutubeVideoId(query);
@@ -3904,7 +3909,9 @@ async function executeAssistantTool(name, args, ctx) {
           if (!artist) artist = found.artist || "";
         }
         return {
-          reply: `That's not in my library yet, ${T} — playing it now.`,
+          reply: platform === "audius"
+            ? `Couldn't find that on Audius, ${T} — playing it from YouTube instead.`
+            : `That's not in my library yet, ${T} — playing it now.`,
           action: "PLAY_MUSIC_SEARCH",
           intent: "music",
           meta: {
@@ -3918,7 +3925,9 @@ async function executeAssistantTool(name, args, ctx) {
         };
       }
       return {
-        reply: `I couldn't find that one, ${T}.`,
+        reply: platform === "audius"
+          ? `Couldn't find that on Audius or YouTube, ${T}.`
+          : `I couldn't find that one, ${T}.`,
         action: "ASK_MUSIC",
         intent: "music",
       };
