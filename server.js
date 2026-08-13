@@ -733,34 +733,78 @@ async function findYoutubeVideoId(query) {
     return null;
   }
 }
+// Parses the messy titles YouTube music uploads actually use into a clean
+// { title, artist } pair. Handles a lot more than the old plain
+// "Artist - Song" dash split:
+//   - Strips junk segments/tags like "(Official Lyric Video)",
+//     "[Official Music Video]", "Official Audio", "| Official Video", etc.
+//   - Splits "Song by Artist1 x Artist2" style segments (very common on
+//     movie-soundtrack/label uploads) and normalizes "x"/"," between
+//     multiple artists to "&".
+//   - When the title is pipe-separated into multiple meaningful chunks
+//     (e.g. "Movie Name | Song by Artist | Official Lyric Video"), the
+//     leftover non-"by" chunk (usually the film/show/album context) gets
+//     folded in as "Song (Movie Name)" — this is what actually gets you
+//     from a raw YouTube title to something that reads like real music
+//     metadata, and it also makes the iTunes/Deezer lookup below far more
+//     likely to hit, since we're no longer searching on a paragraph of
+//     upload-title junk.
+//   - Falls back to the classic "Artist - Song" dash split, then finally
+//     to the raw title/channel if nothing else matched.
+function parseYoutubeMusicTitle(rawTitle, rawChannel) {
+  const channelArtist = (rawChannel || "").trim()
+    .replace(/\s*-\s*Topic$/i, "")
+    .replace(/VEVO$/i, "")
+    .trim();
+
+  const isJunkSegment = (s) =>
+    s.length < 60 && /\bofficial\s+(lyric\s+)?(music\s+)?video\b|\bofficial\s+audio\b|\blyric\s+video\b|\bvisualizer\b|\bofficial\s+trailer\b|\bclean\s+version\b/i.test(s);
+
+  const stripInlineTags = (s) =>
+    s.replace(/[\(\[]\s*(official[^\)\]]*|lyric video|audio|visualizer|explicit|clean)\s*[\)\]]/gi, "").trim();
+
+  let segs = (rawTitle || "").split("|").map((s) => stripInlineTags(s.trim())).filter(Boolean);
+  segs = segs.filter((s) => !isJunkSegment(s));
+
+  let title = "", artist = channelArtist;
+
+  const bySeg = segs.find((s) => / by /i.test(s));
+  if (bySeg) {
+    const idx = bySeg.search(/ by /i);
+    const song = bySeg.slice(0, idx).trim();
+    let by = bySeg.slice(idx + 4).trim();
+    by = by.replace(/\s+x\s+/gi, " & ").replace(/\s*,\s*/g, " & ").trim();
+    title = song;
+    artist = by || channelArtist;
+    const context = segs.find((s) => s !== bySeg);
+    if (context && context.length <= 60 && !title.toLowerCase().includes(context.toLowerCase())) {
+      title = `${title} (${context})`;
+    }
+  } else if (segs.length) {
+    const base = [...segs].sort((a, b) => b.length - a.length)[0];
+    const dashSplit = base.match(/^(.{1,60}?)\s+-\s+(.{1,80})$/);
+    if (dashSplit) { artist = dashSplit[1].trim(); title = dashSplit[2].trim(); }
+    else title = base;
+  } else {
+    title = (rawTitle || "").trim();
+  }
+
+  return { title: title || (rawTitle || "").trim() || null, artist: artist || null };
+}
+
 // Pulls real title/channel info for a video via YouTube's public oEmbed
 // endpoint (no API key needed) so the widget can show an actual artist
-// instead of just falling back to "YouTube". Many music uploads use an
-// auto-generated "<Artist> - Topic" channel, so we strip that suffix to
-// get a clean artist name. If the video title itself looks like
-// "Artist - Song", we prefer that as the more reliable source and use
-// it to fill in the artist too when the channel name isn't usable.
+// instead of just falling back to "YouTube". Runs the raw title/channel
+// through parseYoutubeMusicTitle() above for real cleanup instead of a
+// bare dash split.
 async function getYoutubeVideoMeta(videoId) {
   try {
     const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${videoId}`)}&format=json`;
     const res = await fetch(oembedUrl, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return null;
     const data = await res.json();
-    let title = (data.title || "").trim();
-    let author = (data.author_name || "").trim();
-    let artist = author.replace(/\s*-\s*Topic$/i, "").trim();
-
-    // "Artist - Song Title" is the most common convention for music
-    // uploads — prefer splitting the video title when it matches, since
-    // it's usually more accurate than the channel name.
-    const dashSplit = title.match(/^(.{1,60}?)\s+-\s+(.{1,80})$/);
-    if (dashSplit) {
-      const [, left, right] = dashSplit;
-      artist = left.trim();
-      title = right.trim();
-    }
-
-    return { title: title || null, artist: artist || null };
+    const parsed = parseYoutubeMusicTitle(data.title || "", data.author_name || "");
+    return parsed;
   } catch { return null; }
 }
 // YouTube has no reliable album metadata, so for that we go to a
@@ -778,45 +822,105 @@ async function getYoutubeVideoMeta(videoId) {
 // needed) if iTunes has nothing, since its catalog/crops sometimes catch
 // what Apple's misses.
 async function lookupAlbumMetadata(title, artist) {
-  const term = [artist, title].filter(Boolean).join(" ").trim();
-  if (!term) return null;
+  const cleanTitle = (title || "").trim();
+  const cleanArtist = (artist || "").trim();
+  if (!cleanTitle && !cleanArtist) return null;
 
-  let candidates = [];
-  try {
-    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=5`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
-    if (res.ok) {
-      const data = await res.json();
-      candidates = Array.isArray(data?.results) ? data.results : [];
-    }
-  } catch { /* fall through to Deezer below */ }
+  // Try a few query shapes, most-specific first — a messy/garbage title
+  // (or one that just doesn't match either catalog's exact wording) can
+  // fail a combined "artist + title" search but still hit on the title
+  // alone, or vice versa.
+  const terms = [...new Set([
+    [cleanArtist, cleanTitle].filter(Boolean).join(" ").trim(),
+    cleanTitle,
+    cleanArtist,
+  ].filter(Boolean))];
+  if (!terms.length) return null;
 
-  const soundtrackHit = candidates.find(r =>
-    /soundtrack|motion picture|from the .*(film|movie|series)/i.test(r.collectionName || "")
-  );
-  const hit = soundtrackHit || candidates[0] || null;
+  for (const term of terms) {
+    // iTunes first — usually the best art quality + most reliable match.
+    try {
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=5`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (res.ok) {
+        const data = await res.json();
+        const candidates = Array.isArray(data?.results) ? data.results : [];
+        // Prefer a soundtrack/movie tie-in release when one shows up —
+        // that's almost always the artwork people actually associate with
+        // a song tied to a film/show moment (e.g. "Self Love" → the
+        // Spider-Verse poster art), even when a plain studio re-issue of
+        // the same track ranks #1 by name relevance.
+        const soundtrackHit = candidates.find(r =>
+          /soundtrack|motion picture|from the .*(film|movie|series)/i.test(r.collectionName || "")
+        );
+        const hit = soundtrackHit || candidates[0];
+        if (hit) {
+          return {
+            title: hit.trackName || null,
+            album: hit.collectionName || null,
+            artist: hit.artistName || null,
+            artwork: hit.artworkUrl100 ? hit.artworkUrl100.replace("100x100", "1200x1200") : null,
+            source: "itunes",
+          };
+        }
+      }
+    } catch { /* try next source/term */ }
 
-  if (hit) {
-    return {
-      album: hit.collectionName || null,
-      artist: hit.artistName || null,
-      artwork: hit.artworkUrl100 ? hit.artworkUrl100.replace("100x100", "1200x1200") : null,
-    };
+    // Deezer next (also no key needed) — its catalog/crops sometimes
+    // catch what Apple's misses.
+    try {
+      const url = `https://api.deezer.com/search?q=${encodeURIComponent(term)}&limit=1`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+      if (res.ok) {
+        const data = await res.json();
+        const d = data?.data?.[0];
+        if (d) {
+          return {
+            title: d.title || null,
+            album: d.album?.title || null,
+            artist: d.artist?.name || null,
+            artwork: d.album?.cover_xl || d.album?.cover_big || null,
+            source: "deezer",
+          };
+        }
+      }
+    } catch { /* try next term */ }
   }
 
+  // Last resort: MusicBrainz (recording search) + the Cover Art Archive.
+  // Slower and only worth trying once, but it's a genuinely different,
+  // community-maintained catalog that occasionally has art neither iTunes
+  // nor Deezer carries (obscure releases, soundtrack-only cuts, etc.) —
+  // this is the "go find it some other way" fallback for when the two
+  // fast commercial APIs above both come up empty.
   try {
-    const url = `https://api.deezer.com/search?q=${encodeURIComponent(term)}&limit=1`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const d = data?.data?.[0];
-    if (!d) return null;
-    return {
-      album: d.album?.title || null,
-      artist: d.artist?.name || null,
-      artwork: d.album?.cover_xl || d.album?.cover_big || null,
-    };
-  } catch { return null; }
+    const term = terms[0];
+    const mbUrl = `https://musicbrainz.org/ws/2/recording/?query=${encodeURIComponent(term)}&fmt=json&limit=3`;
+    const mbRes = await fetch(mbUrl, {
+      signal: AbortSignal.timeout(6000),
+      headers: { "User-Agent": "JarvisAssistant/1.0 (+https://github.com/)" },
+    });
+    if (mbRes.ok) {
+      const mbData = await mbRes.json();
+      for (const rec of mbData.recordings || []) {
+        const release = (rec.releases || [])[0];
+        if (!release?.id) continue;
+        const artUrl = `https://coverartarchive.org/release/${release.id}/front-500`;
+        const check = await fetch(artUrl, { method: "HEAD", signal: AbortSignal.timeout(5000) }).catch(() => null);
+        if (check && check.ok) {
+          return {
+            title: rec.title || null,
+            album: release.title || null,
+            artist: (rec["artist-credit"] || [])[0]?.name || null,
+            artwork: artUrl,
+            source: "musicbrainz",
+          };
+        }
+      }
+    }
+  } catch { /* nothing left to try */ }
+
+  return null;
 }
 // Asks Groq to pick the best-fitting song from the library given the
 // current mood/context. Falls back to a random pick if Groq is
@@ -1450,6 +1554,26 @@ app.post("/api/wallet/set-owner", (req, res) => {
 app.get("/api/lookup/status/:taskId", async (req, res) => {
   try { res.json(await SixtyFour.getStatus(req.params.taskId)); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── ALBUM ART LOOKUP
+// Used by music-widget.js (client) any time it lands on a track it
+// doesn't already have artwork for — e.g. a mix/playlist auto-advancing
+// to a song we never explicitly looked up. Runs server-side (not a plain
+// client fetch to iTunes) so it can chain iTunes → Deezer → MusicBrainz
+// without CORS headaches, and so the query cleanup in
+// parseYoutubeMusicTitle()/lookupAlbumMetadata() only has to live once.
+// ═══════════════════════════════════════════════════════════════
+app.get("/api/album-lookup", async (req, res) => {
+  try {
+    const title = String(req.query.title || "");
+    const artist = String(req.query.artist || "");
+    const found = await lookupAlbumMetadata(title, artist);
+    res.json(found || {});
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ═══════════════════════════════════════════════════════════════
