@@ -33,8 +33,11 @@ window.MusicWidget = (function () {
   function notifyDashboard(playing) {
     const title = $("mw-title")?.textContent || "";
     const artist = $("mw-artist")?.textContent || "";
+    const album = $("mw-album")?.textContent || "";
+    const artworkImg = $("mw-art")?.querySelector("img");
+    const artwork = artworkImg ? artworkImg.src : "";
     window.dispatchEvent(new CustomEvent("jarvis:music-changed", {
-      detail: { title, artist, playing: !!playing },
+      detail: { title, artist, album, artwork, playing: !!playing },
     }));
   }
 
@@ -299,14 +302,16 @@ window.MusicWidget = (function () {
     const term = [artist, title].filter(Boolean).join(" ").trim();
     if (!term) return;
     try {
-      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=1`;
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=5`;
       const res = await fetch(url);
       if (!res.ok) return;
       const data = await res.json();
-      const hit = data?.results?.[0];
+      const results = Array.isArray(data?.results) ? data.results : [];
+      const soundtrackHit = results.find(r => /soundtrack|motion picture|from the .*(film|movie|series)/i.test(r.collectionName || ""));
+      const hit = soundtrackHit || results[0];
       if (!hit || videoId !== currentVideoId) return; // track changed while we waited
       if (hit.collectionName) $("mw-album").textContent = hit.collectionName;
-      if (hit.artworkUrl100) setArtwork(hit.artworkUrl100.replace("100x100", "600x600"));
+      if (hit.artworkUrl100) setArtwork(hit.artworkUrl100.replace("100x100", "1200x1200"));
     } catch { /* leave blank, not worth surfacing an error for this */ }
   }
 
@@ -500,5 +505,28 @@ window.MusicWidget = (function () {
     return !!(player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.PLAYING);
   }
 
-  return { play, pause, resume, stop, togglePlayPause, isPlaying };
+  // Snapshot of whatever's currently loaded, read straight from the DOM
+  // (same source of truth notifyDashboard uses) — lets other UI (Sleep
+  // Mode, dashboard) pull the current track without needing to have
+  // caught the last "jarvis:music-changed" event.
+  function getNowPlaying() {
+    const widget = $("music-widget");
+    if (!widget || widget.classList.contains("hidden")) return null;
+    const artworkImg = $("mw-art")?.querySelector("img");
+    return {
+      title: $("mw-title")?.textContent || "",
+      artist: $("mw-artist")?.textContent || "",
+      album: $("mw-album")?.textContent || "",
+      artwork: artworkImg ? artworkImg.src : "",
+      playing: isPlaying(),
+    };
+  }
+
+  // Raw <audio> element, for Sleep Mode's Web Audio analyser (only
+  // meaningful when currentSource === "audio" — the YouTube iframe's
+  // audio can't be read by the page at all, cross-origin).
+  function getAudioElement() { return audioEl; }
+  function getSource() { return currentSource; }
+
+  return { play, pause, resume, stop, togglePlayPause, next: onNext, prev: onPrev, isPlaying, getNowPlaying, getAudioElement, getSource };
 })();
