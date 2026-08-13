@@ -1216,14 +1216,35 @@ app.patch("/api/bounty/:id", (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// Claims a candidate for a specific account — whoever it's claimed
+// for gets 100% of the payout once it's paid (see /:id/paid below).
+// Doesn't require the candidate to be approved yet; claim first,
+// approve whenever.
+app.post("/api/bounty/:id/claim", (req, res) => {
+  try { res.json(GithubBounty.claimCandidate(req.params.id, req.body?.userName)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // Explicit human "go ahead" — the only path that ever posts to GitHub.
+// Optional userName assigns the candidate at approval time if it
+// wasn't already claimed.
 app.post("/api/bounty/:id/approve", async (req, res) => {
-  try { res.json(await GithubBounty.approveCandidate(req.params.id)); }
+  try { res.json(await GithubBounty.approveCandidate(req.params.id, req.body?.userName)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/api/bounty/:id/reject", (req, res) => {
   try { res.json(GithubBounty.rejectCandidate(req.params.id, req.body?.reason)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Manual "it got paid" confirmation — there's no on-chain poller for
+// bounties (payment can arrive however the maintainer chose to send
+// it), so this is how a payout actually lands in the earnings ledger,
+// credited 100% to whoever the candidate is assigned to (or an
+// explicit override via userName).
+app.post("/api/bounty/:id/paid", (req, res) => {
+  try { res.json(GithubBounty.markPaid(req.params.id, { userKey: req.body?.userName, amountUsd: req.body?.amountUsd })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1267,13 +1288,15 @@ app.post("/api/wallet/check-payments", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ?userName= filters to one person's earnings (bounty + store sales
+// attributed to them); omit it for the full combined ledger.
 app.get("/api/wallet/earnings", (req, res) => {
-  try { res.json({ entries: SolanaWallet.listEarnings(), totalUsd: SolanaWallet.totalEarningsUsd() }); }
+  try { res.json({ entries: SolanaWallet.listEarnings(req.query.userName), totalUsd: SolanaWallet.totalEarningsUsd(req.query.userName) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/api/wallet/earnings", (req, res) => {
-  try { res.json(SolanaWallet.recordEarning(req.body || {})); }
+  try { res.json(SolanaWallet.recordEarning({ ...(req.body || {}), userKey: req.body?.userName })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
