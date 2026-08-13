@@ -108,6 +108,22 @@ function getCached(k) {
 }
 function setCache(k, d) { cache.set(k, { data: d, ts: Date.now() }); }
 
+// Tool-call arguments come back shaped differently depending on which
+// backend answered: Groq/OpenAI-compatible APIs hand back
+// `function.arguments` as a JSON-encoded STRING that needs parsing,
+// but Ollama's native /api/chat (used for Ollama Cloud) hands back an
+// already-parsed OBJECT. Blindly JSON.parse()-ing an object coerces it
+// to the string "[object Object]", which fails to parse and gets
+// silently swallowed by the surrounding try/catch — leaving `args` as
+// `{}` and making tool calls like play_music look like they got no
+// arguments at all (e.g. "play sunflower" landing with an empty
+// `query`, so it just asks "what do you want to hear?" and stops).
+function parseToolArgs(rawArgs) {
+  if (rawArgs == null) return {};
+  if (typeof rawArgs === "object") return rawArgs;
+  try { return JSON.parse(rawArgs || "{}"); } catch { return {}; }
+}
+
 // ── CORE GROQ FETCH (OpenAI-compatible /v1/chat/completions) ──
 async function groqFetch(messages, model = MODELS.smart, temperature = 0.75, maxTokens = 1024) {
   const msg = await groqFetchRawWithFallback(messages, { model, temperature, maxTokens });
@@ -227,70 +243,74 @@ async function groqFetchRaw(messages, options = {}) {
   throw lastError || new Error("All configured Groq API keys failed.");
 }
 
-// Ollama Cloud fallback — only reached when Groq itself couldn't be
-// used at all (no key configured, or every configured key failed
-// above). Not tried first, not tried on every request: Groq stays
-// primary. This is a safety net for "ran out of Groq quota," not a
-// replacement.
+// Ollama Cloud is now tried FIRST (Groq is the fallback), because this
+// account's Groq tier has an 8000 TPM cap that Hermes' tool-calling
+// requests routinely exceed (~9500-9800 tokens), so Groq was failing on
+// most requests anyway. Ollama Cloud is used as long as it's configured
+// and healthy; Groq is the safety net for when Ollama Cloud itself is
+// down or not configured.
 //
-// STICKY COOLDOWN: the naive version of this re-tried Groq on every
-// single request even right after it had just failed (e.g. Groq's
-// TPM limit being hit repeatedly) — every message paid for a failed
-// Groq round-trip before it ever reached the Ollama Cloud fallback,
-// which is what made things feel like they were hanging. Once Groq
-// fails, we skip it entirely for GROQ_COOLDOWN_MS and go straight to
-// Ollama Cloud; after the cooldown window passes, the next request
-// tries Groq again automatically.
-const GROQ_COOLDOWN_MS = Number(process.env.GROQ_COOLDOWN_MS) || 60_000;
-let groqCooldownUntil = 0;
+// STICKY COOLDOWN: if Ollama Cloud fails, we skip it for
+// OLLAMA_COOLDOWN_MS and go straight to Groq instead of paying for
+// another doomed Ollama round-trip on every single request; after the
+// cooldown window passes, the next request tries Ollama Cloud again
+// automatically.
+const OLLAMA_COOLDOWN_MS = Number(process.env.OLLAMA_COOLDOWN_MS) || 60_000;
+let ollamaCooldownUntil = 0;
+
+// Ollama Cloud's model names ("gpt-oss:120b") don't match Groq's
+// ("openai/gpt-oss-120b") — callers here pass Groq-style names (via
+// MODELS.smart/fast), so translate before calling Ollama Cloud rather
+// than forwarding the Groq name straight through, which would 404.
+function callOllamaCloud(messages, options) {
+  const ollamaOptions = { ...options };
+  if (options.model) ollamaOptions.model = LocalLLM.mapGroqModelToOllamaCloud(options.model);
+  return LocalLLM.ollamaCloudChat(messages, ollamaOptions);
+}
 
 async function groqFetchRawWithFallback(messages, options = {}) {
-  const onCooldown = Date.now() < groqCooldownUntil;
+  const ollamaReady = LocalLLM.isCloudConfigured();
+  const onCooldown = Date.now() < ollamaCooldownUntil;
 
-  if (!onCooldown) {
+  if (ollamaReady && !onCooldown) {
     try {
-      const result = await groqFetchRaw(messages, options);
-      groqCooldownUntil = 0; // Groq's healthy again — clear any prior cooldown
+      const result = await callOllamaCloud(messages, options);
+      ollamaCooldownUntil = 0; // Ollama Cloud's healthy — clear any prior cooldown
       return result;
     } catch (e) {
-      if (LocalLLM.isCloudConfigured()) {
-        groqCooldownUntil = Date.now() + GROQ_COOLDOWN_MS;
-        console.warn(`[HERMES] Groq unavailable (${e.message}) — falling back to Ollama Cloud for the next ${Math.round(GROQ_COOLDOWN_MS / 1000)}s...`);
-        try {
-          return await LocalLLM.ollamaCloudChat(messages, options);
-        } catch (cloudErr) {
-          console.error(`[HERMES] Ollama Cloud fallback also failed: ${cloudErr.message}`);
-          throw e; // surface the original Groq error, more useful than the fallback's
-        }
+      ollamaCooldownUntil = Date.now() + OLLAMA_COOLDOWN_MS;
+      console.warn(`[HERMES] Ollama Cloud unavailable (${e.message}) — falling back to Groq for the next ${Math.round(OLLAMA_COOLDOWN_MS / 1000)}s...`);
+      try {
+        return await groqFetchRaw(messages, options);
+      } catch (groqErr) {
+        console.error(`[HERMES] Groq fallback also failed: ${groqErr.message}`);
+        throw e; // surface the original Ollama Cloud error, more useful than the fallback's
       }
-      throw e;
     }
   }
 
-  // Still within the cooldown window from a recent Groq failure —
-  // skip straight to Ollama Cloud instead of paying for another
-  // doomed Groq round-trip first.
-  if (LocalLLM.isCloudConfigured()) {
+  if (ollamaReady) {
+    // Still within the cooldown window from a recent Ollama Cloud
+    // failure — skip straight to Groq instead of paying for another
+    // doomed Ollama round-trip first.
     try {
-      return await LocalLLM.ollamaCloudChat(messages, options);
-    } catch (cloudErr) {
-      // Ollama Cloud itself is having trouble — worth trying Groq
+      return await groqFetchRaw(messages, options);
+    } catch (groqErr) {
+      // Groq itself is having trouble too — worth trying Ollama Cloud
       // again immediately rather than failing outright.
-      console.warn(`[HERMES] Ollama Cloud failed during cooldown (${cloudErr.message}) — trying Groq early...`);
+      console.warn(`[HERMES] Groq failed during cooldown (${groqErr.message}) — trying Ollama Cloud early...`);
       try {
-        const result = await groqFetchRaw(messages, options);
-        groqCooldownUntil = 0;
+        const result = await callOllamaCloud(messages, options);
+        ollamaCooldownUntil = 0;
         return result;
       } catch (e) {
-        throw cloudErr; // both paths failed — surface the Ollama Cloud error, since that's the one that was actually "current"
+        throw groqErr; // both paths failed — surface the Groq error, since that's the one that was actually "current"
       }
     }
   }
 
-  // No Ollama Cloud configured at all — nothing left to try but Groq.
-  const result = await groqFetchRaw(messages, options);
-  groqCooldownUntil = 0;
-  return result;
+  // Ollama Cloud not configured at all — nothing left to try but Groq.
+  return await groqFetchRaw(messages, options);
 }
 
 // ── STREAMING GROQ FETCH ───────────────────────────────────────
@@ -1200,8 +1220,7 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
 
   const results = [];
   for (const call of assistantMsg.tool_calls) {
-    let args = {};
-    try { args = JSON.parse(call.function.arguments || "{}"); } catch {}
+    const args = parseToolArgs(call.function.arguments);
     let result;
     try { result = await executeTool(call.function.name, args); }
     catch (e) { result = { reply: `That didn't go through, ${T}. ${e.message || ""}`.trim() }; }
@@ -1240,8 +1259,7 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
       });
       if (followupMsg.tool_calls && followupMsg.tool_calls.length) {
         for (const call of followupMsg.tool_calls) {
-          let args = {};
-          try { args = JSON.parse(call.function.arguments || "{}"); } catch {}
+          const args = parseToolArgs(call.function.arguments);
           let result;
           try { result = await executeTool(call.function.name, args); }
           catch (e) { result = { reply: `That didn't go through, ${T}. ${e.message || ""}`.trim() }; }
