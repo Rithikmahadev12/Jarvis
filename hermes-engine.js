@@ -574,6 +574,20 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "change_username",
+      description: "Change the logged-in user's display name/username — e.g. they typo'd it during account setup and want it fixed, or just want to go by something else. Call for phrasing like 'change my name to X', 'change my username to X', 'call me X from now on', 'I put my name in wrong, it's actually X'. This only renames the account; it doesn't create a new one or affect Face ID.",
+      parameters: {
+        type: "object",
+        properties: {
+          new_name: { type: "string", description: "The new name/username to switch to." },
+        },
+        required: ["new_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "set_music_platform",
       description: "Switch which source play_music pulls songs from when they aren't already in Jarvis's local library. Call this for phrasing like 'jarvis music platform 2', 'jarvis music plat 1', 'switch music to audius', 'use youtube for music again'. Platform 1 is YouTube (the default), platform 2 is Audius (a free service that actually streams full songs — Jarvis does not use Spotify or Discogs for playback, since Discogs is only a discography/marketplace database and has no audio to stream). This only changes where FUTURE songs are pulled from — it doesn't play anything itself.",
       parameters: {
