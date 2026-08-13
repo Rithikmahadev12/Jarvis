@@ -232,21 +232,65 @@ async function groqFetchRaw(messages, options = {}) {
 // above). Not tried first, not tried on every request: Groq stays
 // primary. This is a safety net for "ran out of Groq quota," not a
 // replacement.
+//
+// STICKY COOLDOWN: the naive version of this re-tried Groq on every
+// single request even right after it had just failed (e.g. Groq's
+// TPM limit being hit repeatedly) — every message paid for a failed
+// Groq round-trip before it ever reached the Ollama Cloud fallback,
+// which is what made things feel like they were hanging. Once Groq
+// fails, we skip it entirely for GROQ_COOLDOWN_MS and go straight to
+// Ollama Cloud; after the cooldown window passes, the next request
+// tries Groq again automatically.
+const GROQ_COOLDOWN_MS = Number(process.env.GROQ_COOLDOWN_MS) || 60_000;
+let groqCooldownUntil = 0;
+
 async function groqFetchRawWithFallback(messages, options = {}) {
-  try {
-    return await groqFetchRaw(messages, options);
-  } catch (e) {
-    if (LocalLLM.isCloudConfigured()) {
-      console.warn(`[HERMES] Groq unavailable (${e.message}) — falling back to Ollama Cloud...`);
+  const onCooldown = Date.now() < groqCooldownUntil;
+
+  if (!onCooldown) {
+    try {
+      const result = await groqFetchRaw(messages, options);
+      groqCooldownUntil = 0; // Groq's healthy again — clear any prior cooldown
+      return result;
+    } catch (e) {
+      if (LocalLLM.isCloudConfigured()) {
+        groqCooldownUntil = Date.now() + GROQ_COOLDOWN_MS;
+        console.warn(`[HERMES] Groq unavailable (${e.message}) — falling back to Ollama Cloud for the next ${Math.round(GROQ_COOLDOWN_MS / 1000)}s...`);
+        try {
+          return await LocalLLM.ollamaCloudChat(messages, options);
+        } catch (cloudErr) {
+          console.error(`[HERMES] Ollama Cloud fallback also failed: ${cloudErr.message}`);
+          throw e; // surface the original Groq error, more useful than the fallback's
+        }
+      }
+      throw e;
+    }
+  }
+
+  // Still within the cooldown window from a recent Groq failure —
+  // skip straight to Ollama Cloud instead of paying for another
+  // doomed Groq round-trip first.
+  if (LocalLLM.isCloudConfigured()) {
+    try {
+      return await LocalLLM.ollamaCloudChat(messages, options);
+    } catch (cloudErr) {
+      // Ollama Cloud itself is having trouble — worth trying Groq
+      // again immediately rather than failing outright.
+      console.warn(`[HERMES] Ollama Cloud failed during cooldown (${cloudErr.message}) — trying Groq early...`);
       try {
-        return await LocalLLM.ollamaCloudChat(messages, options);
-      } catch (cloudErr) {
-        console.error(`[HERMES] Ollama Cloud fallback also failed: ${cloudErr.message}`);
-        throw e; // surface the original Groq error, more useful than the fallback's
+        const result = await groqFetchRaw(messages, options);
+        groqCooldownUntil = 0;
+        return result;
+      } catch (e) {
+        throw cloudErr; // both paths failed — surface the Ollama Cloud error, since that's the one that was actually "current"
       }
     }
-    throw e;
   }
+
+  // No Ollama Cloud configured at all — nothing left to try but Groq.
+  const result = await groqFetchRaw(messages, options);
+  groqCooldownUntil = 0;
+  return result;
 }
 
 // ── STREAMING GROQ FETCH ───────────────────────────────────────
