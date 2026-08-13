@@ -77,7 +77,7 @@
   window.isSleepModeEnabled = function () { return enabled; };
 
   // ── DOM ──────────────────────────────────────────────────────
-  let overlay, frameGlow, frameCore, cardEl, artWrapEl, artEl, artReflectEl,
+  let overlay, frameGlow, frameCore, washEl, cardEl, artWrapEl, artEl, artReflectEl,
       barsEl, barsEls, titleEl, artistEl,
       progFill, elapsedEl, durationEl, progTrack, playBtn, repeatBtnEl, shuffleBtnEl,
       gearBtn, panel, confirmBox, quitBtn;
@@ -99,6 +99,7 @@
     overlay = document.createElement("div");
     overlay.id = "sleep-mode-overlay";
     overlay.innerHTML = `
+      <div class="sm-wash" id="sm-wash"></div>
       <div class="sm-frame-glow" id="sm-frame-glow"></div>
       <div class="sm-frame-core" id="sm-frame-core"></div>
 
@@ -226,7 +227,7 @@
     `;
     document.body.appendChild(overlay);
 
-    frameGlow = $("sm-frame-glow"); frameCore = $("sm-frame-core");
+    frameGlow = $("sm-frame-glow"); frameCore = $("sm-frame-core"); washEl = $("sm-wash");
     cardEl = $("sm-card"); artWrapEl = $("sm-art-wrap"); artEl = $("sm-art"); artReflectEl = $("sm-art-reflect");
     barsEl = $("sm-bars"); barsEls = Array.from(barsEl.querySelectorAll(".sm-bar"));
     titleEl = $("sm-title"); artistEl = $("sm-artist");
@@ -685,6 +686,24 @@
     return layers.join(", ");
   }
 
+  // ── ambient bloom wash — big soft blurred blooms of color bleeding in
+  // from the screen edges (heaviest toward the bottom), rather than a
+  // thin ring outline. This is the main "does it look alive" layer —
+  // modeled on the way phone lock-screen now-playing widgets tint the
+  // whole screen from the album art rather than just drawing a border. ──
+  function buildWashBackground(pulse, beat) {
+    const { primary, secondary } = activeColors;
+    const p = Math.min(1, pulse + beat * 0.6);
+    const a1 = 0.30 + p * 0.30;
+    const a2 = 0.20 + p * 0.22;
+    return [
+      `radial-gradient(ellipse 70% 55% at 50% 108%, ${colorToRgba(primary, a1)} 0%, transparent 65%)`,
+      `radial-gradient(ellipse 50% 45% at 4% 96%, ${colorToRgba(secondary, a2)} 0%, transparent 68%)`,
+      `radial-gradient(ellipse 50% 45% at 96% 96%, ${colorToRgba(primary, a2)} 0%, transparent 68%)`,
+      `radial-gradient(ellipse 60% 40% at 50% -6%, ${colorToRgba(secondary, a2 * 0.7)} 0%, transparent 70%)`,
+    ].join(", ");
+  }
+
   // ── main animation loop — the glow ring traces the rounded screen
   // edge as a handful of drifting/pulsing light spots (built above),
   // audio-reactive (real frequency data + beat detection) when possible,
@@ -729,6 +748,11 @@
     frameCore.style.background = background;
     frameCore.style.padding = Math.max(1.5, thickness * 0.35) + "px";
     frameCore.style.opacity = Math.min(1, opacity + 0.15);
+
+    if (washEl) {
+      washEl.style.background = buildWashBackground(pulse, beat);
+      washEl.style.opacity = mode === "none" ? 0.4 : 1;
+    }
 
     barsEl.style.setProperty("--sm-bar-a", activeColors.primary);
     barsEl.style.setProperty("--sm-bar-b", activeColors.secondary);
