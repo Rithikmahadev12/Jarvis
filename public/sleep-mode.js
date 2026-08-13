@@ -573,62 +573,27 @@
     activeColors = extracted || { primary: "#ff2d95", secondary: "#00d2ff" };
   }
 
-  // ── Web Audio tap (Audius only — YouTube's iframe audio is
+  // ── Beat/amplitude data (Audius only — YouTube's iframe audio is
   // cross-origin and can't be read by the page at all) ───────────
-  let audioCtx = null, analyser = null, sourceNode = null, freqData = null;
-  let tappedElement = null;
-
-  function ensureAudioTap() {
-    const el = window.MusicWidget?.getAudioElement?.();
-    if (!el || window.MusicWidget.getSource() !== "audio") return false;
-    if (tappedElement === el && analyser) return true;
-    try {
-      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      // A given <audio> element can only ever be wrapped by ONE
-      // MediaElementSourceNode for its whole lifetime — since
-      // music-widget.js reuses the same element across tracks, only
-      // create this once and just leave it connected from then on.
-      if (!sourceNode || tappedElement !== el) {
-        sourceNode = audioCtx.createMediaElementSource(el);
-        analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 256;
-        freqData = new Uint8Array(analyser.frequencyBinCount);
-        sourceNode.connect(analyser);
-        analyser.connect(audioCtx.destination); // keep it audible!
-        tappedElement = el;
-      }
-      if (audioCtx.state === "suspended") audioCtx.resume();
-      return true;
-    } catch (e) {
-      console.warn("[SLEEP MODE] Couldn't tap audio for reactive glow:", e.message);
-      return false;
-    }
+  // music-widget.js owns the actual Web Audio tap on the <audio>
+  // element (a given element can only ever be wrapped by ONE
+  // MediaElementSourceNode for its whole lifetime, and it's already
+  // using this same element to drive its own beat-reactive ring — a
+  // second tap here would throw). Sleep Mode just reads the shared
+  // amplitude/beat/frequency data through its public getters instead.
+  function getAmplitude() {
+    return window.MusicWidget?.getBeatData?.().amplitude || 0;
   }
 
-  function getAmplitude() {
-    if (!analyser || !freqData) return 0;
-    analyser.getByteFrequencyData(freqData);
-    let sum = 0;
-    for (let i = 0; i < freqData.length; i++) sum += freqData[i];
-    return (sum / freqData.length) / 255; // 0..1
+  function detectBeat() {
+    return window.MusicWidget?.getBeatData?.().beat || 0;
   }
 
   // Splits the analyser's frequency bins into `n` averaged buckets, with
   // a touch of log-ish spacing so the low end isn't crammed into the
   // first couple of bars (most audible energy sits there).
   function getFrequencyBins(n) {
-    if (!analyser || !freqData) return null;
-    analyser.getByteFrequencyData(freqData);
-    const usable = Math.floor(freqData.length * 0.75); // top slice is mostly noise
-    const bins = new Array(n);
-    for (let i = 0; i < n; i++) {
-      const start = Math.floor(Math.pow(i / n, 1.5) * usable);
-      const end = Math.max(start + 1, Math.floor(Math.pow((i + 1) / n, 1.5) * usable));
-      let sum = 0, count = 0;
-      for (let j = start; j < end && j < freqData.length; j++) { sum += freqData[j]; count++; }
-      bins[i] = count ? (sum / count) / 255 : 0;
-    }
-    return bins;
+    return window.MusicWidget?.getFrequencyBins?.(n) || null;
   }
 
   // ── bar visualizer ──────────────────────────────────────────
@@ -690,30 +655,8 @@
     return out;
   }
 
-  // Lightweight bass-energy onset/beat detector (Audius only — this is
-  // the one case we can actually read the real waveform; YouTube's
-  // iframe audio is cross-origin and unreadable by the page, so there's
-  // no true beat-sync possible for it, only the ambient simulation
-  // above). Tracks a slow running average of bass-band energy and fires
-  // a decaying "beat" envelope whenever the current bass level spikes
-  // well above it — a simple but effective kick/bass-hit detector.
-  let bassAvg = 0, lastBeatAt = 0, beatEnvelope = 0;
-  function detectBeat() {
-    if (!analyser || !freqData) return 0;
-    analyser.getByteFrequencyData(freqData);
-    const bassBins = Math.max(4, Math.floor(freqData.length * 0.12));
-    let sum = 0;
-    for (let i = 0; i < bassBins; i++) sum += freqData[i];
-    const bass = sum / bassBins / 255;
-    bassAvg = bassAvg === 0 ? bass : bassAvg * 0.92 + bass * 0.08;
-    const now = Date.now();
-    if (bass > bassAvg * 1.22 && bass > 0.18 && now - lastBeatAt > 220) {
-      lastBeatAt = now;
-      beatEnvelope = 1;
-    }
-    beatEnvelope *= 0.88; // exponential decay back to 0 between hits
-    return beatEnvelope;
-  }
+  // (beat detection itself now lives in music-widget.js — see the
+  // detectBeat()/getAmplitude() getters above)
 
   function buildRingBackground(angleDeg, reactive, animated, beat) {
     const { primary, secondary } = activeColors;
@@ -753,8 +696,7 @@
     if (!overlay || !overlay.classList.contains("sm-visible")) { rafId = null; return; }
 
     const mode = prefs.animation;
-    const isAudius = window.MusicWidget?.getSource?.() === "audio";
-    const reactive = isAudius && ensureAudioTap();
+    const reactive = !!window.MusicWidget?.getBeatData?.().reactive;
     const animated = mode !== "none";
     const amp = reactive ? getAmplitude() : 0;
     const beat = reactive && animated ? detectBeat() : 0;
