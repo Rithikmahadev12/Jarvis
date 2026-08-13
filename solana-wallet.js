@@ -312,21 +312,35 @@ async function checkIncomingPayments({ limit = 20, userKey } = {}) {
 // For recording earnings from sources that don't land as an on-chain
 // transfer to this address (PayPal, a platform payout, etc.) so
 // there's one place that tracks what Jarvis has actually earned.
-function recordEarning({ source, amountUsd, note = "" } = {}) {
+//
+// PER-PERSON ATTRIBUTION: every entry can carry an optional userKey —
+// same lowercased-name key as everything else in this file — naming
+// whose job/sale/bounty this money is attributed to. Callers that
+// don't pass one (or pass the owner's key) are tagged to the owner,
+// same as the old single-earner behavior. listEarnings()/
+// totalEarningsUsd() take an optional userKey filter: omit it for the
+// full combined ledger (dashboard "everyone" view), pass it to see
+// just one person's cut — e.g. a non-owner checking what they've
+// personally earned from bounties/store sales attributed to them.
+function recordEarning({ source, amountUsd, note = "", userKey } = {}) {
   if (!source || !(amountUsd > 0)) return { error: "source and a positive amountUsd are required." };
+  const key = normalizeKey(userKey) || "owner";
   const ledger = loadLedger();
-  const entry = { type: "manual", source, amountUsd: Number(amountUsd), note, recordedAt: new Date().toISOString() };
+  const entry = { type: "manual", source, amountUsd: Number(amountUsd), note, userKey: key, recordedAt: new Date().toISOString() };
   ledger.entries.push(entry);
   saveLedger(ledger);
   return entry;
 }
 
-function listEarnings() {
-  return loadLedger().entries.slice().reverse();
+function listEarnings(userKey) {
+  const entries = loadLedger().entries.slice().reverse();
+  if (!userKey) return entries;
+  const key = normalizeKey(userKey);
+  return entries.filter((e) => (e.userKey || "owner") === key);
 }
 
-function totalEarningsUsd() {
-  return loadLedger().entries.reduce((sum, e) => sum + (Number(e.amountUsd) || 0), 0);
+function totalEarningsUsd(userKey) {
+  return listEarnings(userKey).reduce((sum, e) => sum + (Number(e.amountUsd) || 0), 0);
 }
 
 module.exports = {
