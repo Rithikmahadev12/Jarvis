@@ -29,18 +29,24 @@
 /* Animated color-wheel ring — a big rotating conic-gradient sits behind
    everything (clipped to the rounded rect by overflow:hidden above);
    the opaque card content on top covers all of it except a thin ring
-   at the very edge, so what's actually visible is a slowly spinning
-   rainbow border rather than a flat/static gradient. */
+   at the very edge, so what's actually visible is a spinning rainbow
+   border rather than a flat/static gradient. Rotation speed, glow
+   blur/opacity, and scale are driven live by music-widget.js's ring
+   loop (--mw-angle/--mw-scale/--mw-glow-opacity/--mw-blur) so the ring
+   spins up and flares brighter on the beat instead of just looping at
+   a constant rate. Falls back to the plain --mw-angle default (0deg,
+   static) if JS hasn't started the loop yet. */
 .music-widget::before {
   content: "";
   position: absolute;
   inset: -60%;
-  background: conic-gradient(from 0deg,
+  background: conic-gradient(from var(--mw-angle, 0deg),
     #ff2d95, #ff5a3c, #ffb020, #ffe135, #6bff5a, #00d2ff, #7a3cff, #ff2d95);
-  animation: mw-wheel-spin 8s linear infinite;
+  opacity: var(--mw-glow-opacity, 0.85);
+  filter: blur(var(--mw-blur, 2px));
+  transform: scale(var(--mw-scale, 1));
   z-index: 0;
 }
-@keyframes mw-wheel-spin { to { transform: rotate(360deg); } }
 
 .mw-close {
   position: absolute;
