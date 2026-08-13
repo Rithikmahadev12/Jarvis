@@ -23,6 +23,14 @@
 //     like an ordinary browser, so it succeeds a lot more often than
 //     a plain fetch() at getting past Instagram's login wall for a
 //     public profile.
+//   - "Jarvis, show pc" — opens a second, separate kind of sandbox
+//     (@e2b/desktop instead of @e2b/code-interpreter): a real Ubuntu
+//     + XFCE desktop with a live VNC stream, so you can actually SEE
+//     it and click/type into it from the browser, not just read back
+//     stdout. See the DESKTOP SANDBOX section below. This is a fully
+//     separate sandbox instance from the code/command one above —
+//     different E2B product, spun up and billed independently, only
+//     created the first time "show pc" is actually used.
 //   - Anything else that benefits from "run it somewhere safe first,
 //     not directly on the user's machine and not just as a guess."
 //
@@ -30,17 +38,18 @@
 //   1. Sign up free at https://e2b.dev, grab an API key from the
 //      dashboard.
 //   2. Add to .env:  E2B_API_KEY=e2b_xxxxxxxxxxxx
-//   3. npm install (pulls in @e2b/code-interpreter).
+//   3. npm install (pulls in @e2b/code-interpreter and @e2b/desktop).
 //   That's it — no template building required. Everything here uses
-//   E2B's default sandbox template and installs whatever extra tools
+//   E2B's default sandbox templates and installs whatever extra tools
 //   a given task needs (e.g. Playwright for browsing) on demand,
 //   the first time they're needed, inside the sandbox itself.
 //
-// isConfigured() is checked by every caller (server.js, instagram.js)
-// before this is used, and every exported function fails soft with
-// a plain { error: "..." } / thrown Error rather than crashing —
-// same "never take the whole assistant down" rule as everything
-// else in this codebase (see server.js's CRASH GUARD comment).
+// isConfigured() / isDesktopConfigured() are checked by every caller
+// (server.js, instagram.js) before this is used, and every exported
+// function fails soft with a plain { error: "..." } / thrown Error
+// rather than crashing — same "never take the whole assistant down"
+// rule as everything else in this codebase (see server.js's CRASH
+// GUARD comment).
 // ═══════════════════════════════════════════════════════════════
 
 const path = require("path");
@@ -327,6 +336,125 @@ const fs = require('fs');
   };
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ── DESKTOP SANDBOX — "Jarvis, show pc" ─────────────────────────
+//
+// A completely separate E2B product (@e2b/desktop) from the plain
+// code-interpreter sandbox above: a real Ubuntu + XFCE desktop with
+// a live VNC stream, so it can be embedded directly in the browser
+// and clicked/typed into, instead of only ever reporting back text.
+// Same lazy-singleton-with-idle-reap shape as the sandbox above, but
+// tracked completely separately (own timers, own instance) since the
+// two are different E2B sandbox types under the hood.
+// ═══════════════════════════════════════════════════════════════
+
+let DesktopSandboxCtor = null;
+let desktopLoadError = null;
+try {
+  ({ Sandbox: DesktopSandboxCtor } = require("@e2b/desktop"));
+} catch (e) {
+  desktopLoadError = e;
+}
+
+const DESKTOP_IDLE_TIMEOUT_MS = parseInt(process.env.E2B_DESKTOP_IDLE_MS || "", 10) || 10 * 60 * 1000;
+const DESKTOP_SANDBOX_LIFETIME_MS = parseInt(process.env.E2B_DESKTOP_LIFETIME_MS || "", 10) || 30 * 60 * 1000;
+const DESKTOP_RESOLUTION = (() => {
+  const raw = process.env.E2B_DESKTOP_RESOLUTION || "1280x800";
+  const [w, h] = raw.split("x").map((n) => parseInt(n, 10));
+  return (w && h) ? [w, h] : [1280, 800];
+})();
+
+function isDesktopConfigured() {
+  return !!(E2B_API_KEY && DesktopSandboxCtor);
+}
+
+function notDesktopConfiguredError() {
+  if (!DesktopSandboxCtor) {
+    return new Error(
+      `The @e2b/desktop package isn't installed${desktopLoadError ? ` (${desktopLoadError.message})` : ""} — run \`npm install\` and restart Jarvis.`
+    );
+  }
+  return new Error(
+    "E2B isn't configured yet — grab a free API key at https://e2b.dev and add E2B_API_KEY to .env, then restart Jarvis."
+  );
+}
+
+let activeDesktop = null;
+let desktopIdleTimer = null;
+let streamStarted = false;
+let cachedAuthKey = null;
+
+function armDesktopIdleTimer() {
+  if (desktopIdleTimer) clearTimeout(desktopIdleTimer);
+  desktopIdleTimer = setTimeout(() => { killDesktopSandbox().catch(() => {}); }, DESKTOP_IDLE_TIMEOUT_MS);
+  if (desktopIdleTimer.unref) desktopIdleTimer.unref();
+}
+
+async function getDesktop() {
+  if (!isDesktopConfigured()) throw notDesktopConfiguredError();
+
+  if (activeDesktop) {
+    armDesktopIdleTimer();
+    return activeDesktop;
+  }
+
+  activeDesktop = await DesktopSandboxCtor.create({
+    resolution: DESKTOP_RESOLUTION,
+    dpi: 96,
+    timeoutMs: DESKTOP_SANDBOX_LIFETIME_MS,
+    metadata: { source: "jarvis" },
+  });
+  streamStarted = false;
+  cachedAuthKey = null;
+  armDesktopIdleTimer();
+  return activeDesktop;
+}
+
+async function killDesktopSandbox() {
+  if (desktopIdleTimer) { clearTimeout(desktopIdleTimer); desktopIdleTimer = null; }
+  const d = activeDesktop;
+  activeDesktop = null;
+  streamStarted = false;
+  cachedAuthKey = null;
+  if (d) {
+    try { await d.kill(); } catch { /* already gone — fine */ }
+  }
+}
+
+function isDesktopRunning() {
+  return !!activeDesktop;
+}
+
+// Starts (or reuses) the VNC stream and hands back a ready-to-embed,
+// auth-keyed URL. Safe to call repeatedly — only actually starts the
+// stream once per sandbox instance.
+async function ensureDesktopStream() {
+  const desktop = await getDesktop();
+
+  if (!streamStarted) {
+    await desktop.stream.start({ requireAuth: true });
+    cachedAuthKey = await desktop.stream.getAuthKey();
+    streamStarted = true;
+  }
+
+  const url = desktop.stream.getUrl({ authKey: cachedAuthKey });
+  return { url, resolution: DESKTOP_RESOLUTION };
+}
+
+async function stopDesktopStream() {
+  if (activeDesktop && streamStarted) {
+    try { await activeDesktop.stream.stop(); } catch { /* best effort */ }
+    streamStarted = false;
+  }
+}
+
+// Launches a GUI app inside the desktop (e.g. "firefox", "google-chrome").
+async function desktopLaunch(app) {
+  const desktop = await getDesktop();
+  await desktop.launch(app);
+  return { app };
+}
+
 module.exports = {
   isConfigured,
   isRunning,
@@ -340,4 +468,12 @@ module.exports = {
   readFile,
   testProject,
   browsePage,
+  // desktop sandbox ("show pc")
+  isDesktopConfigured,
+  isDesktopRunning,
+  getDesktop,
+  killDesktopSandbox,
+  ensureDesktopStream,
+  stopDesktopStream,
+  desktopLaunch,
 };
