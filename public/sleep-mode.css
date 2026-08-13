@@ -34,10 +34,10 @@
    driven from JS each frame (see sleep-mode.js buildWashBackground()). */
 .sm-wash {
   position: absolute;
-  inset: -8%;
+  inset: -15%;
   z-index: 0;
   pointer-events: none;
-  filter: blur(50px);
+  filter: blur(56px);
   opacity: 0;
   transition: opacity 0.6s ease;
   will-change: opacity, background;
