@@ -259,7 +259,12 @@
     // asks first. The gear panel's own "Exit Sleep Mode" button below
     // skips the confirm — it's an explicit action, not an accidental click.
     overlay.addEventListener("click", (e) => {
-      if (panel.classList.contains("sm-visible") && !panel.contains(e.target)) {
+      // Any click landing inside the settings panel — a select, switch,
+      // slider, swatch, etc. — is handled entirely by that control's own
+      // listener above. It must never also fall through to the exit
+      // confirm, regardless of whether the panel is open or closed.
+      if (panel.contains(e.target)) return;
+      if (panel.classList.contains("sm-visible")) {
         panel.classList.remove("sm-visible");
         return;
       }
@@ -733,7 +738,7 @@
       const size = 30 + p * 20;
       layers.push(`radial-gradient(circle at ${x.toFixed(1)}% ${y.toFixed(1)}%, ${colorToRgba(color, alpha)} 0%, transparent ${size}%)`);
     }
-    layers.push(`conic-gradient(from ${angleDeg}deg, ${colorToRgba(primary, 0.16)}, ${colorToRgba(secondary, 0.16)}, ${colorToRgba(primary, 0.16)})`);
+    layers.push(`conic-gradient(from ${angleDeg}deg, ${colorToRgba(primary, 0.32)}, ${colorToRgba(secondary, 0.32)}, ${colorToRgba(primary, 0.32)})`);
     return layers.join(", ");
   }
 
@@ -772,7 +777,7 @@
 
     const thickness = Math.max(2, prefs.thickness * 0.12 * thicknessMult * (0.75 + pulse * 0.5));
     const blur = Math.max(4, prefs.glow * blurMult * (0.7 + pulse * 0.6));
-    const opacity = mode === "none" ? 0.95 : Math.min(1, 0.5 + pulse * 0.5);
+    const opacity = mode === "none" ? 0.95 : Math.min(1, 0.68 + pulse * 0.5);
 
     const background = buildRingBackground(angleDeg, reactive, animated, beat);
     frameGlow.style.background = background;
