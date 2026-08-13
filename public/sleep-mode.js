@@ -27,8 +27,8 @@
   const DEFAULT_PREFS = {
     animation: "default",   // "default" | "static" | "none" — motion behavior of the glow ring
     gradient: "default",    // "default" (album colors) | "rainbow" | "mono" (primary only)
-    thickness: 90,           // ring thickness, px-ish (scaled down internally)
-    glow: 46,                 // blur radius, px
+    thickness: 110,           // ring thickness, px-ish (scaled down internally)
+    glow: 58,                 // blur radius, px
     musicBars: true,        // audio-reactive bar visualizer under the artwork
     reflect: false,          // mirrored reflection under the album art
     overrideColors: false,
@@ -574,7 +574,9 @@
       return;
     }
     const extracted = await extractColorsFromImage(lastArtwork);
-    activeColors = extracted || { primary: "#ff2d95", secondary: "#00d2ff" };
+    activeColors = extracted
+      ? { primary: vividColor(extracted.primary), secondary: vividColor(extracted.secondary) }
+      : { primary: "#ff2d95", secondary: "#00d2ff" };
   }
 
   // ── Beat/amplitude data (Audius only — YouTube's iframe audio is
@@ -620,13 +622,12 @@
   }
 
   // ── glow ring background builder ─────────────────────────────
-  // The old version just rotated one uniform conic-gradient around the
-  // frame. This instead scatters several soft "light spots" around the
-  // ring perimeter — each one its own radial-gradient — so the edge
-  // reads as light actually traveling and pulsing at different points
-  // around the screen (closer to the goal reference: a moody, uneven
-  // glow concentrated at a few spots, not a flat rainbow band), plus a
-  // faint conic wash underneath so it never goes fully dark between spots.
+  // The reference look (image 2) is a smooth, solid neon border —
+  // one continuous wrap of color around the screen edge, not a string
+  // of separate glowing dots. So this builds ONE smooth conic gradient
+  // (a slow drift, not discrete traveling spots) and lets pulse/beat
+  // drive its overall intensity and thickness instead of moving lights
+  // around the ring.
   const SPOT_COUNT = 6;
 
   function colorToRgba(color, alpha) {
@@ -639,24 +640,48 @@
     return color;
   }
 
-  // Per-spot brightness: real per-frequency-band energy when we have a
-  // live audio tap (Audius), so bass/mid/treble hits literally light up
-  // different points around the ring as they happen. Otherwise a layered
-  // multi-sine ambient simulation with a per-spot phase offset, so it
-  // still reads as organic, uneven movement rather than a uniform pulse.
-  function getSpotPulses(n, reactive, animated) {
-    if (!animated) return new Array(n).fill(0.42);
-    if (reactive) {
-      const bins = getFrequencyBins(n);
-      if (bins) return bins.map((v) => Math.min(1, v * 1.35));
+  // ── "vivid-ize" a color pulled from the album art ─────────────
+  // Raw extracted swatches are often muddy/desaturated (a dark maroon,
+  // a dull brown) because they're just an average of whatever pixels
+  // happened to be common. The reference look (image 2) is a punchy,
+  // saturated neon — so push extracted colors toward high saturation
+  // and a mid-bright lightness before they're ever used as a glow
+  // color. Colors the user picked by hand on the wheel are left alone.
+  function hexToHsl(hex) {
+    const r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0; const l = (max + min) / 2;
+    const d = max - min;
+    if (d !== 0) {
+      s = d / (1 - Math.abs(2 * l - 1));
+      switch (max) {
+        case r: h = ((g - b) / d) % 6; break;
+        case g: h = (b - r) / d + 2; break;
+        default: h = (r - g) / d + 4;
+      }
+      h *= 60; if (h < 0) h += 360;
     }
-    const now = Date.now();
-    const out = new Array(n);
-    for (let i = 0; i < n; i++) {
-      let p = 0.35 + 0.28 * Math.sin(now / 480 + i * 1.15) + 0.16 * Math.sin(now / 210 + i * 2.4);
-      out[i] = Math.max(0.08, Math.min(1, p));
-    }
-    return out;
+    return { h, s, l };
+  }
+  function hslToHex(h, s, l) {
+    const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+    let r, g, b;
+    if (h < 60) [r, g, b] = [c, x, 0];
+    else if (h < 120) [r, g, b] = [x, c, 0];
+    else if (h < 180) [r, g, b] = [0, c, x];
+    else if (h < 240) [r, g, b] = [0, x, c];
+    else if (h < 300) [r, g, b] = [x, 0, c];
+    else [r, g, b] = [c, 0, x];
+    const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, "0");
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  }
+  function vividColor(hex) {
+    try {
+      const { h, s, l } = hexToHsl(hex);
+      const s2 = Math.max(s, 0.82);
+      const l2 = Math.min(0.68, Math.max(0.42, l < 0.3 ? l + 0.22 : l));
+      return hslToHex(h, s2, l2);
+    } catch (e) { return hex; }
   }
 
   // (beat detection itself now lives in music-widget.js — see the
@@ -664,29 +689,19 @@
 
   function buildRingBackground(angleDeg, reactive, animated, beat) {
     const { primary, secondary } = activeColors;
-    const n = SPOT_COUNT;
-    const pulses = getSpotPulses(n, reactive, animated);
-    const baseAngle = (angleDeg * Math.PI) / 180;
-    const layers = [];
-    for (let i = 0; i < n; i++) {
-      const theta = baseAngle + (i / n) * Math.PI * 2;
-      const x = 50 + 50 * Math.cos(theta);
-      const y = 50 + 50 * Math.sin(theta);
-      let color;
-      if (prefs.gradient === "rainbow") {
-        color = `hsl(${((i / n) * 360 + angleDeg) % 360}, 95%, 60%)`;
-      } else if (prefs.gradient === "mono") {
-        color = primary;
-      } else {
-        color = i % 2 === 0 ? primary : secondary;
-      }
-      const p = Math.min(1, pulses[i] + beat * 0.5);
-      const alpha = 0.22 + p * 0.68;
-      const size = 30 + p * 20;
-      layers.push(`radial-gradient(circle at ${x.toFixed(1)}% ${y.toFixed(1)}%, ${colorToRgba(color, alpha)} 0%, transparent ${size}%)`);
+    const p = Math.min(1, 0.55 + beat * 0.5);
+    const a1 = 0.85 + p * 0.15;
+    const a2 = 0.7 + p * 0.3;
+
+    if (prefs.gradient === "rainbow") {
+      return `conic-gradient(from ${angleDeg}deg, hsla(0,95%,60%,${a1}), hsla(60,95%,60%,${a2}), hsla(120,95%,60%,${a1}), hsla(180,95%,60%,${a2}), hsla(240,95%,60%,${a1}), hsla(300,95%,60%,${a2}), hsla(360,95%,60%,${a1}))`;
     }
-    layers.push(`conic-gradient(from ${angleDeg}deg, ${colorToRgba(primary, 0.32)}, ${colorToRgba(secondary, 0.32)}, ${colorToRgba(primary, 0.32)})`);
-    return layers.join(", ");
+    if (prefs.gradient === "mono") {
+      return `conic-gradient(from ${angleDeg}deg, ${colorToRgba(primary, a1)}, ${colorToRgba(primary, a2 * 0.55)}, ${colorToRgba(primary, a1)}, ${colorToRgba(primary, a2 * 0.55)}, ${colorToRgba(primary, a1)})`;
+    }
+    // "default" — one smooth, solid wrap of the two album colors, slowly
+    // drifting (angleDeg), instead of separate traveling light spots.
+    return `conic-gradient(from ${angleDeg}deg, ${colorToRgba(primary, a1)}, ${colorToRgba(secondary, a2)}, ${colorToRgba(primary, a1)}, ${colorToRgba(secondary, a2)}, ${colorToRgba(primary, a1)})`;
   }
 
   // ── ambient bloom wash — big soft blurred blooms of color bleeding in
@@ -697,17 +712,24 @@
   function buildWashBackground(pulse, beat) {
     const { primary, secondary } = activeColors;
     const p = Math.min(1, pulse + beat * 0.6);
-    const aBottom = 0.42 + p * 0.4;
-    const aCorner = 0.32 + p * 0.32;
-    const aSide = 0.26 + p * 0.28;
-    const aTop = 0.18 + p * 0.22;
+    // Sides + top are the dominant, biggest blooms (this is the part
+    // that was too small before) — wide ellipses hugging the full
+    // height of each side edge and the top edge, all at high opacity
+    // so the color actually reads as a bold neon frame like image 2.
+    // Bottom stays present but secondary, since the card sits there.
+    const aSide = 0.62 + p * 0.34;
+    const aTop = 0.5 + p * 0.32;
+    const aCorner = 0.55 + p * 0.32;
+    const aBottom = 0.34 + p * 0.28;
     return [
-      `radial-gradient(ellipse 75% 60% at 50% 108%, ${colorToRgba(primary, aBottom)} 0%, transparent 68%)`,
-      `radial-gradient(ellipse 55% 50% at 2% 98%, ${colorToRgba(secondary, aCorner)} 0%, transparent 70%)`,
-      `radial-gradient(ellipse 55% 50% at 98% 98%, ${colorToRgba(primary, aCorner)} 0%, transparent 70%)`,
-      `radial-gradient(ellipse 38% 70% at -4% 45%, ${colorToRgba(primary, aSide)} 0%, transparent 68%)`,
-      `radial-gradient(ellipse 38% 70% at 104% 45%, ${colorToRgba(secondary, aSide)} 0%, transparent 68%)`,
-      `radial-gradient(ellipse 60% 42% at 50% -6%, ${colorToRgba(secondary, aTop)} 0%, transparent 72%)`,
+      `radial-gradient(ellipse 42% 100% at 0% 50%, ${colorToRgba(primary, aSide)} 0%, transparent 62%)`,
+      `radial-gradient(ellipse 42% 100% at 100% 50%, ${colorToRgba(secondary, aSide)} 0%, transparent 62%)`,
+      `radial-gradient(ellipse 70% 34% at 50% 0%, ${colorToRgba(secondary, aTop)} 0%, transparent 65%)`,
+      `radial-gradient(ellipse 40% 34% at 0% 0%, ${colorToRgba(primary, aCorner)} 0%, transparent 65%)`,
+      `radial-gradient(ellipse 40% 34% at 100% 0%, ${colorToRgba(secondary, aCorner)} 0%, transparent 65%)`,
+      `radial-gradient(ellipse 40% 34% at 0% 100%, ${colorToRgba(secondary, aCorner)} 0%, transparent 65%)`,
+      `radial-gradient(ellipse 40% 34% at 100% 100%, ${colorToRgba(primary, aCorner)} 0%, transparent 65%)`,
+      `radial-gradient(ellipse 78% 40% at 50% 100%, ${colorToRgba(primary, aBottom)} 0%, transparent 68%)`,
     ].join(", ");
   }
 
@@ -752,9 +774,9 @@
     travelT = (travelT + speed / 360) % 1;
     const angleDeg = travelT * 360;
 
-    const thickness = Math.max(2, prefs.thickness * 0.2 * thicknessMult * (0.75 + pulse * 0.5));
+    const thickness = Math.max(2, prefs.thickness * 0.28 * thicknessMult * (0.8 + pulse * 0.5));
     const blur = Math.max(4, prefs.glow * blurMult * (0.7 + pulse * 0.6));
-    const opacity = mode === "none" ? 0.95 : Math.min(1, 0.68 + pulse * 0.5);
+    const opacity = mode === "none" ? 0.95 : Math.min(1, 0.8 + pulse * 0.4);
 
     const background = buildRingBackground(angleDeg, reactive, animated, beat);
     frameGlow.style.background = background;
@@ -767,7 +789,7 @@
 
     if (washEl) {
       washEl.style.background = buildWashBackground(pulse, beat);
-      washEl.style.opacity = mode === "none" ? 0.4 : 1;
+      washEl.style.opacity = mode === "none" ? 0.55 : 1;
     }
 
     if (artHaloEl && artHaloCoreEl) {
