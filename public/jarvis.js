@@ -3557,6 +3557,18 @@ async function handleAction(action, meta, replyText) {
       }
       break;
     }
+    case "USERNAME_CHANGED": {
+      const newName = meta?.newName;
+      if (newName) {
+        state.user = newName;
+        try {
+          sessionStorage.setItem("jarvis_session", JSON.stringify({ user: state.user, userTitle: state.userTitle, ts: Date.now() }));
+          localStorage.setItem("jarvis_name_hint", newName.toLowerCase());
+        } catch (e) {}
+      }
+      speak(replyText, () => mic.resume());
+      break;
+    }
     case "PLAY_MUSIC":
     case "PLAY_MUSIC_SEARCH": {
       const url = meta?.playUrl;
