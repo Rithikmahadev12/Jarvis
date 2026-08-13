@@ -68,6 +68,7 @@ const fs   = require("fs");
 const path = require("path");
 const GroqKeys = require("./groq-keys");
 const Groq     = require("./hermes-engine");
+const SolanaWallet = require("./solana-wallet");
 
 // ── CONFIG ──────────────────────────────────────────────────────
 const GITHUB_TOKEN = process.env.GITHUB_BOUNTY_TOKEN || process.env.GITHUB_TOKEN || "";
@@ -465,6 +466,27 @@ function editCandidate(id, updates = {}) {
   return c;
 }
 
+// ── PER-PERSON ATTRIBUTION ────────────────────────────────────────
+// Bounty hunting still posts under the ONE configured GitHub identity
+// (GITHUB_BOUNTY_TOKEN) — that part didn't change. What's per-person
+// is who a given issue's payout belongs to: claim a pending candidate
+// for yourself (or whoever's actually going to do the work) before
+// it's approved, and that person gets 100% of it — both in the
+// payment link offered to the maintainer (see approveCandidate()) and
+// in the earnings ledger once it's marked paid (see markPaid()).
+// Un-claimed candidates default to the owner, same as before this
+// existed.
+function claimCandidate(id, userKey) {
+  const key = (userKey || "").toLowerCase().trim();
+  if (!key) return { error: "Missing userName." };
+  const store = loadStore();
+  const c = store.pending.find(x => x.id === Number(id)) || store.history.find(x => x.id === Number(id));
+  if (!c) return { error: `No candidate with id ${id}.` };
+  c.assignedTo = key;
+  saveStore(store);
+  return c;
+}
+
 // Posts the offer comment for a single approved candidate — the core
 // GitHub-writing action, used both by the explicit human "approve"
 // action below and by the AUTO_PUBLISH paths above/in
@@ -473,15 +495,38 @@ function editCandidate(id, updates = {}) {
 // the candidate between store.pending/store.history as part of a
 // batch, so they inline the same steps instead of loading/saving the
 // store twice per candidate).
-async function approveCandidate(id) {
+// userKey optionally assigns the candidate at approval time (if it
+// wasn't already claimed via claimCandidate()) — whoever it ends up
+// assigned to gets a direct Solana Pay link to THEIR OWN wallet
+// appended to the offer comment, if they've linked one. Maintainers
+// who pay via that link send funds straight to the person doing the
+// work, not a pooled account. If nobody's assigned (or the assigned
+// person has no wallet linked), the comment goes out exactly as
+// before — no link, price stated in the offer text as always.
+async function approveCandidate(id, userKey) {
   if (!isConfigured()) return { error: "No GitHub token configured." };
   const store = loadStore();
   const idx = store.pending.findIndex(x => x.id === Number(id));
   if (idx === -1) return { error: `No pending candidate with id ${id}.` };
   const c = store.pending[idx];
 
+  if (userKey && !c.assignedTo) c.assignedTo = String(userKey).toLowerCase().trim();
+
+  let proposalText = c.proposalText;
+  const payKey = c.assignedTo && c.assignedTo !== "owner" ? c.assignedTo : undefined;
+  if (SolanaWallet.isConfigured(payKey)) {
+    const link = SolanaWallet.buildPaymentLink({
+      amount: c.priceUsd, token: "usdc", label: `Bounty: ${c.title}`.slice(0, 60),
+      message: `Payment for ${c.key}`, userKey: payKey,
+    });
+    if (!link.error) {
+      proposalText = `${proposalText}\n\nIf you'd rather pay directly instead of through whatever platform you'd normally use, here's a Solana Pay link: ${link.uri}`;
+    }
+  }
+
   try {
-    const comment = await postComment(c.owner, c.repo, c.issueNumber, c.proposalText);
+    const comment = await postComment(c.owner, c.repo, c.issueNumber, proposalText);
+    c.proposalText = proposalText;
     c.status = "posted";
     c.postedAt = new Date().toISOString();
     c.commentUrl = comment.html_url;
@@ -492,6 +537,26 @@ async function approveCandidate(id) {
   } catch (e) {
     return { error: `Failed to post comment: ${e.message}` };
   }
+}
+
+// Records that a bounty actually got paid — there's no on-chain
+// poller for this (unlike the store), since payment can land however
+// the maintainer chose to send it, so this is a manual "yep, it came
+// through" confirmation. Attributes 100% of it to whoever the
+// candidate is assigned to (or an explicit override), same pattern as
+// direct-store.js's recordSale().
+function markPaid(id, { userKey, amountUsd } = {}) {
+  const store = loadStore();
+  const c = store.history.find(x => x.id === Number(id)) || store.pending.find(x => x.id === Number(id));
+  if (!c) return { error: `No candidate with id ${id}.` };
+  const key = (userKey || c.assignedTo || "owner").toLowerCase().trim();
+  const amount = amountUsd != null ? Number(amountUsd) : c.priceUsd;
+  c.paid = true;
+  c.paidAt = new Date().toISOString();
+  c.paidAmountUsd = amount;
+  c.assignedTo = key;
+  saveStore(store);
+  return SolanaWallet.recordEarning({ source: `bounty:${c.key}`, amountUsd: amount, note: c.title, userKey: key });
 }
 
 // ── MAINTAINER REPLY CHECK ──────────────────────────────────────
@@ -616,12 +681,20 @@ function rejectCandidate(id, reason) {
 
 function getStats() {
   const store = loadStore();
-  const posted = store.history.filter(c => c.status === "posted");
+  const posted = store.history.filter(c => c.status === "posted" || c.status === "awaiting_code" || c.status === "pr_opened" || c.status === "needs_manual_code");
+  const paid = store.history.filter(c => c.paid);
+  const byPerson = {};
+  for (const c of paid) {
+    const key = c.assignedTo || "owner";
+    byPerson[key] = (byPerson[key] || 0) + (c.paidAmountUsd || 0);
+  }
   return {
     pending: store.pending.length,
     posted: posted.length,
     rejected: store.history.filter(c => c.status === "rejected").length,
     totalOfferedUsd: posted.reduce((sum, c) => sum + (c.priceUsd || 0), 0),
+    totalPaidUsd: paid.reduce((sum, c) => sum + (c.paidAmountUsd || 0), 0),
+    paidByPerson: byPerson,
     issuesSeen: Object.keys(store.seen).length,
   };
 }
@@ -634,7 +707,9 @@ module.exports = {
   listHistory,
   getCandidate,
   editCandidate,
+  claimCandidate,
   approveCandidate,
+  markPaid,
   rejectCandidate,
   getStats,
   checkPostedForReplies,
