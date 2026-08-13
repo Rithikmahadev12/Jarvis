@@ -27,6 +27,21 @@
 // here), generates a one-time Solana Pay "reference" tag for that
 // specific order, and stores the pairing. The poller then just asks
 // "has anything paid to my wallet included THIS reference yet?"
+//
+// PER-PERSON PRODUCTS, ONE SHARED STORE: every product carries an
+// ownerKey — whichever enrolled account made/owns that listing (same
+// lowercased-name key used everywhere else — solana-wallet.js,
+// profiles.json, etc). The whole catalog is one shared storefront,
+// but money for any given sale flows straight to THAT product's
+// owner: createOrder() builds the Solana Pay link against the
+// owner's own linked wallet (SolanaWallet.getAddress(ownerKey)), not
+// a pooled account, so whoever made a thing gets 100% of what it
+// sells for, automatically, wallet-to-wallet. If a product's owner
+// hasn't linked their own wallet yet, publishing is refused (see
+// publishProduct()) rather than silently routing their sales to
+// someone else. Leaving ownerKey unset attributes the product to the
+// owner account — exactly the old single-seller behavior, so existing
+// automation (scripts/scheduled-store-run.js) keeps working unchanged.
 // ═══════════════════════════════════════════════════════════════
 
 const fs   = require("fs");
@@ -61,12 +76,25 @@ function listProducts({ publishedOnly = false } = {}) {
 }
 function getProduct(id) { return loadCatalog().products.find(p => p.id === id) || null; }
 
-function publishProduct({ name, priceUsd, description = "", deliverable }) {
+function publishProduct({ name, priceUsd, description = "", deliverable, ownerKey }) {
   if (!name || !(priceUsd > 0)) return { error: "name and a positive priceUsd are required." };
+  const key = (ownerKey || "").toLowerCase().trim() || "owner";
+
+  // Refuse to list a product for a non-owner person who hasn't linked
+  // their own wallet yet — otherwise a sale would have nowhere of
+  // theirs to pay out to. (The owner account is exempt: its wallet
+  // lives in config.json and getAddress() already falls through to
+  // it as the default, so an owner-attributed product is always
+  // payable even before any per-account wallet work happened.)
+  if (key !== "owner" && !SolanaWallet.isConfigured(key)) {
+    return { error: `"${ownerKey}" needs to link a wallet (POST /api/wallet/link) before a product can be published under their name — otherwise there'd be nowhere to send their sales.` };
+  }
+
   const catalog = loadCatalog();
   const product = {
     id: `prod_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     name, description, priceUsd, deliverable,
+    ownerKey: key,
     status: AUTO_PUBLISH ? "published" : "pending_review",
     createdAt: new Date().toISOString(),
     sold: 0,
@@ -104,6 +132,15 @@ function saveOrders(o) {
   fs.writeFileSync(ORDERS_PATH, JSON.stringify(o, null, 2));
 }
 
+// "owner" is the sentinel product.ownerKey uses for "the owner
+// account" (see publishProduct()) — pass undefined instead of the
+// literal string to wallet lookups so they fall through to
+// config.json's owner wallet the normal way, rather than looking for
+// a profile literally keyed "owner".
+function walletKeyFor(product) {
+  return product.ownerKey && product.ownerKey !== "owner" ? product.ownerKey : undefined;
+}
+
 // Called when a buyer lands on the checkout page and submits their email.
 function createOrder({ productId, buyerEmail }) {
   const product = getProduct(productId);
@@ -112,12 +149,15 @@ function createOrder({ productId, buyerEmail }) {
   if (!buyerEmail) return { error: "buyerEmail is required — there's no processor to collect it for us." };
 
   const reference = SolanaWallet.generateReference();
+  // Pays straight to the product's OWN owner's wallet, not a pooled
+  // one — see the file header for why.
   const link = SolanaWallet.buildPaymentLink({
     amount: product.priceUsd,
     token: "usdc",
     label: product.name,
     message: `Order for ${product.name}`,
     reference,
+    userKey: walletKeyFor(product),
   });
   if (link.error) return link;
 
@@ -170,6 +210,7 @@ function saveSalesLedger(l) {
 }
 function recordSale(order) {
   const product = getProduct(order.productId);
+  const ownerKey = product?.ownerKey || "owner";
   const ledger = loadSalesLedger();
   const sale = {
     id: `sale_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
@@ -177,6 +218,7 @@ function recordSale(order) {
     productId: order.productId,
     productName: product?.name || "(unknown product)",
     amountUsd: product?.priceUsd || null,
+    ownerKey,
     buyerEmail: order.buyerEmail,
     txSignature: order.signature,
     delivered: false,
@@ -184,6 +226,22 @@ function recordSale(order) {
   };
   ledger.sales.unshift(sale);
   saveSalesLedger(ledger);
+
+  // Also drop this into the shared earnings ledger (solana-wallet.js)
+  // attributed to whoever owns the product, so "what has each person
+  // earned" has one answer whether the money came from a store sale
+  // or a bounty. The on-chain transfer itself already went straight
+  // to their wallet (see createOrder/walletKeyFor above) — this is
+  // just the bookkeeping record of it.
+  if (sale.amountUsd > 0) {
+    SolanaWallet.recordEarning({
+      source: `store:${sale.productName}`,
+      amountUsd: sale.amountUsd,
+      note: `Sale ${sale.id} (order ${order.id})`,
+      userKey: ownerKey,
+    });
+  }
+
   return sale;
 }
 function markDelivered(saleId) {
@@ -194,9 +252,16 @@ function markDelivered(saleId) {
   saveSalesLedger(ledger);
   return sale;
 }
-function listSales() { return loadSalesLedger().sales; }
-function totalSalesUsd() {
-  return loadSalesLedger().sales.reduce((sum, s) => sum + (Number(s.amountUsd) || 0), 0);
+// Optional userKey filter — omit for the full shared-store ledger,
+// pass one to see just what a specific person's products have sold.
+function listSales(userKey) {
+  const sales = loadSalesLedger().sales;
+  if (!userKey) return sales;
+  const key = userKey.toLowerCase().trim();
+  return sales.filter(s => (s.ownerKey || "owner") === key);
+}
+function totalSalesUsd(userKey) {
+  return listSales(userKey).reduce((sum, s) => sum + (Number(s.amountUsd) || 0), 0);
 }
 
 module.exports = {
