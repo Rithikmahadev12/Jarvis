@@ -767,20 +767,54 @@ async function getYoutubeVideoMeta(videoId) {
 // different source entirely: Apple's public iTunes Search API (no key
 // needed), searching by song name (+ artist if we have one). Used to
 // backfill album (and can correct/confirm artist) for any track missing it.
+//
+// Pulls a few candidates rather than just the top hit, and prefers a
+// soundtrack/movie tie-in release when one shows up among them — that's
+// almost always the artwork people actually associate with a song tied
+// to a film/show moment (e.g. "Self Love" → the Spider-Verse poster art),
+// even when a plain studio-album re-issue of the same track ranks #1 by
+// name relevance. Also asks for a real 1200x1200 image instead of
+// Apple's blurry 100x100 default. Falls back to Deezer (also no key
+// needed) if iTunes has nothing, since its catalog/crops sometimes catch
+// what Apple's misses.
 async function lookupAlbumMetadata(title, artist) {
   const term = [artist, title].filter(Boolean).join(" ").trim();
   if (!term) return null;
+
+  let candidates = [];
   try {
-    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=1`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const hit = data?.results?.[0];
-    if (!hit) return null;
+    const url = `https://itunes.apple.com/search?term=${encodeURIComponent(term)}&media=music&entity=song&limit=5`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (res.ok) {
+      const data = await res.json();
+      candidates = Array.isArray(data?.results) ? data.results : [];
+    }
+  } catch { /* fall through to Deezer below */ }
+
+  const soundtrackHit = candidates.find(r =>
+    /soundtrack|motion picture|from the .*(film|movie|series)/i.test(r.collectionName || "")
+  );
+  const hit = soundtrackHit || candidates[0] || null;
+
+  if (hit) {
     return {
       album: hit.collectionName || null,
       artist: hit.artistName || null,
-      artwork: hit.artworkUrl100 ? hit.artworkUrl100.replace("100x100", "600x600") : null,
+      artwork: hit.artworkUrl100 ? hit.artworkUrl100.replace("100x100", "1200x1200") : null,
+    };
+  }
+
+  try {
+    const url = `https://api.deezer.com/search?q=${encodeURIComponent(term)}&limit=1`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const d = data?.data?.[0];
+    if (!d) return null;
+    return {
+      album: d.album?.title || null,
+      artist: d.artist?.name || null,
+      artwork: d.album?.cover_xl || d.album?.cover_big || null,
     };
   } catch { return null; }
 }
@@ -1029,6 +1063,36 @@ app.post("/api/register", (req, res) => {
   saveProfiles(profiles);
   res.json({ success: true });
 });
+// Renames a profile — e.g. someone fat-fingered their name during
+// CREATE ACCOUNT and got stuck with it forever, since everything else
+// (data/profiles.json, wallet, memories, call history, etc.) is keyed
+// off the lowercased username. This re-keys the profile object itself;
+// every other module reads data/profiles.json fresh each call, so
+// nothing else needs touching. Face ID keeps working either way since
+// login matching compares descriptors across ALL profiles, not by key.
+app.post("/api/rename-user", (req, res) => {
+  const { currentUserName, newUserName } = req.body || {};
+  if (!currentUserName || !newUserName) {
+    return res.status(400).json({ error: "Missing currentUserName or newUserName" });
+  }
+  const cleanNew = newUserName.trim();
+  if (!cleanNew) return res.status(400).json({ error: "New name can't be empty" });
+
+  const profiles = loadProfiles();
+  const oldKey = currentUserName.toLowerCase().trim();
+  const newKey = cleanNew.toLowerCase().trim();
+
+  if (!profiles[oldKey]) return res.status(404).json({ error: `No account found for "${currentUserName}".` });
+  if (newKey !== oldKey && profiles[newKey]) {
+    return res.status(409).json({ error: `"${cleanNew}" is already taken by another account.` });
+  }
+
+  profiles[newKey] = { ...profiles[oldKey], name: cleanNew, updatedAt: new Date().toISOString() };
+  if (newKey !== oldKey) delete profiles[oldKey];
+  saveProfiles(profiles);
+  res.json({ success: true, name: cleanNew });
+});
+
 app.get("/api/profile/:name", (req, res) => {
   const profiles = loadProfiles();
   const profile  = profiles[req.params.name.toLowerCase().trim()];
@@ -3686,6 +3750,34 @@ async function executeAssistantTool(name, args, ctx) {
     case "get_news": {
       const msg = args.topic ? `news about ${args.topic}` : (args.category ? `${args.category} news` : "news");
       return await handleNewsFetch(msg, T, args.display === "widget" ? "widget" : "page");
+    }
+
+    case "change_username": {
+      const newName = (args.new_name || "").trim();
+      if (!newName) {
+        return { reply: `What would you like me to call you instead, ${T}?`, action: "ASK_NEW_USERNAME", intent: "account" };
+      }
+      const profiles = loadProfiles();
+      const oldKey = (userName || "").toLowerCase().trim();
+      const newKey = newName.toLowerCase().trim();
+
+      if (!profiles[oldKey]) {
+        return { reply: `I couldn't find your current account to rename, ${T}.`, action: "ERROR", intent: "account" };
+      }
+      if (newKey !== oldKey && profiles[newKey]) {
+        return { reply: `"${newName}" is already taken by another account, ${T} — try a different one.`, action: "ERROR", intent: "account" };
+      }
+
+      profiles[newKey] = { ...profiles[oldKey], name: newName, updatedAt: new Date().toISOString() };
+      if (newKey !== oldKey) delete profiles[oldKey];
+      saveProfiles(profiles);
+
+      return {
+        reply: `Done — you're ${newName} now.`,
+        action: "USERNAME_CHANGED",
+        intent: "account",
+        meta: { newName },
+      };
     }
 
     case "set_music_platform": {
