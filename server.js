@@ -795,21 +795,37 @@ function bootstrapOwnerAccount() {
   try { config = JSON.parse(fs.readFileSync(configPath, "utf8")); }
   catch (e) { console.warn("[BOOT] Could not read config.json:", e.message); return; }
   const owner = config.owner;
-  if (!owner || !owner.username || !Array.isArray(owner.faceDescriptor) || owner.faceDescriptor.length !== 128) return;
+  if (!owner || !owner.username) return;
   const profiles = loadProfiles();
   const key      = owner.username.toLowerCase().trim();
-  if (profiles[key]) return;
-  profiles[key] = {
-    name:           owner.username,
-    faceDescriptor: owner.faceDescriptor,
-    title:          owner.title || "Sir",
-    voiceAliases:   owner.voiceAliases || [],
-    role:           "owner",
-    createdAt:      new Date().toISOString(),
-    updatedAt:      new Date().toISOString(),
-  };
-  saveProfiles(profiles);
-  console.log(`[BOOT] Owner account "${owner.username}" bootstrapped from config`);
+
+  if (!profiles[key]) {
+    if (!Array.isArray(owner.faceDescriptor) || owner.faceDescriptor.length !== 128) return;
+    profiles[key] = {
+      name:           owner.username,
+      faceDescriptor: owner.faceDescriptor,
+      title:          owner.title || "Sir",
+      voiceAliases:   owner.voiceAliases || [],
+      role:           "owner",
+      createdAt:      new Date().toISOString(),
+      updatedAt:      new Date().toISOString(),
+    };
+    if (owner.wallet?.address) profiles[key].wallet = { ...owner.wallet };
+    saveProfiles(profiles);
+    console.log(`[BOOT] Owner account "${owner.username}" bootstrapped from config`);
+    return;
+  }
+
+  // Owner account already exists (e.g. enrolled via CREATE ACCOUNT
+  // before a wallet was ever added to config.json) — backfill the
+  // wallet onto it if config.json has one now and the profile
+  // doesn't yet, so it takes effect without a full account reset.
+  if (owner.wallet?.address && !profiles[key].wallet?.address) {
+    profiles[key].wallet = { ...owner.wallet };
+    profiles[key].updatedAt = new Date().toISOString();
+    saveProfiles(profiles);
+    console.log(`[BOOT] Backfilled owner "${owner.username}"'s wallet from config`);
+  }
 }
 
 // ── FACE DESCRIPTOR MATCHING ───────────────────────────────────
@@ -1237,17 +1253,17 @@ app.post("/api/bounty/:id/code", async (req, res) => {
 // so it can watch balances/payments but can never move funds)
 // ═══════════════════════════════════════════════════════════════
 app.get("/api/wallet/balances", async (req, res) => {
-  try { res.json(await SolanaWallet.getBalances()); }
+  try { res.json(await SolanaWallet.getBalances(req.query.userName)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/api/wallet/payment-link", (req, res) => {
-  try { res.json(SolanaWallet.buildPaymentLink(req.body || {})); }
+  try { res.json(SolanaWallet.buildPaymentLink({ ...(req.body || {}), userKey: req.body?.userName })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/api/wallet/check-payments", async (req, res) => {
-  try { res.json(await SolanaWallet.checkIncomingPayments(req.body || {})); }
+  try { res.json(await SolanaWallet.checkIncomingPayments({ ...(req.body || {}), userKey: req.body?.userName })); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -1265,6 +1281,22 @@ app.post("/api/wallet/earnings", (req, res) => {
 // machine. Only makes sense called locally — see wallet-setup.js.
 app.post("/api/wallet/generate", async (req, res) => {
   try { res.json(await WalletSetup.generateWallet(req.body || {})); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Links an existing wallet address to a signed-in account. For the
+// owner account, use /api/wallet/set-owner instead (theirs lives in
+// config.json, not profiles.json — see solana-wallet.js).
+app.post("/api/wallet/link", (req, res) => {
+  const { userName, address } = req.body || {};
+  try { res.json(SolanaWallet.setWalletForUser(userName, address)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// One-time/occasional: (re)sets the owner's wallet in config.json.
+app.post("/api/wallet/set-owner", (req, res) => {
+  const { address } = req.body || {};
+  try { res.json(SolanaWallet.setOwnerWallet(address)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
