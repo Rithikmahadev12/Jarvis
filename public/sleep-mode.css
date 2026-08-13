@@ -25,6 +25,24 @@
   pointer-events: auto;
 }
 
+/* ── ambient bloom wash ──────────────────────────────────────
+   Big soft blurred blooms of color bleeding in from the edges
+   (heaviest at the bottom) — the "does it feel alive" layer,
+   modeled on how phone lock-screen now-playing widgets tint the
+   whole screen from the album art instead of just drawing a thin
+   border. Sits behind the frame ring and card. Background/opacity
+   driven from JS each frame (see sleep-mode.js buildWashBackground()). */
+.sm-wash {
+  position: absolute;
+  inset: -15%;
+  z-index: 0;
+  pointer-events: none;
+  filter: blur(70px);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  will-change: opacity, background;
+}
+
 /* ── glowing edge ring ───────────────────────────────────────
    Two stacked "picture frame" rings (background + mask-exclude
    trick, so only the border strip itself is painted): a big soft
@@ -37,6 +55,7 @@
   inset: 14px;
   border-radius: 44px;
   pointer-events: none;
+  z-index: 1;
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
@@ -49,6 +68,7 @@
   position: absolute;
   top: 50%;
   left: 50%;
+  z-index: 2;
   transform: translate(-50%, -50%);
   display: flex;
   flex-direction: column;
