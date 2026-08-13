@@ -27,8 +27,8 @@
   const DEFAULT_PREFS = {
     animation: "default",   // "default" | "static" | "none" — motion behavior of the glow ring
     gradient: "default",    // "default" (album colors) | "rainbow" | "mono" (primary only)
-    thickness: 60,          // ring thickness, px-ish (scaled down internally)
-    glow: 38,                // blur radius, px
+    thickness: 90,           // ring thickness, px-ish (scaled down internally)
+    glow: 46,                 // blur radius, px
     musicBars: true,        // audio-reactive bar visualizer under the artwork
     reflect: false,          // mirrored reflection under the album art
     overrideColors: false,
@@ -77,7 +77,7 @@
   window.isSleepModeEnabled = function () { return enabled; };
 
   // ── DOM ──────────────────────────────────────────────────────
-  let overlay, frameGlow, frameCore, washEl, cardEl, artWrapEl, artEl, artReflectEl,
+  let overlay, frameGlow, frameCore, washEl, artHaloEl, artHaloCoreEl, cardEl, artWrapEl, artEl, artReflectEl,
       barsEl, barsEls, titleEl, artistEl,
       progFill, elapsedEl, durationEl, progTrack, playBtn, repeatBtnEl, shuffleBtnEl,
       gearBtn, panel, confirmBox, quitBtn;
@@ -107,6 +107,8 @@
 
       <div class="sm-card" id="sm-card">
         <div class="sm-art-wrap" id="sm-art-wrap">
+          <div class="sm-art-halo" id="sm-art-halo"></div>
+          <div class="sm-art-halo-core" id="sm-art-halo-core"></div>
           <div class="sm-art" id="sm-art">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
               <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
@@ -228,6 +230,7 @@
     document.body.appendChild(overlay);
 
     frameGlow = $("sm-frame-glow"); frameCore = $("sm-frame-core"); washEl = $("sm-wash");
+    artHaloEl = $("sm-art-halo"); artHaloCoreEl = $("sm-art-halo-core");
     cardEl = $("sm-card"); artWrapEl = $("sm-art-wrap"); artEl = $("sm-art"); artReflectEl = $("sm-art-reflect");
     barsEl = $("sm-bars"); barsEls = Array.from(barsEl.querySelectorAll(".sm-bar"));
     titleEl = $("sm-title"); artistEl = $("sm-artist");
@@ -687,21 +690,34 @@
   }
 
   // ── ambient bloom wash — big soft blurred blooms of color bleeding in
-  // from the screen edges (heaviest toward the bottom), rather than a
-  // thin ring outline. This is the main "does it look alive" layer —
-  // modeled on the way phone lock-screen now-playing widgets tint the
-  // whole screen from the album art rather than just drawing a border. ──
+  // from every edge of the screen (heaviest at the bottom, same as a
+  // phone lock-screen now-playing widget tinting the whole screen from
+  // the album art), not just a thin ring outline. This is the main
+  // "does it look alive" layer. ─────────────────────────────────────
   function buildWashBackground(pulse, beat) {
     const { primary, secondary } = activeColors;
     const p = Math.min(1, pulse + beat * 0.6);
-    const a1 = 0.30 + p * 0.30;
-    const a2 = 0.20 + p * 0.22;
+    const aBottom = 0.42 + p * 0.4;
+    const aCorner = 0.32 + p * 0.32;
+    const aSide = 0.26 + p * 0.28;
+    const aTop = 0.18 + p * 0.22;
     return [
-      `radial-gradient(ellipse 70% 55% at 50% 108%, ${colorToRgba(primary, a1)} 0%, transparent 65%)`,
-      `radial-gradient(ellipse 50% 45% at 4% 96%, ${colorToRgba(secondary, a2)} 0%, transparent 68%)`,
-      `radial-gradient(ellipse 50% 45% at 96% 96%, ${colorToRgba(primary, a2)} 0%, transparent 68%)`,
-      `radial-gradient(ellipse 60% 40% at 50% -6%, ${colorToRgba(secondary, a2 * 0.7)} 0%, transparent 70%)`,
+      `radial-gradient(ellipse 75% 60% at 50% 108%, ${colorToRgba(primary, aBottom)} 0%, transparent 68%)`,
+      `radial-gradient(ellipse 55% 50% at 2% 98%, ${colorToRgba(secondary, aCorner)} 0%, transparent 70%)`,
+      `radial-gradient(ellipse 55% 50% at 98% 98%, ${colorToRgba(primary, aCorner)} 0%, transparent 70%)`,
+      `radial-gradient(ellipse 38% 70% at -4% 45%, ${colorToRgba(primary, aSide)} 0%, transparent 68%)`,
+      `radial-gradient(ellipse 38% 70% at 104% 45%, ${colorToRgba(secondary, aSide)} 0%, transparent 68%)`,
+      `radial-gradient(ellipse 60% 42% at 50% -6%, ${colorToRgba(secondary, aTop)} 0%, transparent 72%)`,
     ].join(", ");
+  }
+
+  // ── art halo — a small colorful glowing "frame" hugging the album
+  // art itself, same color scheme as the screen edge glow, so the
+  // cover reads as sitting inside its own little glowing border. ────
+  function buildArtHaloBackground(angleDeg, pulse, beat) {
+    const { primary, secondary } = activeColors;
+    const p = Math.min(1, pulse + beat * 0.6);
+    return `conic-gradient(from ${angleDeg}deg, ${colorToRgba(primary, 0.9)}, ${colorToRgba(secondary, 0.9)}, ${colorToRgba(primary, 0.9)}), radial-gradient(circle, ${colorToRgba(primary, 0.5 + p * 0.4)} 0%, transparent 75%)`;
   }
 
   // ── main animation loop — the glow ring traces the rounded screen
@@ -736,7 +752,7 @@
     travelT = (travelT + speed / 360) % 1;
     const angleDeg = travelT * 360;
 
-    const thickness = Math.max(2, prefs.thickness * 0.12 * thicknessMult * (0.75 + pulse * 0.5));
+    const thickness = Math.max(2, prefs.thickness * 0.2 * thicknessMult * (0.75 + pulse * 0.5));
     const blur = Math.max(4, prefs.glow * blurMult * (0.7 + pulse * 0.6));
     const opacity = mode === "none" ? 0.95 : Math.min(1, 0.68 + pulse * 0.5);
 
@@ -752,6 +768,14 @@
     if (washEl) {
       washEl.style.background = buildWashBackground(pulse, beat);
       washEl.style.opacity = mode === "none" ? 0.4 : 1;
+    }
+
+    if (artHaloEl && artHaloCoreEl) {
+      const haloBg = buildArtHaloBackground(angleDeg, pulse, beat);
+      artHaloEl.style.background = haloBg;
+      artHaloEl.style.opacity = Math.min(1, 0.55 + pulse * 0.45);
+      artHaloCoreEl.style.background = haloBg;
+      artHaloCoreEl.style.opacity = Math.min(1, 0.7 + pulse * 0.3);
     }
 
     barsEl.style.setProperty("--sm-bar-a", activeColors.primary);
