@@ -18,6 +18,12 @@ window.MusicWidget = (function () {
   let requestedVideoId = null; // the video we explicitly asked to play
   let currentVideoId = null;   // whatever's actually loaded right now
 
+  // "youtube" uses the YT IFrame player above; "audio" is any direct
+  // streamable URL (currently Audius) played through a plain <audio>
+  // element instead — there's no video/iframe involved for those.
+  let currentSource = "youtube";
+  let audioEl = null;
+
   function $(id) { return document.getElementById(id); }
 
   // Broadcast the current now-playing state so other widgets (the dashboard
@@ -93,8 +99,18 @@ window.MusicWidget = (function () {
         </div>
       </div>
       <div id="mw-yt-mount" class="mw-yt-mount"></div>
+      <audio id="mw-audio" preload="auto"></audio>
     `;
     (embedHost || document.body).appendChild(wrap);
+
+    audioEl = $("mw-audio");
+    audioEl.addEventListener("play", () => { setPlayPauseIcon(true); notifyDashboard(true); });
+    audioEl.addEventListener("pause", () => { setPlayPauseIcon(false); notifyDashboard(false); });
+    audioEl.addEventListener("ended", () => {
+      setPlayPauseIcon(false);
+      notifyDashboard(false);
+      if (repeatOn) { audioEl.currentTime = 0; audioEl.play(); }
+    });
 
     $("mw-close").addEventListener("click", stop);
     $("mw-playpause").addEventListener("click", togglePlayPause);
@@ -169,17 +185,34 @@ window.MusicWidget = (function () {
     } catch {}
   }
 
+  // ── Small adapter so progress/scrub/controls don't need to care
+  // whether playback is coming from the YT iframe player or the plain
+  // <audio> element (Audius, or any other direct-stream source). ────
+  function activeGetCurrentTime() {
+    if (currentSource === "audio") return audioEl ? audioEl.currentTime || 0 : 0;
+    return player && typeof player.getCurrentTime === "function" ? player.getCurrentTime() || 0 : 0;
+  }
+  function activeGetDuration() {
+    if (currentSource === "audio") return audioEl ? audioEl.duration || 0 : 0;
+    return player && typeof player.getDuration === "function" ? player.getDuration() || 0 : 0;
+  }
+  function activeSeek(sec) {
+    if (currentSource === "audio") { if (audioEl) audioEl.currentTime = sec; return; }
+    if (player && typeof player.seekTo === "function") player.seekTo(sec, true);
+  }
+
   function onScrub(e) {
-    if (!player || typeof player.seekTo !== "function") return;
+    const hasTarget = currentSource === "audio" ? !!audioEl : !!(player && typeof player.seekTo === "function");
+    if (!hasTarget) return;
     scrubbing = true;
     const track = $("mw-progress-track");
     const seek = (evt) => {
       const rect = track.getBoundingClientRect();
       const pct = Math.min(1, Math.max(0, (evt.clientX - rect.left) / rect.width));
-      const dur = player.getDuration ? player.getDuration() : 0;
+      const dur = activeGetDuration();
       if (dur > 0) {
         $("mw-progress-fill").style.width = `${pct * 100}%`;
-        player.seekTo(dur * pct, true);
+        activeSeek(dur * pct);
       }
     };
     seek(e);
@@ -244,9 +277,11 @@ window.MusicWidget = (function () {
   function startProgressTimer() {
     stopProgressTimer();
     progressTimer = setInterval(() => {
-      if (!player || scrubbing || typeof player.getCurrentTime !== "function") return;
-      const cur = player.getCurrentTime() || 0;
-      const dur = player.getDuration() || 0;
+      if (scrubbing) return;
+      if (currentSource === "youtube" && (!player || typeof player.getCurrentTime !== "function")) return;
+      if (currentSource === "audio" && !audioEl) return;
+      const cur = activeGetCurrentTime();
+      const dur = activeGetDuration();
       const elapsedEl = $("mw-elapsed"), durEl = $("mw-duration"), fillEl = $("mw-progress-fill");
       if (elapsedEl) elapsedEl.textContent = fmtTime(cur);
       if (durEl) durEl.textContent = fmtTime(dur);
@@ -347,14 +382,17 @@ window.MusicWidget = (function () {
   }
 
   // ── Public API ─────────────────────────────────────────────
-  async function play({ url, title, artist, album, artwork }) {
+  // `source` tells us which backend to use: "youtube" (default, via
+  // the YT iframe player) or "audio" — any direct-streamable URL, e.g.
+  // Audius. Callers that don't know/care can omit it; a youtube.com
+  // URL is still auto-detected either way.
+  async function play({ url, title, artist, album, artwork, source }) {
     if (!url) return;
-    const { videoId, list } = parseYouTubeUrl(url);
-    if (!videoId && !list) return;
+
+    const looksLikeYoutube = /(^|\.)youtube\.com$|youtu\.be$/i.test((() => { try { return new URL(url).hostname; } catch { return ""; } })());
+    const useAudio = source === "audio" || source === "audius" || (!looksLikeYoutube && source !== "youtube");
 
     ensureDOM();
-    requestedVideoId = videoId || null;
-    currentVideoId = null;
     repeatOn = false;
     $("mw-repeat").classList.remove("active");
     $("mw-title").textContent = title || "Unknown Track";
@@ -366,6 +404,33 @@ window.MusicWidget = (function () {
     $("mw-progress-fill").style.width = "0%";
     show();
     notifyDashboard(true);
+
+    if (useAudio) {
+      // Switching away from a live YouTube player? Pause it so two
+      // sources never play over each other.
+      if (player && typeof player.pauseVideo === "function") { try { player.pauseVideo(); } catch {} }
+      currentSource = "audio";
+      isPlaylist = false;
+      requestedVideoId = null;
+      currentVideoId = null;
+      audioEl.src = url;
+      try {
+        await audioEl.play();
+      } catch (e) {
+        console.warn("[MUSIC] Audio playback failed to start:", e.message);
+      }
+      setPlayPauseIcon(true);
+      startProgressTimer();
+      return;
+    }
+
+    // YouTube branch
+    if (audioEl) { audioEl.pause(); audioEl.removeAttribute("src"); audioEl.load(); }
+    currentSource = "youtube";
+    const { videoId, list } = parseYouTubeUrl(url);
+    if (!videoId && !list) return;
+    requestedVideoId = videoId || null;
+    currentVideoId = null;
 
     await loadYouTubeAPI();
 
@@ -382,6 +447,12 @@ window.MusicWidget = (function () {
   }
 
   function togglePlayPause() {
+    if (currentSource === "audio") {
+      if (!audioEl) return;
+      if (!audioEl.paused) { audioEl.pause(); }
+      else { audioEl.play().catch(() => {}); }
+      return;
+    }
     if (!player || typeof player.getPlayerState !== "function") return;
     const state = player.getPlayerState();
     if (state === YT.PlayerState.PLAYING) { player.pauseVideo(); setPlayPauseIcon(false); notifyDashboard(false); }
@@ -389,12 +460,15 @@ window.MusicWidget = (function () {
   }
 
   function onPrev() {
+    if (currentSource === "audio") { if (audioEl) audioEl.currentTime = 0; return; }
     if (!player) return;
     if (isPlaylist && typeof player.previousVideo === "function") player.previousVideo();
     else if (player.seekTo) player.seekTo(0, true);
   }
 
   function onNext() {
+    // No queue/playlist concept for direct-stream sources like Audius yet.
+    if (currentSource === "audio") return;
     if (!player || !isPlaylist || typeof player.nextVideo !== "function") return;
     player.nextVideo();
   }
@@ -404,17 +478,25 @@ window.MusicWidget = (function () {
     $("mw-repeat").classList.toggle("active", repeatOn);
   }
 
-  function pause() { if (player && player.pauseVideo) { player.pauseVideo(); setPlayPauseIcon(false); notifyDashboard(false); } }
-  function resume() { if (player && player.playVideo) { player.playVideo(); setPlayPauseIcon(true); notifyDashboard(true); } }
+  function pause() {
+    if (currentSource === "audio") { if (audioEl) audioEl.pause(); return; }
+    if (player && player.pauseVideo) { player.pauseVideo(); setPlayPauseIcon(false); notifyDashboard(false); }
+  }
+  function resume() {
+    if (currentSource === "audio") { if (audioEl) audioEl.play().catch(() => {}); return; }
+    if (player && player.playVideo) { player.playVideo(); setPlayPauseIcon(true); notifyDashboard(true); }
+  }
 
   function stop() {
-    if (player && player.stopVideo) { try { player.stopVideo(); } catch {} }
+    if (currentSource === "audio") { if (audioEl) { audioEl.pause(); audioEl.removeAttribute("src"); audioEl.load(); } }
+    else if (player && player.stopVideo) { try { player.stopVideo(); } catch {} }
     stopProgressTimer();
     hide();
     window.dispatchEvent(new CustomEvent("jarvis:music-changed", { detail: { title: "", artist: "", playing: false } }));
   }
 
   function isPlaying() {
+    if (currentSource === "audio") return !!(audioEl && !audioEl.paused && !audioEl.ended);
     return !!(player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.PLAYING);
   }
 
