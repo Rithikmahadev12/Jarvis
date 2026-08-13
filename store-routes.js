@@ -13,9 +13,13 @@
 //   POST /api/store/checkout             — { productId, buyerEmail } -> order + pay URI
 //   GET  /api/store/order/:id/status     — poll from the checkout page itself
 //   GET  /api/store/products             — full catalog (dashboard)
+//   POST /api/store/products             — { userName, name, priceUsd, description?, deliverable? }
+//                                           list a new product owned by userName (per-account attribution
+//                                           — see direct-store.js header). Requires that account to already
+//                                           have a wallet linked, unless it's the owner.
 //   POST /api/store/products/:id/approve
 //   POST /api/store/products/:id/reject
-//   GET  /api/store/sales                — sales ledger
+//   GET  /api/store/sales                — sales ledger. ?userName= filters to one person's sales.
 //
 // Actual payment DETECTION happens out-of-band in
 // scripts/scheduled-store-poll.js, not here — there's no webhook to
@@ -31,6 +35,14 @@ function mount(app) {
     res.json({ products: Store.listProducts() });
   });
 
+  // Lists a new product under a specific account (userName -> ownerKey).
+  // Omitting userName attributes it to the owner, same as before this
+  // per-person split existed (e.g. scripts/scheduled-store-run.js).
+  app.post("/api/store/products", express.json(), (req, res) => {
+    const { userName, name, priceUsd, description, deliverable } = req.body || {};
+    res.json(Store.publishProduct({ name, priceUsd, description, deliverable, ownerKey: userName }));
+  });
+
   app.post("/api/store/products/:id/approve", (req, res) => {
     res.json(Store.approveProduct(req.params.id));
   });
@@ -40,7 +52,8 @@ function mount(app) {
   });
 
   app.get("/api/store/sales", (req, res) => {
-    res.json({ sales: Store.listSales(), totalUsd: Store.totalSalesUsd() });
+    const sales = Store.listSales(req.query.userName);
+    res.json({ sales, totalUsd: Store.totalSalesUsd(req.query.userName) });
   });
 
   app.post("/api/store/checkout", express.json(), (req, res) => {
