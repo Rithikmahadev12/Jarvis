@@ -264,6 +264,13 @@
 
         <div class="db-settings-divider"></div>
 
+        <div class="db-settings-toggle-row">
+          <span>Sleep Mode <small style="opacity:.55;font-size:.7em;">(now-playing screensaver when you tab back in)</small></span>
+          <div class="db-switch on" id="db-sleepmode-switch"></div>
+        </div>
+
+        <div class="db-settings-divider"></div>
+
         <div class="db-settings-row db-settings-row-col">
           <label>Widgets</label>
           <div id="db-widget-toggle-list"></div>
@@ -768,6 +775,25 @@
     motionSwitch?.addEventListener("click", () => {
       motionSwitch.classList.toggle("on");
       document.body.classList.toggle("db-motion-off", !motionSwitch.classList.contains("on"));
+    });
+
+    // Sleep Mode master on/off — server-persisted (see settings.js /
+    // /api/settings), read on boot and pushed to sleep-mode.js live.
+    const sleepSwitch = $("db-sleepmode-switch");
+    fetch("/api/settings").then((r) => r.json()).then((s) => {
+      const on = s.sleepMode !== false; // default on
+      sleepSwitch?.classList.toggle("on", on);
+      window.setSleepModeEnabled?.(on);
+    }).catch(() => {});
+    sleepSwitch?.addEventListener("click", () => {
+      const on = !sleepSwitch.classList.contains("on");
+      sleepSwitch.classList.toggle("on", on);
+      window.setSleepModeEnabled?.(on);
+      fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sleepMode: on }),
+      }).catch(() => {});
     });
   }
 
