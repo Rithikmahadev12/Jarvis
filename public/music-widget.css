@@ -1,281 +1,579 @@
-/* ═══════════════════════════════════════════════════════════════
-   J.A.R.V.I.S — MUSIC WIDGET (persistent, draggable now-playing card)
-   Sci-fi glass style. Music is ALWAYS this widget — never a tab.
-   ═══════════════════════════════════════════════════════════════ */
+// ═══════════════════════════════════════════════════════════════
+// J.A.R.V.I.S — MUSIC WIDGET
+// Always-a-widget now-playing card. Audio comes from a 1px hidden
+// YouTube IFrame player (we don't have Spotify), but nothing ever
+// opens a new tab or page for playback — this is the only UI.
+// Draggable, and keeps itself in sync when a radio mix / playlist
+// auto-advances to a new track.
+// ═══════════════════════════════════════════════════════════════
+window.MusicWidget = (function () {
+  let player = null;
+  let playerReady = false;
+  let pendingPlay = null;    // { videoId, list } queued while player boots
+  let apiPromise = null;
+  let progressTimer = null;
+  let scrubbing = false;
+  let repeatOn = false;
+  let isPlaylist = false;    // whether the current source is a list/mix
+  let requestedVideoId = null; // the video we explicitly asked to play
+  let currentVideoId = null;   // whatever's actually loaded right now
 
-.music-widget {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 500;
-  width: 380px;
-  padding: 22px 24px 18px;
-  color: #ffffff;
-  font-family: var(--raj, 'Rajdhani', sans-serif);
+  // "youtube" uses the YT IFrame player above; "audio" is any direct
+  // streamable URL (currently Audius) played through a plain <audio>
+  // element instead — there's no video/iframe involved for those.
+  let currentSource = "youtube";
+  let audioEl = null;
 
-  background: linear-gradient(135deg, rgba(160,220,255,0.14) 0%, rgba(80,150,210,0.06) 60%, rgba(180,225,255,0.10) 100%),
-              rgba(18,30,44,0.55);
-  backdrop-filter: blur(22px) saturate(160%);
-  -webkit-backdrop-filter: blur(22px) saturate(160%);
+  function $(id) { return document.getElementById(id); }
 
-  box-shadow:
-    0 8px 32px rgba(0,20,40,0.45),
-    inset 0 1px 1px rgba(200,235,255,0.35),
-    inset 0 0 0 1px rgba(160,220,255,0.06),
-    0 0 24px rgba(100,190,255,0.10);
+  // Broadcast the current now-playing state so other widgets (the dashboard
+  // MUSIC card) can mirror this player instead of polling the unconfigured
+  // Spotify endpoint. Reads straight from the DOM since that's already the
+  // single source of truth this file keeps up to date.
+  function notifyDashboard(playing) {
+    const title = $("mw-title")?.textContent || "";
+    const artist = $("mw-artist")?.textContent || "";
+    const album = $("mw-album")?.textContent || "";
+    const artworkImg = $("mw-art")?.querySelector("img");
+    const artwork = artworkImg ? artworkImg.src : "";
+    window.dispatchEvent(new CustomEvent("jarvis:music-changed", {
+      detail: { title, artist, album, artwork, playing: !!playing },
+    }));
+  }
 
-  border: 1px solid rgba(170,225,255,0.30);
+  // ── YouTube IFrame API loader (loaded once, lazily) ──────────
+  function loadYouTubeAPI() {
+    if (window.YT && window.YT.Player) return Promise.resolve();
+    if (apiPromise) return apiPromise;
+    apiPromise = new Promise((resolve) => {
+      const prevCb = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = function () {
+        if (typeof prevCb === "function") prevCb();
+        resolve();
+      };
+      const tag = document.createElement("script");
+      tag.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(tag);
+    });
+    return apiPromise;
+  }
 
-  clip-path: polygon(26px 0%, 100% 0%, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0% 100%, 0% 0%);
+  // ── DOM ────────────────────────────────────────────────────
+  function ensureDOM() {
+    if ($("music-widget")) return;
+    const wrap = document.createElement("div");
+    wrap.id = "music-widget";
+    // If the dashboard's compact MUSIC card is on the page, mount the real
+    // now-playing UI (cover art + controls) straight into it instead of
+    // floating it as its own free card — shrunk to fit via .mw-embedded
+    // rules in music-widget.css. Falls back to the classic floating card
+    // (e.g. on widget-host.html, which has no dashboard) when it isn't.
+    const embedHost = document.getElementById("db-music-embed");
+    const embedded = !!embedHost;
+    wrap.className = "music-widget hidden" + (embedded ? " mw-embedded" : "");
+    // Lets hand-tracking's pinch gesture grab and drag this widget — it
+    // synthesizes real pointer events, so it just rides the same drag
+    // handling below that mouse/touch already use. Not relevant once
+    // embedded in the dashboard card (that card has its own drag handling).
+    if (!embedded) wrap.dataset.handDrag = "true";
+    wrap.innerHTML = `
+      <button class="mw-close" id="mw-close" aria-label="Close" title="Stop">&#10005;</button>
+      <div class="mw-content" id="mw-content">
+        <div class="mw-art" id="mw-art">
+          <svg id="mw-art-fallback" viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.4">
+            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+          </svg>
+        </div>
+        <div class="mw-info">
+          <div class="mw-title" id="mw-title">—</div>
+          <div class="mw-artist" id="mw-artist">—</div>
+          <div class="mw-album" id="mw-album"></div>
+          <div class="mw-progress-container">
+            <span id="mw-elapsed">0:00</span>
+            <div class="mw-progress-track" id="mw-progress-track"><div class="mw-progress-fill" id="mw-progress-fill"></div></div>
+            <span id="mw-duration">0:00</span>
+          </div>
+          <div class="mw-controls">
+            <button class="mw-btn" id="mw-prev" title="Restart / previous">|&#9664;</button>
+            <button class="mw-btn active" id="mw-playpause" title="Play/Pause">&#10074;&#10074;</button>
+            <button class="mw-btn" id="mw-next" title="Next">&#9654;|</button>
+            <button class="mw-btn" id="mw-repeat" title="Repeat">&#8635;</button>
+          </div>
+        </div>
+      </div>
+      <div id="mw-yt-mount" class="mw-yt-mount"></div>
+      <audio id="mw-audio" preload="auto"></audio>
+    `;
+    (embedHost || document.body).appendChild(wrap);
 
-  transition: opacity .35s ease, transform .35s ease;
-  touch-action: none;
-  user-select: none;
-}
+    audioEl = $("mw-audio");
+    audioEl.addEventListener("play", () => { setPlayPauseIcon(true); notifyDashboard(true); });
+    audioEl.addEventListener("pause", () => { setPlayPauseIcon(false); notifyDashboard(false); });
+    audioEl.addEventListener("ended", () => {
+      setPlayPauseIcon(false);
+      notifyDashboard(false);
+      if (repeatOn) { audioEl.currentTime = 0; audioEl.play(); }
+    });
 
-.music-widget.hidden {
-  opacity: 0;
-  transform: translateY(18px) scale(0.98);
-  pointer-events: none;
-}
+    $("mw-close").addEventListener("click", stop);
+    $("mw-playpause").addEventListener("click", togglePlayPause);
+    $("mw-prev").addEventListener("click", onPrev);
+    $("mw-next").addEventListener("click", onNext);
+    $("mw-repeat").addEventListener("click", onToggleRepeat);
+    $("mw-progress-track").addEventListener("pointerdown", onScrub);
 
-.music-widget.dragging {
-  transition: none;
-  cursor: grabbing;
-}
+    if (!embedded) {
+      initDrag(wrap);
+      restorePosition(wrap);
+    }
+  }
 
-/* Top-left glass highlight accent */
-.music-widget::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 26px;
-  width: 80px;
-  height: 3px;
-  background: linear-gradient(90deg, rgba(190,230,255,0.85), rgba(100,190,255,0.55));
-  box-shadow: 0 0 10px rgba(100,190,255,0.45);
-}
+  // ── Dragging (pointer events cover mouse + touch) ───────────
+  function initDrag(wrap) {
+    let dragging = false, offsetX = 0, offsetY = 0;
 
-.mw-close {
-  position: absolute;
-  top: 9px;
-  right: 13px;
-  background: none;
-  border: none;
-  color: rgba(255,255,255,0.45);
-  font-size: 0.8rem;
-  line-height: 1;
-  cursor: pointer;
-  transition: color .2s;
-  z-index: 2;
-}
-.mw-close:hover { color: #ff5555; }
+    wrap.addEventListener("pointerdown", (e) => {
+      if (e.target.closest(".mw-btn, .mw-close, .mw-progress-track")) return;
+      dragging = true;
+      const rect = wrap.getBoundingClientRect();
+      offsetX = e.clientX - rect.left;
+      offsetY = e.clientY - rect.top;
+      wrap.style.left = rect.left + "px";
+      wrap.style.top = rect.top + "px";
+      wrap.style.right = "auto";
+      wrap.style.bottom = "auto";
+      wrap.classList.add("dragging");
+      try { wrap.setPointerCapture(e.pointerId); } catch {}
+    });
 
-.mw-content {
-  display: flex;
-  gap: 18px;
-  align-items: center;
-  cursor: grab;
-}
-.music-widget.dragging .mw-content { cursor: grabbing; }
+    wrap.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      let x = e.clientX - offsetX;
+      let y = e.clientY - offsetY;
+      const maxX = window.innerWidth - wrap.offsetWidth - 4;
+      const maxY = window.innerHeight - wrap.offsetHeight - 4;
+      x = Math.min(Math.max(4, x), Math.max(4, maxX));
+      y = Math.min(Math.max(4, y), Math.max(4, maxY));
+      wrap.style.left = x + "px";
+      wrap.style.top = y + "px";
+    });
 
-/* Album art glass placeholder */
-.mw-art {
-  width: 100px;
-  height: 100px;
-  background: linear-gradient(160deg, rgba(170,220,255,0.16), rgba(120,190,255,0.03));
-  border: 1px solid rgba(170,225,255,0.22);
-  border-radius: 8px;
-  flex-shrink: 0;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  color: rgba(200,230,255,0.55);
-  overflow: hidden;
-}
-.mw-art img { width: 100%; height: 100%; object-fit: cover; border-radius: 7px; }
-.mw-art svg { transition: opacity .2s; }
-.mw-art.playing svg { opacity: 0.9; }
+    function endDrag(e) {
+      if (!dragging) return;
+      dragging = false;
+      wrap.classList.remove("dragging");
+      try { wrap.releasePointerCapture(e.pointerId); } catch {}
+      savePosition(wrap);
+    }
+    wrap.addEventListener("pointerup", endDrag);
+    wrap.addEventListener("pointercancel", endDrag);
+  }
 
-.mw-info {
-  flex-grow: 1;
-  min-width: 0;
-}
+  function savePosition(wrap) {
+    try {
+      localStorage.setItem("jarvisMusicWidgetPos", JSON.stringify({ left: wrap.style.left, top: wrap.style.top }));
+    } catch {}
+  }
+  function restorePosition(wrap) {
+    try {
+      const raw = localStorage.getItem("jarvisMusicWidgetPos");
+      if (!raw) return;
+      const pos = JSON.parse(raw);
+      if (pos && pos.left && pos.top) {
+        wrap.style.left = pos.left;
+        wrap.style.top = pos.top;
+        wrap.style.right = "auto";
+        wrap.style.bottom = "auto";
+      }
+    } catch {}
+  }
 
-.mw-title {
-  font-size: 17px;
-  font-weight: 700;
-  margin: 0 0 4px 0;
-  letter-spacing: 0.4px;
-  text-shadow: 0 0 10px rgba(255,255,255,0.3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+  // ── Small adapter so progress/scrub/controls don't need to care
+  // whether playback is coming from the YT iframe player or the plain
+  // <audio> element (Audius, or any other direct-stream source). ────
+  function activeGetCurrentTime() {
+    if (currentSource === "audio") return audioEl ? audioEl.currentTime || 0 : 0;
+    return player && typeof player.getCurrentTime === "function" ? player.getCurrentTime() || 0 : 0;
+  }
+  function activeGetDuration() {
+    if (currentSource === "audio") return audioEl ? audioEl.duration || 0 : 0;
+    return player && typeof player.getDuration === "function" ? player.getDuration() || 0 : 0;
+  }
+  function activeSeek(sec) {
+    if (currentSource === "audio") { if (audioEl) audioEl.currentTime = sec; return; }
+    if (player && typeof player.seekTo === "function") player.seekTo(sec, true);
+  }
 
-.mw-artist {
-  font-size: 13px;
-  color: #b0d7f0;
-  font-weight: 600;
-  margin: 0 0 2px 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+  function onScrub(e) {
+    const hasTarget = currentSource === "audio" ? !!audioEl : !!(player && typeof player.seekTo === "function");
+    if (!hasTarget) return;
+    scrubbing = true;
+    const track = $("mw-progress-track");
+    const seek = (evt) => {
+      const rect = track.getBoundingClientRect();
+      const pct = Math.min(1, Math.max(0, (evt.clientX - rect.left) / rect.width));
+      const dur = activeGetDuration();
+      if (dur > 0) {
+        $("mw-progress-fill").style.width = `${pct * 100}%`;
+        activeSeek(dur * pct);
+      }
+    };
+    seek(e);
+    const onMove = (evt) => seek(evt);
+    const onUp = () => {
+      scrubbing = false;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
 
-.mw-album {
-  font-size: 11px;
-  color: #7da5c2;
-  margin: 0 0 13px 0;
-  min-height: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+  function fmtTime(sec) {
+    sec = Math.max(0, Math.floor(sec || 0));
+    const m = Math.floor(sec / 60), s = sec % 60;
+    return `${m}:${s < 10 ? "0" : ""}${s}`;
+  }
 
-.mw-progress-container {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 10.5px;
-  color: #9ec0d6;
-  margin-bottom: 13px;
-  font-family: var(--mono, 'Share Tech Mono', monospace);
-}
+  function parseYouTubeUrl(url) {
+    try {
+      const u = new URL(url);
+      return { videoId: u.searchParams.get("v"), list: u.searchParams.get("list") };
+    } catch { return { videoId: null, list: null }; }
+  }
 
-.mw-progress-track {
-  flex-grow: 1;
-  height: 2px;
-  background-color: rgba(255,255,255,0.15);
-  margin: 0 10px;
-  position: relative;
-  cursor: pointer;
-}
+  function setArtwork(url) {
+    const art = $("mw-art");
+    if (!art) return;
+    const existingImg = art.querySelector("img");
+    if (url) {
+      if (existingImg) { existingImg.src = url; }
+      else {
+        const img = document.createElement("img");
+        img.src = url;
+        img.alt = "";
+        img.onerror = () => { img.remove(); const fb = $("mw-art-fallback"); if (fb) fb.style.display = ""; };
+        art.appendChild(img);
+      }
+      const fb = $("mw-art-fallback");
+      if (fb) fb.style.display = "none";
+    } else {
+      if (existingImg) existingImg.remove();
+      const fb = $("mw-art-fallback");
+      if (fb) fb.style.display = "";
+    }
+  }
 
-.mw-progress-fill {
-  width: 0%;
-  height: 100%;
-  background-color: #00d2ff;
-  box-shadow: 0 0 8px #00d2ff;
-  transition: width .4s linear;
-}
+  function show() { ensureDOM(); $("music-widget").classList.remove("hidden"); }
+  function hide() { const w = $("music-widget"); if (w) w.classList.add("hidden"); }
 
-.mw-controls {
-  display: flex;
-  gap: 8px;
-}
+  function setPlayPauseIcon(isPlaying) {
+    const btn = $("mw-playpause");
+    if (btn) {
+      btn.innerHTML = isPlaying ? "&#10074;&#10074;" : "&#9654;";
+      btn.classList.toggle("active", !!isPlaying);
+    }
+    const art = $("mw-art");
+    if (art) art.classList.toggle("playing", !!isPlaying);
+  }
 
-.mw-btn {
-  background: rgba(16,46,79,0.3);
-  border: 1px solid rgba(0,162,255,0.4);
-  color: #00d2ff;
-  width: 36px;
-  height: 32px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  cursor: pointer;
-  border-radius: 3px;
-  font-size: 12px;
-  transition: all 0.2s ease;
-  backdrop-filter: blur(4px);
-}
+  function startProgressTimer() {
+    stopProgressTimer();
+    progressTimer = setInterval(() => {
+      if (scrubbing) return;
+      if (currentSource === "youtube" && (!player || typeof player.getCurrentTime !== "function")) return;
+      if (currentSource === "audio" && !audioEl) return;
+      const cur = activeGetCurrentTime();
+      const dur = activeGetDuration();
+      const elapsedEl = $("mw-elapsed"), durEl = $("mw-duration"), fillEl = $("mw-progress-fill");
+      if (elapsedEl) elapsedEl.textContent = fmtTime(cur);
+      if (durEl) durEl.textContent = fmtTime(dur);
+      if (fillEl) fillEl.style.width = dur > 0 ? `${Math.min(100, (cur / dur) * 100)}%` : "0%";
+    }, 500);
+  }
+  function stopProgressTimer() { if (progressTimer) { clearInterval(progressTimer); progressTimer = null; } }
 
-.mw-btn:hover {
-  background: rgba(0,162,255,0.25);
-  box-shadow: 0 0 12px rgba(0,162,255,0.6);
-  color: #ffffff;
-  border-color: rgba(0,162,255,0.8);
-}
+  // Cleans up the messy titles YouTube music uploads actually use into a
+  // real { title, artist } pair — mirrors server.js's
+  // parseYoutubeMusicTitle() so this widget can show something sane
+  // (and search on something sane) the instant a new video loads, before
+  // the server lookup below even comes back. Handles things dash-split
+  // alone never could, e.g.
+  //   "Spider-Man: Across the Spider-Verse | Self Love by Metro Boomin x
+  //    Coi Leroy | Official Lyric Video"
+  // becomes { title: "Self Love (Spider-Man: Across the Spider-Verse)",
+  //           artist: "Metro Boomin & Coi Leroy" }.
+  function parseYoutubeMusicTitle(rawTitle, rawChannel) {
+    const channelArtist = (rawChannel || "").trim()
+      .replace(/\s*-\s*Topic$/i, "")
+      .replace(/VEVO$/i, "")
+      .trim();
 
-.mw-btn.active {
-  background: rgba(0,162,255,0.2);
-  box-shadow: inset 0 0 5px rgba(0,162,255,0.3);
-}
+    const isJunkSegment = (s) =>
+      s.length < 60 && /\bofficial\s+(lyric\s+)?(music\s+)?video\b|\bofficial\s+audio\b|\blyric\s+video\b|\bvisualizer\b|\bofficial\s+trailer\b|\bclean\s+version\b/i.test(s);
+    const stripInlineTags = (s) =>
+      s.replace(/[\(\[]\s*(official[^\)\]]*|lyric video|audio|visualizer|explicit|clean)\s*[\)\]]/gi, "").trim();
 
-.mw-yt-mount {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
+    let segs = (rawTitle || "").split("|").map((s) => stripInlineTags(s.trim())).filter(Boolean);
+    segs = segs.filter((s) => !isJunkSegment(s));
 
-@media (max-width: 480px) {
-  .music-widget { width: min(380px, calc(100vw - 24px)); }
-}
+    let title = "", artist = channelArtist;
+    const bySeg = segs.find((s) => / by /i.test(s));
+    if (bySeg) {
+      const idx = bySeg.search(/ by /i);
+      const song = bySeg.slice(0, idx).trim();
+      let by = bySeg.slice(idx + 4).trim();
+      by = by.replace(/\s+x\s+/gi, " & ").replace(/\s*,\s*/g, " & ").trim();
+      title = song;
+      artist = by || channelArtist;
+      const context = segs.find((s) => s !== bySeg);
+      if (context && context.length <= 60 && !title.toLowerCase().includes(context.toLowerCase())) {
+        title = `${title} (${context})`;
+      }
+    } else if (segs.length) {
+      const base = [...segs].sort((a, b) => b.length - a.length)[0];
+      const dashSplit = base.match(/^(.{1,60}?)\s+-\s+(.{1,80})$/);
+      if (dashSplit) { artist = dashSplit[1].trim(); title = dashSplit[2].trim(); }
+      else title = base;
+    } else {
+      title = (rawTitle || "").trim();
+    }
+    return { title: title || (rawTitle || "").trim() || "Unknown Track", artist: artist || "Unknown Artist" };
+  }
 
-/* ═══════════════════════════════════════════════════════════════
-   EMBEDDED VARIANT — same card, mounted inside the dashboard's
-   compact MUSIC widget (#db-music-embed) instead of floating free.
-   Cover art + controls stay, just shrunk down to fit the card.
-   ═══════════════════════════════════════════════════════════════ */
-.music-widget.mw-embedded {
-  position: relative;
-  inset: auto;
-  right: auto; bottom: auto; left: auto; top: auto;
-  z-index: auto;
-  width: 100%;
-  padding: 0;
-  margin-top: 4px;
-  background: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  box-shadow: none;
-  border: none;
-  clip-path: none;
-  touch-action: auto;
-  user-select: auto;
-  transition: opacity .25s ease;
-}
-.music-widget.mw-embedded::before { display: none; }
-.music-widget.mw-embedded.dragging { transition: none; } /* embedded card never drags itself */
+  // YouTube itself has no album metadata, so whenever we land on a track
+  // without one (next/prev, or a mix/playlist auto-advancing) we ask our
+  // own server's /api/album-lookup, which chains iTunes → Deezer →
+  // MusicBrainz/CoverArtArchive server-side (see server.js) — far more
+  // reliable than a single client-side iTunes call, and it also hands
+  // back the catalog's own clean title/artist, which we use to replace
+  // whatever rough parse we started with. Guarded by videoId so a slow
+  // response can't overwrite a track the user has already moved past.
+  async function lookupAlbumClient(title, artist, videoId) {
+    if (!title && !artist) return;
+    try {
+      const url = `/api/album-lookup?title=${encodeURIComponent(title || "")}&artist=${encodeURIComponent(artist || "")}`;
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const hit = await res.json();
+      if (!hit || !Object.keys(hit).length || videoId !== currentVideoId) return; // track changed while we waited
+      if (hit.title) $("mw-title").textContent = hit.title;
+      if (hit.artist) $("mw-artist").textContent = hit.artist;
+      if (hit.album) $("mw-album").textContent = hit.album;
+      if (hit.artwork) setArtwork(hit.artwork);
+      notifyDashboard(isPlaying());
+    } catch { /* leave blank, not worth surfacing an error for this */ }
+  }
 
-/* The dashboard card already has its own ✕ (closes/hides the whole
-   widget), so the player's own stop button is redundant clutter here. */
-.music-widget.mw-embedded .mw-close { display: none; }
+  // Whenever a new video actually starts playing — including ones the
+  // radio mix/playlist picked on its own — sync the card to match.
+  function syncNowPlayingFromPlayer() {
+    if (!player || typeof player.getVideoData !== "function") return;
+    let data;
+    try { data = player.getVideoData(); } catch { return; }
+    if (!data || !data.video_id || data.video_id === currentVideoId) return;
+    currentVideoId = data.video_id;
+    if (currentVideoId !== requestedVideoId) {
+      // The mix moved on to a track we didn't explicitly request — clean
+      // up whatever YouTube's own title/channel gives us (see
+      // parseYoutubeMusicTitle above) since that's all we have to start
+      // from, then ask the server to confirm/upgrade it with real catalog
+      // metadata + artwork.
+      const { title, artist } = parseYoutubeMusicTitle(data.title || "", data.author || "");
+      $("mw-title").textContent = title;
+      $("mw-artist").textContent = artist;
+      $("mw-album").textContent = "";
+      setArtwork("");
+      lookupAlbumClient(title, artist, currentVideoId);
+      notifyDashboard(isPlaying());
+    }
+  }
 
-.music-widget.mw-embedded .mw-content {
-  gap: 10px;
-  cursor: default;
-  align-items: center;
-}
+  function onPlayerStateChange(e) {
+    if (!window.YT) return;
+    if (e.data === YT.PlayerState.PLAYING) {
+      setPlayPauseIcon(true);
+      syncNowPlayingFromPlayer();
+      notifyDashboard(true);
+    } else if (e.data === YT.PlayerState.PAUSED) {
+      setPlayPauseIcon(false);
+      notifyDashboard(false);
+    } else if (e.data === YT.PlayerState.ENDED) {
+      setPlayPauseIcon(false);
+      notifyDashboard(false);
+      if (repeatOn && player) { player.seekTo(0, true); player.playVideo(); }
+    }
+  }
 
-.music-widget.mw-embedded .mw-art {
-  width: 42px;
-  height: 42px;
-  border-radius: 6px;
-}
-.music-widget.mw-embedded .mw-art svg { width: 20px; height: 20px; }
+  function loadIntoPlayer(videoId, list) {
+    isPlaylist = !!list;
+    if (list) player.loadPlaylist({ list, listType: "playlist" });
+    else if (videoId) player.loadVideoById(videoId);
+  }
 
-.music-widget.mw-embedded .mw-info { min-width: 0; }
+  function createPlayer(videoId, list) {
+    isPlaylist = !!list;
+    const playerVars = { autoplay: 1, controls: 0, playsinline: 1, rel: 0 };
+    if (list) { playerVars.listType = "playlist"; playerVars.list = list; }
+    player = new YT.Player("mw-yt-mount", {
+      height: "1",
+      width: "1",
+      videoId: videoId || undefined,
+      playerVars,
+      events: {
+        onReady: () => {
+          playerReady = true;
+          if (pendingPlay) { loadIntoPlayer(pendingPlay.videoId, pendingPlay.list); pendingPlay = null; }
+          player.playVideo();
+          setPlayPauseIcon(true);
+          startProgressTimer();
+        },
+        onStateChange: onPlayerStateChange,
+      },
+    });
+  }
 
-.music-widget.mw-embedded .mw-title {
-  font-size: 0.84rem;
-  margin-bottom: 1px;
-}
-.music-widget.mw-embedded .mw-artist {
-  font-size: 0.7rem;
-  margin-bottom: 0;
-}
-.music-widget.mw-embedded .mw-album { display: none; }
+  // ── Public API ─────────────────────────────────────────────
+  // `source` tells us which backend to use: "youtube" (default, via
+  // the YT iframe player) or "audio" — any direct-streamable URL, e.g.
+  // Audius. Callers that don't know/care can omit it; a youtube.com
+  // URL is still auto-detected either way.
+  async function play({ url, title, artist, album, artwork, source }) {
+    if (!url) return;
 
-.music-widget.mw-embedded .mw-progress-container {
-  margin: 6px 0 0;
-  font-size: 0;
-  gap: 0;
-}
-.music-widget.mw-embedded .mw-progress-container span { display: none; } /* elapsed/duration text — keep just the bar */
-.music-widget.mw-embedded .mw-progress-track { margin: 0; height: 2px; }
+    const looksLikeYoutube = /(^|\.)youtube\.com$|youtu\.be$/i.test((() => { try { return new URL(url).hostname; } catch { return ""; } })());
+    const useAudio = source === "audio" || source === "audius" || (!looksLikeYoutube && source !== "youtube");
 
-.music-widget.mw-embedded .mw-controls {
-  gap: 4px;
-  margin-top: 6px;
-}
-.music-widget.mw-embedded .mw-btn {
-  width: 22px;
-  height: 20px;
-  font-size: 8px;
-  border-radius: 2px;
-}
+    ensureDOM();
+    repeatOn = false;
+    $("mw-repeat").classList.remove("active");
+    $("mw-title").textContent = title || "Unknown Track";
+    $("mw-artist").textContent = artist || "Unknown Artist";
+    $("mw-album").textContent = album || "";
+    setArtwork(artwork || "");
+    $("mw-elapsed").textContent = "0:00";
+    $("mw-duration").textContent = "0:00";
+    $("mw-progress-fill").style.width = "0%";
+    show();
+    notifyDashboard(true);
+
+    if (useAudio) {
+      // Switching away from a live YouTube player? Pause it so two
+      // sources never play over each other.
+      if (player && typeof player.pauseVideo === "function") { try { player.pauseVideo(); } catch {} }
+      currentSource = "audio";
+      isPlaylist = false;
+      requestedVideoId = null;
+      currentVideoId = null;
+      audioEl.src = url;
+      try {
+        await audioEl.play();
+      } catch (e) {
+        console.warn("[MUSIC] Audio playback failed to start:", e.message);
+      }
+      setPlayPauseIcon(true);
+      startProgressTimer();
+      return;
+    }
+
+    // YouTube branch
+    if (audioEl) { audioEl.pause(); audioEl.removeAttribute("src"); audioEl.load(); }
+    currentSource = "youtube";
+    const { videoId, list } = parseYouTubeUrl(url);
+    if (!videoId && !list) return;
+    requestedVideoId = videoId || null;
+    currentVideoId = null;
+
+    await loadYouTubeAPI();
+
+    if (!player) {
+      createPlayer(videoId, list);
+    } else if (playerReady) {
+      loadIntoPlayer(videoId, list);
+      player.playVideo();
+      setPlayPauseIcon(true);
+      startProgressTimer();
+    } else {
+      pendingPlay = { videoId, list };
+    }
+  }
+
+  function togglePlayPause() {
+    if (currentSource === "audio") {
+      if (!audioEl) return;
+      if (!audioEl.paused) { audioEl.pause(); }
+      else { audioEl.play().catch(() => {}); }
+      return;
+    }
+    if (!player || typeof player.getPlayerState !== "function") return;
+    const state = player.getPlayerState();
+    if (state === YT.PlayerState.PLAYING) { player.pauseVideo(); setPlayPauseIcon(false); notifyDashboard(false); }
+    else { player.playVideo(); setPlayPauseIcon(true); notifyDashboard(true); }
+  }
+
+  function onPrev() {
+    if (currentSource === "audio") { if (audioEl) audioEl.currentTime = 0; return; }
+    if (!player) return;
+    if (isPlaylist && typeof player.previousVideo === "function") player.previousVideo();
+    else if (player.seekTo) player.seekTo(0, true);
+  }
+
+  function onNext() {
+    // No queue/playlist concept for direct-stream sources like Audius yet.
+    if (currentSource === "audio") return;
+    if (!player || !isPlaylist || typeof player.nextVideo !== "function") return;
+    player.nextVideo();
+  }
+
+  function onToggleRepeat() {
+    repeatOn = !repeatOn;
+    $("mw-repeat").classList.toggle("active", repeatOn);
+  }
+
+  function pause() {
+    if (currentSource === "audio") { if (audioEl) audioEl.pause(); return; }
+    if (player && player.pauseVideo) { player.pauseVideo(); setPlayPauseIcon(false); notifyDashboard(false); }
+  }
+  function resume() {
+    if (currentSource === "audio") { if (audioEl) audioEl.play().catch(() => {}); return; }
+    if (player && player.playVideo) { player.playVideo(); setPlayPauseIcon(true); notifyDashboard(true); }
+  }
+
+  function stop() {
+    if (currentSource === "audio") { if (audioEl) { audioEl.pause(); audioEl.removeAttribute("src"); audioEl.load(); } }
+    else if (player && player.stopVideo) { try { player.stopVideo(); } catch {} }
+    stopProgressTimer();
+    hide();
+    window.dispatchEvent(new CustomEvent("jarvis:music-changed", { detail: { title: "", artist: "", playing: false } }));
+  }
+
+  function isPlaying() {
+    if (currentSource === "audio") return !!(audioEl && !audioEl.paused && !audioEl.ended);
+    return !!(player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.PLAYING);
+  }
+
+  // Snapshot of whatever's currently loaded, read straight from the DOM
+  // (same source of truth notifyDashboard uses) — lets other UI (Sleep
+  // Mode, dashboard) pull the current track without needing to have
+  // caught the last "jarvis:music-changed" event.
+  function getNowPlaying() {
+    const widget = $("music-widget");
+    if (!widget || widget.classList.contains("hidden")) return null;
+    const artworkImg = $("mw-art")?.querySelector("img");
+    return {
+      title: $("mw-title")?.textContent || "",
+      artist: $("mw-artist")?.textContent || "",
+      album: $("mw-album")?.textContent || "",
+      artwork: artworkImg ? artworkImg.src : "",
+      playing: isPlaying(),
+    };
+  }
+
+  // Raw <audio> element, for Sleep Mode's Web Audio analyser (only
+  // meaningful when currentSource === "audio" — the YouTube iframe's
+  // audio can't be read by the page at all, cross-origin).
+  function getAudioElement() { return audioEl; }
+  function getSource() { return currentSource; }
+
+  return { play, pause, resume, stop, togglePlayPause, next: onNext, prev: onPrev, isPlaying, getNowPlaying, getAudioElement, getSource };
+})();
