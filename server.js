@@ -1830,6 +1830,12 @@ const HARD_COMMANDS = {
   // Actually disabled at runtime (not just skipped) when running on
   // Render — see jarvis-agent.js's isEnabled().
   openOnPC:     /\b(open|launch|start|fire up|pull up)\b.{1,40}\b(on (my|the) (computer|pc|machine|desktop)|notepad|calculator|calc|file explorer|finder|paint|chrome|firefox|edge|safari|spotify app|word|excel|terminal|command prompt|cmd|vs\s?code|vscode|settings app)\b/i,
+  // "Jarvis, show pc" — opens a live view of Jarvis's own E2B
+  // desktop sandbox (see computer.js), with mouse/keyboard control
+  // built into the embedded VNC stream itself. Checked ahead of
+  // openOnPC/readScreen, neither of which this overlaps with in
+  // wording — this is Jarvis's own cloud desktop, not your machine.
+  pcView:       /\b(show (me )?(your |the )?pc\b|show (me )?your (computer|desktop)|pc view|remote (into|control) (your |the )?pc|take over (your |the )?pc|control (your |the )?(pc|computer)\b)\b/i,
   hologram:     /\b(show me a (3d|hologram)|holographic|3d model|3d scan|build mode)\b/i,
   wireframe:    /\b(render (this|it)( into| as)? a wireframe|wireframe (mode|view|render|it|this)|show (me )?(the )?wireframe|turn (this|it) into a wireframe)\b/i,
   changeModel:  /\b((change|swap|switch) (the )?(sketchfab )?model|try (a |another )?different model|another model|next model|different (sketchfab )?model)\b/i,
@@ -2732,6 +2738,37 @@ async function handleNewsFetch(message, T, mode) {
 }
 
 // ── BUILD MODE — open the CAD workshop ───────────────────────────
+// ── PC VIEW — "Jarvis, show pc" ────────────────────────────────
+// Opens Jarvis's own E2B desktop sandbox (a real Ubuntu/XFCE desktop
+// in the cloud — see computer.js's DESKTOP SANDBOX section) and hands
+// the client a live, embeddable VNC stream URL for it. This is async
+// (spinning up the sandbox + starting the stream takes a few seconds
+// the first time), which is fine — the /api/chat route awaits it.
+async function handlePcViewOpen(message, T) {
+  if (!Computer.isDesktopConfigured()) {
+    return {
+      reply: `I don't have a desktop sandbox set up yet, ${T} — add E2B_API_KEY to .env (free key at e2b.dev), run \`npm install\`, and restart me, and I'll be able to show you my computer.`,
+      action: "ERROR",
+      intent: "pcView",
+    };
+  }
+  try {
+    const { url } = await Computer.ensureDesktopStream();
+    return {
+      reply: `Pulling up my computer now, ${T}.`,
+      action: "SHOW_PC_VIEW",
+      intent: "pcView",
+      meta: { streamUrl: url },
+    };
+  } catch (e) {
+    return {
+      reply: `Couldn't get my desktop up, ${T} — ${e.message}`,
+      action: "ERROR",
+      intent: "pcView",
+    };
+  }
+}
+
 function handleHologramOpen(message, T) {
   const q = (message || "")
     .replace(/\b(jarvis|hey|show me a|3d model of|3d scan of|holographic view of|build mode|hologram|holographic|3d model|3d scan)\b/gi, "")
@@ -4169,6 +4206,9 @@ app.post("/api/chat", async (req, res) => {
     }
     if (hardCommandType === "featureShip") {
       return res.json(await handleFeatureShip(T));
+    }
+    if (hardCommandType === "pcView") {
+      return res.json(await handlePcViewOpen(message, T));
     }
     if (hardCommandType === "hologram") {
       return res.json(handleHologramOpen(message, T));
