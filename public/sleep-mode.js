@@ -183,19 +183,27 @@
 
         <div class="sm-panel-divider"></div>
 
-        <div class="sm-panel-row">
-          <label>Override album color</label>
-          <div class="sm-switch" id="sm-override-switch"></div>
-        </div>
-        <div class="sm-panel-row sm-color-row" id="sm-color-row">
-          <label>Primary / Secondary</label>
-          <div style="display:flex;gap:6px;">
-            <input type="color" id="sm-primary-color">
-            <input type="color" id="sm-secondary-color">
+        <div class="sm-panel-row sm-color-mode-row">
+          <label>Color</label>
+          <div class="sm-color-mode" id="sm-color-mode">
+            <button type="button" class="sm-color-mode-btn" id="sm-mode-auto-btn" data-mode="auto">Automatic</button>
+            <button type="button" class="sm-color-mode-btn" id="sm-mode-custom-btn" data-mode="custom">Custom</button>
           </div>
         </div>
-        <div class="sm-panel-row sm-color-row sm-swatch-row" id="sm-preset-row">
-          ${buildPresetSwatchesHTML()}
+        <div class="sm-panel-hint" id="sm-color-auto-hint">Jarvis picks this from the album art.</div>
+
+        <div class="sm-wheel-block" id="sm-wheel-block">
+          <div class="sm-wheel-wrap" id="sm-wheel-wrap">
+            <canvas id="sm-color-wheel" width="150" height="150"></canvas>
+            <div class="sm-wheel-handle" id="sm-wheel-handle"></div>
+          </div>
+          <div class="sm-panel-row">
+            <label>Brightness</label>
+            <input type="range" id="sm-lightness-slider" min="25" max="85" step="1">
+          </div>
+          <div class="sm-swatch-row" id="sm-preset-row">
+            ${buildPresetSwatchesHTML()}
+          </div>
         </div>
 
         <div class="sm-panel-divider"></div>
@@ -277,11 +285,7 @@
     $("sm-reflect-switch").classList.toggle("sm-on", prefs.reflect);
     $("sm-thickness-slider").value = prefs.thickness;
     $("sm-glow-slider").value = prefs.glow;
-    $("sm-override-switch").classList.toggle("sm-on", prefs.overrideColors);
-    $("sm-color-row").classList.toggle("sm-show", prefs.overrideColors);
-    $("sm-preset-row").classList.toggle("sm-show", prefs.overrideColors);
-    $("sm-primary-color").value = prefs.primary;
-    $("sm-secondary-color").value = prefs.secondary;
+    setColorModeUI(prefs.overrideColors);
     $("sm-style-select").value = prefs.style;
     $("sm-showcard-switch").classList.toggle("sm-on", prefs.showCard);
 
@@ -289,6 +293,9 @@
     artReflectEl.classList.toggle("sm-show", prefs.reflect);
     cardEl.classList.toggle("sm-hidden", !prefs.showCard);
     cardEl.classList.toggle("sm-style-bar", prefs.style === "bar");
+
+    ensureWheelDrawn();
+    setWheelFromHex(prefs.primary);
   }
 
   function applyPresetColors(i) {
@@ -297,13 +304,152 @@
     prefs.overrideColors = true;
     prefs.primary = p.primary;
     prefs.secondary = p.secondary;
-    $("sm-override-switch").classList.add("sm-on");
-    $("sm-color-row").classList.add("sm-show");
-    $("sm-preset-row").classList.add("sm-show");
-    $("sm-primary-color").value = p.primary;
-    $("sm-secondary-color").value = p.secondary;
+    setColorModeUI(true);
+    setWheelFromHex(p.primary);
     savePrefs(prefs);
     refreshColors(null);
+  }
+
+  // ── color wheel (HSV hue/sat disc + a brightness slider) ────
+  // Replaces the old dual color-picker boxes with a single Apple-style
+  // wheel: drag anywhere on the disc to set hue (angle) + saturation
+  // (distance from center), and the Brightness slider controls value.
+  // The secondary/accent color is derived automatically (an analogous
+  // hue a little further round the wheel, slightly desaturated) so a
+  // single drag still produces a nice two-tone glow like the presets do.
+  let wheelDrawn = false;
+  let wheelHue = 330, wheelSat = 0.85, wheelVal = 0.75; // current picker state
+
+  function hsvToRgb(h, s, v) {
+    h = ((h % 360) + 360) % 360;
+    const c = v * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = v - c;
+    let r = 0, g = 0, b = 0;
+    if (h < 60)       { r = c; g = x; b = 0; }
+    else if (h < 120) { r = x; g = c; b = 0; }
+    else if (h < 180) { r = 0; g = c; b = x; }
+    else if (h < 240) { r = 0; g = x; b = c; }
+    else if (h < 300) { r = x; g = 0; b = c; }
+    else              { r = c; g = 0; b = x; }
+    return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+  }
+  function rgbToHex(r, g, b) {
+    const h = (v) => v.toString(16).padStart(2, "0");
+    return `#${h(r)}${h(g)}${h(b)}`;
+  }
+  function hexToHsv(hex) {
+    const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex || "");
+    if (!m) return { h: 330, s: 0.85, v: 0.75 };
+    const r = parseInt(m[1], 16) / 255, g = parseInt(m[2], 16) / 255, b = parseInt(m[3], 16) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    let h = 0;
+    if (d !== 0) {
+      if (max === r) h = ((g - b) / d) % 6;
+      else if (max === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60; if (h < 0) h += 360;
+    }
+    const s = max === 0 ? 0 : d / max;
+    return { h, s, v: max };
+  }
+
+  function ensureWheelDrawn() {
+    if (wheelDrawn) return;
+    const canvas = $("sm-color-wheel");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width, h = canvas.height, cx = w / 2, cy = h / 2, r = w / 2;
+    const img = ctx.createImageData(w, h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const dx = x - cx + 0.5, dy = y - cy + 0.5;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const idx = (y * w + x) * 4;
+        if (dist > r) { img.data[idx + 3] = 0; continue; }
+        let angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+        if (angle < 0) angle += 360;
+        const sat = Math.min(1, dist / r);
+        const [rr, gg, bb] = hsvToRgb(angle, sat, 1);
+        img.data[idx] = rr; img.data[idx + 1] = gg; img.data[idx + 2] = bb; img.data[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    wheelDrawn = true;
+  }
+
+  function positionWheelHandle() {
+    const handle = $("sm-wheel-handle");
+    const canvas = $("sm-color-wheel");
+    if (!handle || !canvas) return;
+    const r = canvas.width / 2;
+    const rad = (wheelHue * Math.PI) / 180;
+    const dist = wheelSat * r;
+    const x = r + Math.cos(rad) * dist;
+    const y = r + Math.sin(rad) * dist;
+    handle.style.left = x + "px";
+    handle.style.top = y + "px";
+    handle.style.background = rgbToHex(...hsvToRgb(wheelHue, wheelSat, 1));
+  }
+
+  function applyWheelColor() {
+    const primaryHex = rgbToHex(...hsvToRgb(wheelHue, wheelSat, wheelVal));
+    // Secondary: an analogous hue further round the wheel, a touch
+    // brighter/less saturated, so the ring reads as a real two-tone
+    // gradient rather than one flat color repeated.
+    const secondaryHex = rgbToHex(...hsvToRgb(wheelHue + 42, Math.max(0.25, wheelSat * 0.75), Math.min(1, wheelVal * 1.15 + 0.1)));
+    prefs.primary = primaryHex;
+    prefs.secondary = secondaryHex;
+    positionWheelHandle();
+    savePrefs(prefs);
+    refreshColors(null);
+  }
+
+  function setWheelFromHex(hex) {
+    const { h, s, v } = hexToHsv(hex);
+    wheelHue = h; wheelSat = s; wheelVal = Math.max(0.25, Math.min(0.85, v));
+    const slider = $("sm-lightness-slider");
+    if (slider) slider.value = Math.round(wheelVal * 100);
+    positionWheelHandle();
+  }
+
+  function wireColorWheel() {
+    const wrap = $("sm-wheel-wrap");
+    const canvas = $("sm-color-wheel");
+    if (!wrap || !canvas) return;
+    let dragging = false;
+
+    function updateFromEvent(e) {
+      const rect = canvas.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+      const dx = e.clientX - cx, dy = e.clientY - cy;
+      let angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+      if (angle < 0) angle += 360;
+      const dist = Math.min(1, Math.sqrt(dx * dx + dy * dy) / (rect.width / 2));
+      wheelHue = angle;
+      wheelSat = dist;
+      prefs.overrideColors = true;
+      setColorModeUI(true);
+      applyWheelColor();
+    }
+
+    wrap.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      dragging = true;
+      try { wrap.setPointerCapture(e.pointerId); } catch {}
+      updateFromEvent(e);
+    });
+    wrap.addEventListener("pointermove", (e) => { if (dragging) { e.stopPropagation(); updateFromEvent(e); } });
+    const endDrag = (e) => { dragging = false; try { wrap.releasePointerCapture(e.pointerId); } catch {} };
+    wrap.addEventListener("pointerup", endDrag);
+    wrap.addEventListener("pointercancel", endDrag);
+  }
+
+  function setColorModeUI(custom) {
+    $("sm-mode-auto-btn").classList.toggle("sm-active", !custom);
+    $("sm-mode-custom-btn").classList.toggle("sm-active", custom);
+    $("sm-wheel-block").classList.toggle("sm-show", custom);
+    $("sm-color-auto-hint").classList.toggle("sm-show", !custom);
   }
 
   function wireSettingsPanel() {
@@ -323,21 +469,35 @@
     });
     $("sm-thickness-slider").addEventListener("input", (e) => { prefs.thickness = +e.target.value; savePrefs(prefs); });
     $("sm-glow-slider").addEventListener("input", (e) => { prefs.glow = +e.target.value; savePrefs(prefs); });
-    $("sm-override-switch").addEventListener("click", () => {
-      prefs.overrideColors = !prefs.overrideColors;
-      $("sm-override-switch").classList.toggle("sm-on", prefs.overrideColors);
-      $("sm-color-row").classList.toggle("sm-show", prefs.overrideColors);
-      $("sm-preset-row").classList.toggle("sm-show", prefs.overrideColors);
+
+    $("sm-mode-auto-btn").addEventListener("click", () => {
+      prefs.overrideColors = false;
+      setColorModeUI(false);
       savePrefs(prefs);
       refreshColors(null);
     });
-    $("sm-primary-color").addEventListener("input", (e) => { prefs.primary = e.target.value; savePrefs(prefs); refreshColors(null); });
-    $("sm-secondary-color").addEventListener("input", (e) => { prefs.secondary = e.target.value; savePrefs(prefs); refreshColors(null); });
+    $("sm-mode-custom-btn").addEventListener("click", () => {
+      prefs.overrideColors = true;
+      setColorModeUI(true);
+      ensureWheelDrawn();
+      setWheelFromHex(prefs.primary);
+      savePrefs(prefs);
+      refreshColors(null);
+    });
+    ensureWheelDrawn();
+    wireColorWheel();
+    $("sm-lightness-slider").addEventListener("input", (e) => {
+      wheelVal = Math.max(0.1, Math.min(1, (+e.target.value) / 100));
+      prefs.overrideColors = true;
+      setColorModeUI(true);
+      applyWheelColor();
+    });
     $("sm-preset-row").addEventListener("click", (e) => {
       const btn = e.target.closest(".sm-swatch");
       if (!btn) return;
       applyPresetColors(+btn.dataset.preset);
     });
+
     $("sm-style-select").addEventListener("change", (e) => {
       prefs.style = e.target.value;
       cardEl.classList.toggle("sm-style-bar", prefs.style === "bar");
@@ -485,22 +645,102 @@
     }
   }
 
-  // ── glow ring gradient builder ──────────────────────────────
-  function buildGradient(angleDeg) {
-    const { primary, secondary } = activeColors;
-    if (prefs.gradient === "rainbow") {
-      return `conic-gradient(from ${angleDeg}deg, #ff3b3b, #ffb020, #f7ff3b, #3bff6a, #3bd9ff, #7a3bff, #ff3bd0, #ff3b3b)`;
+  // ── glow ring background builder ─────────────────────────────
+  // The old version just rotated one uniform conic-gradient around the
+  // frame. This instead scatters several soft "light spots" around the
+  // ring perimeter — each one its own radial-gradient — so the edge
+  // reads as light actually traveling and pulsing at different points
+  // around the screen (closer to the goal reference: a moody, uneven
+  // glow concentrated at a few spots, not a flat rainbow band), plus a
+  // faint conic wash underneath so it never goes fully dark between spots.
+  const SPOT_COUNT = 6;
+
+  function colorToRgba(color, alpha) {
+    const a = Math.max(0, Math.min(1, alpha)).toFixed(3);
+    if (color[0] === "#") {
+      const r = parseInt(color.slice(1, 3), 16), g = parseInt(color.slice(3, 5), 16), b = parseInt(color.slice(5, 7), 16);
+      return `rgba(${r},${g},${b},${a})`;
     }
-    if (prefs.gradient === "mono") {
-      return `conic-gradient(from ${angleDeg}deg, ${primary}, ${primary})`;
-    }
-    return `conic-gradient(from ${angleDeg}deg, ${primary}, ${secondary}, ${primary})`;
+    if (color.startsWith("hsl(")) return color.replace("hsl(", "hsla(").replace(")", `,${a})`);
+    return color;
   }
 
-  // ── main animation loop — a continuous glowing ring around the
-  // screen edge (rotating conic-gradient masked down to just the
-  // border), audio-reactive when possible, gentle ambient motion
-  // otherwise, plus the bar visualizer. ────────────────────────
+  // Per-spot brightness: real per-frequency-band energy when we have a
+  // live audio tap (Audius), so bass/mid/treble hits literally light up
+  // different points around the ring as they happen. Otherwise a layered
+  // multi-sine ambient simulation with a per-spot phase offset, so it
+  // still reads as organic, uneven movement rather than a uniform pulse.
+  function getSpotPulses(n, reactive, animated) {
+    if (!animated) return new Array(n).fill(0.42);
+    if (reactive) {
+      const bins = getFrequencyBins(n);
+      if (bins) return bins.map((v) => Math.min(1, v * 1.35));
+    }
+    const now = Date.now();
+    const out = new Array(n);
+    for (let i = 0; i < n; i++) {
+      let p = 0.35 + 0.28 * Math.sin(now / 480 + i * 1.15) + 0.16 * Math.sin(now / 210 + i * 2.4);
+      out[i] = Math.max(0.08, Math.min(1, p));
+    }
+    return out;
+  }
+
+  // Lightweight bass-energy onset/beat detector (Audius only — this is
+  // the one case we can actually read the real waveform; YouTube's
+  // iframe audio is cross-origin and unreadable by the page, so there's
+  // no true beat-sync possible for it, only the ambient simulation
+  // above). Tracks a slow running average of bass-band energy and fires
+  // a decaying "beat" envelope whenever the current bass level spikes
+  // well above it — a simple but effective kick/bass-hit detector.
+  let bassAvg = 0, lastBeatAt = 0, beatEnvelope = 0;
+  function detectBeat() {
+    if (!analyser || !freqData) return 0;
+    analyser.getByteFrequencyData(freqData);
+    const bassBins = Math.max(4, Math.floor(freqData.length * 0.12));
+    let sum = 0;
+    for (let i = 0; i < bassBins; i++) sum += freqData[i];
+    const bass = sum / bassBins / 255;
+    bassAvg = bassAvg === 0 ? bass : bassAvg * 0.92 + bass * 0.08;
+    const now = Date.now();
+    if (bass > bassAvg * 1.22 && bass > 0.18 && now - lastBeatAt > 220) {
+      lastBeatAt = now;
+      beatEnvelope = 1;
+    }
+    beatEnvelope *= 0.88; // exponential decay back to 0 between hits
+    return beatEnvelope;
+  }
+
+  function buildRingBackground(angleDeg, reactive, animated, beat) {
+    const { primary, secondary } = activeColors;
+    const n = SPOT_COUNT;
+    const pulses = getSpotPulses(n, reactive, animated);
+    const baseAngle = (angleDeg * Math.PI) / 180;
+    const layers = [];
+    for (let i = 0; i < n; i++) {
+      const theta = baseAngle + (i / n) * Math.PI * 2;
+      const x = 50 + 50 * Math.cos(theta);
+      const y = 50 + 50 * Math.sin(theta);
+      let color;
+      if (prefs.gradient === "rainbow") {
+        color = `hsl(${((i / n) * 360 + angleDeg) % 360}, 95%, 60%)`;
+      } else if (prefs.gradient === "mono") {
+        color = primary;
+      } else {
+        color = i % 2 === 0 ? primary : secondary;
+      }
+      const p = Math.min(1, pulses[i] + beat * 0.5);
+      const alpha = 0.22 + p * 0.68;
+      const size = 30 + p * 20;
+      layers.push(`radial-gradient(circle at ${x.toFixed(1)}% ${y.toFixed(1)}%, ${colorToRgba(color, alpha)} 0%, transparent ${size}%)`);
+    }
+    layers.push(`conic-gradient(from ${angleDeg}deg, ${colorToRgba(primary, 0.16)}, ${colorToRgba(secondary, 0.16)}, ${colorToRgba(primary, 0.16)})`);
+    return layers.join(", ");
+  }
+
+  // ── main animation loop — the glow ring traces the rounded screen
+  // edge as a handful of drifting/pulsing light spots (built above),
+  // audio-reactive (real frequency data + beat detection) when possible,
+  // gentle ambient motion otherwise, plus the bar visualizer. ─────────
   let rafId = null;
   let travelT = 0; // 0..1, converted to a 0..360deg rotation each frame
 
@@ -510,7 +750,9 @@
     const mode = prefs.animation;
     const isAudius = window.MusicWidget?.getSource?.() === "audio";
     const reactive = isAudius && ensureAudioTap();
+    const animated = mode !== "none";
     const amp = reactive ? getAmplitude() : 0;
+    const beat = reactive && animated ? detectBeat() : 0;
 
     let speed, pulse, blurMult = 1, thicknessMult = 1;
     if (mode === "none") {
@@ -518,8 +760,8 @@
     } else if (mode === "static") {
       speed = 0; pulse = 0.5 + Math.sin(Date.now() / 900) * 0.18;
     } else if (reactive) {
-      speed = 0.05 + amp * 0.4;
-      pulse = 0.5 + amp * 0.6;
+      speed = 0.05 + amp * 0.35 + beat * 0.4;
+      pulse = 0.5 + amp * 0.5 + beat * 0.35;
     } else {
       speed = 0.045;
       pulse = 0.55 + Math.sin(Date.now() / 900) * 0.18;
@@ -532,12 +774,12 @@
     const blur = Math.max(4, prefs.glow * blurMult * (0.7 + pulse * 0.6));
     const opacity = mode === "none" ? 0.95 : Math.min(1, 0.5 + pulse * 0.5);
 
-    const gradient = buildGradient(angleDeg);
-    frameGlow.style.background = gradient;
+    const background = buildRingBackground(angleDeg, reactive, animated, beat);
+    frameGlow.style.background = background;
     frameGlow.style.padding = thickness + "px";
     frameGlow.style.filter = `blur(${blur}px)`;
     frameGlow.style.opacity = opacity;
-    frameCore.style.background = gradient;
+    frameCore.style.background = background;
     frameCore.style.padding = Math.max(1.5, thickness * 0.35) + "px";
     frameCore.style.opacity = Math.min(1, opacity + 0.15);
 
