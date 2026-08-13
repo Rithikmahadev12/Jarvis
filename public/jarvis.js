@@ -3563,7 +3563,7 @@ async function handleAction(action, meta, replyText) {
       if (url && window.MusicWidget) {
         // Music is always the floating now-playing widget — never a tab.
         speak(replyText, () => {
-          window.MusicWidget.play({ url, title: meta?.title, artist: meta?.artist, album: meta?.album, artwork: meta?.artwork });
+          window.MusicWidget.play({ url, title: meta?.title, artist: meta?.artist, album: meta?.album, artwork: meta?.artwork, source: meta?.source });
           mic.resume();
         });
       } else if (url) {
