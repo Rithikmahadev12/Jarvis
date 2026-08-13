@@ -238,6 +238,14 @@
         <div class="db-settings-divider"></div>
 
         <div class="db-settings-row">
+          <label>Username</label>
+          <input type="text" class="db-lang-select" id="db-username-input" style="flex:1;min-width:120px;" placeholder="Your name">
+          <button class="db-btn db-btn-primary" id="db-username-save-btn">Save</button>
+        </div>
+
+        <div class="db-settings-divider"></div>
+
+        <div class="db-settings-row">
           <label>Background</label>
           <button class="db-btn" id="db-upload-photo-btn">🖼 Upload Photo</button>
           <button class="db-btn" id="db-upload-video-btn">🎬 Upload Video (live wallpaper)</button>
@@ -713,7 +721,12 @@
   }
 
   // ── SETTINGS PANEL ──
-  function openSettings() { $("db-settings-overlay")?.classList.add("db-open"); populateMicSelect(); }
+  function openSettings() {
+    $("db-settings-overlay")?.classList.add("db-open");
+    populateMicSelect();
+    const usernameInput = $("db-username-input");
+    if (usernameInput) usernameInput.value = window.state?.user || "";
+  }
   function closeSettings() { $("db-settings-overlay")?.classList.remove("db-open"); }
 
   async function populateMicSelect() {
@@ -794,6 +807,41 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sleepMode: on }),
       }).catch(() => {});
+    });
+
+    // Username — fixes a typo'd name from CREATE ACCOUNT without
+    // having to say a voice command (see /api/rename-user in server.js).
+    const usernameInput = $("db-username-input");
+    const usernameSaveBtn = $("db-username-save-btn");
+    if (usernameInput) usernameInput.value = window.state?.user || "";
+    usernameSaveBtn?.addEventListener("click", async () => {
+      const newName = (usernameInput?.value || "").trim();
+      const currentUserName = window.state?.user;
+      if (!newName || !currentUserName) return;
+      if (newName === currentUserName) return;
+      usernameSaveBtn.disabled = true;
+      usernameSaveBtn.textContent = "Saving…";
+      try {
+        const res = await fetch("/api/rename-user", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ currentUserName, newUserName: newName }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || "Rename failed");
+        window.state.user = data.name;
+        try {
+          sessionStorage.setItem("jarvis_session", JSON.stringify({ user: data.name, userTitle: window.state?.userTitle, ts: Date.now() }));
+          localStorage.setItem("jarvis_name_hint", data.name.toLowerCase());
+        } catch (e) {}
+        usernameSaveBtn.textContent = "Saved ✓";
+      } catch (e) {
+        usernameSaveBtn.textContent = "Failed";
+        console.warn("[USERNAME] Rename failed:", e.message);
+        alert(e.message || "Couldn't rename — that username might already be taken.");
+      } finally {
+        setTimeout(() => { usernameSaveBtn.disabled = false; usernameSaveBtn.textContent = "Save"; }, 1800);
+      }
     });
   }
 
