@@ -561,13 +561,27 @@ const TOOLS = [
     type: "function",
     function: {
       name: "play_music",
-      description: "Play a song in the on-screen now-playing widget (audio pulled from YouTube in the background — not Spotify, Jarvis doesn't use Spotify for playback, and it never opens a browser tab for this). Call this whenever the user asks to play music or a song, named or not. If they don't name a song, leave query empty so Jarvis asks what to play. If they respond with something like 'you pick', 'surprise me', 'whatever you think', or 'play something good', set pick_for_me to true so Jarvis chooses based on the conversation's mood. IMPORTANT: 'jarvis play <anything>' is ALWAYS this tool, even if the name sounds unusual or could be misread as referring to video/recording — Jarvis has no tool that plays back a saved recording or clip, so never route a 'play' request to start_recording, stop_recording, or clip_recording instead. This includes phrases like 'play back in black' or 'play back <song>' — 'back' there is normally just part of the song title (e.g. AC/DC's 'Back in Black') or filler word, NOT the verb 'play back' meaning review old footage; treat the whole phrase after 'play' as the song query (e.g. query: 'back in black') and call play_music, not stop_recording.",
+      description: "Play a song in the on-screen now-playing widget (audio pulled from YouTube or Audius in the background depending on the user's current music platform setting — never Spotify, and it never opens a browser tab for this). Call this whenever the user asks to play music or a song, named or not. Do NOT call this for 'jarvis music platform 1/2' or similar source-switching phrasing — that's set_music_platform instead. If they don't name a song, leave query empty so Jarvis asks what to play. If they respond with something like 'you pick', 'surprise me', 'whatever you think', or 'play something good', set pick_for_me to true so Jarvis chooses based on the conversation's mood. IMPORTANT: 'jarvis play <anything>' is ALWAYS this tool, even if the name sounds unusual or could be misread as referring to video/recording — Jarvis has no tool that plays back a saved recording or clip, so never route a 'play' request to start_recording, stop_recording, or clip_recording instead. This includes phrases like 'play back in black' or 'play back <song>' — 'back' there is normally just part of the song title (e.g. AC/DC's 'Back in Black') or filler word, NOT the verb 'play back' meaning review old footage; treat the whole phrase after 'play' as the song query (e.g. query: 'back in black') and call play_music, not stop_recording.",
       parameters: {
         type: "object",
         properties: {
           query:       { type: "string", description: "Song or artist name, if the user named one. Leave empty otherwise." },
           pick_for_me: { type: "boolean", description: "True if the user wants Jarvis to choose the song itself instead of naming one." },
         },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_music_platform",
+      description: "Switch which source play_music pulls songs from when they aren't already in Jarvis's local library. Call this for phrasing like 'jarvis music platform 2', 'jarvis music plat 1', 'switch music to audius', 'use youtube for music again'. Platform 1 is YouTube (the default), platform 2 is Audius (a free service that actually streams full songs — Jarvis does not use Spotify or Discogs for playback, since Discogs is only a discography/marketplace database and has no audio to stream). This only changes where FUTURE songs are pulled from — it doesn't play anything itself.",
+      parameters: {
+        type: "object",
+        properties: {
+          platform: { type: "string", description: "Which platform to switch to: the number as a string ('1' or '2'), or a name like 'youtube'/'audius'." },
+        },
+        required: ["platform"],
       },
     },
   },
