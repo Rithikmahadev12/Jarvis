@@ -1,7 +1,10 @@
 {
   "owner": {
     "username": "Jay",
-    "role": "owner"
+    "role": "owner",
+    "wallet": {
+      "address": "2g38nD9vPxpHLqaxrbZZW6ET3aJisar8BoeXvLoprBP9"
+    }
   },
   "banned": [],
   "personality": {
