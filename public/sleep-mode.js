@@ -1,31 +1,55 @@
 // ═══════════════════════════════════════════════════════════════
 // J.A.R.V.I.S — SLEEP MODE
 // Triggers when you switch away to another tab/app while music is
-// playing, then switch back — a fullscreen "now playing" takeover
-// with a glow that traces the screen edge, Lumen-style. Audio-reactive
-// for Audius tracks (we can read that <audio> element's actual output
-// via Web Audio); for YouTube it's ambient motion instead, since the
-// iframe's audio is cross-origin and the page can't read it at all.
+// playing, then switch back — a fullscreen "now playing" takeover.
+// A continuous glowing ring traces the screen's rounded edge
+// (Lumen-style neon frame), with an optional audio-reactive bar
+// visualizer. Audio-reactive for Audius tracks (we can read that
+// <audio> element's actual output via Web Audio); for YouTube it's
+// ambient motion instead, since the iframe's audio is cross-origin
+// and the page can't read it at all.
 //
 // Two separate settings:
 //   - Master on/off ("sleepMode") — server-persisted via /api/settings,
 //     toggle lives in Dashboard Settings (see dashboard.js). Default on.
-//   - Visual prefs (glow thickness, color override, etc.) — this
+//   - Visual prefs (glow thickness, gradient, style, etc.) — this
 //     module's own gear-icon panel, local to this browser only.
+//
+// NOTE: "Style" only changes the on-screen layout (a centered card vs
+// a compact bottom media bar) — there's no OS-level "lock screen"
+// integration here, since a browser tab has no API to draw on the
+// actual system lock screen. This is purely an in-tab takeover.
 // ═══════════════════════════════════════════════════════════════
 (function () {
   const $ = (id) => document.getElementById(id);
 
   const PREFS_KEY = "jarvisSleepModePrefs";
   const DEFAULT_PREFS = {
-    animation: "default",   // "default" | "static" | "none"  ("musicSync" is an alias of "default")
-    thickness: 60,          // glow-light diameter, px
+    animation: "default",   // "default" | "static" | "none" — motion behavior of the glow ring
+    gradient: "default",    // "default" (album colors) | "rainbow" | "mono" (primary only)
+    thickness: 60,          // ring thickness, px-ish (scaled down internally)
     glow: 38,                // blur radius, px
+    musicBars: true,        // audio-reactive bar visualizer under the artwork
+    reflect: false,          // mirrored reflection under the album art
     overrideColors: false,
     primary: "#ff2d95",
     secondary: "#00d2ff",
     showCard: true,
+    style: "card",           // "card" (centered) | "bar" (compact bottom media bar)
   };
+
+  // Quick preset color pairs shown as swatches in the panel — clicking
+  // one turns on overrideColors and applies both colors at once.
+  const PRESETS = [
+    { primary: "#ff2d95", secondary: "#00d2ff" }, // default pink/cyan
+    { primary: "#ff5a3c", secondary: "#ffb020" }, // sunset orange/amber
+    { primary: "#8b3cff", secondary: "#3c6bff" }, // violet/blue
+    { primary: "#39ff88", secondary: "#00d2ff" }, // mint/cyan
+    { primary: "#ff3c6b", secondary: "#ffe23c" }, // hot pink/yellow
+    { primary: "#ffffff", secondary: "#7a8a9a" }, // mono white/grey
+  ];
+
+  const BAR_COUNT = 28;
 
   function loadPrefs() {
     try {
@@ -53,35 +77,57 @@
   window.isSleepModeEnabled = function () { return enabled; };
 
   // ── DOM ──────────────────────────────────────────────────────
-  let overlay, lightA, lightB, staticBorder, cardEl, artEl, titleEl, artistEl,
-      progFill, elapsedEl, durationEl, progTrack, playBtn, repeatBtnEl,
+  let overlay, frameGlow, frameCore, cardEl, artWrapEl, artEl, artReflectEl,
+      barsEl, barsEls, titleEl, artistEl,
+      progFill, elapsedEl, durationEl, progTrack, playBtn, repeatBtnEl, shuffleBtnEl,
       gearBtn, panel, confirmBox, quitBtn;
+
+  function buildBarsHTML() {
+    let html = "";
+    for (let i = 0; i < BAR_COUNT; i++) html += `<div class="sm-bar"></div>`;
+    return html;
+  }
+
+  function buildPresetSwatchesHTML() {
+    return PRESETS.map((p, i) =>
+      `<button class="sm-swatch" data-preset="${i}" title="${p.primary} / ${p.secondary}" style="background:linear-gradient(135deg, ${p.primary}, ${p.secondary});"></button>`
+    ).join("");
+  }
 
   function ensureDOM() {
     if (overlay) return;
     overlay = document.createElement("div");
     overlay.id = "sleep-mode-overlay";
     overlay.innerHTML = `
-      <div class="sm-glow-light sm-glow-a" id="sm-light-a"></div>
-      <div class="sm-glow-light sm-glow-b" id="sm-light-b"></div>
-      <div class="sm-static-border" id="sm-static-border"></div>
+      <div class="sm-frame-glow" id="sm-frame-glow"></div>
+      <div class="sm-frame-core" id="sm-frame-core"></div>
 
       <button class="sm-gear" id="sm-gear" title="Sleep Mode settings">&#9881;</button>
 
       <div class="sm-card" id="sm-card">
-        <div class="sm-art" id="sm-art">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
-            <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-          </svg>
+        <div class="sm-art-wrap" id="sm-art-wrap">
+          <div class="sm-art" id="sm-art">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+              <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+            </svg>
+          </div>
+          <div class="sm-art-reflect" id="sm-art-reflect"></div>
         </div>
-        <div class="sm-title" id="sm-title">—</div>
-        <div class="sm-artist" id="sm-artist">—</div>
+
+        <div class="sm-bars" id="sm-bars">${buildBarsHTML()}</div>
+
+        <div class="sm-text">
+          <div class="sm-title" id="sm-title">—</div>
+          <div class="sm-artist" id="sm-artist">—</div>
+        </div>
+
         <div class="sm-progress">
           <span id="sm-elapsed">0:00</span>
           <div class="sm-progress-track" id="sm-progress-track"><div class="sm-progress-fill" id="sm-progress-fill"></div></div>
           <span id="sm-duration">0:00</span>
         </div>
         <div class="sm-controls">
+          <button class="sm-btn" id="sm-shuffle" title="Shuffle">&#8646;</button>
           <button class="sm-btn" id="sm-prev" title="Restart / previous">&#9664;&#9664;</button>
           <button class="sm-btn sm-play" id="sm-play" title="Play/Pause">&#10074;&#10074;</button>
           <button class="sm-btn" id="sm-next" title="Next">&#9654;&#9654;</button>
@@ -103,12 +149,28 @@
         <div class="sm-panel-title">SLEEP MODE</div>
 
         <div class="sm-panel-row">
+          <label>Gradient</label>
+          <select id="sm-gradient-select">
+            <option value="default">Default</option>
+            <option value="rainbow">Rainbow</option>
+            <option value="mono">Mono</option>
+          </select>
+        </div>
+        <div class="sm-panel-row">
           <label>Animation</label>
           <select id="sm-animation-select">
             <option value="default">Default</option>
             <option value="static">Static</option>
             <option value="none">No Animation</option>
           </select>
+        </div>
+        <div class="sm-panel-row">
+          <label>Music Bars</label>
+          <div class="sm-switch" id="sm-bars-switch"></div>
+        </div>
+        <div class="sm-panel-row">
+          <label>Reflect</label>
+          <div class="sm-switch" id="sm-reflect-switch"></div>
         </div>
         <div class="sm-panel-row">
           <label>Thickness</label>
@@ -132,9 +194,19 @@
             <input type="color" id="sm-secondary-color">
           </div>
         </div>
+        <div class="sm-panel-row sm-color-row sm-swatch-row" id="sm-preset-row">
+          ${buildPresetSwatchesHTML()}
+        </div>
 
         <div class="sm-panel-divider"></div>
 
+        <div class="sm-panel-row">
+          <label>Style</label>
+          <select id="sm-style-select">
+            <option value="card">Card</option>
+            <option value="bar">Bar</option>
+          </select>
+        </div>
         <div class="sm-panel-row">
           <label>Show now-playing card</label>
           <div class="sm-switch" id="sm-showcard-switch"></div>
@@ -146,13 +218,13 @@
     `;
     document.body.appendChild(overlay);
 
-    lightA = $("sm-light-a"); lightB = $("sm-light-b");
-    staticBorder = $("sm-static-border");
-    cardEl = $("sm-card"); artEl = $("sm-art");
+    frameGlow = $("sm-frame-glow"); frameCore = $("sm-frame-core");
+    cardEl = $("sm-card"); artWrapEl = $("sm-art-wrap"); artEl = $("sm-art"); artReflectEl = $("sm-art-reflect");
+    barsEl = $("sm-bars"); barsEls = Array.from(barsEl.querySelectorAll(".sm-bar"));
     titleEl = $("sm-title"); artistEl = $("sm-artist");
     progFill = $("sm-progress-fill"); elapsedEl = $("sm-elapsed"); durationEl = $("sm-duration");
     progTrack = $("sm-progress-track");
-    playBtn = $("sm-play"); repeatBtnEl = $("sm-repeat");
+    playBtn = $("sm-play"); repeatBtnEl = $("sm-repeat"); shuffleBtnEl = $("sm-shuffle");
     gearBtn = $("sm-gear"); panel = $("sm-settings-panel");
     confirmBox = $("sm-exit-confirm"); quitBtn = $("sm-quit-btn");
 
@@ -165,7 +237,10 @@
       window.MusicWidget?.togglePlayPause?.();
       setTimeout(syncPlayIcon, 50);
     });
+    // Repeat/shuffle are local UI toggles only, same as before — Jarvis's
+    // music widget has no queue/playlist concept for these to act on yet.
     repeatBtnEl.addEventListener("click", (e) => { e.stopPropagation(); repeatBtnEl.classList.toggle("sm-active"); });
+    shuffleBtnEl.addEventListener("click", (e) => { e.stopPropagation(); shuffleBtnEl.classList.toggle("sm-active"); });
     progTrack.addEventListener("pointerdown", (e) => e.stopPropagation());
 
     gearBtn.addEventListener("click", (e) => { e.stopPropagation(); panel.classList.toggle("sm-visible"); });
@@ -196,22 +271,54 @@
 
   // ── settings panel wiring ───────────────────────────────────
   function applyPrefsToPanelUI() {
+    $("sm-gradient-select").value = prefs.gradient;
     $("sm-animation-select").value = prefs.animation;
+    $("sm-bars-switch").classList.toggle("sm-on", prefs.musicBars);
+    $("sm-reflect-switch").classList.toggle("sm-on", prefs.reflect);
     $("sm-thickness-slider").value = prefs.thickness;
     $("sm-glow-slider").value = prefs.glow;
     $("sm-override-switch").classList.toggle("sm-on", prefs.overrideColors);
     $("sm-color-row").classList.toggle("sm-show", prefs.overrideColors);
+    $("sm-preset-row").classList.toggle("sm-show", prefs.overrideColors);
     $("sm-primary-color").value = prefs.primary;
     $("sm-secondary-color").value = prefs.secondary;
+    $("sm-style-select").value = prefs.style;
     $("sm-showcard-switch").classList.toggle("sm-on", prefs.showCard);
-    staticBorder.classList.toggle("sm-on", prefs.animation === "none");
+
+    barsEl.classList.toggle("sm-show", prefs.musicBars);
+    artReflectEl.classList.toggle("sm-show", prefs.reflect);
     cardEl.classList.toggle("sm-hidden", !prefs.showCard);
+    cardEl.classList.toggle("sm-style-bar", prefs.style === "bar");
+  }
+
+  function applyPresetColors(i) {
+    const p = PRESETS[i];
+    if (!p) return;
+    prefs.overrideColors = true;
+    prefs.primary = p.primary;
+    prefs.secondary = p.secondary;
+    $("sm-override-switch").classList.add("sm-on");
+    $("sm-color-row").classList.add("sm-show");
+    $("sm-preset-row").classList.add("sm-show");
+    $("sm-primary-color").value = p.primary;
+    $("sm-secondary-color").value = p.secondary;
+    savePrefs(prefs);
+    refreshColors(null);
   }
 
   function wireSettingsPanel() {
-    $("sm-animation-select").addEventListener("change", (e) => {
-      prefs.animation = e.target.value;
-      staticBorder.classList.toggle("sm-on", prefs.animation === "none");
+    $("sm-gradient-select").addEventListener("change", (e) => { prefs.gradient = e.target.value; savePrefs(prefs); });
+    $("sm-animation-select").addEventListener("change", (e) => { prefs.animation = e.target.value; savePrefs(prefs); });
+    $("sm-bars-switch").addEventListener("click", () => {
+      prefs.musicBars = !prefs.musicBars;
+      $("sm-bars-switch").classList.toggle("sm-on", prefs.musicBars);
+      barsEl.classList.toggle("sm-show", prefs.musicBars);
+      savePrefs(prefs);
+    });
+    $("sm-reflect-switch").addEventListener("click", () => {
+      prefs.reflect = !prefs.reflect;
+      $("sm-reflect-switch").classList.toggle("sm-on", prefs.reflect);
+      artReflectEl.classList.toggle("sm-show", prefs.reflect);
       savePrefs(prefs);
     });
     $("sm-thickness-slider").addEventListener("input", (e) => { prefs.thickness = +e.target.value; savePrefs(prefs); });
@@ -220,10 +327,22 @@
       prefs.overrideColors = !prefs.overrideColors;
       $("sm-override-switch").classList.toggle("sm-on", prefs.overrideColors);
       $("sm-color-row").classList.toggle("sm-show", prefs.overrideColors);
+      $("sm-preset-row").classList.toggle("sm-show", prefs.overrideColors);
+      savePrefs(prefs);
+      refreshColors(null);
+    });
+    $("sm-primary-color").addEventListener("input", (e) => { prefs.primary = e.target.value; savePrefs(prefs); refreshColors(null); });
+    $("sm-secondary-color").addEventListener("input", (e) => { prefs.secondary = e.target.value; savePrefs(prefs); refreshColors(null); });
+    $("sm-preset-row").addEventListener("click", (e) => {
+      const btn = e.target.closest(".sm-swatch");
+      if (!btn) return;
+      applyPresetColors(+btn.dataset.preset);
+    });
+    $("sm-style-select").addEventListener("change", (e) => {
+      prefs.style = e.target.value;
+      cardEl.classList.toggle("sm-style-bar", prefs.style === "bar");
       savePrefs(prefs);
     });
-    $("sm-primary-color").addEventListener("input", (e) => { prefs.primary = e.target.value; savePrefs(prefs); });
-    $("sm-secondary-color").addEventListener("input", (e) => { prefs.secondary = e.target.value; savePrefs(prefs); });
     $("sm-showcard-switch").addEventListener("click", () => {
       prefs.showCard = !prefs.showCard;
       $("sm-showcard-switch").classList.toggle("sm-on", prefs.showCard);
@@ -277,13 +396,15 @@
   }
 
   let activeColors = { primary: "#ff2d95", secondary: "#00d2ff" };
+  let lastArtwork = "";
 
   async function refreshColors(artwork) {
+    if (artwork !== null) lastArtwork = artwork || "";
     if (prefs.overrideColors) {
       activeColors = { primary: prefs.primary, secondary: prefs.secondary };
       return;
     }
-    const extracted = await extractColorsFromImage(artwork);
+    const extracted = await extractColorsFromImage(lastArtwork);
     activeColors = extracted || { primary: "#ff2d95", secondary: "#00d2ff" };
   }
 
@@ -327,70 +448,102 @@
     return (sum / freqData.length) / 255; // 0..1
   }
 
-  // ── glow animation loop — two lights traced around the viewport
-  // perimeter (rounded-rectangle path), audio-reactive when possible,
-  // gentle constant motion otherwise. ─────────────────────────────
-  let rafId = null;
-  let travelT = 0; // 0..1 position along the perimeter for light A (light B trails behind)
-
-  function perimeterPoint(t, inset) {
-    const w = window.innerWidth - inset * 2;
-    const h = window.innerHeight - inset * 2;
-    const perim = 2 * (w + h);
-    let d = ((t % 1) + 1) % 1 * perim;
-    if (d < w) return { x: inset + d, y: inset };
-    d -= w;
-    if (d < h) return { x: inset + w, y: inset + d };
-    d -= h;
-    if (d < w) return { x: inset + w - d, y: inset + h };
-    d -= w;
-    return { x: inset, y: inset + h - d };
+  // Splits the analyser's frequency bins into `n` averaged buckets, with
+  // a touch of log-ish spacing so the low end isn't crammed into the
+  // first couple of bars (most audible energy sits there).
+  function getFrequencyBins(n) {
+    if (!analyser || !freqData) return null;
+    analyser.getByteFrequencyData(freqData);
+    const usable = Math.floor(freqData.length * 0.75); // top slice is mostly noise
+    const bins = new Array(n);
+    for (let i = 0; i < n; i++) {
+      const start = Math.floor(Math.pow(i / n, 1.5) * usable);
+      const end = Math.max(start + 1, Math.floor(Math.pow((i + 1) / n, 1.5) * usable));
+      let sum = 0, count = 0;
+      for (let j = start; j < end && j < freqData.length; j++) { sum += freqData[j]; count++; }
+      bins[i] = count ? (sum / count) / 255 : 0;
+    }
+    return bins;
   }
+
+  // ── bar visualizer ──────────────────────────────────────────
+  function updateBars(reactive) {
+    if (!prefs.musicBars || !barsEls.length) return;
+    const bins = reactive ? getFrequencyBins(barsEls.length) : null;
+    const now = Date.now();
+    for (let i = 0; i < barsEls.length; i++) {
+      let h;
+      if (bins) {
+        h = 8 + bins[i] * 92;
+      } else {
+        // ambient — layered sines with a per-bar phase offset so it reads
+        // as organic movement rather than a uniform pulse
+        h = 20 + 25 * Math.sin(now / 260 + i * 0.5) + 15 * Math.sin(now / 500 + i * 0.9);
+        h = Math.max(6, Math.min(100, h));
+      }
+      barsEls[i].style.height = h.toFixed(1) + "%";
+    }
+  }
+
+  // ── glow ring gradient builder ──────────────────────────────
+  function buildGradient(angleDeg) {
+    const { primary, secondary } = activeColors;
+    if (prefs.gradient === "rainbow") {
+      return `conic-gradient(from ${angleDeg}deg, #ff3b3b, #ffb020, #f7ff3b, #3bff6a, #3bd9ff, #7a3bff, #ff3bd0, #ff3b3b)`;
+    }
+    if (prefs.gradient === "mono") {
+      return `conic-gradient(from ${angleDeg}deg, ${primary}, ${primary})`;
+    }
+    return `conic-gradient(from ${angleDeg}deg, ${primary}, ${secondary}, ${primary})`;
+  }
+
+  // ── main animation loop — a continuous glowing ring around the
+  // screen edge (rotating conic-gradient masked down to just the
+  // border), audio-reactive when possible, gentle ambient motion
+  // otherwise, plus the bar visualizer. ────────────────────────
+  let rafId = null;
+  let travelT = 0; // 0..1, converted to a 0..360deg rotation each frame
 
   function tick() {
     if (!overlay || !overlay.classList.contains("sm-visible")) { rafId = null; return; }
 
     const mode = prefs.animation;
-    if (mode === "none") {
-      lightA.style.opacity = 0; lightB.style.opacity = 0;
-      rafId = requestAnimationFrame(tick);
-      return;
-    }
-
     const isAudius = window.MusicWidget?.getSource?.() === "audio";
     const reactive = isAudius && ensureAudioTap();
     const amp = reactive ? getAmplitude() : 0;
 
-    let speed, pulse;
-    if (mode === "static") {
-      speed = 0; pulse = 0.5;
+    let speed, pulse, blurMult = 1, thicknessMult = 1;
+    if (mode === "none") {
+      speed = 0; pulse = 0.5; blurMult = 0.22; thicknessMult = 0.5;
+    } else if (mode === "static") {
+      speed = 0; pulse = 0.5 + Math.sin(Date.now() / 900) * 0.18;
     } else if (reactive) {
-      speed = 0.00035 + amp * 0.0009;
+      speed = 0.05 + amp * 0.4;
       pulse = 0.5 + amp * 0.6;
     } else {
-      // ambient — constant gentle drift + slow breathing, not tied to audio
-      speed = 0.00028;
+      speed = 0.045;
       pulse = 0.55 + Math.sin(Date.now() / 900) * 0.18;
     }
 
-    travelT += speed;
-    const inset = 12;
-    const pA = perimeterPoint(travelT, inset);
-    const pB = perimeterPoint(travelT + 0.5, inset); // opposite side of the screen
+    travelT = (travelT + speed / 360) % 1;
+    const angleDeg = travelT * 360;
 
-    const size = prefs.thickness * (0.85 + pulse * 0.3);
-    const blur = prefs.glow * (0.7 + pulse * 0.5);
+    const thickness = Math.max(2, prefs.thickness * 0.12 * thicknessMult * (0.75 + pulse * 0.5));
+    const blur = Math.max(4, prefs.glow * blurMult * (0.7 + pulse * 0.6));
+    const opacity = mode === "none" ? 0.95 : Math.min(1, 0.5 + pulse * 0.5);
 
-    lightA.style.left = pA.x + "px"; lightA.style.top = pA.y + "px";
-    lightB.style.left = pB.x + "px"; lightB.style.top = pB.y + "px";
-    lightA.style.width = lightA.style.height = size + "px";
-    lightB.style.width = lightB.style.height = size + "px";
-    lightA.style.filter = `blur(${blur}px)`;
-    lightB.style.filter = `blur(${blur}px)`;
-    lightA.style.opacity = mode === "static" ? 0.7 : Math.min(1, 0.55 + pulse * 0.5);
-    lightB.style.opacity = lightA.style.opacity;
-    lightA.style.background = activeColors.primary;
-    lightB.style.background = activeColors.secondary;
+    const gradient = buildGradient(angleDeg);
+    frameGlow.style.background = gradient;
+    frameGlow.style.padding = thickness + "px";
+    frameGlow.style.filter = `blur(${blur}px)`;
+    frameGlow.style.opacity = opacity;
+    frameCore.style.background = gradient;
+    frameCore.style.padding = Math.max(1.5, thickness * 0.35) + "px";
+    frameCore.style.opacity = Math.min(1, opacity + 0.15);
+
+    barsEl.style.setProperty("--sm-bar-a", activeColors.primary);
+    barsEl.style.setProperty("--sm-bar-b", activeColors.secondary);
+    updateBars(reactive);
 
     rafId = requestAnimationFrame(tick);
   }
@@ -411,6 +564,13 @@
   // ── activate / deactivate ───────────────────────────────────
   let active = false;
 
+  function setArtwork(url) {
+    artEl.innerHTML = url
+      ? `<img src="${url}" alt="">`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
+    artReflectEl.style.backgroundImage = url ? `url("${url}")` : "none";
+  }
+
   async function activate() {
     if (active || !enabled) return;
     const now = window.MusicWidget?.getNowPlaying?.();
@@ -420,9 +580,7 @@
     active = true;
     titleEl.textContent = now.title || "Unknown Track";
     artistEl.textContent = now.artist || "Unknown Artist";
-    artEl.innerHTML = now.artwork
-      ? `<img src="${now.artwork}" alt="">`
-      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>`;
+    setArtwork(now.artwork);
     syncPlayIcon();
     applyPrefsToPanelUI();
     await refreshColors(now.artwork);
@@ -468,7 +626,7 @@
     titleEl.textContent = d.title || "Unknown Track";
     artistEl.textContent = d.artist || "Unknown Artist";
     if (d.artwork) {
-      artEl.innerHTML = `<img src="${d.artwork}" alt="">`;
+      setArtwork(d.artwork);
       refreshColors(d.artwork);
     }
     syncPlayIcon();
