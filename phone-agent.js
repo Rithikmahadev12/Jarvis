@@ -7,11 +7,12 @@
 // call-session.js instead of just blocking silently until the whole
 // call is over.
 //
-// NOTE: outbound calls are placed through textnow-call.js now (Jarvis
-// operating TextNow's web app itself, inside computer.js's E2B
-// desktop sandbox) instead of the paid agentphone.js PSTN API — see
-// textnow-call.js's own header for how that actually works. The
-// `AgentPhone` name below is kept only because it matches that
+// NOTE: outbound calls go through phone-provider.js, which tries the
+// real, legitimate PSTN backends only — AgentPhone (agentphone.js)
+// first, falling back to Twilio (twilio-call.js) if AgentPhone isn't
+// configured or every AgentPhone account is exhausted. See
+// phone-provider.js's own header for how the fallback decision works.
+// The `AgentPhone` name below is kept only because it matches that
 // module's exported function shape 1:1 (placeOutboundCall/getCall/
 // waitForCallCompletion) — everything from here down is unchanged.
 //
@@ -70,15 +71,15 @@
 
 const fs = require("fs");
 const path = require("path");
-// OUTBOUND calls ("Jarvis, call the mechanic shop") now go through
-// textnow-call.js instead of the paid AgentPhone PSTN API — Jarvis
-// drives TextNow's own web app inside the E2B desktop sandbox
-// (computer.js) using a vision model to see the screen. Same
-// placeOutboundCall/getCall/waitForCallCompletion shape as AgentPhone
-// had, so nothing below this line had to change. INBOUND calling
-// (people calling Jarvis's own number) is a separate feature and
-// still goes through agentphone.js directly — see server.js.
-const AgentPhone = require("./textnow-call");
+// OUTBOUND calls ("Jarvis, call the mechanic shop") go through
+// phone-provider.js: AgentPhone (real PSTN, paid) first, Twilio
+// (also real PSTN, paid) as an automatic fallback if AgentPhone isn't
+// configured or runs out of usable accounts. Same
+// placeOutboundCall/getCall/waitForCallCompletion shape either way,
+// so nothing below this line had to change. INBOUND calling (people
+// calling Jarvis's own number) is a separate feature and still goes
+// through agentphone.js directly — see server.js.
+const AgentPhone = require("./phone-provider");
 const GroqKeys = require("./groq-keys");
 const CallSession = require("./call-session");
 
