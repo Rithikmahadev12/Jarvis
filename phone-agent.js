@@ -3,9 +3,17 @@
 // J.A.R.V.I.S — Phone Agent v2.0
 //
 // "Hey Jarvis, call the mechanic shop and ask their oil-change
-// price" behavior, built on top of agentphone.js, now wired to a
-// live widget on the frontend via call-session.js instead of just
-// blocking silently until the whole call is over.
+// price" behavior, wired to a live widget on the frontend via
+// call-session.js instead of just blocking silently until the whole
+// call is over.
+//
+// NOTE: outbound calls are placed through textnow-call.js now (Jarvis
+// operating TextNow's web app itself, inside computer.js's E2B
+// desktop sandbox) instead of the paid agentphone.js PSTN API — see
+// textnow-call.js's own header for how that actually works. The
+// `AgentPhone` name below is kept only because it matches that
+// module's exported function shape 1:1 (placeOutboundCall/getCall/
+// waitForCallCompletion) — everything from here down is unchanged.
 //
 // FLOW:
 //   1. proposeCall(): looks up the number, emits "preparing" then
@@ -62,7 +70,15 @@
 
 const fs = require("fs");
 const path = require("path");
-const AgentPhone = require("./agentphone");
+// OUTBOUND calls ("Jarvis, call the mechanic shop") now go through
+// textnow-call.js instead of the paid AgentPhone PSTN API — Jarvis
+// drives TextNow's own web app inside the E2B desktop sandbox
+// (computer.js) using a vision model to see the screen. Same
+// placeOutboundCall/getCall/waitForCallCompletion shape as AgentPhone
+// had, so nothing below this line had to change. INBOUND calling
+// (people calling Jarvis's own number) is a separate feature and
+// still goes through agentphone.js directly — see server.js.
+const AgentPhone = require("./textnow-call");
 const GroqKeys = require("./groq-keys");
 const CallSession = require("./call-session");
 
