@@ -222,6 +222,14 @@ const StoreRoutes = require("./store-routes");
 StoreRoutes.mount(app);
 
 // ═══════════════════════════════════════════════════════════════
+// ── TWILIO — webhooks Twilio calls into during a live outbound call
+//    placed via phone-provider.js's Twilio fallback. No-op (routes
+//    just 404) if TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN aren't set.
+// ═══════════════════════════════════════════════════════════════
+const TwilioVoiceRoutes = require("./twilio-voice-routes");
+TwilioVoiceRoutes.mount(app);
+
+// ═══════════════════════════════════════════════════════════════
 // ── COMMS
 // ═══════════════════════════════════════════════════════════════
 const attachComms = require("./comms-server");
