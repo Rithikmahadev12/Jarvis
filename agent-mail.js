@@ -98,6 +98,21 @@ async function api(pathSuffix, { method = "GET", body } = {}) {
 
 // ── CREATE / REUSE AN INBOX FOR A GIVEN LABEL (e.g. a service name) ──
 // label examples: "notion-signup", "spotify", "newsletter-github"
+// AgentMail's display_name field rejects certain characters outright
+// (parentheses confirmed so far — "Request validation failed —
+// display_name: Display name contains invalid character(s): ( )").
+// Rather than chase their exact allowed charset one symbol at a time,
+// strip down to a conservative safe set: letters, numbers, spaces,
+// hyphens, and apostrophes. Good enough for "Jarvis - textnow" style
+// labels without risking whatever the next disallowed character is.
+function sanitizeDisplayName(name) {
+  return String(name || "")
+    .replace(/[^A-Za-z0-9 '-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 60);
+}
+
 async function getOrCreateInbox(label, { forceNew = false, displayName } = {}) {
   const key = String(label || "default").trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-");
   const store = loadStore();
@@ -108,7 +123,8 @@ async function getOrCreateInbox(label, { forceNew = false, displayName } = {}) {
 
   const body = {};
   if (DOMAIN) body.domain = DOMAIN;
-  if (displayName) body.display_name = displayName;
+  const cleanDisplayName = sanitizeDisplayName(displayName);
+  if (cleanDisplayName) body.display_name = cleanDisplayName;
   // NOTE: deliberately NOT setting a custom `username` here anymore.
   // AgentMail auto-generates a clean, guaranteed-valid one when it's
   // left out entirely (their own docs example creates an inbox with
@@ -225,7 +241,7 @@ async function sendMessage(inboxId, { to, subject, text, html, attachments } = {
 
 // ── HIGH-LEVEL HELPER: "give me an email to sign up for X" ────
 async function signupAddressFor(serviceName) {
-  const inbox = await getOrCreateInbox(serviceName, { displayName: `Jarvis (${serviceName})` });
+  const inbox = await getOrCreateInbox(serviceName, { displayName: `Jarvis - ${serviceName}` });
   if (inbox.error) return inbox;
   return { email: inbox.email, inbox_id: inbox.inbox_id, reused: !!inbox.reused };
 }
