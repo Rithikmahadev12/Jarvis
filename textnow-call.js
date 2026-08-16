@@ -149,7 +149,13 @@ const GroqKeys = require("./groq-keys");
 const TEXTNOW_EMAIL_ENV    = process.env.TEXTNOW_EMAIL    || "";
 const TEXTNOW_PASSWORD_ENV = process.env.TEXTNOW_PASSWORD || "";
 const TEXTNOW_URL          = process.env.TEXTNOW_URL      || "https://www.textnow.com/web";
-const TEXTNOW_SIGNUP_URL   = process.env.TEXTNOW_SIGNUP_URL || "https://www.textnow.com/signup";
+// As of Aug 2026 TextNow folded signup AND login into one passwordless
+// "magic link" page at /login (there's no separate /signup form with
+// a password field anymore — the homepage's "Web Messaging" button
+// points here for both new and returning users). Kept overridable in
+// case that changes again.
+const TEXTNOW_SIGNUP_URL   = process.env.TEXTNOW_SIGNUP_URL || "https://www.textnow.com/login";
+const TEXTNOW_LOGIN_URL    = process.env.TEXTNOW_LOGIN_URL  || "https://www.textnow.com/login";
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL   = process.env.GROQ_AGENT_MODEL || process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b";
@@ -168,7 +174,11 @@ function loadSavedAccount() {
   try {
     if (!fs.existsSync(ACCOUNT_PATH)) return null;
     const data = JSON.parse(fs.readFileSync(ACCOUNT_PATH, "utf8"));
-    return (data && data.email && data.password) ? data : null;
+    // TextNow's login is passwordless (magic-link) as of Aug 2026, so
+    // only email is required now. Older account files on disk may
+    // still have a `password` field from before that change — it's
+    // simply unused now, kept for reference rather than migrated out.
+    return (data && data.email) ? data : null;
   } catch {
     return null;
   }
@@ -179,7 +189,7 @@ function saveAccount(email, password) {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     fs.writeFileSync(ACCOUNT_PATH, JSON.stringify({
       email,
-      password,
+      password: password || null, // unused post-Aug-2026 (passwordless magic-link login); kept for old records
       createdAt: new Date().toISOString(),
       source: "auto-signup",
     }, null, 2));
@@ -199,11 +209,14 @@ function generatePassword() {
 // Priority: explicit .env override > saved auto-created account >
 // (nothing yet — triggers auto-signup).
 function getCredentials() {
-  if (TEXTNOW_EMAIL_ENV && TEXTNOW_PASSWORD_ENV) {
-    return { email: TEXTNOW_EMAIL_ENV, password: TEXTNOW_PASSWORD_ENV, source: "env" };
+  if (TEXTNOW_EMAIL_ENV) {
+    // TEXTNOW_PASSWORD_ENV is no longer required — TextNow login is
+    // passwordless (magic-link) now — but still accepted/ignored if set,
+    // so old .env files don't need editing.
+    return { email: TEXTNOW_EMAIL_ENV, source: "env" };
   }
   const saved = loadSavedAccount();
-  if (saved) return { email: saved.email, password: saved.password, source: "saved" };
+  if (saved) return { email: saved.email, source: "saved" };
   return null; // needs auto-signup
 }
 
@@ -218,9 +231,9 @@ function notConfiguredError() {
     return new Error("E2B desktop isn't configured — add E2B_API_KEY to .env (see computer.js).");
   }
   return new Error(
-    "TextNow calling isn't configured — either add TEXTNOW_EMAIL/TEXTNOW_PASSWORD to .env for your own " +
-    "account, or add AGENTMAIL_API_KEY to .env and Jarvis will create its own TextNow account automatically " +
-    "the first time it's asked to call someone."
+    "TextNow calling isn't configured — either add TEXTNOW_EMAIL to .env for your own account (TextNow login " +
+    "is passwordless now, so TEXTNOW_PASSWORD isn't needed), or add AGENTMAIL_API_KEY to .env and Jarvis will " +
+    "create its own TextNow account automatically the first time it's asked to call someone."
   );
 }
 
@@ -301,6 +314,54 @@ async function ensureBrowserInstalled() {
   );
 }
 
+// ── "PRESS AND HOLD" CAPTCHA ────────────────────────────────────────
+// TextNow's /login page (both signup and login go through it as of
+// Aug 2026) can gate the form behind a "press and hold to verify you
+// are a human" widget before anything else shows up. A normal click
+// doesn't satisfy it — it needs mouse-down, a real hold, then
+// mouse-up — so this is checked for and cleared before looking for
+// any form fields. Optional because it doesn't always appear (e.g.
+// on a machine/session TextNow already trusts).
+async function clearHoldCaptchaIfPresent() {
+  const captcha = await locateOnDesktop(
+    "a \"press and hold\" or \"verify you are a human\" button/circle captcha widget",
+    {
+      optional: true,
+      goal: "find and identify the human-verification widget on this page, if one is showing, so it can be pressed and held",
+    }
+  );
+  if (!captcha || !captcha.found) return false;
+
+  console.log("[TEXTNOW] Press-and-hold captcha detected — holding for ~4.5s...");
+  await Computer.desktopHoldClick(captcha.x, captcha.y, 4500);
+  await sleep(2000);
+  return true;
+}
+
+// ── MAGIC-LINK EMAIL ENTRY (shared by login + signup) ──────────────
+// TextNow's login/signup is passwordless now — this fills in just the
+// email, submits, and returns once the "check your email" state is
+// reached. Caller is responsible for polling the inbox afterward.
+async function submitEmailForMagicLink(email) {
+  await clearHoldCaptchaIfPresent();
+
+  const emailField = await locateOnDesktop("the email input field on TextNow's login/sign-up page");
+  if (!emailField.found) throw new Error("Couldn't find TextNow's email input field — the page may not have loaded, TextNow changed its UI again, or a captcha wasn't cleared.");
+  await Computer.desktopClick(emailField.x, emailField.y);
+  await Computer.desktopType(email);
+
+  const continueButton = await locateOnDesktop("the Continue / Log In / Sign Up submit button on this page", { optional: true });
+  if (continueButton && continueButton.found) {
+    await Computer.desktopClick(continueButton.x, continueButton.y);
+  } else {
+    await Computer.desktopPress("Return");
+  }
+  await sleep(3000);
+
+  // A captcha can also appear AFTER submitting the email, not just before.
+  await clearHoldCaptchaIfPresent();
+}
+
 async function loginIfNeeded(creds) {
   const loggedInAlready = await locateOnDesktop(
     "the call/dialer icon in TextNow's left-hand navigation sidebar (only visible once logged in)",
@@ -308,31 +369,44 @@ async function loginIfNeeded(creds) {
   );
   if (loggedInAlready && loggedInAlready.found) return;
 
-  if (!creds || !creds.email || !creds.password) throw notConfiguredError();
+  if (!creds || !creds.email) throw notConfiguredError();
 
-  const emailField = await locateOnDesktop("the email or username input field on TextNow's login page");
-  if (!emailField.found) throw new Error("Couldn't find TextNow's login email field — the page may not have loaded, or TextNow changed its login UI.");
-  await Computer.desktopClick(emailField.x, emailField.y);
-  await Computer.desktopType(creds.email);
-  await Computer.desktopPress("Tab");
-
-  const passwordField = await locateOnDesktop("the password input field on TextNow's login page");
-  if (passwordField.found) {
-    await Computer.desktopClick(passwordField.x, passwordField.y);
-  }
-  await Computer.desktopType(creds.password);
-
-  const loginButton = await locateOnDesktop("the Log In / Sign In submit button on TextNow's login page");
-  if (loginButton.found) {
-    await Computer.desktopClick(loginButton.x, loginButton.y);
-  } else {
-    await Computer.desktopPress("Return");
-  }
+  await Computer.desktopLaunch("firefox", TEXTNOW_LOGIN_URL);
   await sleep(5000);
+  await submitEmailForMagicLink(creds.email);
+
+  // Passwordless means the rest of "logging in" is identical to the
+  // email-verification step of signup — wait for the magic-link email
+  // and open it in the same browser.
+  const mail = await AgentMail.checkVerificationFor("textnow", {
+    fromContains: "textnow",
+    timeoutMs: 90000,
+  });
+  if (mail.error) {
+    throw new Error(
+      `TextNow sent a login link but Jarvis couldn't retrieve it from the inbox (${mail.error}) — ` +
+      "this may need a one-time manual check via \"Jarvis, show pc\"."
+    );
+  }
+  if (mail.link) {
+    await Computer.desktopLaunch("firefox", mail.link);
+    await sleep(5000);
+  } else if (mail.code) {
+    const codeField = await locateOnDesktop("the login/verification code input field", {
+      optional: true,
+      goal: "enter the login code we were sent and get past this verification step into TextNow's main app",
+    });
+    if (codeField && codeField.found) {
+      await Computer.desktopClick(codeField.x, codeField.y);
+      await Computer.desktopType(mail.code);
+      await Computer.desktopPress("Return");
+      await sleep(4000);
+    }
+  }
 
   const confirm = await locateOnDesktop("the call/dialer icon in TextNow's left-hand navigation sidebar", { optional: true });
   if (!confirm || !confirm.found) {
-    throw new Error("Logged into TextNow but couldn't confirm the app loaded — the saved password may be stale, or TextNow may be asking for 2FA/a captcha that needs a human to clear once.");
+    throw new Error("Logged into TextNow but couldn't confirm the app loaded — TextNow may be asking for an extra captcha/step that needs a human to clear once.");
   }
 }
 
@@ -346,42 +420,18 @@ async function signUpForTextNow() {
   if (inbox.error) throw new Error(`Couldn't get a signup inbox from AgentMail: ${inbox.error}`);
 
   const email = inbox.email;
+  // TextNow's login/signup went passwordless (magic-link) in Aug
+  // 2026 — the same /login page handles brand-new emails and
+  // existing ones, so "signing up" here is just submitting the email
+  // and following the link TextNow emails back, same as login.
+  // generatePassword() is kept around (unused) only so a manually
+  // set TEXTNOW_PASSWORD in an old .env doesn't break anything else
+  // that still references it.
   const password = generatePassword();
-  // TextNow typically also wants a username distinct from the email —
-  // derive a plausible one so the form doesn't reject a blank field.
-  const username = `jarvis${Math.floor(1000 + Math.random() * 9000)}`;
 
   await Computer.desktopLaunch("firefox", TEXTNOW_SIGNUP_URL);
   await sleep(6000);
-
-  const emailField = await locateOnDesktop("the email input field on TextNow's sign-up form");
-  if (!emailField.found) throw new Error("Couldn't find the email field on TextNow's sign-up page — TextNow may have changed its signup UI.");
-  await Computer.desktopClick(emailField.x, emailField.y);
-  await Computer.desktopType(email);
-
-  const usernameField = await locateOnDesktop("the username input field on TextNow's sign-up form", { optional: true });
-  if (usernameField && usernameField.found) {
-    await Computer.desktopClick(usernameField.x, usernameField.y);
-    await Computer.desktopType(username);
-  }
-
-  const passwordField = await locateOnDesktop("the password input field on TextNow's sign-up form");
-  if (passwordField.found) await Computer.desktopClick(passwordField.x, passwordField.y);
-  await Computer.desktopType(password);
-
-  const confirmPasswordField = await locateOnDesktop("a confirm-password input field on TextNow's sign-up form, if there is one", { optional: true });
-  if (confirmPasswordField && confirmPasswordField.found) {
-    await Computer.desktopClick(confirmPasswordField.x, confirmPasswordField.y);
-    await Computer.desktopType(password);
-  }
-
-  const signupButton = await locateOnDesktop("the Sign Up / Create Account / Continue submit button on TextNow's sign-up form");
-  if (signupButton.found) {
-    await Computer.desktopClick(signupButton.x, signupButton.y);
-  } else {
-    await Computer.desktopPress("Return");
-  }
-  await sleep(5000);
+  await submitEmailForMagicLink(email);
 
   // ── EMAIL VERIFICATION ────────────────────────────────────────
   const mail = await AgentMail.checkVerificationFor("textnow", {
