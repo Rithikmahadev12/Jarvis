@@ -75,7 +75,20 @@ async function api(pathSuffix, { method = "GET", body } = {}) {
     let data;
     try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
     if (!res.ok) {
-      return { error: data?.message || data?.error || `AgentMail API returned ${res.status}` };
+      // Validation failures (422s) come back with a top-level message
+      // ("Request validation failed") that's useless on its own — the
+      // ACTUAL reason is in data.errors: an array of { path, message }
+      // pointing at exactly which field was wrong and why. Surface
+      // that instead of just the generic wrapper text.
+      const base = data?.message || data?.error || `AgentMail API returned ${res.status}`;
+      if (Array.isArray(data?.errors) && data.errors.length) {
+        const detail = data.errors
+          .map((e) => (e?.path ? `${Array.isArray(e.path) ? e.path.join(".") : e.path}: ${e.message}` : e.message))
+          .filter(Boolean)
+          .join("; ");
+        return { error: detail ? `${base} — ${detail}` : base };
+      }
+      return { error: base };
     }
     return data;
   } catch (e) {
@@ -96,9 +109,13 @@ async function getOrCreateInbox(label, { forceNew = false, displayName } = {}) {
   const body = {};
   if (DOMAIN) body.domain = DOMAIN;
   if (displayName) body.display_name = displayName;
-  // Let AgentMail randomly generate the username if we don't have a
-  // clean one — avoids collisions across services/users.
-  if (key && key !== "default") body.username = `jarvis-${key}`.slice(0, 60);
+  // NOTE: deliberately NOT setting a custom `username` here anymore.
+  // AgentMail auto-generates a clean, guaranteed-valid one when it's
+  // left out entirely (their own docs example creates an inbox with
+  // zero fields at all) — a hand-picked slug like "jarvis-textnow"
+  // risks tripping an undocumented format/uniqueness rule and coming
+  // back as a generic "Request validation failed" with no obvious
+  // cause. display_name still says which service this inbox is for.
 
   const result = await api("/inboxes", { method: "POST", body });
   if (result.error) return result;
