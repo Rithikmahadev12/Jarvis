@@ -54,6 +54,21 @@ const Comms       = require("./comms-router");
 
 const app        = express();
 
+// ═══════════════════════════════════════════════════════════════
+// ── AGENTPHONE WEBHOOK — mounted BEFORE app.use(express.json())
+//    below on purpose. This route verifies an HMAC signature over
+//    the exact raw request bytes AgentPhone sent (see
+//    agentphone-voice-routes.js), so it needs to grab the raw body
+//    itself before the global JSON parser consumes it. If this ever
+//    gets moved below the express.json() call, signature
+//    verification will start failing for every delivery — leave it
+//    up here. No-op (route just 404s) until agentphone.js actually
+//    registers a webhook, which only happens once a public URL is
+//    configured (PUBLIC_BASE_URL / STORE_BASE_URL) — see that file.
+// ═══════════════════════════════════════════════════════════════
+const AgentPhoneVoiceRoutes = require("./agentphone-voice-routes");
+AgentPhoneVoiceRoutes.mount(app);
+
 // ── CRASH GUARD ───────────────────────────────────────────────────
 // A bug once surfaced where a third-party client library rejected a
 // promise in a way that bypassed the calling code's own try/catch
