@@ -391,9 +391,14 @@ function isWebhookModeAvailable() {
 }
 
 // Registers (or re-registers, if the URL changed) OUR webhook against
-// ONE account's agent. Cached in state so this only actually calls
-// AgentPhone's API again if the public URL changes or the agent was
-// recreated — everyday calls just read the cached secret.
+// ONE account's agent, AND flips that agent's voiceMode to "webhook".
+// Turns out omitting systemPrompt on the call alone isn't enough —
+// a real test call proved AgentPhone still fell back to hosted mode
+// (using the agent's stored default/inbound prompt) unless the agent
+// itself is explicitly set to voiceMode: "webhook". Cached in state so
+// this only actually calls AgentPhone's API again if the public URL
+// changes or the agent was recreated — everyday calls just read the
+// cached secret.
 async function ensureWebhookForAccount(account, idx, ownerName) {
   const url = `${publicBaseUrl()}/agentphone/webhook`;
   const state = loadState();
@@ -403,6 +408,9 @@ async function ensureWebhookForAccount(account, idx, ownerName) {
   const label = idx === 0 ? "primary account" : `backup account #${idx + 1}`;
   console.log(`[AGENTPHONE] ${label}: registering per-turn webhook -> ${url}`);
   const res = await request("POST", `/agents/${account.agentId}/webhook`, { url, contextLimit: 20 }, account.apiKey);
+
+  console.log(`[AGENTPHONE] ${label}: switching agent voiceMode to "webhook" so calls actually route here...`);
+  await request("PATCH", `/agents/${account.agentId}`, { voiceMode: "webhook" }, account.apiKey);
 
   const rec = { url, agentId: account.agentId, secret: res.secret, registeredAt: Date.now() };
   const s = loadState();
@@ -585,6 +593,7 @@ module.exports = {
   consumeSwitchNotice,
   // Webhook mode (agentphone-voice-routes.js)
   isWebhookModeAvailable,
+  registerWebhookCall,
   getWebhookCall,
   deleteWebhookCall,
   getWebhookSecretByAgentId,
