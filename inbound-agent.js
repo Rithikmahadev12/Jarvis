@@ -2,6 +2,17 @@
 // ═══════════════════════════════════════════════════════════════
 // J.A.R.V.I.S — Inbound Call Agent v1.0
 //
+// UPDATE: as of the webhook-mode work in agentphone.js, the agent's
+// voiceMode gets flipped to "webhook" the first time a public URL is
+// configured — which means inbound calls now ALSO route through
+// agentphone-voice-routes.js's live webhook instead of the "hosted,
+// no live reaction" behavior described below. That file falls back
+// to buildInboundSystemPrompt() below (via loadUsers()/
+// defaultOwnerName(), both exported for exactly that) to drive
+// inbound calls turn-by-turn with Jarvis's own Groq call, same as
+// outbound. The paragraph below describing pure hosted-mode inbound
+// still applies verbatim when no public URL is configured.
+//
 // Handles calls made TO your Jarvis number (not the outbound calls
 // phone-agent.js places for you). Since Jarvis runs in "hosted" mode
 // (see agentphone.js's big comment on why), there's no live webhook
@@ -245,6 +256,7 @@ function getInboundLog() {
 
 module.exports = {
   loadUsers,
+  defaultOwnerName,
   buildInboundSystemPrompt,
   syncInboundPrompt,
   checkForNewInboundCalls,
