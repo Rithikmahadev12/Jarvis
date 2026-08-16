@@ -147,7 +147,16 @@ async function summarizeCallOutcome({ transcripts, requestedTime, businessName }
   }
 
   const convo = (transcripts || [])
-    .map((t) => `Caller (business): ${t.transcript}\nJarvis: ${t.response}`)
+    .map((t) => {
+      // Defensive against field-name variants, since AgentPhone's
+      // actual per-turn shape was never confirmed (see the caller in
+      // phone-agent.js) — try the plausible names before giving up
+      // and showing the raw object so it's at least visible.
+      const businessSaid = t.transcript ?? t.callerText ?? t.text ?? t.content ?? (t.role === "user" ? t.message : null);
+      const jarvisSaid = t.response ?? t.assistantText ?? t.reply ?? (t.role === "assistant" ? t.message : null);
+      if (businessSaid == null && jarvisSaid == null) return `(unrecognized turn shape: ${JSON.stringify(t).slice(0, 200)})`;
+      return `Caller (business): ${businessSaid ?? ""}\nJarvis: ${jarvisSaid ?? ""}`;
+    })
     .join("\n");
 
   const systemPrompt =
@@ -391,8 +400,30 @@ async function _runCall(p) {
 
   let outcome;
   try {
+    // finished.transcripts is what this code has always assumed
+    // AgentPhone calls the per-turn conversation field — but that
+    // was never actually confirmed against a real call response, and
+    // a call that clearly happened (business spoke, Jarvis replied)
+    // coming back as "did not respond" is a strong sign that
+    // assumption is wrong. Try the field names AgentPhone (or an
+    // API like it) most plausibly uses before giving up, and log the
+    // raw response once so the real field name is visible in your
+    // console the next time this happens.
+    let rawTranscripts = finished.transcripts;
+    if (!Array.isArray(rawTranscripts) || !rawTranscripts.length) {
+      const alt = finished.transcript || finished.messages || finished.conversation || finished.turns || finished.history;
+      if (Array.isArray(alt) && alt.length) rawTranscripts = alt;
+    }
+    if (!Array.isArray(rawTranscripts) || !rawTranscripts.length) {
+      console.warn(
+        `[PHONE-AGENT] Call ${call.id} completed but no usable transcript field was found on the AgentPhone ` +
+        `response (checked transcripts/transcript/messages/conversation/turns/history — all empty or missing). ` +
+        `Raw response, so the actual field name can be spotted: ${JSON.stringify(finished).slice(0, 1500)}`
+      );
+    }
+
     outcome = await summarizeCallOutcome({
-      transcripts: finished.transcripts,
+      transcripts: rawTranscripts,
       requestedTime: requestedTime || purpose || "",
       businessName: businessName || "the business",
     });
