@@ -447,7 +447,7 @@ async function runInstallerUnderWine(installerPath) {
 
   for (let i = 0; i < 6; i++) {
     const doneCheck = await Computer.desktopRunCommand(
-      `find ${WINE_PREFIX_DIR} -iname 'TextNow*.exe' 2>/dev/null | grep -vi -e Downloads -e Temp | head -1`,
+      `find ${WINE_PREFIX_DIR} -iname 'TextNow*.exe' 2>/dev/null | grep -vi -e Downloads -e Temp | head -1; true`,
       { timeoutMs: 10000 }
     );
     if ((doneCheck.stdout || "").trim()) break; // installed exe already exists — installer finished
@@ -469,7 +469,7 @@ async function runInstallerUnderWine(installerPath) {
   }
 
   const final = await Computer.desktopRunCommand(
-    `find ${WINE_PREFIX_DIR} -iname 'TextNow*.exe' 2>/dev/null | grep -vi -e Downloads -e Temp | head -1`,
+    `find ${WINE_PREFIX_DIR} -iname 'TextNow*.exe' 2>/dev/null | grep -vi -e Downloads -e Temp | head -1; true`,
     { timeoutMs: 10000 }
   );
   const installedPath = (final.stdout || "").trim();
