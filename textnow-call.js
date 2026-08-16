@@ -391,11 +391,17 @@ async function signUpForTextNow() {
   if (!mail.error) {
     if (mail.code) {
       // A 6-digit-style code entered directly in the browser.
-      const codeField = await locateOnDesktop("the verification code input field", { optional: true });
+      const codeField = await locateOnDesktop("the verification code input field", {
+        optional: true,
+        goal: "enter the email verification code we were sent and get past this verification step into TextNow's main app",
+      });
       if (codeField && codeField.found) {
         await Computer.desktopClick(codeField.x, codeField.y);
         await Computer.desktopType(mail.code);
-        const verifyButton = await locateOnDesktop("the Verify / Confirm / Continue button", { optional: true });
+        const verifyButton = await locateOnDesktop("the Verify / Confirm / Continue button", {
+          optional: true,
+          goal: "submit the verification code just entered so the account moves past this step",
+        });
         if (verifyButton && verifyButton.found) await Computer.desktopClick(verifyButton.x, verifyButton.y);
         else await Computer.desktopPress("Return");
         await sleep(4000);
@@ -422,7 +428,11 @@ async function signUpForTextNow() {
 
     const nextish = await locateOnDesktop(
       "a Continue / Next / Confirm / Accept / Get Started / Skip button on the current onboarding or number-selection screen",
-      { optional: true, skipCache: true }
+      {
+        optional: true,
+        skipCache: true,
+        goal: "get through whatever onboarding, welcome, or phone-number-selection screen is currently showing and reach TextNow's main app (accept whatever number/defaults are suggested rather than customizing anything)",
+      }
     );
     if (nextish && nextish.found) {
       await Computer.desktopClick(nextish.x, nextish.y);
@@ -447,9 +457,169 @@ async function signUpForTextNow() {
 // ══════════════════════════════════════════════════════════════════
 // VISION: locate a UI element on the SANDBOX's screen (not the user's
 // own machine — see screen-vision.js for that local-PC equivalent).
+//
+// THREE-TIER FALLBACK, in this exact order:
+//   1. Ollama Cloud (OLLAMA_API_KEY) — free, fast, tried first.
+//   2. Gemini (GEMINI_API_KEY) — if Ollama Cloud is out of credits,
+//      rate-limited, or otherwise fails. Groq is deliberately NOT
+//      part of this chain.
+//   3. Self-hosted Ollama, installed and run BY JARVIS ITSELF inside
+//      the E2B desktop sandbox (its "computer") — the true last
+//      resort when neither cloud option works at all. See
+//      ensureSelfHostedOllama()/selfHostedVisionRequest() below.
+//
+// GOAL vs. DESCRIPTION: tiers 1-2 are genuinely strong vision models,
+// so they're given a precise, specific element description to find
+// ("the Verify button"). Tier 3's self-hosted model is whatever small
+// model actually fits/runs well in the sandbox — much weaker — so
+// feeding it that same hardcoded, possibly-wrong description risks
+// it confidently clicking whatever superficially matches those words
+// even if that guess was mistaken. Instead, when a caller provides
+// opts.goal, tier 3 is told the higher-level GOAL of this step (e.g.
+// "get past this verification screen") and asked to look at the
+// actual screenshot and decide for itself what to click — it isn't
+// steered toward a specific label that might not even be right.
 // ══════════════════════════════════════════════════════════════════
 const elementCache = new Map(); // "description@WxH" -> { x, y, ts }
 const ELEMENT_CACHE_TTL_MS = 2 * 60 * 1000;
+
+// ── TIER 2: GEMINI (self-contained here — same key-rotation shape as
+// screen-vision.js, just not shared code, since that module is wired
+// for the user's own local screen, not the sandbox's) ──
+function loadGeminiKeys() {
+  const keys = [];
+  for (const k of (process.env.GEMINI_API_KEY || "").split(",")) {
+    const t = k.trim();
+    if (t) keys.push(t);
+  }
+  for (let i = 2; ; i++) {
+    const raw = process.env[`GEMINI_API_KEY${i}`];
+    if (!raw) break;
+    const t = raw.trim();
+    if (t) keys.push(t);
+  }
+  return keys;
+}
+const GEMINI_API_KEYS = loadGeminiKeys();
+let geminiKeyIndex = 0;
+function currentGeminiKey() { return GEMINI_API_KEYS[geminiKeyIndex % GEMINI_API_KEYS.length]; }
+function rotateGeminiKey() { geminiKeyIndex = (geminiKeyIndex + 1) % GEMINI_API_KEYS.length; }
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
+function geminiUrlFor(model) { return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`; }
+
+async function geminiVision(base64Image, prompt) {
+  if (!GEMINI_API_KEYS.length) throw new Error("No GEMINI_API_KEY configured.");
+  let lastErr;
+  for (let attempt = 0; attempt < GEMINI_API_KEYS.length; attempt++) {
+    const key = currentGeminiKey();
+    try {
+      const res = await fetch(`${geminiUrlFor(GEMINI_MODEL)}?key=${key}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: "image/png", data: base64Image } }] }],
+        }),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!res.ok) {
+        lastErr = new Error(`Gemini HTTP ${res.status}`);
+        if (res.status === 429 || res.status >= 500) { rotateGeminiKey(); continue; }
+        throw lastErr;
+      }
+      const data = await res.json();
+      const text = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+      if (!text) throw new Error("Gemini returned no text.");
+      return text;
+    } catch (e) {
+      lastErr = e;
+      rotateGeminiKey();
+    }
+  }
+  throw lastErr || new Error("Gemini vision failed.");
+}
+
+// ── TIER 3: SELF-HOSTED OLLAMA, INSTALLED IN THE SANDBOX ──────────
+// Jarvis's own last resort: if neither cloud vision option works,
+// it installs Ollama on its own "computer" (the E2B desktop sandbox),
+// pulls a small vision-capable model, runs the server itself, and
+// queries it locally over the sandbox's own loopback address — no
+// external API, no key, nothing that can run out of credits.
+const SELF_HOST_VISION_MODEL = process.env.TEXTNOW_SELFHOST_VISION_MODEL || "moondream";
+let selfHostReady = false;
+
+async function ensureSelfHostedOllama() {
+  if (!Computer.isDesktopRunning()) selfHostReady = false;
+  if (selfHostReady) return;
+
+  console.log("[TEXTNOW] Cloud vision options unavailable — Jarvis is installing and hosting Ollama on its own sandbox computer as a last resort...");
+
+  const check = await Computer.desktopRunCommand("which ollama", { timeoutMs: 10000 });
+  if (!check.ok || !check.stdout.trim()) {
+    const install = await Computer.desktopRunCommand("curl -fsSL https://ollama.com/install.sh | sh", { timeoutMs: 180000 });
+    if (!install.ok) throw new Error(`Couldn't install Ollama on the sandbox: ${install.stderr || "unknown error"}`);
+  }
+
+  const running = await Computer.desktopRunCommand("curl -s -m 2 http://127.0.0.1:11434/api/tags", { timeoutMs: 5000 });
+  if (!running.ok || !running.stdout.trim()) {
+    await Computer.desktopRunCommand("nohup ollama serve > /tmp/ollama-serve.log 2>&1 & disown; sleep 2; true", { timeoutMs: 15000 });
+  }
+
+  const pulled = await Computer.desktopRunCommand(`ollama list | grep -qi "${SELF_HOST_VISION_MODEL}"`, { timeoutMs: 10000 });
+  if (!pulled.ok) {
+    console.log(`[TEXTNOW] Pulling self-hosted vision model "${SELF_HOST_VISION_MODEL}" on the sandbox (first time only, can take a few minutes)...`);
+    const pull = await Computer.desktopRunCommand(`ollama pull ${SELF_HOST_VISION_MODEL}`, { timeoutMs: 10 * 60 * 1000 });
+    if (!pull.ok) throw new Error(`Couldn't pull "${SELF_HOST_VISION_MODEL}" on the sandbox: ${pull.stderr || "unknown error"}`);
+  }
+
+  selfHostReady = true;
+}
+
+// The sandbox's Ollama server is only reachable FROM INSIDE the
+// sandbox (this Node process isn't in there), so the request itself
+// has to run as a shell command via desktopRunCommand — write the
+// JSON body to a file first rather than inlining it on the command
+// line, since a base64 screenshot is way too large/escape-unsafe for
+// that.
+async function selfHostedVisionRequest(base64Image, prompt) {
+  await ensureSelfHostedOllama();
+  const body = JSON.stringify({
+    model: SELF_HOST_VISION_MODEL,
+    stream: false,
+    messages: [{ role: "user", content: prompt, images: [base64Image] }],
+  });
+  const reqPath = `/tmp/jarvis_ollama_req_${Date.now()}.json`;
+  await Computer.desktopWriteFile(reqPath, body);
+  const res = await Computer.desktopRunCommand(
+    `curl -s -X POST http://127.0.0.1:11434/api/chat -H "Content-Type: application/json" -d @${reqPath}`,
+    { timeoutMs: 90000 }
+  );
+  if (!res.ok || !res.stdout) throw new Error("Self-hosted Ollama request failed inside the sandbox.");
+  let parsed;
+  try { parsed = JSON.parse(res.stdout); } catch { throw new Error("Self-hosted Ollama returned unparseable output."); }
+  return parsed?.message?.content || "";
+}
+
+// ── THE ACTUAL 3-TIER DISPATCH ─────────────────────────────────────
+async function visionLocate(base64, prompt, goalPrompt) {
+  if (LocalLLM.hasCloudVisionModel()) {
+    try {
+      return await LocalLLM.ollamaCloudVision(base64, prompt);
+    } catch (e) {
+      console.warn(`[TEXTNOW] Ollama Cloud vision failed (${e.message}) — trying Gemini next.`);
+    }
+  }
+  if (GEMINI_API_KEYS.length) {
+    try {
+      return await geminiVision(base64, prompt);
+    } catch (e) {
+      console.warn(`[TEXTNOW] Gemini vision failed (${e.message}) — falling back to self-hosted Ollama on the sandbox.`);
+    }
+  }
+  // Last resort — use the goal-oriented prompt if the caller gave us
+  // one, since it's a weaker model and shouldn't be steered by a
+  // specific description that might just be wrong.
+  return selfHostedVisionRequest(base64, goalPrompt || prompt);
+}
 
 async function locateOnDesktop(description, opts = {}) {
   const base64 = await Computer.desktopScreenshot();
@@ -469,18 +639,20 @@ async function locateOnDesktop(description, opts = {}) {
     `the exact shape {"found": true, "x": <int>, "y": <int>} with x/y being the pixel center of the element. ` +
     `If it genuinely isn't visible, reply {"found": false}.`;
 
+  // Only built when the caller supplied opts.goal — see the header
+  // comment above for why this is worded so differently from `prompt`.
+  const goalPrompt = opts.goal
+    ? `This screenshot is exactly ${dims.width}x${dims.height} pixels — that is its real, full resolution. ` +
+      `Your goal right now: ${opts.goal}. Look at what's actually on screen and decide the SINGLE next UI ` +
+      `element that needs clicking to make progress toward that goal — don't assume what it's called or looks ` +
+      `like ahead of time, just judge from what's really there. Reply with ONLY a JSON object, no prose, no ` +
+      `markdown fences, in the exact shape {"found": true, "x": <int>, "y": <int>} for that element's pixel ` +
+      `center, or {"found": false} if nothing on screen looks like it helps reach the goal.`
+    : null;
+
   let raw;
   try {
-    if (LocalLLM.hasCloudVisionModel()) {
-      raw = await LocalLLM.ollamaCloudVision(base64, prompt);
-    } else if (LocalLLM.hasVisionModel()) {
-      raw = await LocalLLM.ollamaVision(base64, prompt);
-    } else {
-      throw new Error(
-        "No vision model configured — set OLLAMA_API_KEY (Ollama Cloud, free) or a local OLLAMA_VISION_MODEL " +
-        "(e.g. llama3.2-vision) in .env so Jarvis can actually read TextNow's screen."
-      );
-    }
+    raw = await visionLocate(base64, prompt, goalPrompt);
   } catch (e) {
     if (opts.optional) return { found: false };
     throw e;
