@@ -63,6 +63,22 @@ const WRAP_UP_MARKER = "[[END_CALL]]";
 
 const MAX_TURNS = 12; // hard stop so a stuck/looping conversation can't run forever on a paid per-minute line
 
+// ── CALL ID FIELD NAME ─────────────────────────────────────────────
+// The RAW /calls response AgentPhone hands back when a call is placed
+// (see phone-agent.js's "RAW AgentPhone call response" log line) uses
+// the field "id", NOT "callId" — e.g. {"id":"ap_...", "agentId":...}.
+// A real test call proved the per-turn webhook delivery follows that
+// same convention: reading payload.data.callId (which this file
+// originally assumed) is always undefined, so every registered
+// outbound call was silently falling through to the "unrecognized ->
+// treat as inbound" branch below, no matter how correctly it was
+// registered. Try every field name AgentPhone might plausibly use,
+// "id" first since that's the one confirmed against a real delivery.
+function extractCallId(data) {
+  if (!data) return null;
+  return data.id || data.callId || data.call_id || data.sessionId || null;
+}
+
 // ── SIGNATURE VERIFICATION ────────────────────────────────────────
 function verifySignature(rawBody, signature, timestamp, secret) {
   // No secret on file yet (e.g. webhook was never successfully
@@ -173,25 +189,43 @@ function mount(app) {
       // authoritative transcript/outcome by polling GET /calls, not
       // from this event — this is just cleanup of our turn-state Map.
       if (payload.event === "agent.call_ended") {
-        if (payload.data && payload.data.callId) AgentPhone.deleteWebhookCall(payload.data.callId);
+        const endedId = extractCallId(payload.data);
+        if (endedId) AgentPhone.deleteWebhookCall(endedId);
         res.sendStatus(200);
         return;
       }
 
       if (payload.event === "agent.message" && payload.channel === "voice") {
         const data = payload.data || {};
-        let rec = AgentPhone.getWebhookCall(data.callId);
+        const callId = extractCallId(data);
+        let rec = callId ? AgentPhone.getWebhookCall(callId) : null;
 
         if (!rec) {
-          // No pre-registered record means this wasn't a call
-          // phone-agent.js placed itself — almost always an INBOUND
-          // call (someone dialing Jarvis's number), since flipping
-          // the agent to voiceMode:"webhook" for outbound calls
-          // routes inbound calls here too now. Build the same
-          // name-matching inbound conversation inbound-agent.js used
-          // to hand to AgentPhone's hosted LLM, and drive it with our
-          // own Groq call instead — same fix, same reasoning, just
-          // for the other call direction.
+          if (!callId) {
+            // The delivery didn't contain any field we recognize as a
+            // call id at all — log the actual keys AgentPhone sent so
+            // this is fixable in one glance instead of another round
+            // of guessing field names.
+            console.error(`[AGENTPHONE-WEBHOOK] Could not find a call id field in the delivery. Keys present on data: [${Object.keys(data).join(", ")}]`);
+          } else {
+            // We found a call id, but nothing was pre-registered under
+            // it — almost always an INBOUND call (someone dialing
+            // Jarvis's number), since flipping the agent to
+            // voiceMode:"webhook" for outbound calls routes inbound
+            // calls here too now. Build the same name-matching inbound
+            // conversation inbound-agent.js used to hand to AgentPhone's
+            // hosted LLM, and drive it with our own Groq call instead —
+            // same fix, same reasoning, just for the other call
+            // direction.
+            //
+            // Logged (not just commented) because if this fires for a
+            // call phone-agent.js DID place itself, extractCallId() is
+            // still picking the wrong field — this line shows exactly
+            // what id it resolved to, so a mismatch against the id
+            // phone-agent.js logged in "RAW AgentPhone call response"
+            // is spottable immediately instead of another guessing round.
+            console.warn(`[AGENTPHONE-WEBHOOK] No pre-registered call found for id "${callId}" -> treating as inbound. Keys present on data: [${Object.keys(data).join(", ")}]`);
+          }
           try {
             const users = InboundAgent.loadUsers();
             const ownerName = InboundAgent.defaultOwnerName();
@@ -203,9 +237,9 @@ function mount(app) {
               turns: 0,
               createdAt: Date.now(),
             };
-            AgentPhone.registerWebhookCall(data.callId, rec);
+            if (callId) AgentPhone.registerWebhookCall(callId, rec);
           } catch (e) {
-            console.error(`[AGENTPHONE-WEBHOOK] Could not build an inbound prompt for callId ${data.callId}: ${e.message}`);
+            console.error(`[AGENTPHONE-WEBHOOK] Could not build an inbound prompt for callId ${callId}: ${e.message}`);
             res.json({ text: "Hi, this is Jarvis — one moment please." });
             return;
           }
