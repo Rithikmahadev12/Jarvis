@@ -147,10 +147,21 @@ function isRunning() {
 // to start, timeout).
 async function runCommand(cmd, opts = {}) {
   const sbx = await getSandbox();
-  const result = await sbx.commands.run(cmd, {
-    timeoutMs: opts.timeoutMs || 120000,
-    cwd: opts.cwd || undefined,
-  });
+  let result;
+  try {
+    result = await sbx.commands.run(cmd, {
+      timeoutMs: opts.timeoutMs || 120000,
+      cwd: opts.cwd || undefined,
+    });
+  } catch (e) {
+    // Same CommandExitError-swallows-the-result issue as
+    // desktopRunCommand below — see the comment there for why.
+    if (typeof e.exitCode === "number" || typeof e.stdout === "string" || typeof e.stderr === "string") {
+      result = { stdout: e.stdout || "", stderr: e.stderr || "", exitCode: e.exitCode };
+    } else {
+      throw e;
+    }
+  }
   return {
     command: cmd,
     stdout: result.stdout || "",
@@ -513,10 +524,27 @@ async function desktopPress(key) {
 // down, etc.
 async function desktopRunCommand(cmd, opts = {}) {
   const desktop = await getDesktop();
-  const result = await desktop.commands.run(cmd, {
-    timeoutMs: opts.timeoutMs || 60000,
-    background: !!opts.background,
-  });
+  let result;
+  try {
+    result = await desktop.commands.run(cmd, {
+      timeoutMs: opts.timeoutMs || 60000,
+      background: !!opts.background,
+    });
+  } catch (e) {
+    // E2B's SDK throws CommandExitError on ANY non-zero exit instead
+    // of returning it — which meant every caller's own `if (!res.ok)`
+    // handling (with its actually-useful error messages) never ran;
+    // the caller just saw a bare, contentless "exit status 1" instead.
+    // A non-zero exit is routine here (grep matching nothing yet in a
+    // polling loop, `which` not finding a not-yet-installed binary,
+    // etc.) — not a reason to lose stdout/stderr, so normalize it back
+    // into the same result shape rather than letting it throw raw.
+    if (typeof e.exitCode === "number" || typeof e.stdout === "string" || typeof e.stderr === "string") {
+      result = { stdout: e.stdout || "", stderr: e.stderr || "", exitCode: e.exitCode };
+    } else {
+      throw e; // a genuinely different failure (timeout, connection lost, etc.) — don't mask it
+    }
+  }
   if (opts.background) return { command: cmd, background: true, handle: result };
   return {
     command: cmd,
