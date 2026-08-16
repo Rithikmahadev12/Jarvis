@@ -68,14 +68,16 @@ const OLLAMA_CLOUD_MODEL = process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:120b";
 // model string straight through — that mismatch is exactly what
 // causes a 404 "model not found" from ollama.com's API.
 const OLLAMA_CLOUD_MODEL_FAST = process.env.OLLAMA_CLOUD_MODEL_FAST || "gpt-oss:20b";
-// Vision-capable Ollama Cloud model. qwen3-vl:235b-cloud is Alibaba's
-// current flagship vision-language model, free to use on Ollama Cloud
-// with just an API key (no local GPU/download needed), and it's
-// specifically trained as a "visual agent" — reading a screenshot and
-// pointing at/reasoning about individual UI elements, which is exactly
-// the "where do I click/move the cursor" job screen-vision.js's
-// locateElement() needs. Docs: https://ollama.com/blog/qwen3-vl
-const OLLAMA_CLOUD_VISION_MODEL = process.env.OLLAMA_CLOUD_VISION_MODEL || "qwen3-vl:235b-cloud";
+// Vision-capable Ollama Cloud model. Ollama's cloud model lineup gets
+// retired/replaced over time (qwen3-vl:235b-cloud was pulled from the
+// registry on 2026-06-16), so this is deliberately kept overridable
+// via env var — if this one ever 410s too, just set
+// OLLAMA_CLOUD_VISION_MODEL in .env rather than editing code.
+// gemma4:31b-cloud is Google's current cloud-hosted multimodal model,
+// billed at Ollama's "Low Usage" tier, and handles the same
+// "read a screenshot, point at a UI element" job the old qwen model
+// did. Docs: https://ollama.com/library/gemma4
+const OLLAMA_CLOUD_VISION_MODEL = process.env.OLLAMA_CLOUD_VISION_MODEL || "gemma4:31b-cloud";
 
 function isCloudConfigured() {
   return !!OLLAMA_API_KEY;
