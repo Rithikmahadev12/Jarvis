@@ -157,6 +157,21 @@ const TEXTNOW_URL          = process.env.TEXTNOW_URL      || "https://www.textno
 const TEXTNOW_SIGNUP_URL   = process.env.TEXTNOW_SIGNUP_URL || "https://www.textnow.com/login";
 const TEXTNOW_LOGIN_URL    = process.env.TEXTNOW_LOGIN_URL  || "https://www.textnow.com/login";
 
+// TextNow's browser signup flow (above) now defaults to a
+// "scan this QR code with your phone" handoff with no visible email
+// field, which a headless sandbox obviously can't satisfy. TextNow's
+// desktop app is a real, separate signup surface (it's an Electron
+// app — a bundled Chromium shell — not just the same web page), and
+// desktop apps are typically NOT shown the phone-handoff prompt since
+// there's no phone to hand off to. That's the bet this makes. There's
+// no Linux build of it, so it runs through Wine. This is a genuine
+// gamble that adds real setup time and risk (Wine + a real-time audio
+// VoIP app is a rougher combination than a plain browser) — set
+// TEXTNOW_USE_WINE_APP=false to skip straight to the browser flow.
+const TEXTNOW_USE_WINE_APP        = process.env.TEXTNOW_USE_WINE_APP !== "false";
+const TEXTNOW_ELECTRON_DOWNLOAD_URL = process.env.TEXTNOW_ELECTRON_DOWNLOAD_URL || "https://electron.textnow.com/downloads";
+const WINE_PREFIX_DIR             = "/root/.wine"; // default WINEPREFIX inside the sandbox
+
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL   = process.env.GROQ_AGENT_MODEL || process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b";
 
@@ -362,6 +377,122 @@ async function submitEmailForMagicLink(email) {
   await clearHoldCaptchaIfPresent();
 }
 
+// ── WINE-HOSTED TEXTNOW DESKTOP APP (Windows Electron app) ─────────
+// Installed once per sandbox lifetime, cached after that. Each step
+// below is genuinely uncertain (a NEW download page layout, whether
+// the NSIS installer accepts a silent flag, where electron-builder
+// puts the exe) — nothing here is hardcoded to a guessed path where
+// avoidable; it finds things on disk instead. If ANY step fails, the
+// caller falls back to the plain browser flow rather than hard-erroring.
+let wineAppPath = null; // cached installed .exe path, once known
+
+async function ensureWineInstalled() {
+  const check = await Computer.desktopRunCommand("which wine || which wine64", { timeoutMs: 10000 });
+  if (check.ok && check.stdout.trim()) return;
+
+  console.log("[TEXTNOW] Installing Wine on the sandbox (first time only, can take a couple minutes)...");  const install = await Computer.desktopRunCommand(
+    "sudo dpkg --add-architecture i386 2>/dev/null; sudo apt-get update -qq && " +
+    "sudo apt-get install -y -qq wine wine64 winetricks 2>&1 | tail -20",
+    { timeoutMs: 240000 }
+  );
+  if (!install.ok) throw new Error(`Couldn't install Wine on the sandbox: ${install.stderr || install.stdout || "unknown error"}`);
+
+  // First launch of any kind initializes the wineprefix (~/.wine) —
+  // do that now, non-interactively, rather than have it interrupt the
+  // actual TextNow install with a first-run wizard.
+  await Computer.desktopRunCommand("WINEDLLOVERRIDES=mscoree,mshtml= wineboot --init 2>&1 | tail -10", { timeoutMs: 90000 });
+
+  // Nudge Wine toward its PulseAudio driver so calls route through the
+  // same virtual mic/speaker setupVirtualAudio() already wired up for
+  // Firefox. Modern Wine defaults to this when PulseAudio is running,
+  // but it's a known flaky spot across distros — best-effort, and not
+  // fatal if winetricks isn't available or this no-ops.
+  await Computer.desktopRunCommand("winetricks sound=pulse 2>&1 | tail -5 || true", { timeoutMs: 60000 });
+}
+
+// Downloads the real installer straight from TextNow's own domain
+// using the sandbox's actual browser (not a third-party mirror site —
+// those are a trust risk this doesn't need to take), then finds
+// whatever landed in ~/Downloads rather than assuming a filename.
+async function downloadWindowsInstaller() {
+  await Computer.desktopLaunch("firefox", TEXTNOW_ELECTRON_DOWNLOAD_URL);
+  await sleep(5000);
+
+  const downloadBtn = await locateOnDesktop(
+    "a \"Download for Windows\" or \"Download\" button/link on this page for the Windows desktop app",
+    { optional: true, goal: "find and click whatever starts downloading the Windows version of the app on this page" }
+  );
+  if (!downloadBtn || !downloadBtn.found) {
+    throw new Error("Couldn't find a Windows download button on TextNow's Electron app download page.");
+  }
+  await Computer.desktopClick(downloadBtn.x, downloadBtn.y);
+  await sleep(15000); // give the download time to actually land
+
+  const find = await Computer.desktopRunCommand(
+    "find ~/Downloads -maxdepth 1 -iname '*.exe' -newermt '-2 minutes' 2>/dev/null | head -1",
+    { timeoutMs: 10000 }
+  );
+  const exePath = (find.stdout || "").trim();
+  if (!exePath) throw new Error("Clicked the Windows download button but no .exe showed up in ~/Downloads within 15s — it may still be downloading, or the click missed.");
+  return exePath;
+}
+
+// Runs the downloaded installer under Wine and clicks through it the
+// same vision-driven way everything else in this file works, since
+// there's no reliable silent-install flag to assume for an
+// electron-builder NSIS installer without having seen it run.
+async function runInstallerUnderWine(installerPath) {
+  await Computer.desktopRunCommand(`wine "${installerPath}" &`, { timeoutMs: 5000, background: true });
+  await sleep(6000);
+
+  for (let i = 0; i < 6; i++) {
+    const doneCheck = await Computer.desktopRunCommand(
+      `find ${WINE_PREFIX_DIR} -iname 'TextNow*.exe' 2>/dev/null | grep -vi -e Downloads -e Temp | head -1`,
+      { timeoutMs: 10000 }
+    );
+    if ((doneCheck.stdout || "").trim()) break; // installed exe already exists — installer finished
+
+    const nextish = await locateOnDesktop(
+      "a Next / Install / Finish / Launch button in the currently open installer wizard window",
+      {
+        optional: true,
+        skipCache: true,
+        goal: "get through whatever step of this software installer wizard is currently showing, choosing default options, until installation completes",
+      }
+    );
+    if (nextish && nextish.found) {
+      await Computer.desktopClick(nextish.x, nextish.y);
+      await sleep(3000);
+    } else {
+      await sleep(3000);
+    }
+  }
+
+  const final = await Computer.desktopRunCommand(
+    `find ${WINE_PREFIX_DIR} -iname 'TextNow*.exe' 2>/dev/null | grep -vi -e Downloads -e Temp | head -1`,
+    { timeoutMs: 10000 }
+  );
+  const installedPath = (final.stdout || "").trim();
+  if (!installedPath) throw new Error("Ran the TextNow installer under Wine but couldn't find an installed TextNow.exe afterward — the install may have failed or landed somewhere unexpected.");
+  return installedPath;
+}
+
+async function ensureWineTextNowApp() {
+  if (wineAppPath) return wineAppPath;
+
+  await ensureWineInstalled();
+  const installerPath = await downloadWindowsInstaller();
+  wineAppPath = await runInstallerUnderWine(installerPath);
+  console.log(`[TEXTNOW] TextNow desktop app installed under Wine at: ${wineAppPath}`);
+  return wineAppPath;
+}
+
+async function launchWineTextNowApp() {
+  const exePath = await ensureWineTextNowApp();
+  await Computer.desktopRunCommand(`wine "${exePath}" &`, { timeoutMs: 5000, background: true });
+  await sleep(8000); // Electron cold-start under Wine is slower than a native browser tab
+}
+
 async function loginIfNeeded(creds) {
   const loggedInAlready = await locateOnDesktop(
     "the call/dialer icon in TextNow's left-hand navigation sidebar (only visible once logged in)",
@@ -371,13 +502,28 @@ async function loginIfNeeded(creds) {
 
   if (!creds || !creds.email) throw notConfiguredError();
 
-  await Computer.desktopLaunch("firefox", TEXTNOW_LOGIN_URL);
-  await sleep(5000);
+  let usingWineApp = false;
+  if (TEXTNOW_USE_WINE_APP) {
+    try {
+      await launchWineTextNowApp();
+      usingWineApp = true;
+    } catch (e) {
+      console.warn(`[TEXTNOW] Wine app launch failed (${e.message}) — falling back to the browser login flow.`);
+      await Computer.desktopLaunch("firefox", TEXTNOW_LOGIN_URL);
+      await sleep(5000);
+    }
+  } else {
+    await Computer.desktopLaunch("firefox", TEXTNOW_LOGIN_URL);
+    await sleep(5000);
+  }
   await submitEmailForMagicLink(creds.email);
 
   // Passwordless means the rest of "logging in" is identical to the
   // email-verification step of signup — wait for the magic-link email
-  // and open it in the same browser.
+  // and open it. This always opens in Firefox (it's just a URL) even
+  // when the Wine app initiated the request — the account gets
+  // verified server-side either way; the Wine app is relaunched
+  // afterward to pick up the now-verified session.
   const mail = await AgentMail.checkVerificationFor("textnow", {
     fromContains: "textnow",
     timeoutMs: 90000,
@@ -402,6 +548,13 @@ async function loginIfNeeded(creds) {
       await Computer.desktopPress("Return");
       await sleep(4000);
     }
+  }
+
+  if (usingWineApp) {
+    // Bring the app back after verifying via the browser — most
+    // Electron apps single-instance-lock and just refocus rather
+    // than open a second window.
+    await launchWineTextNowApp();
   }
 
   const confirm = await locateOnDesktop("the call/dialer icon in TextNow's left-hand navigation sidebar", { optional: true });
@@ -429,8 +582,20 @@ async function signUpForTextNow() {
   // that still references it.
   const password = generatePassword();
 
-  await Computer.desktopLaunch("firefox", TEXTNOW_SIGNUP_URL);
-  await sleep(6000);
+  let usingWineApp = false;
+  if (TEXTNOW_USE_WINE_APP) {
+    try {
+      await launchWineTextNowApp();
+      usingWineApp = true;
+    } catch (e) {
+      console.warn(`[TEXTNOW] Wine app signup path failed (${e.message}) — falling back to the browser signup flow (which currently hits TextNow's QR-code phone-handoff screen and will likely fail too).`);
+      await Computer.desktopLaunch("firefox", TEXTNOW_SIGNUP_URL);
+      await sleep(6000);
+    }
+  } else {
+    await Computer.desktopLaunch("firefox", TEXTNOW_SIGNUP_URL);
+    await sleep(6000);
+  }
   await submitEmailForMagicLink(email);
 
   // ── EMAIL VERIFICATION ────────────────────────────────────────
@@ -463,6 +628,13 @@ async function signUpForTextNow() {
     }
   } else {
     console.warn(`[TEXTNOW] No verification email confirmed yet (${mail.error}) — continuing; TextNow may not require it, or it may need a manual check.`);
+  }
+
+  if (usingWineApp) {
+    // Verification happened in the browser (it's just a link/code) —
+    // bring the Wine app back so the onboarding-clearing loop below
+    // is looking at the right window.
+    await launchWineTextNowApp();
   }
 
   // ── CLEAR ANY "PICK YOUR NUMBER" / WELCOME ONBOARDING SCREENS ───
