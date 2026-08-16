@@ -130,16 +130,16 @@ function loadState() {
   } catch {
     raw = null;
   }
-  if (!raw) return { accounts: {}, activeIndex: 0, lastSwitch: null };
+  if (!raw) return { accounts: {}, activeIndex: 0, lastSwitch: null, webhooks: {} };
   if (raw.accounts) {
-    return { accounts: raw.accounts, activeIndex: raw.activeIndex || 0, lastSwitch: raw.lastSwitch || null };
+    return { accounts: raw.accounts, activeIndex: raw.activeIndex || 0, lastSwitch: raw.lastSwitch || null, webhooks: raw.webhooks || {} };
   }
   // Old v1.0 flat shape — migrate in memory (saved back on next write).
   const accounts = {};
   if (raw.agentId || raw.numberId || raw.phoneNumber) {
     accounts["0"] = { agentId: raw.agentId || null, numberId: raw.numberId || null, phoneNumber: raw.phoneNumber || null };
   }
-  return { accounts, activeIndex: 0, lastSwitch: null };
+  return { accounts, activeIndex: 0, lastSwitch: null, webhooks: {} };
 }
 
 function saveState(state) {
@@ -363,24 +363,139 @@ function consumeSwitchNotice() {
   return notice;
 }
 
-// ── PLACE AN OUTBOUND CALL (hosted mode) ────────────────────────
-// systemPrompt fully controls what AgentPhone's own LLM says and
-// does on this call — see phone-agent.js for how that's built.
-// Automatically fails over to a backup account if the active one is
-// out of balance / dead — the caller doesn't need to know or care.
+// ── WEBHOOK MODE (our own AI drives every turn, instead of ────────
+//    AgentPhone's hosted LLM) ─────────────────────────────────────
+// Root cause of the "call ended after hearing 'okay'" bug: hosted
+// mode hands AgentPhone's OWN LLM a systemPrompt once and just hopes
+// it's followed for the entire live call — no way for Jarvis to
+// intervene mid-call if it drifts. Webhook mode instead has AgentPhone
+// POST every single turn to OUR server (see agentphone-voice-routes.js),
+// so Jarvis's own Groq call — running the exact same tightened
+// buildSystemPrompt() instructions from phone-agent.js — decides every
+// line as the call happens. Same idea the Twilio fallback already
+// uses (twilio-voice-routes.js), just for the AgentPhone backend too.
+//
+// Only usable when Jarvis has a public HTTPS URL for AgentPhone to
+// call back into (same requirement Twilio calling already has — see
+// twilio-call.js). Falls back to today's hosted behavior automatically
+// when there's no public URL, so this is a no-op change for anyone
+// running Jarvis purely on their own PC. Set AGENTPHONE_FORCE_HOSTED=true
+// in .env to opt back into hosted mode even when a public URL exists.
+function publicBaseUrl() {
+  return String(process.env.PUBLIC_BASE_URL || process.env.STORE_BASE_URL || "").trim().replace(/\/+$/, "");
+}
+
+function isWebhookModeAvailable() {
+  if (String(process.env.AGENTPHONE_FORCE_HOSTED || "").trim().toLowerCase() === "true") return false;
+  return !!publicBaseUrl();
+}
+
+// Registers (or re-registers, if the URL changed) OUR webhook against
+// ONE account's agent. Cached in state so this only actually calls
+// AgentPhone's API again if the public URL changes or the agent was
+// recreated — everyday calls just read the cached secret.
+async function ensureWebhookForAccount(account, idx, ownerName) {
+  const url = `${publicBaseUrl()}/agentphone/webhook`;
+  const state = loadState();
+  const existing = (state.webhooks || {})[String(idx)];
+  if (existing && existing.url === url && existing.agentId === account.agentId) return existing;
+
+  const label = idx === 0 ? "primary account" : `backup account #${idx + 1}`;
+  console.log(`[AGENTPHONE] ${label}: registering per-turn webhook -> ${url}`);
+  const res = await request("POST", `/agents/${account.agentId}/webhook`, { url, contextLimit: 20 }, account.apiKey);
+
+  const rec = { url, agentId: account.agentId, secret: res.secret, registeredAt: Date.now() };
+  const s = loadState();
+  s.webhooks = s.webhooks || {};
+  s.webhooks[String(idx)] = rec;
+  saveState(s);
+  return rec;
+}
+
+// Looks up which account's webhook secret to verify an inbound
+// delivery against, by the agentId AgentPhone stamps on every
+// delivery — agentphone-voice-routes.js can't know the account index
+// on its own, only what AgentPhone tells it.
+function getWebhookSecretByAgentId(agentId) {
+  const webhooks = loadState().webhooks || {};
+  for (const idx of Object.keys(webhooks)) {
+    if (webhooks[idx].agentId === agentId) return webhooks[idx].secret;
+  }
+  return null;
+}
+
+// ── IN-MEMORY PER-CALL TURN STATE (webhook mode only) ─────────────
+// Keyed by AgentPhone's own call id. placeOutboundCall() below seeds
+// one of these the instant a webhook-mode call is placed (before any
+// turn has happened); agentphone-voice-routes.js reads/appends to it
+// as the live call progresses, and deletes it once agent.call_ended
+// arrives. In-memory only, same tradeoff the rest of this file already
+// accepts for in-flight call state — not meant as permanent history.
+const webhookCalls = new Map();
+
+function registerWebhookCall(callId, rec) { webhookCalls.set(callId, rec); }
+function getWebhookCall(callId) { return webhookCalls.get(callId) || null; }
+function deleteWebhookCall(callId) { webhookCalls.delete(callId); }
+
+// ── PLACE AN OUTBOUND CALL ────────────────────────────────────────
+// systemPrompt is always required from the caller's side (phone-agent.js
+// still builds it the same way it always has) — but WHERE it ends up
+// depends on the mode: hosted mode sends it straight to AgentPhone as
+// before; webhook mode keeps it here instead and drives the call via
+// agentphone-voice-routes.js, never sending systemPrompt to AgentPhone
+// at all (that's what puts a given call into webhook mode — see
+// isWebhookModeAvailable() above). Either way, automatically fails
+// over to a backup account if the active one is out of balance / dead
+// — the caller doesn't need to know or care which mode or account
+// actually handled it.
 async function placeOutboundCall({ toNumber, systemPrompt, initialGreeting, voice, ownerName }) {
   if (!toNumber) throw new Error("placeOutboundCall requires toNumber");
   if (!systemPrompt) throw new Error("placeOutboundCall requires systemPrompt");
 
-  return withAccountFailover(ownerName, (account) =>
-    request("POST", "/calls", {
+  const useWebhook = isWebhookModeAvailable();
+
+  return withAccountFailover(ownerName, async (account, idx) => {
+    if (useWebhook) {
+      try {
+        await ensureWebhookForAccount(account, idx, ownerName);
+      } catch (e) {
+        console.error(`[AGENTPHONE] Couldn't register the webhook (falling back to hosted mode for this call only): ${e.message}`);
+        return request("POST", "/calls", {
+          agentId: account.agentId,
+          toNumber,
+          initialGreeting: initialGreeting || undefined,
+          systemPrompt,
+          voice: voice || undefined,
+        }, account.apiKey);
+      }
+
+      const call = await request("POST", "/calls", {
+        agentId: account.agentId,
+        toNumber,
+        initialGreeting: initialGreeting || undefined,
+        voice: voice || undefined,
+        // Deliberately NO systemPrompt here — its absence is what
+        // puts THIS call into webhook mode on AgentPhone's side.
+      }, account.apiKey);
+
+      registerWebhookCall(call.id, {
+        ownerName: ownerName || "my owner",
+        systemPrompt,
+        history: initialGreeting ? [{ role: "assistant", text: initialGreeting }] : [],
+        turns: 0,
+        createdAt: Date.now(),
+      });
+      return call;
+    }
+
+    return request("POST", "/calls", {
       agentId: account.agentId,
       toNumber,
       initialGreeting: initialGreeting || undefined,
       systemPrompt,
       voice: voice || undefined,
-    }, account.apiKey)
-  );
+    }, account.apiKey);
+  });
 }
 
 // ── PUSH A DEFAULT SYSTEM PROMPT TO THE AGENT RECORD ─────────────
@@ -468,4 +583,9 @@ module.exports = {
   waitForCallCompletion,
   getStatus,
   consumeSwitchNotice,
+  // Webhook mode (agentphone-voice-routes.js)
+  isWebhookModeAvailable,
+  getWebhookCall,
+  deleteWebhookCall,
+  getWebhookSecretByAgentId,
 };
