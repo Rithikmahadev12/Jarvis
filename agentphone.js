@@ -403,16 +403,37 @@ async function ensureWebhookForAccount(account, idx, ownerName) {
   const url = `${publicBaseUrl()}/agentphone/webhook`;
   const state = loadState();
   const existing = (state.webhooks || {})[String(idx)];
-  if (existing && existing.url === url && existing.agentId === account.agentId) return existing;
-
   const label = idx === 0 ? "primary account" : `backup account #${idx + 1}`;
-  console.log(`[AGENTPHONE] ${label}: registering per-turn webhook -> ${url}`);
-  const res = await request("POST", `/agents/${account.agentId}/webhook`, { url, contextLimit: 20 }, account.apiKey);
+
+  // Fully cached AND we've already confirmed voiceMode was flipped for
+  // this exact registration -> nothing to do. This is the fix: records
+  // saved by an older build (before voiceModeSet existed) don't match
+  // this condition, so they fall through and get the PATCH applied
+  // instead of being treated as "already done" forever.
+  if (existing && existing.url === url && existing.agentId === account.agentId && existing.voiceModeSet === true) {
+    return existing;
+  }
+
+  // Webhook itself already registered (same url/agentId) but we've never
+  // confirmed voiceMode -> skip re-registering the webhook, just patch
+  // voiceMode and update the cache. Covers accounts stuck from before
+  // this fix existed.
+  let secret = existing && existing.url === url && existing.agentId === account.agentId
+    ? existing.secret
+    : null;
+
+  if (!secret) {
+    console.log(`[AGENTPHONE] ${label}: registering per-turn webhook -> ${url}`);
+    const res = await request("POST", `/agents/${account.agentId}/webhook`, { url, contextLimit: 20 }, account.apiKey);
+    secret = res.secret;
+  } else {
+    console.log(`[AGENTPHONE] ${label}: webhook already registered, but voiceMode was never confirmed -> re-patching now`);
+  }
 
   console.log(`[AGENTPHONE] ${label}: switching agent voiceMode to "webhook" so calls actually route here...`);
   await request("PATCH", `/agents/${account.agentId}`, { voiceMode: "webhook" }, account.apiKey);
 
-  const rec = { url, agentId: account.agentId, secret: res.secret, registeredAt: Date.now() };
+  const rec = { url, agentId: account.agentId, secret, registeredAt: Date.now(), voiceModeSet: true };
   const s = loadState();
   s.webhooks = s.webhooks || {};
   s.webhooks[String(idx)] = rec;
