@@ -449,10 +449,84 @@ async function stopDesktopStream() {
 }
 
 // Launches a GUI app inside the desktop (e.g. "firefox", "google-chrome").
-async function desktopLaunch(app) {
+// uri is optional — for browsers, E2B opens it directly (e.g. launch
+// ("firefox", "https://textnow.com")) instead of a blank window you'd
+// then have to navigate yourself.
+async function desktopLaunch(app, uri) {
   const desktop = await getDesktop();
-  await desktop.launch(app);
-  return { app };
+  await desktop.launch(app, uri);
+  return { app, uri: uri || null };
+}
+
+// ── DESKTOP CONTROL PRIMITIVES ────────────────────────────────────
+// Thin passthroughs onto the live desktop sandbox, for anything that
+// needs to actually DRIVE the GUI programmatically (not just stream
+// it for a human to watch/click) — e.g. textnow-call.js reading the
+// screen with a vision model and clicking through TextNow's web
+// dialer on its own. Each of these calls getDesktop() itself (arming
+// the idle timer), so callers never manage the sandbox directly.
+async function desktopScreenshot() {
+  const desktop = await getDesktop();
+  const bytes = await desktop.screenshot();
+  return Buffer.from(bytes).toString("base64");
+}
+
+async function desktopMoveMouse(x, y) {
+  const desktop = await getDesktop();
+  return desktop.moveMouse(x, y);
+}
+
+async function desktopClick(x, y, opts = {}) {
+  const desktop = await getDesktop();
+  if (opts.double) return desktop.doubleClick(x, y);
+  if (opts.right) return desktop.rightClick(x, y);
+  return desktop.leftClick(x, y);
+}
+
+async function desktopType(text, opts = {}) {
+  const desktop = await getDesktop();
+  return desktop.write(text, opts);
+}
+
+async function desktopPress(key) {
+  const desktop = await getDesktop();
+  return desktop.press(key);
+}
+
+// Runs a shell command INSIDE the desktop sandbox (as opposed to
+// runCommand() above, which runs in the separate plain code sandbox).
+// Needed for things the GUI-automation API doesn't cover — installing
+// a browser, setting up PulseAudio virtual devices, curl-ing a file
+// down, etc.
+async function desktopRunCommand(cmd, opts = {}) {
+  const desktop = await getDesktop();
+  const result = await desktop.commands.run(cmd, {
+    timeoutMs: opts.timeoutMs || 60000,
+    background: !!opts.background,
+  });
+  if (opts.background) return { command: cmd, background: true, handle: result };
+  return {
+    command: cmd,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    exitCode: typeof result.exitCode === "number" ? result.exitCode : (result.exitCode ?? 0),
+    ok: (result.exitCode ?? 0) === 0,
+  };
+}
+
+// Writes a local Buffer/string up into the desktop sandbox's
+// filesystem (e.g. dropping a synthesized TTS audio clip in before
+// playing it with `paplay`).
+async function desktopWriteFile(filePath, data) {
+  const desktop = await getDesktop();
+  return desktop.files.write(filePath, data);
+}
+
+// Reads a file back out of the desktop sandbox (e.g. pulling down a
+// `parec`-captured audio clip to hand to stt.js).
+async function desktopReadFile(filePath) {
+  const desktop = await getDesktop();
+  return desktop.files.read(filePath, { format: "bytes" });
 }
 
 module.exports = {
@@ -476,4 +550,12 @@ module.exports = {
   ensureDesktopStream,
   stopDesktopStream,
   desktopLaunch,
+  desktopScreenshot,
+  desktopMoveMouse,
+  desktopClick,
+  desktopType,
+  desktopPress,
+  desktopRunCommand,
+  desktopWriteFile,
+  desktopReadFile,
 };
