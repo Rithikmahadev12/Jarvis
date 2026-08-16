@@ -175,7 +175,15 @@ async function request(method, urlPath, body, apiKeyOverride) {
   try { json = text ? JSON.parse(text) : null; } catch { /* leave null */ }
 
   if (!res.ok) {
-    const msg = json?.error || json?.message || text || `HTTP ${res.status}`;
+    // json?.error (or .message) can be a string OR a nested object/array
+    // (e.g. {message, field} or a list of field errors) depending on
+    // which AgentPhone endpoint rejected the request — stringify
+    // properly instead of letting a template literal collapse it to
+    // the useless "[object Object]".
+    const raw = json?.error ?? json?.message ?? text ?? null;
+    const msg = raw == null
+      ? `HTTP ${res.status}`
+      : (typeof raw === "string" ? raw : JSON.stringify(raw));
     const err = new Error(`AgentPhone ${method} ${urlPath} failed (${res.status}): ${msg}`);
     err.status = res.status;
     throw err;
