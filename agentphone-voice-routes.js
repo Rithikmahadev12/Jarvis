@@ -21,6 +21,19 @@
 // has no public URL to receive this webhook at (see agentphone.js) —
 // this route just never gets hit in that case, nothing to configure.
 //
+// INBOUND CALLS TOO: registering this webhook flips the agent's
+// voiceMode to "webhook" account-wide (see agentphone.js's
+// ensureWebhookForAccount) — a real test call proved that omitting
+// systemPrompt on the outbound call alone wasn't enough to actually
+// route to this endpoint, it just silently fell back to hosted mode.
+// Since voiceMode is agent-wide, not per-call, INBOUND calls (someone
+// dialing Jarvis's number) land here too now, not just the outbound
+// calls phone-agent.js places. Any call with no pre-registered record
+// below is treated as inbound and driven using the exact same
+// name-matching conversation inbound-agent.js used to hand to
+// AgentPhone's hosted LLM (buildInboundSystemPrompt()) — same fix,
+// same reasoning, just for the other call direction.
+//
 // ── SECURITY ───────────────────────────────────────────────────
 // Every delivery is HMAC-signed (X-Webhook-Signature / X-Webhook-
 // Timestamp) with the secret AgentPhone handed back when
@@ -38,6 +51,8 @@ const crypto = require("crypto");
 const express = require("express");
 const AgentPhone = require("./agentphone");
 const GroqKeys = require("./groq-keys");
+const InboundAgent = require("./inbound-agent");
+const Settings = require("./settings");
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = process.env.GROQ_AGENT_MODEL || process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b";
@@ -165,15 +180,35 @@ function mount(app) {
 
       if (payload.event === "agent.message" && payload.channel === "voice") {
         const data = payload.data || {};
-        const rec = AgentPhone.getWebhookCall(data.callId);
+        let rec = AgentPhone.getWebhookCall(data.callId);
 
         if (!rec) {
-          // Shouldn't normally happen for an outbound call Jarvis
-          // placed itself — log it clearly instead of just going
-          // quiet on a live line.
-          console.warn(`[AGENTPHONE-WEBHOOK] No call record for callId ${data.callId} — replying with a generic fallback.`);
-          res.json({ text: "One moment please." });
-          return;
+          // No pre-registered record means this wasn't a call
+          // phone-agent.js placed itself — almost always an INBOUND
+          // call (someone dialing Jarvis's number), since flipping
+          // the agent to voiceMode:"webhook" for outbound calls
+          // routes inbound calls here too now. Build the same
+          // name-matching inbound conversation inbound-agent.js used
+          // to hand to AgentPhone's hosted LLM, and drive it with our
+          // own Groq call instead — same fix, same reasoning, just
+          // for the other call direction.
+          try {
+            const users = InboundAgent.loadUsers();
+            const ownerName = InboundAgent.defaultOwnerName();
+            const numberCode = (Settings.load().numberCode || "").toString().trim() || null;
+            rec = {
+              ownerName,
+              systemPrompt: InboundAgent.buildInboundSystemPrompt(users, numberCode),
+              history: [],
+              turns: 0,
+              createdAt: Date.now(),
+            };
+            AgentPhone.registerWebhookCall(data.callId, rec);
+          } catch (e) {
+            console.error(`[AGENTPHONE-WEBHOOK] Could not build an inbound prompt for callId ${data.callId}: ${e.message}`);
+            res.json({ text: "Hi, this is Jarvis — one moment please." });
+            return;
+          }
         }
 
         const said = String(data.transcript || "").trim();
