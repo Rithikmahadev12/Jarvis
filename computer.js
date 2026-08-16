@@ -483,6 +483,19 @@ async function desktopClick(x, y, opts = {}) {
   return desktop.leftClick(x, y);
 }
 
+// Press-and-hold a point for a given duration, then release — for
+// "press and hold to verify you are human" style captcha widgets
+// (e.g. TextNow's login page as of Aug 2026), which a normal click
+// doesn't satisfy. Underlying E2B desktop SDK exposes mousePress()/
+// mouseRelease() as separate calls specifically for this.
+async function desktopHoldClick(x, y, holdMs = 4000) {
+  const desktop = await getDesktop();
+  await desktop.moveMouse(x, y);
+  await desktop.mousePress("left");
+  await new Promise((r) => setTimeout(r, holdMs));
+  await desktop.mouseRelease("left");
+}
+
 async function desktopType(text, opts = {}) {
   const desktop = await getDesktop();
   return desktop.write(text, opts);
@@ -553,6 +566,7 @@ module.exports = {
   desktopScreenshot,
   desktopMoveMouse,
   desktopClick,
+  desktopHoldClick,
   desktopType,
   desktopPress,
   desktopRunCommand,
