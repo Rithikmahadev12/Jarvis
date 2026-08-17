@@ -237,11 +237,20 @@ function buildSystemPrompt({ ownerName, businessName, requestedTime, purpose, sp
       `Get clear, specific answers (prices, times, hours, availability — whatever is relevant), thank them, and end the call politely once you have what you need.`;
   }
 
+  // ── DON'T TREAT A VAGUE ACKNOWLEDGEMENT AS AN ANSWER ─────────────
+  // Without this, the model on the call tends to hear a filler word
+  // like "okay" or "sure" from the other side and move on as if the
+  // actual question had been answered, leaving the transcript (and
+  // the owner's report) with no real information in it. Applies to
+  // every branch above, so it's appended once here rather than
+  // repeated in each task string.
+  const noVagueAnswers = `\n\nImportant: a filler acknowledgement like "okay," "sure," "yeah," or "got it" from the other side is NOT an answer to whatever you just asked — it just means they heard you. If you ask a direct question (a price, a time, availability, a yes/no), do not move on or treat it as resolved until they actually give you the specific information. If they respond with only a vague acknowledgement, politely ask the question again in a slightly different way before continuing.`;
+
   const note = specialNote
     ? `\n\nAdditional instruction from ${ownerName}, use your judgment on when it's actually relevant to mention: ${specialNote}`
     : "";
 
-  return `${intro}\n\n${task}${note}`;
+  return `${intro}\n\n${task}${noVagueAnswers}${note}`;
 }
 
 // ── CONFIRM-STEP COPY ────────────────────────────────────────────
