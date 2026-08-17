@@ -514,14 +514,27 @@ function saveWebhookCallsFile(all) {
   }
 }
 
+// AgentPhone's own inconsistency: the id POST /calls returns is
+// prefixed ("ap_cmsxmm1nl..."), but the callId it sends back in each
+// webhook delivery for that same call is NOT ("cmsxmm1nl..." — no
+// "ap_"). A real test call proved this: registerWebhookCall() was
+// storing the prefixed form while every webhook turn looked up the
+// unprefixed form, so the lookup NEVER matched and every outbound
+// call silently fell back to the inbound name-matching script. Strip
+// the prefix on both sides so whichever form comes in, it maps to the
+// same key.
+function normalizeCallId(id) {
+  return String(id || "").replace(/^ap_/, "");
+}
+
 function registerWebhookCall(callId, rec) {
   const all = loadWebhookCalls();
-  all[callId] = rec;
+  all[normalizeCallId(callId)] = rec;
   saveWebhookCallsFile(all);
 }
 function getWebhookCall(callId) {
   const all = loadWebhookCalls();
-  return all[callId] || null;
+  return all[normalizeCallId(callId)] || null;
 }
 // agentphone-voice-routes.js mutates the rec object it gets back from
 // getWebhookCall() (pushing turns, bumping the turn count) — call this
@@ -529,12 +542,12 @@ function getWebhookCall(callId) {
 // no longer share a live object reference the way the old Map did.
 function updateWebhookCall(callId, rec) {
   const all = loadWebhookCalls();
-  all[callId] = rec;
+  all[normalizeCallId(callId)] = rec;
   saveWebhookCallsFile(all);
 }
 function deleteWebhookCall(callId) {
   const all = loadWebhookCalls();
-  delete all[callId];
+  delete all[normalizeCallId(callId)];
   saveWebhookCallsFile(all);
 }
 
