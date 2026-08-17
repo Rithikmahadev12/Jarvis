@@ -47,6 +47,20 @@
 // use a cheap fast model (GROQ_TEXT_MODEL, defaults to the same
 // fast model the rest of the app uses).
 //
+// VISION-MODEL FALLBACK ORDER (only reached when OCR finds nothing
+// useful to read — see askVision()/askVisionForLocating() below):
+//   1. Ollama Cloud (OLLAMA_API_KEY, via local-llm.js) — free, fast,
+//      purpose-tuned for locating UI elements. locateElement() only.
+//   2. Self-hosted Ollama, installed and run by Jarvis itself inside
+//      its own E2B desktop sandbox ("computer.js" — same capability
+//      textnow-call.js uses). Deliberately tried BEFORE Gemini/Groq:
+//      it's zero-cost and can't run out of quota, at the price of a
+//      one-time install/pull on the first call in a sandbox session
+//      (subsequent calls are just a local HTTP round trip). Requires
+//      E2B_API_KEY; silently skipped if that isn't configured.
+//   3. Gemini (GEMINI_API_KEY) — strong general vision model.
+//   4. Groq (GROQ_API_KEY) — final fallback.
+//
 // REQUIRES the "screenshot-desktop" npm package — cross-platform
 // screen capture with no native build step.
 //
@@ -64,6 +78,7 @@ const path = require("path");
 const screenshot = require("screenshot-desktop");
 const GroqKeys = require("./groq-keys");
 const LocalLLM = require("./local-llm");
+const Computer = require("./computer");
 
 // ── ELEMENT-LOCATION CACHE ─────────────────────────────────────
 // The single biggest source of vision-model calls (and the thing
@@ -201,7 +216,12 @@ const USE_GEMINI = GEMINI_API_KEYS.length > 0;
 const OCR_MIN_CONFIDENCE = 40;
 
 function isConfigured() {
-  return !!(GroqKeys.hasGroqKey() || GEMINI_API_KEYS.length || LocalLLM.hasCloudVisionModel());
+  return !!(
+    GroqKeys.hasGroqKey() ||
+    GEMINI_API_KEYS.length ||
+    LocalLLM.hasCloudVisionModel() ||
+    Computer.isDesktopConfigured() // sandbox-hosted Ollama alone is enough to serve vision requests
+  );
 }
 
 // ── CAPTURE ─────────────────────────────────────────────────────
@@ -554,9 +574,32 @@ async function askText(prompt) {
   return groqChatRequest(GROQ_TEXT_MODEL, messages);
 }
 
+// Tries Jarvis's own self-hosted, sandbox-run Ollama (see computer.js)
+// before paying for/rate-limiting against Gemini or Groq. Returns the
+// reply text, or null if the sandbox isn't configured (E2B_API_KEY
+// missing) or the request failed for any reason — callers treat null
+// exactly like "this tier isn't available, move on to the next one."
+// Never throws.
+async function trySandboxOllama(base64Image, prompt) {
+  if (!Computer.isDesktopConfigured()) return null;
+  try {
+    const reply = await Computer.ollamaVision(base64Image, prompt);
+    if (reply) return reply;
+  } catch (e) {
+    console.error("[VISION] Sandbox-hosted Ollama vision failed, falling back to Gemini/Groq:", e.message);
+  }
+  return null;
+}
+
 // Vision-model call — kept as the fallback for screens/elements OCR
-// genuinely can't handle (graphical content, unlabeled icons).
+// genuinely can't handle (graphical content, unlabeled icons). Order:
+// self-hosted sandbox Ollama first (free, no quota, see the module
+// header comment above for why it's ahead of Gemini/Groq here), then
+// Gemini, then Groq.
 async function askVision(base64Image, prompt) {
+  const sandboxReply = await trySandboxOllama(base64Image, prompt);
+  if (sandboxReply !== null) return sandboxReply;
+
   if (USE_GEMINI) {
     try {
       return await geminiRequest(prompt, base64Image);
@@ -580,17 +623,18 @@ async function askVision(base64Image, prompt) {
 // ("where do I click", "where is this on screen"). Ollama Cloud's
 // qwen3-vl:235b-cloud is purpose-tuned as a GUI/visual agent (reading
 // screenshots and pointing at elements), it's free with just an
-// OLLAMA_API_KEY (no local GPU needed), and it doesn't compete with
-// Gemini/Groq's free-tier quota — so when it's configured, try it
-// FIRST for this specific job, and fall back to the normal
-// Gemini→Groq chain (askVision) if it's not configured or fails.
+// OLLAMA_API_KEY (no local GPU needed) and doesn't cost the sandbox a
+// single round trip to spin up — so when it's configured, it's still
+// tried FIRST for this specific job. Everything after that falls
+// through to askVision() above, which is itself sandbox-Ollama →
+// Gemini → Groq.
 async function askVisionForLocating(base64Image, prompt) {
   if (LocalLLM.hasCloudVisionModel()) {
     try {
       const reply = await LocalLLM.ollamaCloudVision(base64Image, prompt);
       if (reply) return reply;
     } catch (e) {
-      console.error("[VISION] Ollama Cloud vision failed, falling back to Gemini/Groq:", e.message);
+      console.error("[VISION] Ollama Cloud vision failed, falling back to sandbox Ollama/Gemini/Groq:", e.message);
     }
   }
   return askVision(base64Image, prompt);
