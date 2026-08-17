@@ -53,6 +53,7 @@ const AgentPhone = require("./agentphone");
 const GroqKeys = require("./groq-keys");
 const InboundAgent = require("./inbound-agent");
 const Settings = require("./settings");
+const LocalLLM = require("./local-llm");
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = process.env.GROQ_AGENT_MODEL || process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b";
@@ -62,6 +63,75 @@ const GROQ_MODEL = process.env.GROQ_AGENT_MODEL || process.env.GROQ_MODEL_FAST |
 const WRAP_UP_MARKER = "[[END_CALL]]";
 
 const MAX_TURNS = 12; // hard stop so a stuck/looping conversation can't run forever on a paid per-minute line
+
+// ── GEMINI (self-contained here, same key-rotation shape as
+// textnow-call.js's Tier 2 Gemini fallback — reused for live-call
+// text turns instead of vision) ───────────────────────────────────
+function loadGeminiKeys() {
+  const keys = [];
+  for (const k of (process.env.GEMINI_API_KEY || "").split(",")) {
+    const t = k.trim();
+    if (t) keys.push(t);
+  }
+  for (let i = 2; ; i++) {
+    const raw = process.env[`GEMINI_API_KEY${i}`];
+    if (!raw) break;
+    const t = raw.trim();
+    if (t) keys.push(t);
+  }
+  return keys;
+}
+const GEMINI_API_KEYS = loadGeminiKeys();
+let geminiKeyIndex = 0;
+function currentGeminiKey() { return GEMINI_API_KEYS[geminiKeyIndex % GEMINI_API_KEYS.length]; }
+function rotateGeminiKey() { geminiKeyIndex = (geminiKeyIndex + 1) % GEMINI_API_KEYS.length; }
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
+function geminiUrlFor(model) { return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`; }
+
+// Converts the OpenAI-shaped {role, content} messages this file
+// already builds into Gemini's shape — Gemini has no "system" or
+// "assistant" role, just a top-level system_instruction plus a
+// contents[] array of {role: "user"|"model", parts:[{text}]}.
+function toGeminiPayload(messages) {
+  const systemText = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+  const contents = messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+  const payload = { contents };
+  if (systemText) payload.system_instruction = { parts: [{ text: systemText }] };
+  return payload;
+}
+
+async function geminiChat(messages) {
+  if (!GEMINI_API_KEYS.length) throw new Error("No GEMINI_API_KEY configured.");
+  const payload = toGeminiPayload(messages);
+  let lastErr;
+  for (let attempt = 0; attempt < GEMINI_API_KEYS.length; attempt++) {
+    const key = currentGeminiKey();
+    try {
+      const res = await fetch(`${geminiUrlFor(GEMINI_MODEL)}?key=${key}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(20000),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        const err = new Error(`Gemini HTTP ${res.status}: ${errBody.slice(0, 200)}`);
+        if (res.status === 429 || res.status >= 500) { lastErr = err; rotateGeminiKey(); continue; }
+        throw err;
+      }
+      const data = await res.json();
+      const text = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("").trim();
+      if (!text) throw new Error("Gemini returned no text.");
+      return text;
+    } catch (e) {
+      lastErr = e;
+      rotateGeminiKey();
+    }
+  }
+  throw lastErr || new Error("Gemini chat failed.");
+}
 
 // ── SIGNATURE VERIFICATION ────────────────────────────────────────
 function verifySignature(rawBody, signature, timestamp, secret) {
@@ -82,16 +152,19 @@ function verifySignature(rawBody, signature, timestamp, secret) {
   }
 }
 
-// ── ASK GROQ FOR THE NEXT LINE ────────────────────────────────────
-// Same shape as twilio-voice-routes.js's askGroqForNextLine — kept as
-// its own copy here rather than shared, since the two files answer to
-// different transport shapes (TwiML vs JSON) and have no other reason
-// to depend on each other.
-async function askGroqForNextLine(rec) {
-  if (!GroqKeys.hasGroqKey()) {
-    return { text: "Sorry, I'm having trouble right now — I'll have someone follow up. Goodbye.", done: true };
-  }
-
+// ── ASK FOR THE NEXT LINE — THREE-TIER FALLBACK ───────────────────
+// In this exact order:
+//   1. Ollama Cloud (OLLAMA_API_KEY) — tried first.
+//   2. Gemini (GEMINI_API_KEY) — if Ollama Cloud is unconfigured,
+//      out of credits, rate-limited, or otherwise fails.
+//   3. Groq — last resort now, not the primary path it used to be.
+// Same three-tier shape textnow-call.js already uses for its vision
+// fallback (Ollama Cloud -> Gemini -> self-hosted), applied here to
+// live-call text turns instead. All three get the exact same
+// messages/system-prompt, so behavior (tightened instructions, the
+// WRAP_UP_MARKER convention) is identical no matter which one
+// actually answers a given turn.
+async function askForNextLine(rec) {
   const messages = [
     {
       role: "system",
@@ -104,6 +177,45 @@ async function askGroqForNextLine(rec) {
     },
     ...rec.history.map((h) => ({ role: h.role === "assistant" ? "assistant" : "user", content: h.text })),
   ];
+
+  function finalize(rawText) {
+    let raw = (rawText || "").trim();
+    const done = raw.includes(WRAP_UP_MARKER);
+    if (done) raw = raw.replace(WRAP_UP_MARKER, "").trim();
+    return { text: raw || "Thanks for your time — goodbye.", done };
+  }
+
+  // TIER 1: Ollama Cloud.
+  if (LocalLLM.isCloudConfigured()) {
+    try {
+      const msg = await LocalLLM.ollamaCloudChat(messages, {
+        model: LocalLLM.OLLAMA_CLOUD_MODEL_FAST,
+        temperature: 0.4,
+        maxTokens: 300,
+      });
+      const text = (msg && msg.content || "").trim();
+      if (!text) throw new Error("Ollama Cloud returned no content.");
+      return finalize(text);
+    } catch (e) {
+      console.warn(`[AGENTPHONE-WEBHOOK] Ollama Cloud failed (${e.message}) — trying Gemini next.`);
+    }
+  }
+
+  // TIER 2: Gemini.
+  if (GEMINI_API_KEYS.length) {
+    try {
+      const text = await geminiChat(messages);
+      return finalize(text);
+    } catch (e) {
+      console.warn(`[AGENTPHONE-WEBHOOK] Gemini failed (${e.message}) — falling back to Groq (last resort).`);
+    }
+  }
+
+  // TIER 3: Groq — last resort.
+  if (!GroqKeys.hasGroqKey()) {
+    console.error("[AGENTPHONE-WEBHOOK] All configured providers exhausted (Ollama Cloud, Gemini) and no Groq key on file either — ending call gracefully.");
+    return { text: "Sorry, I'm having trouble right now — I'll have someone follow up. Goodbye.", done: true };
+  }
 
   const doFetch = (key) =>
     fetch(GROQ_API_URL, {
@@ -134,7 +246,7 @@ async function askGroqForNextLine(rec) {
   }
 
   if (!res || !res.ok) {
-    console.error(`[AGENTPHONE-WEBHOOK] Groq request failed${lastError ? `: ${lastError.message}` : ""} — ending call gracefully.`);
+    console.error(`[AGENTPHONE-WEBHOOK] Groq request failed${lastError ? `: ${lastError.message}` : ""} — all three providers (Ollama Cloud, Gemini, Groq) failed for this turn — ending call gracefully.`);
     return { text: "Sorry, I'm having trouble right now — I'll have someone follow up. Goodbye.", done: true };
   }
 
@@ -143,10 +255,7 @@ async function askGroqForNextLine(rec) {
     return null;
   });
   if (!data) return { text: "Sorry, I'm having trouble right now — I'll have someone follow up. Goodbye.", done: true };
-  let raw = (data.choices?.[0]?.message?.content || "").trim();
-  const done = raw.includes(WRAP_UP_MARKER);
-  if (done) raw = raw.replace(WRAP_UP_MARKER, "").trim();
-  return { text: raw || "Thanks for your time — goodbye.", done };
+  return finalize(data.choices?.[0]?.message?.content || "");
 }
 
 function mount(app) {
@@ -274,7 +383,7 @@ function mount(app) {
           return;
         }
 
-        const next = await askGroqForNextLine(rec);
+        const next = await askForNextLine(rec);
         rec.history.push({ role: "assistant", text: next.text });
         rec.turns += 1;
         await AgentPhone.updateWebhookCall(data.callId, rec);
