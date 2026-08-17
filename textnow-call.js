@@ -761,64 +761,25 @@ async function geminiVision(base64Image, prompt) {
 }
 
 // ── TIER 3: SELF-HOSTED OLLAMA, INSTALLED IN THE SANDBOX ──────────
-// Jarvis's own last resort: if neither cloud vision option works,
-// it installs Ollama on its own "computer" (the E2B desktop sandbox),
+// Jarvis's own last resort: if neither cloud vision option works, it
+// installs Ollama on its own "computer" (the E2B desktop sandbox),
 // pulls a small vision-capable model, runs the server itself, and
 // queries it locally over the sandbox's own loopback address — no
 // external API, no key, nothing that can run out of credits.
-const SELF_HOST_VISION_MODEL = process.env.TEXTNOW_SELFHOST_VISION_MODEL || "moondream";
-let selfHostReady = false;
+//
+// This used to be implemented entirely in this file. It now lives in
+// computer.js (ensureOllama/ollamaVision) as a shared capability —
+// screen-vision.js uses the same install-once/reuse-forever Ollama
+// server for its own "look at my screen" vision fallback — so this is
+// just a thin wrapper that keeps this file's old
+// TEXTNOW_SELFHOST_VISION_MODEL env var working exactly as before.
+const SELF_HOST_VISION_MODEL = process.env.TEXTNOW_SELFHOST_VISION_MODEL || Computer.SANDBOX_OLLAMA_VISION_MODEL;
 
-async function ensureSelfHostedOllama() {
-  if (!Computer.isDesktopRunning()) selfHostReady = false;
-  if (selfHostReady) return;
-
-  console.log("[TEXTNOW] Cloud vision options unavailable — Jarvis is installing and hosting Ollama on its own sandbox computer as a last resort...");
-
-  const check = await Computer.desktopRunCommand("which ollama", { timeoutMs: 10000 });
-  if (!check.ok || !check.stdout.trim()) {
-    const install = await Computer.desktopRunCommand("curl -fsSL https://ollama.com/install.sh | sh", { timeoutMs: 180000 });
-    if (!install.ok) throw new Error(`Couldn't install Ollama on the sandbox: ${install.stderr || "unknown error"}`);
-  }
-
-  const running = await Computer.desktopRunCommand("curl -s -m 2 http://127.0.0.1:11434/api/tags", { timeoutMs: 5000 });
-  if (!running.ok || !running.stdout.trim()) {
-    await Computer.desktopRunCommand("nohup ollama serve > /tmp/ollama-serve.log 2>&1 & disown; sleep 2; true", { timeoutMs: 15000 });
-  }
-
-  const pulled = await Computer.desktopRunCommand(`ollama list | grep -qi "${SELF_HOST_VISION_MODEL}"`, { timeoutMs: 10000 });
-  if (!pulled.ok) {
-    console.log(`[TEXTNOW] Pulling self-hosted vision model "${SELF_HOST_VISION_MODEL}" on the sandbox (first time only, can take a few minutes)...`);
-    const pull = await Computer.desktopRunCommand(`ollama pull ${SELF_HOST_VISION_MODEL}`, { timeoutMs: 10 * 60 * 1000 });
-    if (!pull.ok) throw new Error(`Couldn't pull "${SELF_HOST_VISION_MODEL}" on the sandbox: ${pull.stderr || "unknown error"}`);
-  }
-
-  selfHostReady = true;
-}
-
-// The sandbox's Ollama server is only reachable FROM INSIDE the
-// sandbox (this Node process isn't in there), so the request itself
-// has to run as a shell command via desktopRunCommand — write the
-// JSON body to a file first rather than inlining it on the command
-// line, since a base64 screenshot is way too large/escape-unsafe for
-// that.
 async function selfHostedVisionRequest(base64Image, prompt) {
-  await ensureSelfHostedOllama();
-  const body = JSON.stringify({
-    model: SELF_HOST_VISION_MODEL,
-    stream: false,
-    messages: [{ role: "user", content: prompt, images: [base64Image] }],
-  });
-  const reqPath = `/tmp/jarvis_ollama_req_${Date.now()}.json`;
-  await Computer.desktopWriteFile(reqPath, body);
-  const res = await Computer.desktopRunCommand(
-    `curl -s -X POST http://127.0.0.1:11434/api/chat -H "Content-Type: application/json" -d @${reqPath}`,
-    { timeoutMs: 90000 }
-  );
-  if (!res.ok || !res.stdout) throw new Error("Self-hosted Ollama request failed inside the sandbox.");
-  let parsed;
-  try { parsed = JSON.parse(res.stdout); } catch { throw new Error("Self-hosted Ollama returned unparseable output."); }
-  return parsed?.message?.content || "";
+  if (!Computer.isOllamaReady()) {
+    console.log("[TEXTNOW] Cloud vision options unavailable — Jarvis is installing and hosting Ollama on its own sandbox computer as a last resort...");
+  }
+  return Computer.ollamaVision(base64Image, prompt, { model: SELF_HOST_VISION_MODEL });
 }
 
 // ── THE ACTUAL 3-TIER DISPATCH ─────────────────────────────────────
