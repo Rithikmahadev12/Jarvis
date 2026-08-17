@@ -510,9 +510,21 @@ function saveWebhookCallsFile(all) {
     fs.mkdirSync(path.dirname(WEBHOOK_CALLS_PATH), { recursive: true });
     fs.writeFileSync(WEBHOOK_CALLS_PATH, JSON.stringify(all, null, 2));
   } catch (e) {
-    console.error("[AGENTPHONE] Could not persist webhook call state:", e.message);
+    // This used to fail silently other than this one line — if writes
+    // are actually failing on the host (permissions, read-only fs,
+    // disk full), every outbound call would misroute to the inbound
+    // "wrong number" script with NO other trace of why. Kept as an
+    // error (not a throw) since a failed write here shouldn't crash a
+    // live call, but it's now loud enough to actually spot in logs.
+    console.error(`[AGENTPHONE] ⚠ Could not persist webhook call state to ${WEBHOOK_CALLS_PATH}: ${e.message} — the next webhook turn for this call WILL misroute to the inbound script if this keeps happening.`);
   }
 }
+
+// Boot-time marker so a mid-call process restart is unmistakable in
+// logs: if you place a call, see this line appear again before the
+// webhook's first turn arrives, the process restarted and wiped
+// in-flight registrations — root-caused, not a routing bug.
+console.log(`[AGENTPHONE] Process (re)started at ${new Date().toISOString()} — webhook-mode call state resets to whatever's on disk at boot.`);
 
 // AgentPhone's own inconsistency: the id POST /calls returns is
 // prefixed ("ap_cmsxmm1nl..."), but the callId it sends back in each
@@ -529,12 +541,27 @@ function normalizeCallId(id) {
 
 function registerWebhookCall(callId, rec) {
   const all = loadWebhookCalls();
-  all[normalizeCallId(callId)] = rec;
+  const key = normalizeCallId(callId);
+  all[key] = rec;
   saveWebhookCallsFile(all);
+  // Read back from disk (not the in-memory `all` we just wrote) to
+  // confirm the write actually landed, rather than trusting that no
+  // exception means it worked.
+  const verify = loadWebhookCalls();
+  if (verify[key]) {
+    console.log(`[AGENTPHONE] Registered webhook call state for "${key}" (${Object.keys(verify).length} call(s) currently on file).`);
+  } else {
+    console.error(`[AGENTPHONE] ⚠ Registered "${key}" but it's NOT there on read-back — the write did not actually persist. This call WILL misroute to the inbound script on its first turn.`);
+  }
 }
 function getWebhookCall(callId) {
   const all = loadWebhookCalls();
-  return all[normalizeCallId(callId)] || null;
+  const key = normalizeCallId(callId);
+  const rec = all[key] || null;
+  if (!rec) {
+    console.warn(`[AGENTPHONE] getWebhookCall("${key}") found nothing. Currently on file: [${Object.keys(all).join(", ") || "(empty)"}].`);
+  }
+  return rec;
 }
 // agentphone-voice-routes.js mutates the rec object it gets back from
 // getWebhookCall() (pushing turns, bumping the turn count) — call this
