@@ -196,6 +196,16 @@ function mount(app) {
           // to hand to AgentPhone's hosted LLM, and drive it with our
           // own Groq call instead — same fix, same reasoning, just
           // for the other call direction.
+          //
+          // Logged loudly: if this fires for a call phone-agent.js DID
+          // place (visible as an outbound call in AgentPhone's own
+          // dashboard/API), that means the lookup is failing for a
+          // real reason — either this server is running older code
+          // that never registered it, or AgentPhone's data.callId
+          // genuinely doesn't match the id placeOutboundCall() got
+          // back from POST /calls. Worth checking data/agentphone-webhook-calls.json
+          // directly against this callId if it keeps happening.
+          console.warn(`[AGENTPHONE-WEBHOOK] No registered turn-state for callId ${data.callId} — treating as inbound. If this was actually an outbound call Jarvis placed, the registration lookup is failing.`);
           try {
             const users = InboundAgent.loadUsers();
             const ownerName = InboundAgent.defaultOwnerName();
