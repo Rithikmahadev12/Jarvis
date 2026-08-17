@@ -231,4 +231,56 @@ function startAutoSync() {
   console.log(`[MEMORY-SYNC] Auto-sync running — pushing changes to Supabase every ${FLUSH_INTERVAL_MS / 1000}s.`);
 }
 
-module.exports = { pullAll, flush, startAutoSync, isConfigured };
+// ── DIRECT READ/WRITE (no local disk, no periodic mirror) ─────────
+// For data where correctness depends on EVERY reader/writer seeing
+// the same live state immediately, no matter which process instance
+// handles the request — e.g. a webhook-mode phone call registered
+// by whichever instance placed it, then looked up moments later by
+// whichever instance Render happens to route the webhook delivery
+// to. Those can be different processes/disks during a rolling
+// deploy, and the regular pullAll()-once-at-boot + flush()-every-20s
+// mirror can't guarantee they ever converge in time — an instance
+// that booted before a write happened elsewhere simply never sees
+// it until its next restart. These three go straight to Supabase on
+// every call instead, so there's no local cache to go stale.
+async function getJSON(relPath) {
+  if (!isConfigured()) return null;
+  try {
+    const { data, error } = await client().storage.from(BUCKET).download(relPath);
+    if (error || !data) return null;
+    const buffer = Buffer.from(await data.arrayBuffer());
+    return JSON.parse(buffer.toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function putJSON(relPath, obj) {
+  if (!isConfigured()) return false;
+  try {
+    const buffer = Buffer.from(JSON.stringify(obj, null, 2));
+    const { error } = await client().storage.from(BUCKET).upload(relPath, buffer, {
+      contentType: "application/json",
+      upsert: true,
+    });
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.warn(`[MEMORY-SYNC] Direct write of ${relPath} failed: ${e.message}`);
+    return false;
+  }
+}
+
+async function deleteRemote(relPath) {
+  if (!isConfigured()) return false;
+  try {
+    const { error } = await client().storage.from(BUCKET).remove([relPath]);
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.warn(`[MEMORY-SYNC] Direct delete of ${relPath} failed: ${e.message}`);
+    return false;
+  }
+}
+
+module.exports = { pullAll, flush, startAutoSync, isConfigured, getJSON, putJSON, deleteRemote };
