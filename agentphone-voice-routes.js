@@ -177,14 +177,14 @@ function mount(app) {
       // authoritative transcript/outcome by polling GET /calls, not
       // from this event — this is just cleanup of our turn-state Map.
       if (payload.event === "agent.call_ended") {
-        if (payload.data && payload.data.callId) AgentPhone.deleteWebhookCall(payload.data.callId);
+        if (payload.data && payload.data.callId) await AgentPhone.deleteWebhookCall(payload.data.callId);
         res.sendStatus(200);
         return;
       }
 
       if (payload.event === "agent.message" && payload.channel === "voice") {
         const data = payload.data || {};
-        let rec = AgentPhone.getWebhookCall(data.callId);
+        let rec = await AgentPhone.getWebhookCall(data.callId);
 
         if (!rec) {
           // No pre-registered record used to mean "assume INBOUND"
@@ -255,7 +255,7 @@ function mount(app) {
               turns: 0,
               createdAt: Date.now(),
             };
-            AgentPhone.registerWebhookCall(data.callId, rec);
+            await AgentPhone.registerWebhookCall(data.callId, rec);
           } catch (e) {
             console.error(`[AGENTPHONE-WEBHOOK] Could not build an inbound prompt for callId ${data.callId}: ${e.message}`);
             res.json({ text: "Hi, this is Jarvis — one moment please." });
@@ -269,7 +269,7 @@ function mount(app) {
         if (rec.turns >= MAX_TURNS) {
           const bye = "I've taken up enough of your time — thank you, goodbye.";
           rec.history.push({ role: "assistant", text: bye });
-          AgentPhone.updateWebhookCall(data.callId, rec);
+          await AgentPhone.updateWebhookCall(data.callId, rec);
           res.json({ text: bye, hangup: true });
           return;
         }
@@ -277,7 +277,7 @@ function mount(app) {
         const next = await askGroqForNextLine(rec);
         rec.history.push({ role: "assistant", text: next.text });
         rec.turns += 1;
-        AgentPhone.updateWebhookCall(data.callId, rec);
+        await AgentPhone.updateWebhookCall(data.callId, rec);
 
         res.json({ text: next.text, hangup: !!next.done });
         return;
