@@ -476,18 +476,67 @@ function getWebhookSecretByAgentId(agentId) {
   return null;
 }
 
-// ── IN-MEMORY PER-CALL TURN STATE (webhook mode only) ─────────────
+// ── PER-CALL TURN STATE (webhook mode only) ────────────────────────
 // Keyed by AgentPhone's own call id. placeOutboundCall() below seeds
 // one of these the instant a webhook-mode call is placed (before any
 // turn has happened); agentphone-voice-routes.js reads/appends to it
 // as the live call progresses, and deletes it once agent.call_ended
-// arrives. In-memory only, same tradeoff the rest of this file already
-// accepts for in-flight call state — not meant as permanent history.
-const webhookCalls = new Map();
+// arrives.
+//
+// Persisted to disk (not just an in-memory Map) on purpose: a call is
+// placed, then AgentPhone posts each turn back over several seconds
+// while the phone conversation happens. If the server process
+// restarts in that window — a redeploy landing mid-call, a crash,
+// Render recycling the instance — an in-memory-only Map loses the
+// record. The next webhook turn for that same call then finds
+// nothing, silently assumes it must be an INBOUND call, and starts
+// the wrong script (the "who am I speaking with?" name-matching flow)
+// mid-outbound-call. That's what produced the "sorry, you've got the
+// wrong number" behavior on a call Jarvis itself placed. Reading/
+// writing a small JSON file on every turn is cheap at this call
+// volume and makes that failure mode structurally impossible instead
+// of just less likely.
+const WEBHOOK_CALLS_PATH = path.join(__dirname, "data", "agentphone-webhook-calls.json");
 
-function registerWebhookCall(callId, rec) { webhookCalls.set(callId, rec); }
-function getWebhookCall(callId) { return webhookCalls.get(callId) || null; }
-function deleteWebhookCall(callId) { webhookCalls.delete(callId); }
+function loadWebhookCalls() {
+  try {
+    return JSON.parse(fs.readFileSync(WEBHOOK_CALLS_PATH, "utf8"));
+  } catch {
+    return {};
+  }
+}
+function saveWebhookCallsFile(all) {
+  try {
+    fs.mkdirSync(path.dirname(WEBHOOK_CALLS_PATH), { recursive: true });
+    fs.writeFileSync(WEBHOOK_CALLS_PATH, JSON.stringify(all, null, 2));
+  } catch (e) {
+    console.error("[AGENTPHONE] Could not persist webhook call state:", e.message);
+  }
+}
+
+function registerWebhookCall(callId, rec) {
+  const all = loadWebhookCalls();
+  all[callId] = rec;
+  saveWebhookCallsFile(all);
+}
+function getWebhookCall(callId) {
+  const all = loadWebhookCalls();
+  return all[callId] || null;
+}
+// agentphone-voice-routes.js mutates the rec object it gets back from
+// getWebhookCall() (pushing turns, bumping the turn count) — call this
+// after each mutation to actually persist it, since disk reads/writes
+// no longer share a live object reference the way the old Map did.
+function updateWebhookCall(callId, rec) {
+  const all = loadWebhookCalls();
+  all[callId] = rec;
+  saveWebhookCallsFile(all);
+}
+function deleteWebhookCall(callId) {
+  const all = loadWebhookCalls();
+  delete all[callId];
+  saveWebhookCallsFile(all);
+}
 
 // ── PLACE AN OUTBOUND CALL ────────────────────────────────────────
 // systemPrompt is always required from the caller's side (phone-agent.js
@@ -639,6 +688,7 @@ module.exports = {
   isWebhookModeAvailable,
   registerWebhookCall,
   getWebhookCall,
+  updateWebhookCall,
   deleteWebhookCall,
   getWebhookSecretByAgentId,
 };
