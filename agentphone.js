@@ -527,6 +527,41 @@ function saveWebhookCallsFile(all) {
 // in-flight registrations — root-caused, not a routing bug.
 console.log(`[AGENTPHONE] Process (re)started at ${new Date().toISOString()} — webhook-mode call state resets to whatever's on disk at boot.`);
 
+// Real per-call outbound tests kept coming back with "found nothing"
+// even after registration had succeeded and even after adding an
+// immediate post-write Supabase flush — because the flush/mirror
+// model (pullAll() once at boot, flush() every 20s) only guarantees
+// ONE process instance's local disk stays in sync. Render can run
+// two instances briefly during a rolling deploy, or route requests
+// unevenly; whichever instance happens to handle the webhook
+// delivery may have booted (and done its one-time pull) before the
+// other instance ever wrote the registration, so it can never see
+// it locally no matter how fast the write+flush was. Below, when
+// Supabase is configured, every register/get/update/delete for
+// webhook call state reads and writes Supabase directly and
+// immediately — no local cache, no instance-dependent staleness.
+// Local-file storage remains the fallback ONLY for setups without
+// Supabase configured (see the loud warning below), where this
+// whole class of bug simply can't be fully solved by any storage
+// scheme running on Render's ephemeral, potentially multi-instance
+// free tier.
+let _warnedNoSupabaseForWebhookCalls = false;
+function warnIfNoSupabase() {
+  if (_warnedNoSupabaseForWebhookCalls || Persistence.isConfigured()) return;
+  _warnedNoSupabaseForWebhookCalls = true;
+  console.warn(
+    "[AGENTPHONE] SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET are not set — " +
+    "webhook-mode call state is falling back to a local JSON file, which is NOT reliable " +
+    "on Render if more than one instance of this app is ever running at once (e.g. during " +
+    "a rolling deploy). Set those three env vars (see persistence.js header) to fix this class " +
+    "of bug for good; without them, outbound calls can intermittently misroute."
+  );
+}
+
+function remoteCallPath(key) {
+  return `webhook-calls/${key}.json`;
+}
+
 // AgentPhone's own inconsistency: the id POST /calls returns is
 // prefixed ("ap_cmsxmm1nl..."), but the callId it sends back in each
 // webhook delivery for that same call is NOT ("cmsxmm1nl..." — no
@@ -540,9 +575,21 @@ function normalizeCallId(id) {
   return String(id || "").replace(/^ap_/, "");
 }
 
-function registerWebhookCall(callId, rec) {
-  const all = loadWebhookCalls();
+async function registerWebhookCall(callId, rec) {
   const key = normalizeCallId(callId);
+
+  if (Persistence.isConfigured()) {
+    const ok = await Persistence.putJSON(remoteCallPath(key), rec);
+    if (ok) {
+      console.log(`[AGENTPHONE] Registered webhook call state for "${key}" directly in Supabase.`);
+    } else {
+      console.error(`[AGENTPHONE] ⚠ Failed to register "${key}" in Supabase — this call WILL misroute to the inbound script (or, with the direction check in place, get a safe apology instead) on its first turn.`);
+    }
+    return;
+  }
+
+  warnIfNoSupabase();
+  const all = loadWebhookCalls();
   all[key] = rec;
   saveWebhookCallsFile(all);
   // Read back from disk (not the in-memory `all` we just wrote) to
@@ -550,67 +597,85 @@ function registerWebhookCall(callId, rec) {
   // exception means it worked.
   const verify = loadWebhookCalls();
   if (verify[key]) {
-    console.log(`[AGENTPHONE] Registered webhook call state for "${key}" (${Object.keys(verify).length} call(s) currently on file).`);
+    console.log(`[AGENTPHONE] Registered webhook call state for "${key}" locally (${Object.keys(verify).length} call(s) currently on file).`);
   } else {
     console.error(`[AGENTPHONE] ⚠ Registered "${key}" but it's NOT there on read-back — the write did not actually persist. This call WILL misroute to the inbound script on its first turn.`);
   }
-  // Don't wait for persistence.js's normal 20s auto-sync interval —
-  // a call can go from "placed" to "callee speaking, first webhook
-  // turn arriving" in well under 20 seconds (see real example: a
-  // whole call completing in ~20-23s total). If Render restarts the
-  // container in that window, the periodic flush may not have run
-  // yet, so the local write above would be on disk but never make it
-  // to Supabase — and pullAll() on the next boot would restore the
-  // OLDER (pre-registration) file, silently wiping this call again
-  // even though registerWebhookCall() succeeded. Push this specific
-  // change immediately, best-effort, so the registration has the
-  // best chance of surviving a restart that lands seconds later.
-  // isConfigured() is checked inside flush() itself, so this is a
-  // cheap no-op when Supabase isn't set up.
-  Persistence.flush().catch((e) => {
-    console.warn(`[AGENTPHONE] Immediate post-registration Supabase flush failed (will retry on the normal ${20}s cycle): ${e.message}`);
-  });
 }
-function getWebhookCall(callId) {
-  const all = loadWebhookCalls();
+
+async function getWebhookCall(callId) {
   const key = normalizeCallId(callId);
+
+  if (Persistence.isConfigured()) {
+    const rec = await Persistence.getJSON(remoteCallPath(key));
+    if (!rec) console.warn(`[AGENTPHONE] getWebhookCall("${key}") found nothing in Supabase.`);
+    return rec;
+  }
+
+  warnIfNoSupabase();
+  const all = loadWebhookCalls();
   const rec = all[key] || null;
   if (!rec) {
-    console.warn(`[AGENTPHONE] getWebhookCall("${key}") found nothing. Currently on file: [${Object.keys(all).join(", ") || "(empty)"}].`);
+    console.warn(`[AGENTPHONE] getWebhookCall("${key}") found nothing locally. Currently on file: [${Object.keys(all).join(", ") || "(empty)"}].`);
   }
   return rec;
 }
 // agentphone-voice-routes.js mutates the rec object it gets back from
 // getWebhookCall() (pushing turns, bumping the turn count) — call this
-// after each mutation to actually persist it, since disk reads/writes
-// no longer share a live object reference the way the old Map did.
-function updateWebhookCall(callId, rec) {
+// after each mutation to actually persist it, since reads/writes no
+// longer share a live object reference the way the old in-memory Map
+// did.
+async function updateWebhookCall(callId, rec) {
+  const key = normalizeCallId(callId);
+  if (Persistence.isConfigured()) {
+    await Persistence.putJSON(remoteCallPath(key), rec);
+    return;
+  }
+  warnIfNoSupabase();
   const all = loadWebhookCalls();
-  all[normalizeCallId(callId)] = rec;
+  all[key] = rec;
   saveWebhookCallsFile(all);
 }
-function deleteWebhookCall(callId) {
+async function deleteWebhookCall(callId) {
+  const key = normalizeCallId(callId);
+  if (Persistence.isConfigured()) {
+    await Persistence.deleteRemote(remoteCallPath(key));
+    return;
+  }
+  warnIfNoSupabase();
   const all = loadWebhookCalls();
-  delete all[normalizeCallId(callId)];
+  delete all[key];
   saveWebhookCallsFile(all);
 }
 
 // ── WEBHOOK STORAGE HEALTH CHECK ──────────────────────────────────
 // Runs once, right before a webhook-mode call is placed. Writes a
-// throwaway sentinel record, reads it back, then deletes it. If that
-// round-trip fails (disk not writable, permissions, whatever), we
-// already know for certain that this call's very first live turn
-// would find no registered state and misroute — same failure the
-// "wrong number" bug came from. Catching it here, BEFORE dialing,
-// means we can send the call out through AgentPhone's own normal
-// hosted mode instead, so the callee never experiences a broken
-// webhook turn at all. There's no documented way to hand a call back
-// to AgentPhone's hosted LLM mid-conversation once it's already
-// committed to webhook mode and answered — so this has to happen
-// before the call goes out, not as a mid-call recovery.
-function webhookStorageIsHealthy() {
+// throwaway sentinel record, reads it back, then deletes it, using
+// WHICHEVER backend registerWebhookCall()/getWebhookCall() will
+// actually use at runtime (Supabase directly if configured, the
+// local file otherwise) — so this check is only meaningful for the
+// path this call will really take. If that round-trip fails, we
+// already know this call's very first live turn would find no
+// registered state and misroute — same failure the "wrong number"
+// bug came from. Catching it here, BEFORE dialing, means we can send
+// the call out through AgentPhone's own normal hosted mode instead,
+// so the callee never experiences a broken webhook turn at all.
+// There's no documented way to hand a call back to AgentPhone's
+// hosted LLM mid-conversation once it's already committed to webhook
+// mode and answered — so this has to happen before the call goes
+// out, not as a mid-call recovery.
+async function webhookStorageIsHealthy() {
   const sentinelKey = `__healthcheck_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   try {
+    if (Persistence.isConfigured()) {
+      const wrote = await Persistence.putJSON(remoteCallPath(sentinelKey), { sentinel: true, at: Date.now() });
+      const readBack = wrote ? await Persistence.getJSON(remoteCallPath(sentinelKey)) : null;
+      await Persistence.deleteRemote(remoteCallPath(sentinelKey));
+      const ok = !!readBack;
+      if (!ok) console.error("[AGENTPHONE] Webhook storage health check failed (Supabase round-trip) — falling back to AgentPhone's normal hosted mode for this call.");
+      return ok;
+    }
+
     const all = loadWebhookCalls();
     all[sentinelKey] = { sentinel: true, at: Date.now() };
     saveWebhookCallsFile(all);
@@ -621,7 +686,7 @@ function webhookStorageIsHealthy() {
     saveWebhookCallsFile(verify);
 
     if (!ok) {
-      console.error("[AGENTPHONE] Webhook storage health check failed — wrote a sentinel record but it wasn't there on read-back. Falling back to AgentPhone's normal hosted mode for this call.");
+      console.error("[AGENTPHONE] Webhook storage health check failed (local file round-trip) — falling back to AgentPhone's normal hosted mode for this call.");
     }
     return ok;
   } catch (e) {
@@ -664,7 +729,7 @@ async function placeOutboundCall({ toNumber, systemPrompt, initialGreeting, voic
     if (useWebhook) {
       // Catch a broken webhook-storage round-trip BEFORE the call
       // goes out, not after the callee has already answered.
-      if (!webhookStorageIsHealthy()) {
+      if (!(await webhookStorageIsHealthy())) {
         return placeHosted(account);
       }
 
@@ -684,7 +749,7 @@ async function placeOutboundCall({ toNumber, systemPrompt, initialGreeting, voic
         // puts THIS call into webhook mode on AgentPhone's side.
       }, account.apiKey);
 
-      registerWebhookCall(call.id, {
+      await registerWebhookCall(call.id, {
         ownerName: ownerName || "my owner",
         systemPrompt,
         history: initialGreeting ? [{ role: "assistant", text: initialGreeting }] : [],
