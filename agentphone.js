@@ -216,13 +216,36 @@ async function ensureAgentAndNumber(ownerName, index) {
   if (!cfg) throw new Error(`No AgentPhone account configured at index ${idx} (only ${cfgs.length} configured).`);
 
   let acc = accountState(state, idx);
-  if (acc.agentId && acc.numberId) return { ...acc, apiKey: cfg.apiKey, index: idx };
+
+  // .env is the source of truth when it specifies an agent/number id —
+  // the cache below exists only to remember an id that AgentPhone
+  // auto-created because .env had none (see the create-on-demand logic
+  // further down). Without this check, changing AGENTPHONE_AGENT_ID /
+  // AGENTPHONE_NUMBER_ID in .env silently did nothing once the old
+  // values were already cached: this returned the stale cached account
+  // and never even looked at the new env vars, which is exactly the
+  // "I updated .env but it's still using the old agent ID" bug.
+  const envOverridesCache =
+    (cfg.agentIdEnv && cfg.agentIdEnv !== acc.agentId) ||
+    (cfg.numberIdEnv && cfg.numberIdEnv !== acc.numberId);
+
+  if (acc.agentId && acc.numberId && !envOverridesCache) {
+    return { ...acc, apiKey: cfg.apiKey, index: idx };
+  }
+
+  if (envOverridesCache) {
+    console.log(`[AGENTPHONE] Account #${idx + 1}: .env agent/number id differs from what's cached — using .env and updating the cache.`);
+  }
 
   const label = idx === 0 ? "primary account" : `backup account #${idx + 1}`;
 
   let agentId = cfg.agentIdEnv || acc.agentId;
   let numberId = cfg.numberIdEnv || acc.numberId;
-  let phoneNumber = acc.phoneNumber || null;
+  // If the number id itself changed, the cached phoneNumber string
+  // belongs to the OLD number and would otherwise be carried over
+  // under the new id — clear it so it gets re-fetched below instead
+  // of silently mislabeling the new number with the old one.
+  let phoneNumber = (cfg.numberIdEnv && cfg.numberIdEnv !== acc.numberId) ? null : (acc.phoneNumber || null);
 
   if (!agentId) {
     console.log(`[AGENTPHONE] ${label}: no agent on file yet — creating one...`);
