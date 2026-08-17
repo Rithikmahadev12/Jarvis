@@ -70,6 +70,7 @@
 
 const fs = require("fs");
 const path = require("path");
+const Persistence = require("./persistence");
 
 const API_BASE = process.env.AGENTPHONE_BASE_URL || "https://api.agentphone.ai/v1";
 const STATE_PATH = path.join(__dirname, "data", "agentphone-state.json");
@@ -553,6 +554,22 @@ function registerWebhookCall(callId, rec) {
   } else {
     console.error(`[AGENTPHONE] ⚠ Registered "${key}" but it's NOT there on read-back — the write did not actually persist. This call WILL misroute to the inbound script on its first turn.`);
   }
+  // Don't wait for persistence.js's normal 20s auto-sync interval —
+  // a call can go from "placed" to "callee speaking, first webhook
+  // turn arriving" in well under 20 seconds (see real example: a
+  // whole call completing in ~20-23s total). If Render restarts the
+  // container in that window, the periodic flush may not have run
+  // yet, so the local write above would be on disk but never make it
+  // to Supabase — and pullAll() on the next boot would restore the
+  // OLDER (pre-registration) file, silently wiping this call again
+  // even though registerWebhookCall() succeeded. Push this specific
+  // change immediately, best-effort, so the registration has the
+  // best chance of surviving a restart that lands seconds later.
+  // isConfigured() is checked inside flush() itself, so this is a
+  // cheap no-op when Supabase isn't set up.
+  Persistence.flush().catch((e) => {
+    console.warn(`[AGENTPHONE] Immediate post-registration Supabase flush failed (will retry on the normal ${20}s cycle): ${e.message}`);
+  });
 }
 function getWebhookCall(callId) {
   const all = loadWebhookCalls();
@@ -703,6 +720,36 @@ async function getCall(callId) {
   return request("GET", `/calls/${callId}`, null, cfg.apiKey);
 }
 
+// ── SAFETY NET FOR agentphone-voice-routes.js ─────────────────────
+// When a webhook turn arrives for a callId with no registered
+// turn-state, the old behavior was to just assume "must be inbound"
+// and run the name-matching script (which can end in "sorry, wrong
+// number" — exactly the bug being chased: an outbound call Jarvis
+// placed itself getting told to its target that IT has the wrong
+// number). That assumption is only safe for calls that are actually
+// inbound. This asks AgentPhone directly which one it really was,
+// so a registration/sync gap on our end never gets to speak as if
+// the callee dialed the wrong place.
+//
+// AgentPhone's id inconsistency (see normalizeCallId above) means we
+// don't know for sure whether GET /calls/{id} wants the "ap_"
+// prefix or not — try the id exactly as given first, then the other
+// form, before giving up. Returns "outbound" | "inbound" | null
+// (null = couldn't determine; caller should fall back to the safe
+// default rather than assume either direction).
+async function getCallDirectionSafe(callId) {
+  const candidates = [...new Set([String(callId || ""), `ap_${normalizeCallId(callId)}`, normalizeCallId(callId)])].filter(Boolean);
+  for (const id of candidates) {
+    try {
+      const call = await getCall(id);
+      if (call && call.direction) return call.direction;
+    } catch {
+      // try the next candidate id form
+    }
+  }
+  return null;
+}
+
 async function waitForCallCompletion(callId, { pollMs = 4000, timeoutMs = 5 * 60 * 1000 } = {}) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -721,6 +768,7 @@ module.exports = {
   setAgentDefaultSystemPrompt,
   listCalls,
   getCall,
+  getCallDirectionSafe,
   waitForCallCompletion,
   getStatus,
   consumeSwitchNotice,
