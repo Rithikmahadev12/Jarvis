@@ -4880,6 +4880,15 @@ async function fetchGoogleTTS(text) {
   return Buffer.concat(parts); // concatenated MP3 — valid for casting
 }
 
+// Lightweight keep-alive target — see startServer()'s self-ping loop
+// below. Deliberately does no real work: the only thing that matters
+// is that it's fast and mounted before any body-parsing middleware
+// that could slow it down, so a ping always gets a quick 200 even
+// while the rest of the app is busy.
+app.get("/health", (req, res) => {
+  res.status(200).json({ ok: true, uptime: process.uptime() });
+});
+
 // Status check — client can poll this on startup to know when voice is ready
 app.get("/api/tts/status", (req, res) => {
   res.json({ ready: TTS.isReady() });
@@ -4928,6 +4937,28 @@ function startServer() {
     // non-Windows hosts and can be turned off via Settings (activityTracking)
     // or JARVIS_TRACK_ACTIVITY=false in .env.
     ActivityLog.startTracking();
+
+    // ── KEEP-ALIVE: stop Render's free tier from spinning down ─────────
+    // Render's free plan sleeps the instance after ~15 min idle, and the
+    // next request pays a cold-start penalty of several seconds to tens
+    // of seconds. That's fine for a normal page load but fatal for an
+    // AgentPhone webhook turn, which gets superseded (and silently
+    // dropped) if it doesn't respond in a few seconds — see the AgentPhone
+    // support thread on the outbound-call silence bug. Self-pinging our
+    // own /health endpoint keeps the instance warm around the clock.
+    // No-ops locally / on any host that isn't actually Render, since
+    // RENDER_EXTERNAL_URL is only set by Render itself.
+    const selfPingUrl = process.env.RENDER_EXTERNAL_URL || process.env.KEEP_ALIVE_URL || null;
+    if (selfPingUrl) {
+      const pingSelf = () => {
+        fetch(`${selfPingUrl.replace(/\/$/, "")}/health`, { signal: AbortSignal.timeout(10000) })
+          .catch((e) => console.error("[keep-alive] self-ping failed:", e.message));
+      };
+      setInterval(pingSelf, 10 * 60 * 1000); // every 10 minutes — comfortably under the ~15 min idle timeout
+      console.log(`  Keep-alive:    ✓ self-pinging ${selfPingUrl}/health every 10 min`);
+    } else {
+      console.log(`  Keep-alive:    ✗ not set (set KEEP_ALIVE_URL to this service's public URL, or deploy on Render where RENDER_EXTERNAL_URL is automatic) — the instance WILL cold-start after idle and can miss webhook turns`);
+    }
 
     // ── INBOUND PHONE AGENT: sync the answering prompt + poll for calls ──
     // AgentPhone hosted mode has no live webhook (see agentphone.js's
