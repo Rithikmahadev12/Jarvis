@@ -221,6 +221,7 @@ function mount(app) {
         if (rec.turns >= MAX_TURNS) {
           const bye = "I've taken up enough of your time — thank you, goodbye.";
           rec.history.push({ role: "assistant", text: bye });
+          AgentPhone.updateWebhookCall(data.callId, rec);
           res.json({ text: bye, hangup: true });
           return;
         }
@@ -228,6 +229,7 @@ function mount(app) {
         const next = await askGroqForNextLine(rec);
         rec.history.push({ role: "assistant", text: next.text });
         rec.turns += 1;
+        AgentPhone.updateWebhookCall(data.callId, rec);
 
         res.json({ text: next.text, hangup: !!next.done });
         return;
