@@ -187,25 +187,63 @@ function mount(app) {
         let rec = AgentPhone.getWebhookCall(data.callId);
 
         if (!rec) {
-          // No pre-registered record means this wasn't a call
-          // phone-agent.js placed itself — almost always an INBOUND
-          // call (someone dialing Jarvis's number), since flipping
-          // the agent to voiceMode:"webhook" for outbound calls
-          // routes inbound calls here too now. Build the same
+          // No pre-registered record used to mean "assume INBOUND"
+          // unconditionally and run the name-matching script — which
+          // can end in "sorry, wrong number" being said to whoever
+          // Jarvis itself just called. That's exactly the bug being
+          // chased: a real test call proved a registration/sync gap
+          // (not an actual wrong number) can make an OUTBOUND call
+          // fall through here too, and the old code had no way to
+          // tell the two situations apart, so it guessed wrong.
+          //
+          // Ask AgentPhone directly which direction this call really
+          // was before saying anything. This costs one extra API call
+          // only on the rare path where a lookup already missed —
+          // normal calls with a working registration never hit it.
+          console.warn(`[AGENTPHONE-WEBHOOK] No registered turn-state for callId ${data.callId} — checking AgentPhone directly for this call's real direction before assuming inbound.`);
+          const direction = await AgentPhone.getCallDirectionSafe(data.callId).catch(() => null);
+
+          if (direction === "outbound") {
+            // Confirmed: this is a call Jarvis placed itself, and the
+            // registration lookup is failing for a real reason
+            // (older deployed code, a Persistence/Supabase sync gap,
+            // a mid-call restart, or a genuine callId mismatch) — not
+            // a wrong number. Never let it say "wrong number" to the
+            // actual intended recipient. Log this loudly (it always
+            // means a real bug worth investigating) and end the call
+            // gracefully instead of guessing at a script we don't
+            // have the real context for.
+            console.error(`[AGENTPHONE-WEBHOOK] ⚠ CONFIRMED BUG: callId ${data.callId} is a real OUTBOUND call with no registered turn-state. Check Render logs around this call's start time for a "Process (re)started" line (mid-call restart) or a Supabase push failure — this is NOT a wrong number.`);
+            res.json({
+              text: "Sorry, I'm having a technical issue on my end — I'll have someone follow up. Thank you, goodbye.",
+              hangup: true,
+            });
+            return;
+          }
+
+          if (direction !== "inbound") {
+            // Couldn't confirm either way (API call failed, unknown
+            // account, etc.) — safest is still not to accuse a real
+            // person of being a wrong number on a guess. Give a
+            // neutral, non-committal line and end politely rather
+            // than run the inbound script against possibly-outbound
+            // context.
+            console.error(`[AGENTPHONE-WEBHOOK] ⚠ Could not confirm direction for callId ${data.callId} (AgentPhone lookup failed too) — treating cautiously instead of guessing inbound.`);
+            res.json({
+              text: "Sorry, I'm having a technical issue on my end — I'll have someone follow up. Thank you, goodbye.",
+              hangup: true,
+            });
+            return;
+          }
+
+          // Confirmed genuinely inbound (someone dialing Jarvis's
+          // number) — this is the correct, expected path for a call
+          // with no pre-registered record, since inbound calls are
+          // never registered ahead of time. Build the same
           // name-matching inbound conversation inbound-agent.js used
           // to hand to AgentPhone's hosted LLM, and drive it with our
           // own Groq call instead — same fix, same reasoning, just
-          // for the other call direction.
-          //
-          // Logged loudly: if this fires for a call phone-agent.js DID
-          // place (visible as an outbound call in AgentPhone's own
-          // dashboard/API), that means the lookup is failing for a
-          // real reason — either this server is running older code
-          // that never registered it, or AgentPhone's data.callId
-          // genuinely doesn't match the id placeOutboundCall() got
-          // back from POST /calls. Worth checking data/agentphone-webhook-calls.json
-          // directly against this callId if it keeps happening.
-          console.warn(`[AGENTPHONE-WEBHOOK] No registered turn-state for callId ${data.callId} — treating as inbound. If this was actually an outbound call Jarvis placed, the registration lookup is failing.`);
+          // for this call direction.
           try {
             const users = InboundAgent.loadUsers();
             const ownerName = InboundAgent.defaultOwnerName();
