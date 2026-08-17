@@ -595,6 +595,41 @@ function deleteWebhookCall(callId) {
   saveWebhookCallsFile(all);
 }
 
+// ── WEBHOOK STORAGE HEALTH CHECK ──────────────────────────────────
+// Runs once, right before a webhook-mode call is placed. Writes a
+// throwaway sentinel record, reads it back, then deletes it. If that
+// round-trip fails (disk not writable, permissions, whatever), we
+// already know for certain that this call's very first live turn
+// would find no registered state and misroute — same failure the
+// "wrong number" bug came from. Catching it here, BEFORE dialing,
+// means we can send the call out through AgentPhone's own normal
+// hosted mode instead, so the callee never experiences a broken
+// webhook turn at all. There's no documented way to hand a call back
+// to AgentPhone's hosted LLM mid-conversation once it's already
+// committed to webhook mode and answered — so this has to happen
+// before the call goes out, not as a mid-call recovery.
+function webhookStorageIsHealthy() {
+  const sentinelKey = `__healthcheck_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  try {
+    const all = loadWebhookCalls();
+    all[sentinelKey] = { sentinel: true, at: Date.now() };
+    saveWebhookCallsFile(all);
+
+    const verify = loadWebhookCalls();
+    const ok = !!verify[sentinelKey];
+    delete verify[sentinelKey];
+    saveWebhookCallsFile(verify);
+
+    if (!ok) {
+      console.error("[AGENTPHONE] Webhook storage health check failed — wrote a sentinel record but it wasn't there on read-back. Falling back to AgentPhone's normal hosted mode for this call.");
+    }
+    return ok;
+  } catch (e) {
+    console.error(`[AGENTPHONE] Webhook storage health check threw (${e.message}) — falling back to AgentPhone's normal hosted mode for this call.`);
+    return false;
+  }
+}
+
 // ── PLACE AN OUTBOUND CALL ────────────────────────────────────────
 // systemPrompt is always required from the caller's side (phone-agent.js
 // still builds it the same way it always has) — but WHERE it ends up
@@ -612,19 +647,32 @@ async function placeOutboundCall({ toNumber, systemPrompt, initialGreeting, voic
 
   const useWebhook = isWebhookModeAvailable();
 
+  // Shared by every "don't/can't use webhook mode" path below, so
+  // hosted-mode calls are placed identically no matter which check
+  // sent them here — normal AgentPhone-hosted-AI behavior, exactly
+  // like before webhook mode existed at all.
+  const placeHosted = (account) =>
+    request("POST", "/calls", {
+      agentId: account.agentId,
+      toNumber,
+      initialGreeting: initialGreeting || undefined,
+      systemPrompt,
+      voice: voice || undefined,
+    }, account.apiKey);
+
   return withAccountFailover(ownerName, async (account, idx) => {
     if (useWebhook) {
+      // Catch a broken webhook-storage round-trip BEFORE the call
+      // goes out, not after the callee has already answered.
+      if (!webhookStorageIsHealthy()) {
+        return placeHosted(account);
+      }
+
       try {
         await ensureWebhookForAccount(account, idx, ownerName);
       } catch (e) {
         console.error(`[AGENTPHONE] Couldn't register the webhook (falling back to hosted mode for this call only): ${e.message}`);
-        return request("POST", "/calls", {
-          agentId: account.agentId,
-          toNumber,
-          initialGreeting: initialGreeting || undefined,
-          systemPrompt,
-          voice: voice || undefined,
-        }, account.apiKey);
+        return placeHosted(account);
       }
 
       const call = await request("POST", "/calls", {
@@ -646,13 +694,7 @@ async function placeOutboundCall({ toNumber, systemPrompt, initialGreeting, voic
       return call;
     }
 
-    return request("POST", "/calls", {
-      agentId: account.agentId,
-      toNumber,
-      initialGreeting: initialGreeting || undefined,
-      systemPrompt,
-      voice: voice || undefined,
-    }, account.apiKey);
+    return placeHosted(account);
   });
 }
 
