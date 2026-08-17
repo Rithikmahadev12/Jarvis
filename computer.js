@@ -570,6 +570,110 @@ async function desktopReadFile(filePath) {
   return desktop.files.read(filePath, { format: "bytes" });
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ── SELF-HOSTED OLLAMA (VISION) — hosted inside the desktop sandbox
+//
+// Jarvis's own "computer" (the E2B desktop sandbox above) can host a
+// small vision-capable model itself, via Ollama: no external API, no
+// key, nothing that can run out of credits or rate-limit — the true
+// last-resort-that-never-actually-fails tier. This started out living
+// only in textnow-call.js (its tier-3 fallback for reading TextNow's
+// own UI), duplicated there because nothing else needed it yet. It's
+// pulled up here now so ANY caller — screen-vision.js's "look at my
+// screen" / "find this button" included — can install it once, run
+// it once, and reuse the same running Ollama server for every vision
+// call after that, instead of each module reinventing the "install +
+// serve + query Ollama in the sandbox" dance on its own.
+//
+// COST/LATENCY NOTE: the very first call in a given sandbox session
+// pays for installing Ollama (~seconds) and pulling the model
+// (~minutes, one-time) — ensureOllama() below is idempotent per
+// sandbox instance (tracked by ollamaReady) so every call after that
+// is just a local HTTP round trip inside the sandbox. Callers that
+// want this tried FIRST, ahead of paid/quota'd cloud vision APIs,
+// should account for that first-call cost; callers that want it as a
+// pure last resort (the original textnow-call.js use) pay it rarely,
+// since cloud tiers usually succeed first.
+//
+// Also depends on isDesktopConfigured() (E2B_API_KEY + @e2b/desktop
+// installed) — callers should check that before relying on this, or
+// just call ollamaVision() and handle the thrown error like any other
+// vision-tier failure.
+// ═══════════════════════════════════════════════════════════════
+const SANDBOX_OLLAMA_VISION_MODEL =
+  process.env.SANDBOX_OLLAMA_VISION_MODEL ||
+  process.env.TEXTNOW_SELFHOST_VISION_MODEL || // back-compat with the old textnow-only env var
+  "moondream";
+
+let ollamaReady = false;
+
+// Installs Ollama in the desktop sandbox if it's not there yet, starts
+// `ollama serve` if it's not already running, and pulls the requested
+// model if it's not already pulled. Safe to call before every request
+// — after the first successful run this is a single no-op check.
+async function ensureOllama(model = SANDBOX_OLLAMA_VISION_MODEL) {
+  if (!isDesktopRunning()) ollamaReady = false; // sandbox was reaped/killed since last time — re-verify everything
+  if (ollamaReady) return;
+
+  console.log(`[COMPUTER] Setting up self-hosted Ollama ("${model}") on the sandbox computer...`);
+
+  const check = await desktopRunCommand("which ollama", { timeoutMs: 10000 });
+  if (!check.ok || !check.stdout.trim()) {
+    const install = await desktopRunCommand("curl -fsSL https://ollama.com/install.sh | sh", { timeoutMs: 180000 });
+    if (!install.ok) throw new Error(`Couldn't install Ollama on the sandbox: ${install.stderr || "unknown error"}`);
+  }
+
+  const running = await desktopRunCommand("curl -s -m 2 http://127.0.0.1:11434/api/tags", { timeoutMs: 5000 });
+  if (!running.ok || !running.stdout.trim()) {
+    await desktopRunCommand("nohup ollama serve > /tmp/ollama-serve.log 2>&1 & disown; sleep 2; true", { timeoutMs: 15000 });
+  }
+
+  const pulled = await desktopRunCommand(`ollama list | grep -qi "${model}"`, { timeoutMs: 10000 });
+  if (!pulled.ok) {
+    console.log(`[COMPUTER] Pulling self-hosted vision model "${model}" on the sandbox (first time only, can take a few minutes)...`);
+    const pull = await desktopRunCommand(`ollama pull ${model}`, { timeoutMs: 10 * 60 * 1000 });
+    if (!pull.ok) throw new Error(`Couldn't pull "${model}" on the sandbox: ${pull.stderr || "unknown error"}`);
+  }
+
+  ollamaReady = true;
+}
+
+function isOllamaReady() {
+  return ollamaReady;
+}
+
+// Sends one vision request (image + prompt) to the sandbox's own
+// Ollama server. The server is only reachable FROM INSIDE the sandbox
+// (this Node process isn't in there), so the request itself has to
+// run as a shell command via desktopRunCommand — the JSON body is
+// written to a file first rather than inlined on the command line,
+// since a base64 screenshot is way too large/escape-unsafe for that.
+async function ollamaVision(base64Image, prompt, opts = {}) {
+  const model = opts.model || SANDBOX_OLLAMA_VISION_MODEL;
+  await ensureOllama(model);
+
+  const body = JSON.stringify({
+    model,
+    stream: false,
+    messages: [{ role: "user", content: prompt, images: [base64Image] }],
+  });
+  const reqPath = `/tmp/jarvis_ollama_req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.json`;
+  await desktopWriteFile(reqPath, body);
+  const res = await desktopRunCommand(
+    `curl -s -X POST http://127.0.0.1:11434/api/chat -H "Content-Type: application/json" -d @${reqPath}`,
+    { timeoutMs: opts.timeoutMs || 90000 }
+  );
+  if (!res.ok || !res.stdout) throw new Error("Self-hosted Ollama request failed inside the sandbox.");
+
+  let parsed;
+  try {
+    parsed = JSON.parse(res.stdout);
+  } catch {
+    throw new Error("Self-hosted Ollama returned unparseable output.");
+  }
+  return parsed?.message?.content || "";
+}
+
 module.exports = {
   isConfigured,
   isRunning,
@@ -600,4 +704,9 @@ module.exports = {
   desktopRunCommand,
   desktopWriteFile,
   desktopReadFile,
+  // self-hosted Ollama (vision), hosted inside the desktop sandbox
+  ensureOllama,
+  isOllamaReady,
+  ollamaVision,
+  SANDBOX_OLLAMA_VISION_MODEL,
 };
