@@ -642,6 +642,19 @@ function isOllamaReady() {
   return ollamaReady;
 }
 
+// Text-only sibling of SANDBOX_OLLAMA_VISION_MODEL — a small, fast
+// model for plain chat turns (no image), used as the true last-resort
+// tier for live phone-call turns (agentphone-voice-routes.js /
+// twilio-voice-routes.js) once Ollama Cloud, Gemini, AND Groq have
+// all failed. Defaults to the same model local-llm.js uses for local
+// dev mode (llama3.2:3b) so there's only one model name to remember,
+// but is independently overridable since this one runs inside the
+// E2B sandbox, not necessarily the user's own machine.
+const SANDBOX_OLLAMA_TEXT_MODEL =
+  process.env.SANDBOX_OLLAMA_TEXT_MODEL ||
+  process.env.OLLAMA_MODEL || // back-compat / share local-llm.js's choice if the user already set one
+  "llama3.2:3b";
+
 // Sends one vision request (image + prompt) to the sandbox's own
 // Ollama server. The server is only reachable FROM INSIDE the sandbox
 // (this Node process isn't in there), so the request itself has to
@@ -672,6 +685,42 @@ async function ollamaVision(base64Image, prompt, opts = {}) {
     throw new Error("Self-hosted Ollama returned unparseable output.");
   }
   return parsed?.message?.content || "";
+}
+
+// Text-chat sibling of ollamaVision() above — same "install/serve/pull
+// once, then plain HTTP inside the sandbox" mechanism, just a normal
+// {role, content} messages array instead of an image+prompt. Used as
+// the true last-resort tier once every cloud provider (Ollama Cloud,
+// Gemini, Groq) has failed on a live call — Jarvis installs and hosts
+// its own tiny model on its own sandbox computer rather than just
+// giving up and hanging up.
+async function ollamaChat(messages, opts = {}) {
+  const model = opts.model || SANDBOX_OLLAMA_TEXT_MODEL;
+  await ensureOllama(model);
+
+  const body = JSON.stringify({
+    model,
+    stream: false,
+    messages,
+    options: { temperature: opts.temperature ?? 0.4 },
+  });
+  const reqPath = `/tmp/jarvis_ollama_chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.json`;
+  await desktopWriteFile(reqPath, body);
+  const res = await desktopRunCommand(
+    `curl -s -X POST http://127.0.0.1:11434/api/chat -H "Content-Type: application/json" -d @${reqPath}`,
+    { timeoutMs: opts.timeoutMs || 90000 }
+  );
+  if (!res.ok || !res.stdout) throw new Error("Self-hosted Ollama chat request failed inside the sandbox.");
+
+  let parsed;
+  try {
+    parsed = JSON.parse(res.stdout);
+  } catch {
+    throw new Error("Self-hosted Ollama returned unparseable output.");
+  }
+  const text = (parsed?.message?.content || "").trim();
+  if (!text) throw new Error("Self-hosted Ollama returned no content.");
+  return text;
 }
 
 module.exports = {
@@ -708,5 +757,7 @@ module.exports = {
   ensureOllama,
   isOllamaReady,
   ollamaVision,
+  ollamaChat,
   SANDBOX_OLLAMA_VISION_MODEL,
+  SANDBOX_OLLAMA_TEXT_MODEL,
 };
