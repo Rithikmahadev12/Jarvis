@@ -243,7 +243,7 @@ async function askForNextLine(rec) {
       if (!Computer.isOllamaReady()) {
         console.log("[AGENTPHONE-WEBHOOK] Cloud LLM options unavailable — Jarvis is installing and hosting Ollama on its own sandbox computer as a last resort...");
       }
-      const text = await Computer.ollamaChat(messages, { temperature: 0.4 });
+      const text = await Computer.ollamaText(messages, { temperature: 0.4 });
       return finalize(text);
     } catch (e) {
       console.warn(`[AGENTPHONE-WEBHOOK] Self-hosted sandbox Ollama failed (${e.message}) — falling back to Groq (true last resort).`);
