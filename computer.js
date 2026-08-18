@@ -694,18 +694,35 @@ async function ollamaVision(base64Image, prompt, opts = {}) {
 // Gemini, Groq) has failed on a live call — Jarvis installs and hosts
 // its own tiny model on its own sandbox computer rather than just
 // giving up and hanging up.
+//
+// Supports tool-calling (opts.tools / opts.tool_choice) since
+// hermes-engine.js's brain needs this tier to be able to carry
+// TOOLS/tool_calls just like every other tier, not just plain chat.
+// Returns the FULL message object ({role, content, tool_calls?}) —
+// same shape local-llm.js's ollamaChat() returns — not just a string,
+// so callers that need tool_calls can see them. Callers that only
+// want plain text should use ollamaText() below instead.
 async function ollamaChat(messages, opts = {}) {
   const model = opts.model || SANDBOX_OLLAMA_TEXT_MODEL;
   await ensureOllama(model);
 
-  const body = JSON.stringify({
+  const body = {
     model,
     stream: false,
     messages,
     options: { temperature: opts.temperature ?? 0.4 },
-  });
+  };
+  if (opts.tools && opts.tools.length) {
+    body.tools = opts.tools;
+    // Ollama's native /api/chat doesn't document a tool_choice field the
+    // way OpenAI/Groq do — included anyway since it's harmless if the
+    // server just ignores it, and picked up for free if a future Ollama
+    // version (or a specific model's template) does support it.
+    if (opts.tool_choice) body.tool_choice = opts.tool_choice;
+  }
+
   const reqPath = `/tmp/jarvis_ollama_chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.json`;
-  await desktopWriteFile(reqPath, body);
+  await desktopWriteFile(reqPath, JSON.stringify(body));
   const res = await desktopRunCommand(
     `curl -s -X POST http://127.0.0.1:11434/api/chat -H "Content-Type: application/json" -d @${reqPath}`,
     { timeoutMs: opts.timeoutMs || 90000 }
@@ -718,7 +735,18 @@ async function ollamaChat(messages, opts = {}) {
   } catch {
     throw new Error("Self-hosted Ollama returned unparseable output.");
   }
-  const text = (parsed?.message?.content || "").trim();
+  const msg = parsed?.message || {};
+  const hasToolCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length;
+  if (!msg.content && !hasToolCalls) throw new Error("Self-hosted Ollama returned no content.");
+  return msg;
+}
+
+// Plain-text convenience wrapper for callers that don't need tool
+// calls (e.g. a live phone-call turn) — mirrors local-llm.js's
+// ollamaText() wrapper around its own ollamaChat().
+async function ollamaText(messages, opts = {}) {
+  const msg = await ollamaChat(messages, opts);
+  const text = (msg.content || "").trim();
   if (!text) throw new Error("Self-hosted Ollama returned no content.");
   return text;
 }
@@ -758,6 +786,7 @@ module.exports = {
   isOllamaReady,
   ollamaVision,
   ollamaChat,
+  ollamaText,
   SANDBOX_OLLAMA_VISION_MODEL,
   SANDBOX_OLLAMA_TEXT_MODEL,
 };
