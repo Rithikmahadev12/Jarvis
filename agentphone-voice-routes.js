@@ -54,6 +54,7 @@ const GroqKeys = require("./groq-keys");
 const InboundAgent = require("./inbound-agent");
 const Settings = require("./settings");
 const LocalLLM = require("./local-llm");
+const Computer = require("./computer");
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODEL = process.env.GROQ_AGENT_MODEL || process.env.GROQ_MODEL_FAST || "openai/gpt-oss-20b";
@@ -97,6 +98,24 @@ function toGeminiPayload(messages) {
   const contents = messages
     .filter((m) => m.role !== "system")
     .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+
+  // Gemini rejects any request whose contents[] ends on a "model"
+  // turn (HTTP 400 "Requests ending with a model turn are not
+  // supported") — it only ever replies to a user turn. That's exactly
+  // what happens here on a webhook delivery with no new transcript
+  // (e.g. DTMF-only audio, dead air, or the very first turn of a
+  // call): askForNextLine() only pushes a "user" entry into history
+  // when `said` is non-empty, so the message list can still end on
+  // Jarvis's own previous line, or be empty entirely. Pad it with a
+  // synthetic user turn instead of ever sending Gemini something it
+  // will hard-reject.
+  if (!contents.length || contents[contents.length - 1].role !== "user") {
+    contents.push({
+      role: "user",
+      parts: [{ text: "(The caller hasn't said anything clearly yet — continue naturally, e.g. re-ask or prompt them.)" }],
+    });
+  }
+
   const payload = { contents };
   if (systemText) payload.system_instruction = { parts: [{ text: systemText }] };
   return payload;
@@ -152,18 +171,22 @@ function verifySignature(rawBody, signature, timestamp, secret) {
   }
 }
 
-// ── ASK FOR THE NEXT LINE — THREE-TIER FALLBACK ───────────────────
+// ── ASK FOR THE NEXT LINE — FOUR-TIER FALLBACK ────────────────────
 // In this exact order:
 //   1. Ollama Cloud (OLLAMA_API_KEY) — tried first.
 //   2. Gemini (GEMINI_API_KEY) — if Ollama Cloud is unconfigured,
 //      out of credits, rate-limited, or otherwise fails.
-//   3. Groq — last resort now, not the primary path it used to be.
-// Same three-tier shape textnow-call.js already uses for its vision
-// fallback (Ollama Cloud -> Gemini -> self-hosted), applied here to
-// live-call text turns instead. All three get the exact same
-// messages/system-prompt, so behavior (tightened instructions, the
-// WRAP_UP_MARKER convention) is identical no matter which one
-// actually answers a given turn.
+//   3. Self-hosted Ollama, installed and run BY JARVIS ITSELF on its
+//      own sandbox computer (computer.js's ensureOllama/ollamaChat) —
+//      the same "install once, reuse forever" mechanism textnow-call.js
+//      uses for its vision fallback, just talking instead of looking.
+//      No external API, no key, nothing that can run out of credits —
+//      only needs E2B_API_KEY configured (Computer.isDesktopConfigured()).
+//   4. Groq — true last resort, tried only once nothing above worked
+//      at all.
+// All four get the exact same messages/system-prompt, so behavior
+// (tightened instructions, the WRAP_UP_MARKER convention) is
+// identical no matter which one actually answers a given turn.
 async function askForNextLine(rec) {
   const messages = [
     {
@@ -211,9 +234,25 @@ async function askForNextLine(rec) {
     }
   }
 
-  // TIER 3: Groq — last resort.
+  // TIER 3: self-hosted Ollama on Jarvis's own sandbox computer.
+  // Only attempted if the sandbox is actually configured — no point
+  // eating the ensureOllama() install/pull latency on a deploy that
+  // has no E2B_API_KEY at all.
+  if (Computer.isDesktopConfigured()) {
+    try {
+      if (!Computer.isOllamaReady()) {
+        console.log("[AGENTPHONE-WEBHOOK] Cloud LLM options unavailable — Jarvis is installing and hosting Ollama on its own sandbox computer as a last resort...");
+      }
+      const text = await Computer.ollamaChat(messages, { temperature: 0.4 });
+      return finalize(text);
+    } catch (e) {
+      console.warn(`[AGENTPHONE-WEBHOOK] Self-hosted sandbox Ollama failed (${e.message}) — falling back to Groq (true last resort).`);
+    }
+  }
+
+  // TIER 4: Groq — true last resort.
   if (!GroqKeys.hasGroqKey()) {
-    console.error("[AGENTPHONE-WEBHOOK] All configured providers exhausted (Ollama Cloud, Gemini) and no Groq key on file either — ending call gracefully.");
+    console.error("[AGENTPHONE-WEBHOOK] All configured providers exhausted (Ollama Cloud, Gemini, self-hosted sandbox Ollama) and no Groq key on file either — ending call gracefully.");
     return { text: "Sorry, I'm having trouble right now — I'll have someone follow up. Goodbye.", done: true };
   }
 
@@ -246,7 +285,7 @@ async function askForNextLine(rec) {
   }
 
   if (!res || !res.ok) {
-    console.error(`[AGENTPHONE-WEBHOOK] Groq request failed${lastError ? `: ${lastError.message}` : ""} — all three providers (Ollama Cloud, Gemini, Groq) failed for this turn — ending call gracefully.`);
+    console.error(`[AGENTPHONE-WEBHOOK] Groq request failed${lastError ? `: ${lastError.message}` : ""} — all four providers (Ollama Cloud, Gemini, self-hosted sandbox Ollama, Groq) failed for this turn — ending call gracefully.`);
     return { text: "Sorry, I'm having trouble right now — I'll have someone follow up. Goodbye.", done: true };
   }
 
