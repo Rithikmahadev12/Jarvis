@@ -13,6 +13,7 @@ const fs   = require("fs");
 const path = require("path");
 const GroqKeys = require("./groq-keys");
 const LocalLLM = require("./local-llm");
+const Computer = require("./computer");
 
 // ── CONFIG ─────────────────────────────────────────────────────
 // GROQ_API_KEY → your key from console.groq.com. Add GROQ_API_KEY2,
@@ -243,20 +244,31 @@ async function groqFetchRaw(messages, options = {}) {
   throw lastError || new Error("All configured Groq API keys failed.");
 }
 
-// Ollama Cloud is now tried FIRST (Groq is the fallback), because this
-// account's Groq tier has an 8000 TPM cap that Hermes' tool-calling
-// requests routinely exceed (~9500-9800 tokens), so Groq was failing on
-// most requests anyway. Ollama Cloud is used as long as it's configured
-// and healthy; Groq is the safety net for when Ollama Cloud itself is
-// down or not configured.
+// ── FOUR-TIER FALLBACK: Ollama Cloud -> Gemini -> self-hosted sandbox
+// Ollama -> Groq (true last resort) ────────────────────────────────
+// groqFetchRawWithFallback() is the single choke point almost every
+// call in this file goes through — plain chat AND tool-calling (see
+// chatWithTools() below and its TOOLS array) — so this tiering is
+// genuinely "the brain," not just one code path. Same 4-tier order
+// agentphone-voice-routes.js already uses for live phone calls,
+// generalized here to also carry tool_calls through every tier:
+// Gemini and the self-hosted sandbox model both get their
+// tools/tool_choice/response translated to/from the OpenAI shape the
+// rest of this file (chatWithTools, TOOLS, parseToolArgs) already
+// expects, so nothing downstream needs to know which tier actually
+// answered a given call.
 //
-// STICKY COOLDOWN: if Ollama Cloud fails, we skip it for
-// OLLAMA_COOLDOWN_MS and go straight to Groq instead of paying for
-// another doomed Ollama round-trip on every single request; after the
-// cooldown window passes, the next request tries Ollama Cloud again
-// automatically.
-const OLLAMA_COOLDOWN_MS = Number(process.env.OLLAMA_COOLDOWN_MS) || 60_000;
-let ollamaCooldownUntil = 0;
+// STICKY COOLDOWN: each of the first three tiers gets its own cooldown
+// window after it fails, so a request doesn't pay for a doomed
+// round-trip to a tier that just failed moments ago on every single
+// call — same idea the original Ollama-Cloud-only cooldown used,
+// just generalized to all three fallback tiers now. Groq (the true
+// last resort) has no cooldown/skip logic since there's nothing left
+// to fall back to after it — it's always attempted.
+const TIER_COOLDOWN_MS = Number(process.env.OLLAMA_COOLDOWN_MS) || 60_000;
+let ollamaCooldownUntil  = 0; // Ollama Cloud
+let geminiCooldownUntil  = 0;
+let sandboxCooldownUntil = 0;
 
 // Ollama Cloud's model names ("gpt-oss:120b") don't match Groq's
 // ("openai/gpt-oss-120b") — callers here pass Groq-style names (via
@@ -268,49 +280,257 @@ function callOllamaCloud(messages, options) {
   return LocalLLM.ollamaCloudChat(messages, ollamaOptions);
 }
 
-async function groqFetchRawWithFallback(messages, options = {}) {
-  const ollamaReady = LocalLLM.isCloudConfigured();
-  const onCooldown = Date.now() < ollamaCooldownUntil;
+// Self-hosted Ollama, installed and run by Jarvis itself on its own
+// E2B sandbox computer (see computer.js's ensureOllama/ollamaChat) —
+// no external API, no key, nothing that can run out of credits. Only
+// usable if the sandbox is configured at all (E2B_API_KEY set).
+function callSandboxOllama(messages, options) {
+  return Computer.ollamaChat(messages, options);
+}
 
-  if (ollamaReady && !onCooldown) {
+// ── GEMINI (self-contained here, same key-rotation shape used by
+// agentphone-voice-routes.js / textnow-call.js — extended with real
+// tool-calling translation since this brain path needs it and those
+// two live-call files, which never call tools mid-conversation, don't) ──
+function loadGeminiKeys() {
+  const keys = [];
+  for (const k of (process.env.GEMINI_API_KEY || "").split(",")) {
+    const t = k.trim();
+    if (t) keys.push(t);
+  }
+  for (let i = 2; ; i++) {
+    const raw = process.env[`GEMINI_API_KEY${i}`];
+    if (!raw) break;
+    const t = raw.trim();
+    if (t) keys.push(t);
+  }
+  return keys;
+}
+const GEMINI_API_KEYS = loadGeminiKeys();
+let geminiKeyIndex = 0;
+function currentGeminiKey() { return GEMINI_API_KEYS[geminiKeyIndex % GEMINI_API_KEYS.length]; }
+function rotateGeminiKey() { geminiKeyIndex = (geminiKeyIndex + 1) % GEMINI_API_KEYS.length; }
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
+function geminiUrlFor(model) { return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`; }
+function isGeminiConfigured() { return GEMINI_API_KEYS.length > 0; }
+
+// OpenAI {type:"function", function:{name, description, parameters}}
+// -> Gemini {function_declarations:[{name, description, parameters}]}.
+// Gemini's parameters schema is an OpenAPI-3 subset that already
+// matches the plain {type, properties, required} shape every tool in
+// TOOLS uses, so this is a reshape, not a real schema conversion.
+function toGeminiTools(tools) {
+  if (!tools || !tools.length) return null;
+  return [{
+    function_declarations: tools.map((t) => ({
+      name: t.function.name,
+      description: t.function.description,
+      parameters: t.function.parameters,
+    })),
+  }];
+}
+
+// "auto" (the default everywhere in this file) needs no tool_config at
+// all — Gemini's default mode already picks freely. A forced
+// single-tool choice ({type:"function", function:{name}}, used by
+// chatWithTools()'s compound-request follow-up round below) maps to
+// Gemini's ANY mode with an allow-list of exactly that one function.
+function toGeminiToolConfig(tool_choice) {
+  if (!tool_choice || tool_choice === "auto") return null;
+  if (typeof tool_choice === "object" && tool_choice.function && tool_choice.function.name) {
+    return { function_calling_config: { mode: "ANY", allowed_function_names: [tool_choice.function.name] } };
+  }
+  return null;
+}
+
+// Converts this file's OpenAI-shaped {role, content, tool_calls?}
+// messages into Gemini's {system_instruction, contents:[{role, parts}]}.
+// Three role translations Gemini needs that OpenAI doesn't:
+//   - "assistant" -> "model"
+//   - "assistant" WITH tool_calls -> a "model" turn whose parts carry
+//     functionCall objects (plus any text) instead of plain text
+//   - "tool" (a tool's result being fed back in, e.g. chatWithTools's
+//     compound-request follow-up round) -> "function" role, parts:
+//     [{functionResponse: {name, response}}]
+function toGeminiPayload(messages) {
+  const systemText = messages.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+  const contents = [];
+
+  for (const m of messages) {
+    if (m.role === "system") continue;
+
+    if (m.role === "tool") {
+      let response;
+      try { response = JSON.parse(m.content); } catch { response = { result: m.content }; }
+      contents.push({ role: "function", parts: [{ functionResponse: { name: m.name, response } }] });
+      continue;
+    }
+
+    if (m.role === "assistant" && m.tool_calls && m.tool_calls.length) {
+      const parts = [];
+      if (m.content) parts.push({ text: m.content });
+      for (const c of m.tool_calls) {
+        const args = typeof c.function.arguments === "string"
+          ? (JSON.parse(c.function.arguments || "{}"))
+          : (c.function.arguments || {});
+        parts.push({ functionCall: { name: c.function.name, args } });
+      }
+      contents.push({ role: "model", parts });
+      continue;
+    }
+
+    contents.push({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content || "" }] });
+  }
+
+  // Gemini rejects any request whose contents[] ends on a "model" turn
+  // (HTTP 400 "Requests ending with a model turn are not supported") —
+  // see the same fix in agentphone-voice-routes.js. Pad with a
+  // synthetic user turn rather than ever sending Gemini something it
+  // will hard-reject.
+  const last = contents[contents.length - 1];
+  if (!last || (last.role !== "user" && last.role !== "function")) {
+    contents.push({ role: "user", parts: [{ text: "(continue)" }] });
+  }
+
+  const payload = { contents };
+  if (systemText) payload.system_instruction = { parts: [{ text: systemText }] };
+  return payload;
+}
+
+// Gemini functionCall parts -> this file's OpenAI-shaped tool_calls.
+// Arguments are left as raw objects here — normalizeMessage() (below
+// groqFetchRawWithFallback) JSON-stringifies them into the OpenAI-
+// standard string shape before this goes anywhere downstream.
+function fromGeminiCandidate(candidate) {
+  const parts = (candidate && candidate.content && candidate.content.parts) || [];
+  const text = parts.filter((p) => p.text).map((p) => p.text).join("").trim();
+  const calls = parts.filter((p) => p.functionCall).map((p) => ({
+    type: "function",
+    function: { name: p.functionCall.name, arguments: p.functionCall.args || {} },
+  }));
+  return { role: "assistant", content: text, tool_calls: calls };
+}
+
+async function geminiChatWithTools(messages, options = {}) {
+  if (!isGeminiConfigured()) throw new Error("No GEMINI_API_KEY configured.");
+  const payload = toGeminiPayload(messages);
+  const geminiTools = toGeminiTools(options.tools);
+  if (geminiTools) payload.tools = geminiTools;
+  const toolConfig = toGeminiToolConfig(options.tool_choice);
+  if (toolConfig) payload.tool_config = toolConfig;
+  if (options.temperature != null || options.maxTokens != null) {
+    payload.generationConfig = {};
+    if (options.temperature != null) payload.generationConfig.temperature = options.temperature;
+    if (options.maxTokens != null) payload.generationConfig.maxOutputTokens = options.maxTokens;
+  }
+
+  let lastErr;
+  for (let attempt = 0; attempt < GEMINI_API_KEYS.length; attempt++) {
+    const key = currentGeminiKey();
     try {
-      const result = await callOllamaCloud(messages, options);
-      ollamaCooldownUntil = 0; // Ollama Cloud's healthy — clear any prior cooldown
-      return result;
+      const res = await fetch(`${geminiUrlFor(GEMINI_MODEL)}?key=${key}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => "");
+        const err = new Error(`Gemini HTTP ${res.status}: ${errBody.slice(0, 200)}`);
+        if (res.status === 429 || res.status >= 500) { lastErr = err; rotateGeminiKey(); continue; }
+        throw err;
+      }
+      const data = await res.json();
+      const candidate = data && data.candidates && data.candidates[0];
+      if (!candidate) throw new Error("Gemini returned no candidates.");
+      const msg = fromGeminiCandidate(candidate);
+      if (!msg.content && !msg.tool_calls.length) throw new Error("Gemini returned no content and no tool calls.");
+      return msg;
     } catch (e) {
-      ollamaCooldownUntil = Date.now() + OLLAMA_COOLDOWN_MS;
-      console.warn(`[HERMES] Ollama Cloud unavailable (${e.message}) — falling back to Groq for the next ${Math.round(OLLAMA_COOLDOWN_MS / 1000)}s...`);
-      try {
-        return await groqFetchRaw(messages, options);
-      } catch (groqErr) {
-        console.error(`[HERMES] Groq fallback also failed: ${groqErr.message}`);
-        throw e; // surface the original Ollama Cloud error, more useful than the fallback's
-      }
+      lastErr = e;
+      rotateGeminiKey();
     }
   }
+  throw lastErr || new Error("Gemini chat failed.");
+}
 
-  if (ollamaReady) {
-    // Still within the cooldown window from a recent Ollama Cloud
-    // failure — skip straight to Groq instead of paying for another
-    // doomed Ollama round-trip first.
+// Every tool_calls array this file hands back downstream (chatWithTools,
+// its compound-request follow-up round, etc.) needs the exact same
+// OpenAI shape regardless of which tier actually produced it — an id,
+// type:"function", and function.arguments as a JSON-encoded STRING
+// (not the parsed object some backends like Ollama's native /api/chat
+// and Gemini hand back). Both parseToolArgs() (for actually running the
+// tool) and Groq's own API (if a tool_calls message ever gets fed back
+// into IT on a later turn, e.g. the compound-request follow-up round)
+// need it in that normalized shape, so normalize once here instead of
+// leaving every tier's own quirks to leak downstream.
+function normalizeMessage(msg) {
+  if (!msg || !msg.tool_calls || !msg.tool_calls.length) return msg;
+  let n = 0;
+  msg.tool_calls = msg.tool_calls.map((c) => ({
+    id: c.id || `call_${Date.now().toString(36)}_${n++}`,
+    type: "function",
+    function: {
+      name: c.function.name,
+      arguments: typeof c.function.arguments === "string"
+        ? c.function.arguments
+        : JSON.stringify(c.function.arguments || {}),
+    },
+  }));
+  return msg;
+}
+
+async function groqFetchRawWithFallback(messages, options = {}) {
+  const now = Date.now();
+  const tiers = [];
+
+  if (LocalLLM.isCloudConfigured() && now >= ollamaCooldownUntil) {
+    tiers.push({
+      name: "Ollama Cloud",
+      run: () => callOllamaCloud(messages, options),
+      onFail: () => { ollamaCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
+      onOk: () => { ollamaCooldownUntil = 0; },
+    });
+  }
+  if (isGeminiConfigured() && now >= geminiCooldownUntil) {
+    tiers.push({
+      name: "Gemini",
+      run: () => geminiChatWithTools(messages, options),
+      onFail: () => { geminiCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
+      onOk: () => { geminiCooldownUntil = 0; },
+    });
+  }
+  if (Computer.isDesktopConfigured() && now >= sandboxCooldownUntil) {
+    tiers.push({
+      name: "self-hosted sandbox Ollama",
+      run: () => callSandboxOllama(messages, options),
+      onFail: () => { sandboxCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
+      onOk: () => { sandboxCooldownUntil = 0; },
+    });
+  }
+
+  let lastErr;
+  for (const tier of tiers) {
     try {
-      return await groqFetchRaw(messages, options);
-    } catch (groqErr) {
-      // Groq itself is having trouble too — worth trying Ollama Cloud
-      // again immediately rather than failing outright.
-      console.warn(`[HERMES] Groq failed during cooldown (${groqErr.message}) — trying Ollama Cloud early...`);
-      try {
-        const result = await callOllamaCloud(messages, options);
-        ollamaCooldownUntil = 0;
-        return result;
-      } catch (e) {
-        throw groqErr; // both paths failed — surface the Groq error, since that's the one that was actually "current"
-      }
+      const result = await tier.run();
+      tier.onOk();
+      return normalizeMessage(result);
+    } catch (e) {
+      lastErr = e;
+      tier.onFail();
+      console.warn(`[HERMES] ${tier.name} failed (${e.message}) — trying next tier...`);
     }
   }
 
-  // Ollama Cloud not configured at all — nothing left to try but Groq.
-  return await groqFetchRaw(messages, options);
+  // TRUE LAST RESORT: Groq. Always attempted even if every tier above
+  // was skipped (unconfigured, or currently on cooldown) or failed.
+  try {
+    const result = await groqFetchRaw(messages, options);
+    return normalizeMessage(result);
+  } catch (groqErr) {
+    console.error(`[HERMES] Groq (last resort) also failed: ${groqErr.message}`);
+    throw lastErr || groqErr;
+  }
 }
 
 // ── STREAMING GROQ FETCH ───────────────────────────────────────
