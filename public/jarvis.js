@@ -334,7 +334,7 @@ function isJarvisSpeaking() {
 
 async function checkTTSReady() {
   try {
-    const res  = await fetch("/api/tts/status");
+    const res  = await fetch(`/api/tts/status?user=${encodeURIComponent(state.user || "")}`);
     const data = await res.json();
     _ttsReady  = data.ready;
     if (!_ttsReady) setTimeout(checkTTSReady, 3000);
@@ -4132,7 +4132,19 @@ function showAiSettings(opts) {
             <option value="default">Default rotating voice</option>
             <option value="preset">Choose from configured voices</option>
             <option value="custom">Paste a Camb.ai voice ID</option>
+            <option value="clone">Clone my own voice</option>
           </select>
+
+          <div id="ai-voice-clone-block" style="display:none;margin-bottom:10px">
+            <p style="font-family:var(--mono);font-size:0.6rem;color:var(--text-dim);margin:0 0 8px;line-height:1.5">
+              Upload a clear, single-speaker clip (10-30s works best). It's cloned automatically on
+              Jarvis's own cloud computer — usually done in under a minute.
+            </p>
+            <input id="ai-voice-clone-file" type="file" accept="audio/*"
+              style="width:100%;box-sizing:border-box;margin-bottom:8px;font-family:var(--mono);font-size:0.62rem;color:var(--text-dim)" />
+            <button class="hud-btn" id="ai-voice-clone-upload-btn" style="width:100%;padding:8px;margin-bottom:8px">UPLOAD &amp; CLONE</button>
+            <div id="ai-voice-clone-status" style="font-family:var(--mono);font-size:0.62rem;color:var(--text-dim);min-height:16px"></div>
+          </div>
 
           <select id="ai-voice-preset-select"
             style="width:100%;box-sizing:border-box;padding:9px 10px;margin-bottom:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.72rem;display:none"></select>
@@ -4172,9 +4184,56 @@ function showAiSettings(opts) {
     const modeSelect   = $("ai-voice-mode-select");
     const presetSelect = $("ai-voice-preset-select");
     const customInput  = $("ai-voice-custom-input");
+    const cloneBlock   = $("ai-voice-clone-block");
     modeSelect.addEventListener("change", () => {
       presetSelect.style.display = modeSelect.value === "preset" ? "" : "none";
       customInput.style.display  = modeSelect.value === "custom" ? "" : "none";
+      cloneBlock.style.display   = modeSelect.value === "clone"  ? "" : "none";
+      if (modeSelect.value === "clone") refreshCloneStatus();
+    });
+
+    // Reads the whole clip as base64 (fine for the short clips this is
+    // meant for — 25MB server-side cap) and uploads it. The server
+    // decides on the spot whether to clone it right here or queue it
+    // for the desktop app — see /api/voice-clone/upload.
+    async function refreshCloneStatus() {
+      const statusEl = $("ai-voice-clone-status");
+      try {
+        const res  = await fetch(`/api/voice-clone/status/${encodeURIComponent(state.user)}`);
+        const data = await res.json();
+        if (data.status === "ready")      { statusEl.style.color = "#00ff88"; statusEl.textContent = "Your cloned voice is ready."; }
+        else if (data.status === "processing") { statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Cloning on Jarvis's computer…"; }
+        else if (data.status === "pending")     { statusEl.style.color = "var(--text-dim)"; statusEl.textContent = data.reason || "Queued — retrying shortly."; }
+        else if (data.status === "failed")      { statusEl.style.color = "var(--red)"; statusEl.textContent = data.reason || "Cloning failed — try a different clip."; }
+        else statusEl.textContent = "";
+      } catch { /* non-fatal — leave status blank */ }
+    }
+
+    $("ai-voice-clone-upload-btn").addEventListener("click", async () => {
+      const fileInput = $("ai-voice-clone-file");
+      const statusEl  = $("ai-voice-clone-status");
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) { statusEl.style.color = "var(--red)"; statusEl.textContent = "Choose an audio file first."; return; }
+      statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Uploading…";
+      try {
+        const audioBase64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload  = () => resolve(reader.result.split(",")[1] || "");
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        const res  = await fetch("/api/voice-clone/upload", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user: state.user, audioBase64 }),
+        });
+        const data = await res.json();
+        if (!res.ok) { statusEl.style.color = "var(--red)"; statusEl.textContent = data.error || "Upload failed."; return; }
+        if (data.status === "ready")       { statusEl.style.color = "#00ff88"; statusEl.textContent = "Cloned! This is now your AI's voice."; state.aiVoiceCloned = true; }
+        else if (data.status === "processing"){ statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Cloning on Jarvis's computer…"; }
+        else { statusEl.style.color = "var(--red)"; statusEl.textContent = data.reason || "Cloning failed — try a clearer clip."; }
+      } catch (e) {
+        statusEl.style.color = "var(--red)"; statusEl.textContent = "Upload failed — check your connection.";
+      }
     });
 
     async function skipAiOnboarding() {
@@ -4205,10 +4264,11 @@ function showAiSettings(opts) {
     });
 
     $("ai-settings-test-btn").addEventListener("click", () => {
-      const opts = { text: `Hello, ${state.userTitle}. This is what I sound like.` };
+      const opts = { text: `Hello, ${state.userTitle}. This is what I sound like.`, user: state.user };
+      if (modeSelect.value === "clone") opts.mode = "clone";
       if (modeSelect.value === "custom" && customInput.value) opts.voiceId = customInput.value;
       if (modeSelect.value === "preset" && presetSelect.value) opts.voicePreset = presetSelect.value;
-      if (modeSelect.value !== "default") opts.cloned = $("ai-voice-cloned-toggle").checked;
+      if (modeSelect.value !== "default" && modeSelect.value !== "clone") opts.cloned = $("ai-voice-cloned-toggle").checked;
       const statusEl = $("ai-settings-status");
       statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Generating preview…";
       fetch("/api/tts", {
@@ -4238,7 +4298,12 @@ function showAiSettings(opts) {
 
     const modeSelect  = $("ai-voice-mode-select");
     const customInput = $("ai-voice-custom-input");
-    if (data.voiceId) {
+    const cloneBlock  = $("ai-voice-clone-block");
+    cloneBlock.style.display = "none";
+    if (data.voiceMode === "clone") {
+      modeSelect.value = "clone";
+      presetSelect.style.display = "none"; customInput.style.display = "none"; cloneBlock.style.display = "";
+    } else if (data.voiceId) {
       modeSelect.value = "custom"; customInput.value = data.voiceId;
       presetSelect.style.display = "none"; customInput.style.display = "";
     } else if (data.voicePreset) {
@@ -4250,6 +4315,12 @@ function showAiSettings(opts) {
     }
     $("ai-voice-cloned-toggle").checked = !!data.voiceCloned;
     $("ai-settings-status").textContent = "";
+    if (data.voiceCloneJob && data.voiceCloneJob.status && data.voiceCloneJob.status !== "none") {
+      const s = $("ai-voice-clone-status");
+      if (data.voiceCloneJob.status === "ready")      { s.style.color = "#00ff88"; s.textContent = "Your cloned voice is ready."; }
+      else if (data.voiceCloneJob.status === "failed"){ s.style.color = "var(--red)"; s.textContent = data.voiceCloneJob.reason || "Cloning failed."; }
+      else { s.style.color = "var(--text-dim)"; s.textContent = data.voiceCloneJob.reason || "Cloning in progress…"; }
+    }
   }).catch(() => {});
 
   overlay.classList.remove("hidden");
