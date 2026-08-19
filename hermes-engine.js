@@ -1340,6 +1340,52 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "save_business_client",
+      description: "Save or update a business's info so Jarvis can make ad videos for it — e.g. 'my business is Sweet Rise Bakery, here's the site', 'add a client called...', 'update the tone for Sweet Rise to funny'. Call this whenever the user gives Jarvis details about a business they want automated social ads for (name, website, what it does, niche, tone, or which platforms to post to). Safe to call multiple times for the same business — later calls update it, matched by name.",
+      parameters: {
+        type: "object",
+        properties: {
+          name:      { type: "string", description: "The business's name. Required." },
+          website:   { type: "string", description: "The business's website URL, if given." },
+          about:     { type: "string", description: "What the business does/sells, in the user's own words." },
+          niche:     { type: "string", description: "Short category/vibe, e.g. 'coffee shop', 'SaaS', 'nail salon'." },
+          tone:      { type: "string", description: "Desired ad tone, e.g. 'energetic', 'calm/luxury', 'funny'. Defaults to 'energetic' if never given." },
+          platforms: { type: "array", items: { type: "string", enum: ["youtube", "tiktok", "instagram", "x", "facebook", "linkedin", "threads", "pinterest"] }, description: "Which platforms to post ads to, if stated." },
+        },
+        required: ["name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_business_ad_video",
+      description: "Make a short ad video for a business already saved via save_business_client, and post it to their connected social platforms — e.g. 'make an ad for Sweet Rise', 'create a video for my business and post it', 'jarvis make me some social media advertising'. Writes the script with the brain, records a narrated slideshow on Jarvis's own computer, and posts it through Postiz if that's set up. Runs in the background and returns instantly with a campaignId to check on later — never claim the video is finished in the same reply that calls this tool.",
+      parameters: {
+        type: "object",
+        properties: {
+          business_name: { type: "string", description: "The business to make the ad for — must match a name already saved via save_business_client." },
+        },
+        required: ["business_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "check_ad_campaign_status",
+      description: "Check progress on an ad video campaign started with create_business_ad_video — e.g. 'is my ad done', 'check on that video', 'how's the Sweet Rise campaign going'.",
+      parameters: {
+        type: "object",
+        properties: {
+          business_name: { type: "string", description: "The business whose most recent campaign to check, if stated. Leave empty to check the most recent campaign overall." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "build_website",
       description: "Generate a real, downloadable website for a business and show it materializing live in the build window — e.g. 'build me a site for a barbershop', 'make a website for my bakery called Sweet Rise', 'jarvis build a landing page for my gym'. This is the generic sense of 'build' + a website/site/page — use this, NOT open_build_mode, whenever the user wants a website. If they gave a business type but no name, still call this tool with whatever you have; the server will ask for the missing piece rather than you asking in plain text or writing the site's code yourself. NEVER hand-write HTML/CSS/JS in the chat reply for a website request — always call this tool instead and let the build window show the result.",
       parameters: {
