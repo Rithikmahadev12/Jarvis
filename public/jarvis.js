@@ -4053,9 +4053,31 @@ async function loadAiSettings() {
     state.aiVoiceId     = data.voiceId || null;
     state.aiVoicePreset = data.voicePreset || null;
     state.aiVoiceCloned = !!data.voiceCloned;
+
+    // First login ever (brand-new account), OR an existing account
+    // that predates this feature (aiSetupDone is missing/false on
+    // profiles that were created before AI customization existed) —
+    // either way, they've never seen this step. Ask once, right now.
+    // Runs after applyAiName() so the on-screen title/wake word are
+    // already correct even if they close the prompt without choosing
+    // anything.
+    if (!data.aiSetupDone) {
+      maybeOnboardAiSetup();
+    }
   } catch (e) {
     console.warn("[AI SETTINGS] Couldn't load — using defaults:", e.message);
   }
+}
+
+// Shows the AI Settings panel in "first run" mode: friendlier copy,
+// plus a one-click "keep the default" option for people who don't
+// want to rename anything right now. Either path (Save or Keep
+// Default) marks the account's aiSetupDone true server-side, so this
+// only ever fires once per account, not on every login.
+function maybeOnboardAiSetup() {
+  if (state._aiOnboardShown) return; // don't double-trigger within one session
+  state._aiOnboardShown = true;
+  setTimeout(() => showAiSettings({ firstTime: true }), 600);
 }
 
 async function saveAiSettings(partial) {
@@ -4075,7 +4097,8 @@ async function saveAiSettings(partial) {
   }
 }
 
-function showAiSettings() {
+function showAiSettings(opts) {
+  const firstTime = !!(opts && opts.firstTime);
   let overlay = $("ai-settings-overlay");
   if (!overlay) {
     overlay = document.createElement("div");
@@ -4084,11 +4107,11 @@ function showAiSettings() {
     overlay.innerHTML = `
       <div class="notif-settings-box" style="max-width:440px">
         <div class="notif-settings-header">
-          <span class="notif-settings-title">🤖 AI SETTINGS</span>
+          <span class="notif-settings-title" id="ai-settings-title">🤖 AI SETTINGS</span>
           <button class="notif-close-btn" id="ai-settings-close">✕</button>
         </div>
         <div class="notif-section">
-          <p style="font-family:var(--mono);font-size:0.62rem;color:var(--text-dim);margin:0 0 14px;line-height:1.6">
+          <p id="ai-settings-intro" style="font-family:var(--mono);font-size:0.62rem;color:var(--text-dim);margin:0 0 14px;line-height:1.6">
             This is YOUR AI — rename it and pick its voice. Changes only apply to your account.
           </p>
 
@@ -4121,12 +4144,23 @@ function showAiSettings() {
             <button class="hud-btn" id="ai-settings-save-btn" style="flex:1;padding:10px">SAVE</button>
             <button class="hud-btn" id="ai-settings-test-btn" style="flex:1;padding:10px">TEST VOICE</button>
           </div>
+          <button class="hud-btn" id="ai-settings-skip-btn" style="width:100%;padding:10px;margin-top:10px;display:none">KEEP DEFAULT (J.A.R.V.I.S)</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
 
-    $("ai-settings-close").addEventListener("click", hideAiSettings);
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) hideAiSettings(); });
+    // In first-run mode the X also counts as "keep default" — this
+    // prompt is meant to show up exactly once, not nag on every
+    // future login just because someone dismissed it without picking.
+    $("ai-settings-close").addEventListener("click", () => {
+      if (overlay.dataset.firstTime === "1") skipAiOnboarding();
+      else hideAiSettings();
+    });
+    overlay.addEventListener("click", (e) => {
+      if (e.target !== overlay) return;
+      if (overlay.dataset.firstTime === "1") skipAiOnboarding();
+      else hideAiSettings();
+    });
 
     const modeSelect   = $("ai-voice-mode-select");
     const presetSelect = $("ai-voice-preset-select");
@@ -4135,6 +4169,14 @@ function showAiSettings() {
       presetSelect.style.display = modeSelect.value === "preset" ? "" : "none";
       customInput.style.display  = modeSelect.value === "custom" ? "" : "none";
     });
+
+    async function skipAiOnboarding() {
+      // Saves nothing but still marks aiSetupDone true server-side
+      // (see POST /api/ai-settings), so this account isn't asked again.
+      await saveAiSettings({});
+      hideAiSettings();
+    }
+    $("ai-settings-skip-btn").addEventListener("click", skipAiOnboarding);
 
     $("ai-settings-save-btn").addEventListener("click", async () => {
       const statusEl = $("ai-settings-status");
@@ -4170,6 +4212,14 @@ function showAiSettings() {
     });
   }
 
+  // First-run vs. regular-settings copy/controls
+  overlay.dataset.firstTime = firstTime ? "1" : "0";
+  $("ai-settings-title").textContent = firstTime ? "🤖 NAME YOUR AI" : "🤖 AI SETTINGS";
+  $("ai-settings-intro").textContent = firstTime
+    ? "Before we get started — this is YOUR AI. Give it a name and pick its voice, or keep the default. You can always change this later from Settings."
+    : "This is YOUR AI — rename it and pick its voice. Changes only apply to your account.";
+  $("ai-settings-skip-btn").style.display = firstTime ? "" : "none";
+
   // Populate current values every time it's opened
   fetch(`/api/ai-settings/${encodeURIComponent(state.user)}`).then(r => r.json()).then((data) => {
     $("ai-name-input").value = data.aiName || "";
@@ -4196,7 +4246,7 @@ function showAiSettings() {
   }).catch(() => {});
 
   overlay.classList.remove("hidden");
-  addMsg("system", "AI settings open.");
+  addMsg("system", firstTime ? "Set up your AI — name it, pick a voice, or keep the default." : "AI settings open.");
   mic.suspend();
 }
 
