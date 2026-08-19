@@ -233,6 +233,14 @@
         <div class="db-settings-divider"></div>
 
         <div class="db-settings-row">
+          <label>Instagram Handle</label>
+          <input type="text" class="db-lang-select" id="db-instagram-username-input" style="flex:1;min-width:120px;" placeholder="username (no @)">
+          <button class="db-btn db-btn-primary" id="db-instagram-username-save-btn">Save</button>
+        </div>
+
+        <div class="db-settings-divider"></div>
+
+        <div class="db-settings-row">
           <label>Language</label>
           <select class="db-lang-select" id="db-lang-select">
             <option>English</option>
@@ -733,6 +741,15 @@
     populateMicSelect();
     const usernameInput = $("db-username-input");
     if (usernameInput) usernameInput.value = window.state?.user || "";
+    // Pull the currently-tracked Instagram handle fresh every time the
+    // panel opens, so a typo fixed elsewhere (e.g. voice command) shows
+    // up here too instead of a stale cached value.
+    const igInput = $("db-instagram-username-input");
+    if (igInput) {
+      fetch("/api/instagram/username").then(r => r.json()).then((data) => {
+        igInput.value = data.username || "";
+      }).catch(() => {});
+    }
   }
   function closeSettings() { $("db-settings-overlay")?.classList.remove("db-open"); }
 
@@ -857,6 +874,35 @@
         alert(e.message || "Couldn't rename — that username might already be taken.");
       } finally {
         setTimeout(() => { usernameSaveBtn.disabled = false; usernameSaveBtn.textContent = "Save"; }, 1800);
+      }
+    });
+
+    // Instagram handle — direct fix for a typo'd username without
+    // redoing the whole "connect Instagram" chat conversation. Hits
+    // the same setTrackedUsername() the voice flow uses (see
+    // /api/instagram/username in server.js / instagram.js).
+    const igInput = $("db-instagram-username-input");
+    const igSaveBtn = $("db-instagram-username-save-btn");
+    igSaveBtn?.addEventListener("click", async () => {
+      const newHandle = (igInput?.value || "").trim().replace(/^@/, "");
+      igSaveBtn.disabled = true;
+      igSaveBtn.textContent = "Saving…";
+      try {
+        const res = await fetch("/api/instagram/username", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: newHandle }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Save failed");
+        if (igInput) igInput.value = data.username || "";
+        igSaveBtn.textContent = "Saved ✓";
+      } catch (e) {
+        igSaveBtn.textContent = "Failed";
+        console.warn("[INSTAGRAM] Couldn't save username:", e.message);
+        alert(e.message || "Couldn't save that Instagram username.");
+      } finally {
+        setTimeout(() => { igSaveBtn.disabled = false; igSaveBtn.textContent = "Save"; }, 1800);
       }
     });
   }
