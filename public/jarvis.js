@@ -76,6 +76,11 @@ const state = window.state = {
   tesseractReady: false,
   activeTimers: [],
   memories: [],
+  // ── Per-account AI customization (see /api/ai-settings) ──
+  aiName: "J.A.R.V.I.S",   // default persona name; overwritten after login if this account renamed it
+  aiVoiceId: null,
+  aiVoicePreset: null,
+  aiVoiceCloned: false,
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -425,7 +430,7 @@ async function speak(text, onEnd) {
     const res = await fetch("/api/tts", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ text }),
+      body:    JSON.stringify({ text, user: state.user }),
       // Camb.ai key rotation on the server can sweep through several
       // configured keys per request (each with its own short timeout +
       // one retry — see CAMB_TIMEOUT_MS in tts.js). Bumped from 60s to
@@ -2231,6 +2236,7 @@ function launchMain() {
   }
   const ud = $("user-display"); if (ud) ud.textContent = `${state.user} / ${state.userTitle}`;
   state.lastInteraction = Date.now(); updateMood(20);
+  loadAiSettings(); // pulls this account's custom AI name/voice and updates the on-screen title
 
   notif.init().then(() => {
     addMsg("system", notif.perms === "granted"
@@ -2945,6 +2951,13 @@ function handleChatCommand(text, attachments) {
       /\b(settings|setting|panel|menu|page|where|open|show|go to|find|access)\b/.test(cleanedLower)) {
     const r = `Opening notification and security settings, ${state.userTitle}.`;
     addMsg("jarvis", r); speak(r); showNotifSettings(); updateMood(2); return;
+  }
+
+  // ── AI name / voice settings — "rename yourself", "change your voice", "AI settings" ──
+  if ((/\b(rename|change|customi[sz]e)\b/.test(cleanedLower) && /\b(your\s+name|your\s+voice|yourself)\b/.test(cleanedLower)) ||
+      /\b(ai|assistant)\s+(settings|setting)\b/.test(cleanedLower)) {
+    const r = `Opening AI settings, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r); showAiSettings(); updateMood(2); return;
   }
 
   // ── Google / Gmail / Calendar settings ──
@@ -3982,6 +3995,183 @@ function showNotifSettings() {
 
 function hideNotifSettings() {
   const overlay = $("notif-settings-overlay"); if (overlay) overlay.classList.add("hidden");
+  if (state.phase === "chatting") mic.resume();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── AI CUSTOMIZATION — rename your AI + pick/paste its voice ──
+// ═══════════════════════════════════════════════════════════════
+// Each signed-in account can rename their AI and choose its voice
+// independently of every other account — see /api/ai-settings in
+// server.js and the per-request voice resolution in tts.js. Nothing
+// here touches anyone else's account.
+
+function applyAiName(name) {
+  state.aiName = (name && name.trim()) ? name.trim() : "J.A.R.V.I.S";
+  document.querySelectorAll(".jr-title, .lock-orb-title").forEach((el) => {
+    el.textContent = state.aiName;
+  });
+}
+
+async function loadAiSettings() {
+  if (!state.user) return;
+  try {
+    const res = await fetch(`/api/ai-settings/${encodeURIComponent(state.user)}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    applyAiName(data.aiName || data.defaultAiName);
+    state.aiVoiceId     = data.voiceId || null;
+    state.aiVoicePreset = data.voicePreset || null;
+    state.aiVoiceCloned = !!data.voiceCloned;
+  } catch (e) {
+    console.warn("[AI SETTINGS] Couldn't load — using defaults:", e.message);
+  }
+}
+
+async function saveAiSettings(partial) {
+  if (!state.user) return null;
+  try {
+    const res = await fetch("/api/ai-settings", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ user: state.user, ...partial }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || "Save failed");
+    return data;
+  } catch (e) {
+    console.warn("[AI SETTINGS] Couldn't save:", e.message);
+    return null;
+  }
+}
+
+function showAiSettings() {
+  let overlay = $("ai-settings-overlay");
+  if (!overlay) {
+    overlay = document.createElement("div");
+    overlay.id = "ai-settings-overlay";
+    overlay.className = "notif-settings-overlay";
+    overlay.innerHTML = `
+      <div class="notif-settings-box" style="max-width:440px">
+        <div class="notif-settings-header">
+          <span class="notif-settings-title">🤖 AI SETTINGS</span>
+          <button class="notif-close-btn" id="ai-settings-close">✕</button>
+        </div>
+        <div class="notif-section">
+          <p style="font-family:var(--mono);font-size:0.62rem;color:var(--text-dim);margin:0 0 14px;line-height:1.6">
+            This is YOUR AI — rename it and pick its voice. Changes only apply to your account.
+          </p>
+
+          <label style="font-family:var(--mono);font-size:0.6rem;color:var(--text-dim);display:block;margin-bottom:6px">AI NAME</label>
+          <input id="ai-name-input" type="text" maxlength="40" placeholder="J.A.R.V.I.S"
+            style="width:100%;box-sizing:border-box;padding:9px 10px;margin-bottom:16px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.72rem" />
+
+          <label style="font-family:var(--mono);font-size:0.6rem;color:var(--text-dim);display:block;margin-bottom:6px">VOICE</label>
+          <select id="ai-voice-mode-select"
+            style="width:100%;box-sizing:border-box;padding:9px 10px;margin-bottom:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.72rem">
+            <option value="default">Default rotating voice</option>
+            <option value="preset">Choose from configured voices</option>
+            <option value="custom">Paste a Camb.ai voice ID</option>
+          </select>
+
+          <select id="ai-voice-preset-select"
+            style="width:100%;box-sizing:border-box;padding:9px 10px;margin-bottom:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.72rem;display:none"></select>
+
+          <input id="ai-voice-custom-input" type="text" inputmode="numeric" placeholder="e.g. 20303"
+            style="width:100%;box-sizing:border-box;padding:9px 10px;margin-bottom:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.72rem;display:none" />
+
+          <label style="display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:0.62rem;color:var(--text-dim);margin:6px 0 16px;cursor:pointer">
+            <input id="ai-voice-cloned-toggle" type="checkbox" />
+            AI filter — make it sound a bit more synthetic/AI-ey
+          </label>
+
+          <div id="ai-settings-status" style="font-family:var(--mono);font-size:0.62rem;color:var(--text-dim);min-height:18px;margin-bottom:10px"></div>
+
+          <div style="display:flex;gap:10px">
+            <button class="hud-btn" id="ai-settings-save-btn" style="flex:1;padding:10px">SAVE</button>
+            <button class="hud-btn" id="ai-settings-test-btn" style="flex:1;padding:10px">TEST VOICE</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    $("ai-settings-close").addEventListener("click", hideAiSettings);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) hideAiSettings(); });
+
+    const modeSelect   = $("ai-voice-mode-select");
+    const presetSelect = $("ai-voice-preset-select");
+    const customInput  = $("ai-voice-custom-input");
+    modeSelect.addEventListener("change", () => {
+      presetSelect.style.display = modeSelect.value === "preset" ? "" : "none";
+      customInput.style.display  = modeSelect.value === "custom" ? "" : "none";
+    });
+
+    $("ai-settings-save-btn").addEventListener("click", async () => {
+      const statusEl = $("ai-settings-status");
+      statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Saving…";
+      const payload = {
+        aiName:      $("ai-name-input").value,
+        voiceMode:   modeSelect.value,
+        voicePreset: presetSelect.value || null,
+        voiceId:     customInput.value || null,
+        voiceCloned: $("ai-voice-cloned-toggle").checked,
+      };
+      const data = await saveAiSettings(payload);
+      if (!data) { statusEl.style.color = "var(--red)"; statusEl.textContent = "Couldn't save — try again."; return; }
+      applyAiName(data.aiName || "J.A.R.V.I.S");
+      state.aiVoiceId = data.voiceId; state.aiVoicePreset = data.voicePreset; state.aiVoiceCloned = data.voiceCloned;
+      statusEl.style.color = "#00ff88"; statusEl.textContent = "Saved.";
+      const msg = `Understood, ${state.userTitle}. From now on, call me ${state.aiName}.`;
+      addMsg("jarvis", msg); speak(msg);
+    });
+
+    $("ai-settings-test-btn").addEventListener("click", () => {
+      const opts = { text: `Hello, ${state.userTitle}. This is what I sound like.` };
+      if (modeSelect.value === "custom" && customInput.value) opts.voiceId = customInput.value;
+      if (modeSelect.value === "preset" && presetSelect.value) opts.voicePreset = presetSelect.value;
+      if (modeSelect.value !== "default") opts.cloned = $("ai-voice-cloned-toggle").checked;
+      const statusEl = $("ai-settings-status");
+      statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Generating preview…";
+      fetch("/api/tts", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(opts),
+      }).then(r => r.ok ? r.blob() : Promise.reject(new Error(`TTS ${r.status}`)))
+        .then((blob) => { statusEl.textContent = ""; new Audio(URL.createObjectURL(blob)).play(); })
+        .catch(() => { statusEl.style.color = "var(--red)"; statusEl.textContent = "Couldn't preview that voice."; });
+    });
+  }
+
+  // Populate current values every time it's opened
+  fetch(`/api/ai-settings/${encodeURIComponent(state.user)}`).then(r => r.json()).then((data) => {
+    $("ai-name-input").value = data.aiName || "";
+    $("ai-name-input").placeholder = data.defaultAiName || "J.A.R.V.I.S";
+
+    const presetSelect = $("ai-voice-preset-select");
+    presetSelect.innerHTML = (data.presets || []).map((p) =>
+      `<option value="${p.slot}">${p.label}</option>`).join("") || `<option value="">No presets configured</option>`;
+
+    const modeSelect  = $("ai-voice-mode-select");
+    const customInput = $("ai-voice-custom-input");
+    if (data.voiceId) {
+      modeSelect.value = "custom"; customInput.value = data.voiceId;
+      presetSelect.style.display = "none"; customInput.style.display = "";
+    } else if (data.voicePreset) {
+      modeSelect.value = "preset"; presetSelect.value = data.voicePreset;
+      presetSelect.style.display = ""; customInput.style.display = "none";
+    } else {
+      modeSelect.value = "default";
+      presetSelect.style.display = "none"; customInput.style.display = "none";
+    }
+    $("ai-voice-cloned-toggle").checked = !!data.voiceCloned;
+    $("ai-settings-status").textContent = "";
+  }).catch(() => {});
+
+  overlay.classList.remove("hidden");
+  addMsg("system", "AI settings open.");
+  mic.suspend();
+}
+
+function hideAiSettings() {
+  const overlay = $("ai-settings-overlay"); if (overlay) overlay.classList.add("hidden");
   if (state.phase === "chatting") mic.resume();
 }
 
