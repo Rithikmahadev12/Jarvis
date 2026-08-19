@@ -1770,6 +1770,27 @@ app.post("/api/instagram/disconnect", (req, res) => {
   res.json({ success: true });
 });
 
+// ── Simple username-tracking, direct edit (no OAuth) ────────────
+// GET  /api/instagram/username -> { username } for the currently
+//   tracked handle, or { username: null } if nothing's set.
+// POST /api/instagram/username { username } -> overwrites it. Same
+//   underlying setTrackedUsername() the chat "connect Instagram"
+//   flow already uses, so this is just a direct way to fix a typo'd
+//   handle without having to go through the chat conversation again.
+app.get("/api/instagram/username", (req, res) => {
+  res.json({ username: Instagram.getTrackedUsername() || null });
+});
+app.post("/api/instagram/username", (req, res) => {
+  const { username } = req.body || {};
+  if (username === "" || username === null) {
+    Instagram.clearTrackedUsername();
+    return res.json({ success: true, username: null });
+  }
+  const clean = Instagram.setTrackedUsername(username);
+  if (!clean) return res.status(400).json({ error: "That doesn't look like a valid Instagram username." });
+  res.json({ success: true, username: clean });
+});
+
 // ═══════════════════════════════════════════════════════════════
 // ── COMPUTER (E2B cloud sandbox)
 // Direct REST access to Jarvis's own sandbox, for the front-end
