@@ -63,6 +63,7 @@ function buildJarvisResponse(context) {
     sentiment = null, // positive/negative/neutral
     tz = null,      // user's IANA timezone, e.g. "America/Los_Angeles"
     time = getTimeContext(tz),
+    name = "J.A.R.V.I.S", // this account's custom AI name (see server.js /api/ai-settings) — falls back to the default persona name if the user never renamed it
   } = context;
 
   switch (type) {
@@ -92,7 +93,14 @@ function buildJarvisResponse(context) {
     }
 
     case "identity": {
-      return `J.A.R.V.I.S — Just A Rather Very Intelligent System, ${T}. I handle everything from writing production code in any language, generating terminal commands, running OSINT on people, controlling smart home devices, reading your screen, hand-tracked drafting and holographic projection, and considerably more. No fixed commands — just tell me what you need in plain language.`;
+      // Only spell out "Just A Rather Very Intelligent System" for
+      // accounts still using the default name — it's a real acronym of
+      // that specific name, so it stops making sense the moment someone
+      // renames their AI to something else.
+      const nameLine = name === "J.A.R.V.I.S"
+        ? "J.A.R.V.I.S — Just A Rather Very Intelligent System"
+        : name;
+      return `${nameLine}, ${T}. I handle everything from writing production code in any language, generating terminal commands, running OSINT on people, controlling smart home devices, reading your screen, hand-tracked drafting and holographic projection, and considerably more. No fixed commands — just tell me what you need in plain language.`;
     }
 
     case "capabilities": {
@@ -189,7 +197,7 @@ function buildJarvisResponse(context) {
 // Reads what was actually said and responds to it specifically.
 // No arrays. Each response references the actual input.
 
-function routeSmallTalk(text, T, tz) {
+function routeSmallTalk(text, T, tz, aiName = "J.A.R.V.I.S") {
   const lower = text.toLowerCase().trim();
 
   // Identity — who/what Jarvis is. This response already existed
@@ -199,7 +207,7 @@ function routeSmallTalk(text, T, tz) {
       /\bare\s+you\s+(an?\s+)?(ai|a\s?i|assistant|bot|robot|human|real\s+person)\b/i.test(lower) ||
       /^(who|what)\s+is\s+jarvis\??$/i.test(lower) ||
       /\btell\s+me\s+about\s+yourself\b/i.test(lower)) {
-    return buildJarvisResponse({ type: "identity", T, tz });
+    return buildJarvisResponse({ type: "identity", T, tz, name: aiName });
   }
 
   // Capabilities — "what can you do" was the same kind of dead-end:
@@ -207,7 +215,7 @@ function routeSmallTalk(text, T, tz) {
   if (/\bwhat\s+can\s+you\s+do\b/i.test(lower) ||
       /\bwhat\s+(are\s+your|do\s+you\s+have)\s+capabilities\b/i.test(lower) ||
       /\bwhat\s+(are\s+you\s+capable\s+of|do\s+you\s+know\s+how\s+to\s+do)\b/i.test(lower)) {
-    return buildJarvisResponse({ type: "capabilities", T, tz });
+    return buildJarvisResponse({ type: "capabilities", T, tz, name: aiName });
   }
 
   // "Shut up" / "be quiet" / "stop talking" — a hard silence command.
@@ -576,14 +584,14 @@ function getScreenRoast(ocrText, T = "Sir") {
 //   custom string  -> used verbatim as the availability line
 // note: an optional extra line the owner asked Jarvis to relay
 //       (e.g. "get on fortnite")
-function craftAgentIntro({ ownerName = "Jay", status = "back_shortly", note = null } = {}) {
+function craftAgentIntro({ ownerName = "Jay", status = "back_shortly", note = null, aiName = "Jarvis" } = {}) {
   const availability =
     status === "back_shortly"  ? `${ownerName} will be back shortly.` :
     status === "unavailable"   ? `${ownerName} isn't available right now.` :
     status;
 
   const noteLine = note ? ` ${note}` : "";
-  return `Hey, this is Jarvis — ${ownerName}'s personal assistant. ${availability}${noteLine}`;
+  return `Hey, this is ${aiName} — ${ownerName}'s personal assistant. ${availability}${noteLine}`;
 }
 
 module.exports = {
