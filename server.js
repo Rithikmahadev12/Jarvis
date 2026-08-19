@@ -47,6 +47,7 @@ const Debrief     = require("./debrief");
 const ActivityLog = require("./activity-log");
 const Focus       = require("./focus");
 const TTS = require("./tts");
+const VoiceClone = require("./voice-clone-routes");
 const STT = require("./stt");
 const Persistence = require("./persistence");
 const Settings    = require("./settings");
@@ -1282,6 +1283,12 @@ app.get("/api/ai-settings/:user", (req, res) => {
     voiceId:       profile.aiVoiceId || null,
     voicePreset:   profile.aiVoicePreset || null,
     voiceCloned:   !!profile.aiVoiceCloned,
+    // "clone" once this account has uploaded + cloned their own voice
+    // (see voice-clone-routes.js) and it's the active mode; null
+    // otherwise. Kept separate from voiceId/voicePreset since it's a
+    // different engine entirely (our own local cloning, not Camb.ai).
+    voiceMode:       profile.aiVoiceMode || null,
+    voiceCloneJob:   VoiceClone.jobStatus(req.params.user),
     // false for brand-new accounts AND for anyone who had an account
     // before this feature existed — both cases mean "never seen the
     // setup prompt", so the frontend should ask once. Flips true the
@@ -1307,9 +1314,11 @@ app.post("/api/ai-settings", (req, res) => {
   if (voiceMode === "default") {
     profiles[key].aiVoiceId = null;
     profiles[key].aiVoicePreset = null;
+    profiles[key].aiVoiceMode = null;
   } else if (voiceMode === "preset") {
     profiles[key].aiVoicePreset = voicePreset !== undefined && voicePreset !== null ? String(voicePreset) : null;
     profiles[key].aiVoiceId = null;
+    profiles[key].aiVoiceMode = null;
   } else if (voiceMode === "custom") {
     const n = Number(voiceId);
     if (!voiceId || !Number.isFinite(n)) {
@@ -1317,6 +1326,21 @@ app.post("/api/ai-settings", (req, res) => {
     }
     profiles[key].aiVoiceId = n;
     profiles[key].aiVoicePreset = null;
+    profiles[key].aiVoiceMode = null;
+  } else if (voiceMode === "clone") {
+    // Only switches TO clone mode if a clone actually exists/finished —
+    // otherwise this would silently go quiet (no Camb fallback) for an
+    // account that hasn't uploaded anything yet. Uploading (see
+    // POST /api/voice-clone/upload) is what actually sets this; this
+    // branch just lets someone switch back to a clone they'd previously
+    // moved away from, without re-uploading.
+    if (VoiceClone.jobStatus(user).status === "ready") {
+      profiles[key].aiVoiceMode = "clone";
+      profiles[key].aiVoiceId = null;
+      profiles[key].aiVoicePreset = null;
+    } else {
+      return res.status(400).json({ error: "No finished voice clone on file yet for this account." });
+    }
   }
   if (voiceCloned !== undefined) profiles[key].aiVoiceCloned = !!voiceCloned;
   // Any POST here — whether it changes something or is just the
@@ -1333,9 +1357,17 @@ app.post("/api/ai-settings", (req, res) => {
     voiceId:     profiles[key].aiVoiceId || null,
     voicePreset: profiles[key].aiVoicePreset || null,
     voiceCloned: !!profiles[key].aiVoiceCloned,
+    voiceMode:   profiles[key].aiVoiceMode || null,
     aiSetupDone: true,
   });
 });
+// ── VOICE CLONING (own engine — see voice-clone-routes.js) ─────────
+// Registers /api/voice-clone/upload, /status/:user, /retry/:user, and
+// /capability. Separate module (mirrors how tts.js owns Camb.ai) —
+// this is a parallel "clone my own voice" option, not a replacement
+// for the existing Camb.ai preset/custom modes.
+VoiceClone.register(app, { loadProfiles, saveProfiles });
+
 // Renames a profile — e.g. someone fat-fingered their name during
 // CREATE ACCOUNT and got stuck with it forever, since everything else
 // (data/profiles.json, wallet, memories, call history, etc.) is keyed
@@ -5019,6 +5051,14 @@ async function boot() {
   OwnBrainTrainer.startOwnBrainTraining(10 * 60 * 1000);
   Persistence.startAutoSync();
 
+  // Retry any voice-clone job that didn't finish yet (e.g. E2B_API_KEY
+  // was only just added, or the sandbox hit a transient error) — see
+  // voice-clone-routes.js. Runs once now, then every 10 minutes.
+  VoiceClone.processPendingClones().catch((e) => console.warn("[VOICE-CLONE] boot sweep failed:", e.message));
+  setInterval(() => {
+    VoiceClone.processPendingClones().catch((e) => console.warn("[VOICE-CLONE] sweep failed:", e.message));
+  }, 10 * 60 * 1000);
+
   startServer();
 }
 // ═══════════════════════════════════════════════════════════════
@@ -5029,7 +5069,11 @@ async function boot() {
 // override (used by the "test voice" button in AI Settings, before
 // the user has saved anything) always wins over their saved profile.
 function resolveTtsOptionsForRequest(req) {
-  const { user, voiceId, voicePreset, cloned } = req.body || {};
+  const { user, voiceId, voicePreset, cloned, mode } = req.body || {};
+  // Explicit "clone" mode (the AI Settings TEST VOICE button, once the
+  // dropdown is set to "Clone my own voice") short-circuits straight to
+  // our own engine — it has nothing to do with Camb.ai's voiceId/preset.
+  if (mode === "clone") return { mode: "clone", user };
   if (voiceId !== undefined || voicePreset !== undefined) {
     return {
       voiceId:    voiceId !== undefined ? voiceId : undefined,
@@ -5041,6 +5085,7 @@ function resolveTtsOptionsForRequest(req) {
   const profiles = loadProfiles();
   const profile = profiles[String(user).toLowerCase().trim()];
   if (!profile) return null;
+  if (profile.aiVoiceMode === "clone") return { mode: "clone", user };
   if (!profile.aiVoiceId && !profile.aiVoicePreset) return null; // no customization -> default rotation
   return {
     voiceId:    profile.aiVoiceId || undefined,
@@ -5081,10 +5126,26 @@ app.post("/api/tts", async (req, res) => {
   }
 
   // ── Phone / browser path ──────────────────────────────────────
+  // Cloned voice, if this account has one ready — tried first, before
+  // Camb.ai/Piper, since it's the account's own explicit choice. Falls
+  // straight through to the normal Camb.ai/browser path on any failure
+  // (clone not ready on THIS machine yet, voice-server down, etc.) so a
+  // queued-but-unfinished clone never leaves the assistant silent.
+  if (voiceOpts && voiceOpts.mode === "clone") {
+    const cloneBuf = await VoiceClone.synthesizeCloned(voiceOpts.user, TTS.cleanText(text));
+    if (cloneBuf) {
+      res.setHeader("Content-Type",   "audio/wav");
+      res.setHeader("Content-Length", cloneBuf.length);
+      res.setHeader("Cache-Control",  "no-cache");
+      return res.send(cloneBuf);
+    }
+    console.warn(`[VOICE-CLONE] Clone not available on this machine for "${voiceOpts.user}" right now — falling back.`);
+  }
+
   if (!TTS.isReady()) {
     return res.status(503).json({ error: "Voice model loading", fallback: true });
   }
-  const result = await TTS.synthesize(text, voiceOpts);
+  const result = await TTS.synthesize(text, voiceOpts && voiceOpts.mode === "clone" ? null : voiceOpts);
   if (!result) return res.status(500).json({ error: "Synthesis failed", fallback: true });
 
   res.setHeader("Content-Type",  result.mimeType);
@@ -5147,7 +5208,12 @@ app.get("/health", (req, res) => {
 
 // Status check — client can poll this on startup to know when voice is ready
 app.get("/api/tts/status", (req, res) => {
-  res.json({ ready: TTS.isReady() });
+  // TTS.isReady() (Camb.ai configured) OR this account already has a
+  // finished voice clone — either one means the server round-trip is
+  // worth attempting instead of skipping straight to the browser voice.
+  const { user } = req.query || {};
+  const hasClone = user ? VoiceClone.isReady(user) : false;
+  res.json({ ready: TTS.isReady() || hasClone });
 });
 
 // Home Talk state — lets the frontend show an accurate badge on load/refresh
