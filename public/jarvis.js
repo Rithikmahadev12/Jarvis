@@ -1507,8 +1507,35 @@ function updateLiveHearing(text) {
 //     real address is followed by a pause then an instruction or
 //     question, never straight into a third-person descriptive verb
 //     ("is", "handles", "does", "runs"...).
-const WAKE_META_MENTION_RE =
-  /\b(when i say|if i say|say(?:ing)?|call(?:ed|ing)?|named|the word|talk(?:ing)?\s+about|explain(?:ing|s)?|show(?:ing|s)?|demo(?:ing|s|nstrat\w*)?|about|introduc(?:ing|e))\s+(?:the\s+|to\s+)?jarvi[sc]?\b/;
+//
+// CUSTOMIZABLE NAME: once an account renames its AI (see AI Settings /
+// state.aiName), the wake word follows — saying the new name wakes it
+// up too. "jarvis" (with its built-in STT-mishearing fuzziness, e.g.
+// "jarvic") always keeps working on top of that, both because the
+// lock/login screen runs before we know which account is signing in
+// (so it has no custom name to go on yet) and so renaming never
+// breaks anyone who says "Jarvis" out of habit.
+function escapeRegExp(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
+function wakeWordAlternation() {
+  const parts = ["jarvi[sc]?"]; // built-in default, with STT-mishearing fuzziness
+  const custom = (state.aiName || "").toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+  if (custom && custom !== "jarvis") {
+    // Each word of a multi-word name (e.g. "Tony Stark") can wake it on
+    // its own, same as saying just "jarvis" alone already does — keeps
+    // it natural to address by first name only.
+    for (const word of custom.split(/\s+/)) {
+      if (word.length >= 2) parts.push(escapeRegExp(word));
+    }
+  }
+  return parts.join("|");
+}
+
+function buildWakeMetaMentionRe() {
+  const alt = wakeWordAlternation();
+  return new RegExp(`\\b(when i say|if i say|say(?:ing)?|call(?:ed|ing)?|named|the word|talk(?:ing)?\\s+about|explain(?:ing|s)?|show(?:ing|s)?|demo(?:ing|s|nstrat\\w*)?|about|introduc(?:ing|e))\\s+(?:the\\s+|to\\s+)?(?:${alt})\\b`);
+}
+
 
 const WAKE_DESCRIPTIVE_FOLLOWUP = new Set([
   "is", "isn't", "was", "wasn't", "were", "weren't", "has", "hasn't", "had", "hadn't",
@@ -1525,9 +1552,10 @@ const COMMAND_SHAPE_RE =
   /\?|\b(please|can you|could you|would you|will you|do you|does it|open|close|play|pause|resume|stop|mute|unmute|turn (?:on|off|up|down)|set|remind|schedule|search|find|look up|show|tell|give|read|check|call|text|message|send|create|make|build|write|calculate|convert|translate|define|explain|remember|forget|cancel|delete|add|remove|clip|record|take a|capture|save|pull up|bring up|move|switch|enable|disable|activate|deactivate|go to|start|what|when|where|why|who|how|which|is there|are there)\b/i;
 
 function hasWakeWord(lower) {
-  const m = /\bjarvi[sc]?\b/.exec(lower);
+  const alt = wakeWordAlternation();
+  const m = new RegExp(`\\b(?:${alt})\\b`).exec(lower);
   if (!m) return false;
-  if (WAKE_META_MENTION_RE.test(lower)) return false;
+  if (buildWakeMetaMentionRe().test(lower)) return false;
   const wordsBefore = lower.slice(0, m.index).trim().split(/\s+/).filter(Boolean).length;
   if (wordsBefore > 1) return false;
 
@@ -1537,7 +1565,9 @@ function hasWakeWord(lower) {
 
   return true;
 }
-function stripWakeWord(t)   { return t.replace(/\bjarvi[sc]?\b[,.]?\s*/gi, "").trim(); }
+function stripWakeWord(t) {
+  return t.replace(new RegExp(`\\b(?:${wakeWordAlternation()})\\b[,.]?\\s*`, "gi"), "").trim();
+}
 
 // ── NAME MATCHING ──
 function matchesUser(text, profile) {
