@@ -294,6 +294,13 @@
 
         <div class="db-settings-divider"></div>
 
+        <div class="db-settings-toggle-row">
+          <span>Intruder Detection <small style="opacity:.55;font-size:.7em;">(camera watches for unknown faces &amp; alerts you)</small></span>
+          <div class="db-switch" id="db-intruder-switch"></div>
+        </div>
+
+        <div class="db-settings-divider"></div>
+
         <div class="db-settings-row db-settings-row-col">
           <label>Widgets</label>
           <div id="db-widget-toggle-list"></div>
@@ -840,6 +847,36 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sleepMode: on }),
       }).catch(() => {});
+    });
+
+    // Intruder Detection master switch — same underlying setting as the
+    // "enable/disable intruder detection" voice command and the toggle
+    // buried in Notification Settings (see jarvis.js's nt-intruder-master
+    // and /api/settings faceDetection). This is just a more visible
+    // second way to flip the same switch. Starts OFF by default, same
+    // as jarvis.js's state.intruderDetectionEnabled.
+    const intruderSwitch = $("db-intruder-switch");
+    fetch("/api/settings").then((r) => r.json()).then((s) => {
+      const on = !!s.faceDetection;
+      intruderSwitch?.classList.toggle("on", on);
+      if (window.state) window.state.intruderDetectionEnabled = on;
+    }).catch(() => {});
+    intruderSwitch?.addEventListener("click", () => {
+      const on = !intruderSwitch.classList.contains("on");
+      intruderSwitch.classList.toggle("on", on);
+      if (window.state) window.state.intruderDetectionEnabled = on;
+      fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ faceDetection: on }),
+      }).catch(() => {});
+      // Turning it off mid-alert should stop an in-progress recording,
+      // same as the voice command / notif-settings toggle does.
+      if (!on && window.state?.intruderActive && typeof window.stopIntruderRecord === "function") {
+        window.stopIntruderRecord();
+        window.state.intruderActive = false;
+        window.hideFaceAuthOverlay?.();
+      }
     });
 
     // Username — fixes a typo'd name from CREATE ACCOUNT without
