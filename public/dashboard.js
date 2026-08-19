@@ -226,6 +226,13 @@
         <div class="db-settings-title">⬡ DASHBOARD SETTINGS</div>
 
         <div class="db-settings-row">
+          <label>AI Name &amp; Voice</label>
+          <button class="db-btn db-btn-primary" id="db-ai-settings-btn">🤖 Open AI Settings</button>
+        </div>
+
+        <div class="db-settings-divider"></div>
+
+        <div class="db-settings-row">
           <label>Language</label>
           <select class="db-lang-select" id="db-lang-select">
             <option>English</option>
@@ -759,6 +766,15 @@
     $("db-settings-btn")?.addEventListener("click", openSettings);
     $("db-settings-close")?.addEventListener("click", closeSettings);
     $("db-settings-done-btn")?.addEventListener("click", closeSettings);
+    // Opens the same AI name/voice panel jarvis.js uses (rename the AI,
+    // pick/paste a voice, toggle the AI filter). Defined globally by
+    // jarvis.js (window.showAiSettings) since both scripts share one
+    // page — this button just closes the dashboard panel first so they
+    // don't stack on top of each other.
+    $("db-ai-settings-btn")?.addEventListener("click", () => {
+      closeSettings();
+      if (typeof window.showAiSettings === "function") window.showAiSettings();
+    });
     $("db-settings-overlay")?.addEventListener("click", (e) => {
       if (e.target.id === "db-settings-overlay") closeSettings();
     });
