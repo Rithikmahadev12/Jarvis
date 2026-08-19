@@ -237,6 +237,17 @@ const StoreRoutes = require("./store-routes");
 StoreRoutes.mount(app);
 
 // ═══════════════════════════════════════════════════════════════
+// ── VIDEO ADS — business-video generation + posting pipeline
+//    (business-clients.js -> video-script.js -> video-producer.js ->
+//    postiz-agent.js). See video-agent-routes.js header for the full
+//    flow. Serves finished .mp4s at /videos/*, so this can mount
+//    anywhere after express.json() — no raw-body concerns like the
+//    webhook route above.
+// ═══════════════════════════════════════════════════════════════
+const VideoAgentRoutes = require("./video-agent-routes");
+VideoAgentRoutes.mount(app);
+
+// ═══════════════════════════════════════════════════════════════
 // ── TWILIO — webhooks Twilio calls into during a live outbound call
 //    placed via phone-provider.js's Twilio fallback. No-op (routes
 //    just 404) if TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN aren't set.
@@ -3907,6 +3918,92 @@ async function executeAssistantTool(name, args, ctx) {
         action: "DOWNLOAD_WEBSITE",
         intent: "website_download",
         meta: { url: `/api/sites/${site.slug}/download`, name: site.name },
+      };
+    }
+
+    // ── save_business_client / start_video_ad_campaign ──────────
+    // The business-video pipeline: business-clients.js (who) ->
+    // video-script.js (the brain writes it) -> video-producer.js
+    // (screen-recorded slideshow + Camb.ai narration) ->
+    // postiz-agent.js (posts it). See video-agent-routes.js for the
+    // actual orchestration — this just starts it and hands back a
+    // campaignId; the video takes real time (a full TTS+recording
+    // pass), so this never blocks the chat waiting for it to finish.
+    case "save_business_client": {
+      const BusinessClients = require("./business-clients");
+      try {
+        const client = BusinessClients.upsertClient({
+          name: args.name,
+          website: args.website,
+          about: args.about,
+          niche: args.niche,
+          tone: args.tone,
+          platforms: args.platforms,
+        });
+        return {
+          reply: `Saved ${client.name}, ${T}.${client.platforms.length ? ` Posting to: ${client.platforms.join(", ")}.` : " Tell me which platforms to post to whenever you're ready."} Say "make an ad for ${client.name}" whenever you want the first video.`,
+          action: "BUSINESS_CLIENT_SAVED",
+          intent: "video_ads",
+          meta: { client },
+        };
+      } catch (e) {
+        return { reply: `Couldn't save that, ${T} — ${e.message}`, action: "BUSINESS_CLIENT_SAVED", intent: "video_ads" };
+      }
+    }
+
+    case "start_video_ad_campaign":
+    case "create_business_ad_video": {
+      const BusinessClients = require("./business-clients");
+      const VideoAgentRoutes = require("./video-agent-routes");
+      const businessName = (args.business_name || "").trim();
+      if (!businessName) return { reply: `Which business is this ad for, ${T}?`, action: "ASK_VIDEO_AD_CLIENT", intent: "video_ads" };
+      const client = BusinessClients.findClientByName(businessName);
+      if (!client) {
+        return {
+          reply: `I don't have ${businessName} saved yet, ${T} — tell me a bit about it (website, what it does, tone, platforms) and I'll save it first.`,
+          action: "ASK_VIDEO_AD_CLIENT",
+          intent: "video_ads",
+        };
+      }
+      try {
+        const campaignId = VideoAgentRoutes.startCampaign(client.id);
+        return {
+          reply: `On it, ${T} — writing the script, recording the video, and posting it for ${client.name}. This takes a few minutes; ask me to check on it and I'll let you know how it's going.`,
+          action: "START_VIDEO_AD_CAMPAIGN",
+          intent: "video_ads",
+          meta: { campaignId, clientId: client.id, clientName: client.name, statusUrl: `/api/video-ads/campaigns/${campaignId}` },
+        };
+      } catch (e) {
+        return { reply: `Couldn't start that campaign, ${T} — ${e.message}`, action: "START_VIDEO_AD_CAMPAIGN", intent: "video_ads" };
+      }
+    }
+
+    case "check_ad_campaign_status": {
+      const BusinessClients = require("./business-clients");
+      const VideoAgentRoutes = require("./video-agent-routes");
+      const businessName = (args.business_name || "").trim();
+      let clientId = null;
+      if (businessName) {
+        const client = BusinessClients.findClientByName(businessName);
+        if (!client) return { reply: `I don't have a business called ${businessName} saved, ${T}.`, action: "AD_CAMPAIGN_STATUS", intent: "video_ads" };
+        clientId = client.id;
+      }
+      const campaigns = VideoAgentRoutes.listCampaigns(clientId);
+      const latest = campaigns[0];
+      if (!latest) return { reply: `No ad campaigns started yet, ${T}.`, action: "AD_CAMPAIGN_STATUS", intent: "video_ads" };
+
+      if (latest.status === "running") {
+        return { reply: `Still working on ${latest.clientName}'s ad, ${T} — currently at the "${latest.step}" step.`, action: "AD_CAMPAIGN_STATUS", intent: "video_ads", meta: { campaign: latest } };
+      }
+      if (latest.status === "failed") {
+        return { reply: `${latest.clientName}'s campaign hit an error, ${T}: ${latest.error}`, action: "AD_CAMPAIGN_STATUS", intent: "video_ads", meta: { campaign: latest } };
+      }
+      const postNote = latest.postizResult ? "It's posted." : (latest.postizSkippedReason || "It's ready but wasn't posted automatically.");
+      return {
+        reply: `${latest.clientName}'s ad is ready, ${T}: ${latest.videoUrl}. ${postNote}`,
+        action: "AD_CAMPAIGN_STATUS",
+        intent: "video_ads",
+        meta: { campaign: latest },
       };
     }
 
