@@ -122,6 +122,100 @@ async function getSandbox() {
   return activeSandbox;
 }
 
+// ── DEDICATED (non-shared) SANDBOXES ───────────────────────────────
+// getSandbox()/runCommand() above are a single shared, aggressively
+// idle-reaped instance meant for quick "run this code" tasks. Some
+// features need their OWN sandbox with its own independent lifecycle
+// — postiz-agent.js is the reason this exists: sharing the coding
+// singleton would mean an unrelated "test this" idle-killing it
+// mid-Postiz-run, or Postiz's own Docker load slowing down unrelated
+// code tasks, and either way a Postiz sandbox getting reaped wipes
+// its Postgres database (every connected social account's login,
+// gone) exactly the same way the shared sandbox already gets reaped
+// on purpose.
+//
+// The fix is E2B's beta auto-pause feature: instead of being killed
+// on timeout, the sandbox (full disk AND memory state — a running
+// Docker daemon with live containers included) is paused, and
+// resumed later via connectDedicatedSandbox(id) picking up exactly
+// where it left off. A caller (postiz-agent.js) persists the
+// returned sandboxId itself (survives a Jarvis restart, unlike
+// activeSandbox above) and reconnects to the SAME sandbox instead of
+// creating a new empty one every time.
+//
+// BETA / HONESTY NOTE: auto-pause is an E2B beta feature as of this
+// writing (Sandbox.betaCreate({autoPause:true})). If the installed
+// @e2b/code-interpreter version doesn't expose betaCreate, this
+// transparently falls back to a plain create() with a long timeout
+// instead of silently pretending pause support exists — in that
+// fallback case the sandbox WILL eventually be hard-killed by E2B
+// (1h max on the Hobby tier, 24h on Pro; see sandbox.setTimeout()'s
+// own docs) and whatever's running inside it (e.g. Postiz's Docker
+// containers) is lost at that point, same as before this existed.
+async function createDedicatedSandbox(opts = {}) {
+  if (!isConfigured()) throw notConfiguredError();
+  const timeoutMs = opts.timeoutMs || 60 * 60 * 1000; // matches E2B's own Hobby-tier ceiling — no point asking for more than that will ever be honored anyway
+  if (typeof SandboxCtor.betaCreate === "function") {
+    try {
+      return await SandboxCtor.betaCreate({
+        timeoutMs,
+        autoPause: true,
+        apiKey: E2B_API_KEY,
+        metadata: opts.metadata || { source: "jarvis" },
+      });
+    } catch (e) {
+      console.warn(`[COMPUTER] betaCreate({autoPause:true}) failed (${e.message}) — falling back to a plain sandbox without pause support.`);
+    }
+  }
+  return await SandboxCtor.create({ apiKey: E2B_API_KEY, timeoutMs, metadata: opts.metadata || { source: "jarvis" } });
+}
+
+// Reconnects to (and, if it was paused, resumes) a previously created
+// dedicated sandbox by id. Throws if E2B says it no longer exists
+// (e.g. it hit the hard ceiling in the non-beta fallback case above,
+// or was manually killed) — the caller should treat that as "start
+// over," not retry blindly.
+async function connectDedicatedSandbox(sandboxId) {
+  if (!isConfigured()) throw notConfiguredError();
+  return await SandboxCtor.connect(sandboxId, { apiKey: E2B_API_KEY });
+}
+
+// Pushes a dedicated sandbox's pause/kill clock back out — call this
+// at the start of any real work on it so a slow docker build doesn't
+// get cut off mid-way by a timeout that was set for a previous, much
+// shorter, task.
+async function extendDedicatedSandbox(sbx, timeoutMs) {
+  if (sbx && typeof sbx.setTimeout === "function") {
+    try { await sbx.setTimeout(timeoutMs || 60 * 60 * 1000); }
+    catch (e) { console.warn(`[COMPUTER] Couldn't extend dedicated sandbox timeout: ${e.message}`); }
+  }
+}
+
+// Same reliable command-execution shape as runCommand() above
+// (including the CommandExitError-swallows-the-result workaround),
+// just parameterized on an arbitrary sandbox instance instead of the
+// shared singleton, so a dedicated sandbox gets the exact same
+// battle-tested error handling.
+async function runOnSandbox(sbx, cmd, opts = {}) {
+  let result;
+  try {
+    result = await sbx.commands.run(cmd, { timeoutMs: opts.timeoutMs || 120000, cwd: opts.cwd || undefined, background: !!opts.background });
+  } catch (e) {
+    if (typeof e.exitCode === "number" || typeof e.stdout === "string" || typeof e.stderr === "string") {
+      result = { stdout: e.stdout || "", stderr: e.stderr || "", exitCode: e.exitCode };
+    } else {
+      throw e;
+    }
+  }
+  return {
+    command: cmd,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    exitCode: typeof result.exitCode === "number" ? result.exitCode : (result.exitCode ?? 0),
+    ok: (result.exitCode ?? 0) === 0,
+  };
+}
+
 // Explicitly tear the sandbox down — called on idle timeout, and
 // exposed for "close your computer" / server shutdown.
 async function killSandbox() {
@@ -764,6 +858,10 @@ module.exports = {
   readFile,
   testProject,
   browsePage,
+  createDedicatedSandbox,
+  connectDedicatedSandbox,
+  extendDedicatedSandbox,
+  runOnSandbox,
   // desktop sandbox ("show pc")
   isDesktopConfigured,
   isDesktopRunning,
