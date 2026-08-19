@@ -1239,6 +1239,14 @@ app.post("/api/register", (req, res) => {
     aiVoiceId:       profiles[key]?.aiVoiceId || null,
     aiVoicePreset:   profiles[key]?.aiVoicePreset || null,
     aiVoiceCloned:   profiles[key]?.aiVoiceCloned || false,
+    // Has this account ever been through the "name your AI / pick a
+    // voice" step (either by saving a choice or explicitly choosing
+    // to keep the default)? Brand-new accounts start false so the
+    // frontend prompts them once, right after their first login. This
+    // is deliberately separate from aiName being null — null aiName
+    // can legitimately mean "asked, and chose to keep the default"
+    // once aiSetupDone flips true (see POST /api/ai-settings below).
+    aiSetupDone:    profiles[key]?.aiSetupDone || false,
     createdAt:      profiles[key]?.createdAt || new Date().toISOString(),
     updatedAt:      new Date().toISOString(),
   };
@@ -1274,6 +1282,12 @@ app.get("/api/ai-settings/:user", (req, res) => {
     voiceId:       profile.aiVoiceId || null,
     voicePreset:   profile.aiVoicePreset || null,
     voiceCloned:   !!profile.aiVoiceCloned,
+    // false for brand-new accounts AND for anyone who had an account
+    // before this feature existed — both cases mean "never seen the
+    // setup prompt", so the frontend should ask once. Flips true the
+    // first time this account POSTs anything to /api/ai-settings,
+    // including an explicit "keep the default" skip.
+    aiSetupDone:   !!profile.aiSetupDone,
     presets:       TTS.listPresets(),
   });
 });
@@ -1305,6 +1319,11 @@ app.post("/api/ai-settings", (req, res) => {
     profiles[key].aiVoicePreset = null;
   }
   if (voiceCloned !== undefined) profiles[key].aiVoiceCloned = !!voiceCloned;
+  // Any POST here — whether it changes something or is just the
+  // onboarding modal's "keep the default" skip button — means this
+  // account has now seen the setup step, so stop asking on future
+  // logins.
+  profiles[key].aiSetupDone = true;
   profiles[key].updatedAt = new Date().toISOString();
 
   saveProfiles(profiles);
@@ -1314,6 +1333,7 @@ app.post("/api/ai-settings", (req, res) => {
     voiceId:     profiles[key].aiVoiceId || null,
     voicePreset: profiles[key].aiVoicePreset || null,
     voiceCloned: !!profiles[key].aiVoiceCloned,
+    aiSetupDone: true,
   });
 });
 // Renames a profile — e.g. someone fat-fingered their name during
