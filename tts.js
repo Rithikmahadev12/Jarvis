@@ -94,7 +94,11 @@ function loadCambKeys() {
     // the boot log whether a key looks truncated or duplicated without
     // ever printing the real secret.
     const masked = key.length > 10 ? `${key.slice(0, 4)}…${key.slice(-4)} (len ${key.length})` : `(len ${key.length})`;
-    return { key, voiceId, label: envName, masked }; // label/masked are just for clearer logging below
+    // suffix/voiceEnvName kept alongside voiceId so per-user voice
+    // selection (see resolveVoiceId below) can target "the voice this
+    // key/slot normally uses" and find its "<NAME>_CLONED" AI-filter
+    // counterpart without re-deriving the env var name from scratch.
+    return { key, voiceId, suffix, voiceEnvName, label: envName, masked }; // label/masked are just for clearer logging below
   });
 }
 
@@ -170,7 +174,68 @@ const CAMB_KEY_DEAD_CODES = new Set([401, 402, 403]);
 // writing it off on a single bad response.
 const CAMB_KEY_TRANSIENT_CODES = new Set([429, 500, 502, 503, 504]);
 
-async function synthesizeWithCamb(clean) {
+// ── PER-USER VOICE SELECTION ────────────────────────────────────────
+// Each account can customize their AI's voice two ways (see
+// server.js's /api/ai-settings):
+//   1. voicePreset — picks one of the already-configured CAMB_VOICE_ID*
+//      slots above (e.g. "2" -> CAMB_VOICE_ID2), same as picking which
+//      key/voice pair to always use instead of the auto-rotation.
+//   2. voiceId — a raw Camb.ai voice ID the user pasted in themselves
+//      (their own cloned voice, a voice they found in Camb's library,
+//      etc.), used as-is regardless of any configured slot.
+//
+// Either way, an account can also flip on `cloned: true` — an "AI
+// filter" pass. If (and ONLY if) an env var named "<the voice's env
+// name>_CLONED" is set, that voice ID is swapped in instead, giving a
+// more synthetic/AI-ish tone. This never fires unless that specific
+// env var exists — no _CLONED var, no change in behavior. For a
+// pasted custom voiceId (no slot/env name of its own), the lookup
+// falls back to the bare "CAMB_VOICE_ID_CLONED" var, since that's the
+// one general-purpose "make it sound AI-ey" voice.
+function listPresets() {
+  return CAMB_KEYS.map((k, i) => ({
+    slot: k.suffix,                      // "" for the bare/first slot, "2", "3", ...
+    label: process.env[`CAMB_VOICE_LABEL${k.suffix}`] || `Voice ${i + 1}`,
+    voiceId: k.voiceId,
+    hasClonedFilter: !!process.env[`${k.voiceEnvName}_CLONED`],
+  }));
+}
+
+function getClonedOverride(voiceEnvName) {
+  const raw = process.env[`${voiceEnvName}_CLONED`];
+  if (!raw) return null;
+  const n = Number(String(raw).trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+// Resolves { voiceId, envNameUsed } for a request, given optional
+// { voiceId, presetSlot, cloned } options. Falls back to null (meaning
+// "use each key's own default voice, exactly like before") when no
+// options are passed at all — this keeps the old global-voice
+// behavior for any call site that doesn't opt into per-user voices.
+function resolveRequestedVoice(opts) {
+  if (!opts) return null;
+  let voiceId = null;
+  let envNameUsed = "CAMB_VOICE_ID"; // default lookup name for the _CLONED filter
+
+  if (opts.presetSlot !== undefined && opts.presetSlot !== null && opts.presetSlot !== "") {
+    const slot = CAMB_KEYS.find(k => k.suffix === String(opts.presetSlot));
+    if (slot) { voiceId = slot.voiceId; envNameUsed = slot.voiceEnvName; }
+  }
+  if (voiceId === null && opts.voiceId) {
+    const n = Number(opts.voiceId);
+    if (Number.isFinite(n)) voiceId = n;
+  }
+  if (voiceId === null) return null; // nothing usable was passed
+
+  if (opts.cloned) {
+    const override = getClonedOverride(envNameUsed);
+    if (override !== null) voiceId = override;
+  }
+  return voiceId;
+}
+
+async function synthesizeWithCamb(clean, forcedVoiceId = null) {
   if (!CAMB_KEYS.length) return null;
   resetCambCycleIfNeeded();
 
@@ -181,7 +246,11 @@ async function synthesizeWithCamb(clean) {
   // THIS request once it fails again.
   for (let attempt = 0; attempt < CAMB_KEYS.length; attempt++) {
     const idx = (_cambKeyIndex + attempt) % CAMB_KEYS.length;
-    const { key, voiceId, label } = CAMB_KEYS[idx];
+    const { key, label } = CAMB_KEYS[idx];
+    // A forced voice (per-user preset/custom/cloned) overrides this
+    // key's own default voice, but the key itself still just supplies
+    // API auth/credits — rotation across keys is unaffected.
+    const voiceId = forcedVoiceId !== null ? forcedVoiceId : CAMB_KEYS[idx].voiceId;
 
     // Up to 2 tries for THIS key: the first try, plus one retry if that
     // first try looked like a transient blip rather than a dead key.
@@ -274,7 +343,10 @@ function cleanText(text) {
     .slice(0, 500);
 }
 
-async function synthesize(text) {
+// opts (all optional): { voiceId, presetSlot, cloned }
+// Pass nothing (or {}) to keep the original behavior — key rotation
+// using each key's own configured voice.
+async function synthesize(text, opts = null) {
   const clean = cleanText(text);
   if (!clean || clean.length < 2) return null;
 
@@ -283,7 +355,8 @@ async function synthesize(text) {
     return null;
   }
 
-  return synthesizeWithCamb(clean);
+  const forcedVoiceId = resolveRequestedVoice(opts);
+  return synthesizeWithCamb(clean, forcedVoiceId);
 }
 
-module.exports = { synthesize, isReady, cambIsReady, cleanText };
+module.exports = { synthesize, isReady, cambIsReady, cleanText, listPresets };
