@@ -632,6 +632,16 @@ function ensureDataDir() {
 }
 function loadProfiles() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(PROFILES_FILE, "utf8")); } catch { return {}; } }
 function saveProfiles(p) { ensureDataDir(); fs.writeFileSync(PROFILES_FILE, JSON.stringify(p, null, 2), "utf8"); }
+// This account's custom AI name (set via /api/ai-settings), or null
+// if they never renamed it / no account matches — callers decide
+// their own default (buildJarvisResponse's identity case wants the
+// full "J.A.R.V.I.S" acronym form; a spoken call intro just wants
+// the plain "Jarvis").
+function getAiNameForUser(userName) {
+  if (!userName) return null;
+  const profile = loadProfiles()[String(userName).toLowerCase().trim()];
+  return profile?.aiName || null;
+}
 function loadMemories() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(MEMORIES_FILE, "utf8")); } catch { return {}; } }
 function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON.stringify(m, null, 2), "utf8"); }
 
@@ -1209,7 +1219,7 @@ app.post("/api/learned/teach", (req, res) => {
 // ── PROFILE ROUTES
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/register", (req, res) => {
-  const { name, faceDescriptor, title, voiceAliases } = req.body;
+  const { name, faceDescriptor, title, voiceAliases, aiName } = req.body;
   if (!name || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
     return res.status(400).json({ error: "Missing name or valid face descriptor" });
   }
@@ -1220,11 +1230,91 @@ app.post("/api/register", (req, res) => {
     faceDescriptor,
     title:          title || "Sir",
     voiceAliases:   voiceAliases || [],
+    // This account's own AI — name + voice, customizable any time
+    // afterward from Settings (see /api/ai-settings below). aiName
+    // null/unset just means "use the default persona name" everywhere
+    // that reads it, same as an unset voice means "use the default
+    // rotating Camb.ai voice".
+    aiName:         aiName ? String(aiName).trim().slice(0, 40) : (profiles[key]?.aiName || null),
+    aiVoiceId:       profiles[key]?.aiVoiceId || null,
+    aiVoicePreset:   profiles[key]?.aiVoicePreset || null,
+    aiVoiceCloned:   profiles[key]?.aiVoiceCloned || false,
     createdAt:      profiles[key]?.createdAt || new Date().toISOString(),
     updatedAt:      new Date().toISOString(),
   };
   saveProfiles(profiles);
   res.json({ success: true });
+});
+
+// ── AI CUSTOMIZATION (per-account name + voice) ─────────────────
+// Each signed-in account can rename their AI and pick its voice
+// independently of everyone else on this deployment — nothing here
+// touches config.json (the deployment-wide defaults/wake word/etc.),
+// only that one account's entry in data/profiles.json.
+//
+// GET  /api/ai-settings/:user  -> current settings + the list of
+//                                  voice presets this deployment has
+//                                  configured (from tts.js's CAMB_*
+//                                  env vars), so the frontend can
+//                                  render a picker without needing to
+//                                  know about env vars itself.
+// POST /api/ai-settings        -> { user, aiName, voiceMode, voiceId,
+//                                    voicePreset, voiceCloned }
+//   voiceMode: "default" (clear both voiceId/voicePreset), "preset"
+//   (use voicePreset, one of the slot values from GET's presets list),
+//   or "custom" (use the raw voiceId the user pasted in).
+app.get("/api/ai-settings/:user", (req, res) => {
+  const profiles = loadProfiles();
+  const key = req.params.user.toLowerCase().trim();
+  const profile = profiles[key];
+  if (!profile) return res.status(404).json({ error: `No account found for "${req.params.user}".` });
+  res.json({
+    aiName:        profile.aiName || null,
+    defaultAiName: "J.A.R.V.I.S",
+    voiceId:       profile.aiVoiceId || null,
+    voicePreset:   profile.aiVoicePreset || null,
+    voiceCloned:   !!profile.aiVoiceCloned,
+    presets:       TTS.listPresets(),
+  });
+});
+
+app.post("/api/ai-settings", (req, res) => {
+  const { user, aiName, voiceMode, voiceId, voicePreset, voiceCloned } = req.body || {};
+  if (!user) return res.status(400).json({ error: "Missing user" });
+
+  const profiles = loadProfiles();
+  const key = user.toLowerCase().trim();
+  if (!profiles[key]) return res.status(404).json({ error: `No account found for "${user}".` });
+
+  if (aiName !== undefined) {
+    const trimmed = String(aiName || "").trim().slice(0, 40);
+    profiles[key].aiName = trimmed || null; // empty string resets to the default name
+  }
+  if (voiceMode === "default") {
+    profiles[key].aiVoiceId = null;
+    profiles[key].aiVoicePreset = null;
+  } else if (voiceMode === "preset") {
+    profiles[key].aiVoicePreset = voicePreset !== undefined && voicePreset !== null ? String(voicePreset) : null;
+    profiles[key].aiVoiceId = null;
+  } else if (voiceMode === "custom") {
+    const n = Number(voiceId);
+    if (!voiceId || !Number.isFinite(n)) {
+      return res.status(400).json({ error: "voiceId must be a valid Camb.ai voice ID number" });
+    }
+    profiles[key].aiVoiceId = n;
+    profiles[key].aiVoicePreset = null;
+  }
+  if (voiceCloned !== undefined) profiles[key].aiVoiceCloned = !!voiceCloned;
+  profiles[key].updatedAt = new Date().toISOString();
+
+  saveProfiles(profiles);
+  res.json({
+    success:     true,
+    aiName:      profiles[key].aiName || null,
+    voiceId:     profiles[key].aiVoiceId || null,
+    voicePreset: profiles[key].aiVoicePreset || null,
+    voiceCloned: !!profiles[key].aiVoiceCloned,
+  });
 });
 // Renames a profile — e.g. someone fat-fingered their name during
 // CREATE ACCOUNT and got stuck with it forever, since everything else
@@ -3538,7 +3628,7 @@ async function executeAssistantTool(name, args, ctx) {
         : "";
 
       if (note) {
-        const line = craftAgentIntro({ ownerName, status });
+        const line = craftAgentIntro({ ownerName, status, aiName: getAiNameForUser(userName) || "Jarvis" });
         handleCallAndSpeak({ lineToSpeak: line }).catch((err) => console.error("[TOOLS] speak-into-call failed:", err.message));
         return {
           reply: `Calling ${matchedName} now${matchNote}, ${T}. Once they pick up I'll tell them: "${line}"`,
@@ -3702,7 +3792,7 @@ async function executeAssistantTool(name, args, ctx) {
         }
         if (note) {
           const ownerName = userName || Comms.defaultOwnerName();
-          const line = craftAgentIntro({ ownerName, status: note });
+          const line = craftAgentIntro({ ownerName, status: note, aiName: getAiNameForUser(userName) || "Jarvis" });
           handleJoinLinkAndSpeak({ lineToSpeak: line }).catch((err) => console.error("[TOOLS] speak-into-meeting failed:", err.message));
           return { reply: `Joined, ${T}. Once things settle I'll say: "${line}"`, action: "JOIN_LINK_AND_SPEAK", intent: "comms", meta: { url: link, lineToSpeak: line } };
         }
@@ -4562,7 +4652,9 @@ app.post("/api/chat", async (req, res) => {
     Trainer.addExample(message, personalNewsReply, "personal_news", "personal", 0.8, "personality");
     return res.json({ reply: personalNewsReply, action: "PERSONAL_NEWS", intent: "personal_news" });
   }
-  const smalltalkReply = Personality.routeSmallTalk(message, T, userTimezone);
+  // This account's custom AI name (set via /api/ai-settings), if any —
+  // falls back to the default persona name inside routeSmallTalk itself.
+  const smalltalkReply = Personality.routeSmallTalk(message, T, userTimezone, getAiNameForUser(userName) || undefined);
   if (smalltalkReply) {
     Trainer.addExample(message, smalltalkReply, "smalltalk", null, 0.8, "personality");
     return res.json({ reply: smalltalkReply, action: "SMALLTALK", intent: "smalltalk" });
@@ -4891,9 +4983,35 @@ async function boot() {
 // ═══════════════════════════════════════════════════════════════
 // ── PIPER TTS ROUTE
 // ═══════════════════════════════════════════════════════════════
+// Resolves the { voiceId/presetSlot, cloned } options TTS.synthesize()
+// expects, for one signed-in account. An explicit body-level voice
+// override (used by the "test voice" button in AI Settings, before
+// the user has saved anything) always wins over their saved profile.
+function resolveTtsOptionsForRequest(req) {
+  const { user, voiceId, voicePreset, cloned } = req.body || {};
+  if (voiceId !== undefined || voicePreset !== undefined) {
+    return {
+      voiceId:    voiceId !== undefined ? voiceId : undefined,
+      presetSlot: voicePreset !== undefined ? voicePreset : undefined,
+      cloned:     !!cloned,
+    };
+  }
+  if (!user) return null;
+  const profiles = loadProfiles();
+  const profile = profiles[String(user).toLowerCase().trim()];
+  if (!profile) return null;
+  if (!profile.aiVoiceId && !profile.aiVoicePreset) return null; // no customization -> default rotation
+  return {
+    voiceId:    profile.aiVoiceId || undefined,
+    presetSlot: profile.aiVoicePreset || undefined,
+    cloned:     !!profile.aiVoiceCloned,
+  };
+}
+
 app.post("/api/tts", async (req, res) => {
   const { text } = req.body;
   if (!text) return res.status(400).json({ error: "Missing text" });
+  const voiceOpts = resolveTtsOptionsForRequest(req);
 
   // ── Home Talk path ────────────────────────────────────────────
   // Cast to Google Home regardless of whether Piper is running.
@@ -4901,7 +5019,7 @@ app.post("/api/tts", async (req, res) => {
   if (outputMode === "home") {
     const Cast = require("./cast");
     try {
-      const result = TTS.isReady() ? await TTS.synthesize(text) : null;
+      const result = TTS.isReady() ? await TTS.synthesize(text, voiceOpts) : null;
       let audio = result ? result.buffer : null;
       if (!audio) audio = await fetchGoogleTTS(text);
 
@@ -4925,7 +5043,7 @@ app.post("/api/tts", async (req, res) => {
   if (!TTS.isReady()) {
     return res.status(503).json({ error: "Voice model loading", fallback: true });
   }
-  const result = await TTS.synthesize(text);
+  const result = await TTS.synthesize(text, voiceOpts);
   if (!result) return res.status(500).json({ error: "Synthesis failed", fallback: true });
 
   res.setHeader("Content-Type",  result.mimeType);
