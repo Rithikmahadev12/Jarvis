@@ -2976,19 +2976,26 @@ function handleChatCommand(text, attachments) {
     return;
   }
 
-  // ── Notification / intruder settings ──
-  if (/\b(notification|alert|intruder|settings|setting|configure|config|toggle|manage)\b/.test(cleanedLower) &&
-      /\b(settings|setting|panel|menu|page|where|open|show|go to|find|access)\b/.test(cleanedLower)) {
-    const r = `Opening notification and security settings, ${state.userTitle}.`;
-    addMsg("jarvis", r); speak(r); showNotifSettings(); updateMood(2); return;
-  }
-
   // ── AI name / voice settings — "rename yourself", "change your voice", "AI settings" ──
+  // Checked BEFORE the generic notification/security block below, and
+  // with a tighter match, because "AI settings" contains the word
+  // "settings" which used to get swallowed by that broader check.
   if ((/\b(rename|change|customi[sz]e)\b/.test(cleanedLower) && /\b(your\s+name|your\s+voice|yourself)\b/.test(cleanedLower)) ||
       /\b(ai|assistant)\s+(settings|setting)\b/.test(cleanedLower)) {
     const r = `Opening AI settings, ${state.userTitle}.`;
     addMsg("jarvis", r); speak(r); showAiSettings(); updateMood(2); return;
   }
+
+  // ── Notification / intruder settings ──
+  // Requires an actual notification/alert/intruder word now — it used
+  // to fire on the word "settings" alone, which meant "AI settings"
+  // and "Google settings" were both getting misrouted here first.
+  if (/\b(notification|alert|intruder)\b/.test(cleanedLower) &&
+      /\b(settings|setting|panel|menu|page|where|open|show|go to|find|access|configure|config|toggle|manage)\b/.test(cleanedLower)) {
+    const r = `Opening notification and security settings, ${state.userTitle}.`;
+    addMsg("jarvis", r); speak(r); showNotifSettings(); updateMood(2); return;
+  }
+
 
   // ── Google / Gmail / Calendar settings ──
   if (/\b(google|gmail|calendar|email)\b/.test(cleanedLower) &&
