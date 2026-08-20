@@ -19,7 +19,7 @@ keep alive between calls.
 
 USAGE (from inside the sandbox):
     python3 clone_worker.py clone <user>
-        Reads   /root/voice-clones/<user>/reference.wav
+        Reads   /tmp/voice-clones/<user>/reference.wav
         Prints  {"saved": true, "reason": "Cloned."}  (or an error)
 
     python3 clone_worker.py synth <user> <text_file> <out_wav>
@@ -46,7 +46,7 @@ import struct
 # you'd typed "y". Must be set before `from TTS.api import TTS`.
 os.environ.setdefault("COQUI_TOS_AGREED", "1")
 
-VOICE_DIR = "/root/voice-clones"
+VOICE_DIR = "/tmp/voice-clones"
 
 
 def _reference_path(user: str) -> str:
