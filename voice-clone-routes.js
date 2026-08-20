@@ -363,11 +363,17 @@ async function attemptClone(user) {
 
     // First clone on a fresh sandbox also triggers Chatterbox's one-time
     // ~1-2GB model-weights download from Hugging Face inside
-    // clone_worker.py, on top of the actual clone/smoke-test itself —
-    // 25 minutes gives real headroom for that on a slow connection.
-    // Subsequent clones on the same warm sandbox (weights already
-    // cached) are fast and finish in a fraction of this.
-    const result = await Computer.runOnSandbox(sbx, `python3 ${SANDBOX_WORKER} clone ${key}`, { timeoutMs: 25 * 60 * 1000, envs: hfEnvs() });
+    // clone_worker.py, on top of the actual clone/smoke-test itself.
+    // 25 minutes wasn't enough headroom in practice on a slow sandbox
+    // connection — bumped to 40. clone_worker.py now also prints
+    // progress checkpoints to stderr as it goes (download started/done,
+    // model loading, generating), so even if this DOES time out again,
+    // the diagnostic below will show how far it actually got instead of
+    // nothing — and since huggingface_hub resumes partial downloads by
+    // default, the automatic retry sweep picks up from there instead of
+    // starting the whole download over. Subsequent clones on the same
+    // warm sandbox (weights already cached) are fast regardless.
+    const result = await Computer.runOnSandbox(sbx, `python3 ${SANDBOX_WORKER} clone ${key}`, { timeoutMs: 40 * 60 * 1000, envs: hfEnvs() });
     const parsed = safeJson(result.stdout);
     if (parsed && parsed.saved) {
       return setJob(user, { status: "ready", reason: "Cloned." });
