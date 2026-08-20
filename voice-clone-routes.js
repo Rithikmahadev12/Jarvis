@@ -147,9 +147,14 @@ async function ensureEngineInstalled(sbx) {
     return;
   }
   console.log("[VOICE-CLONE] Installing cloning engine on Jarvis's computer (first time on this sandbox — a few minutes)...");
+  // NOTE: the original "TTS" package on PyPI is Coqui's abandoned upstream —
+  // last released in 2023 and pinned to Python <3.9, so it can't install on
+  // E2B's modern Python image. "coqui-tts" is the actively-maintained fork
+  // (same code, same `from TTS.api import TTS` import) that supports current
+  // Python — that's what actually installs here.
   const install = await Computer.runOnSandbox(
     sbx,
-    "pip install --quiet TTS torch soundfile --break-system-packages || pip install --quiet TTS torch soundfile",
+    "pip install --quiet coqui-tts torch soundfile --break-system-packages || pip install --quiet coqui-tts torch soundfile",
     { timeoutMs: 20 * 60 * 1000 }
   );
   if (!install.ok) {
