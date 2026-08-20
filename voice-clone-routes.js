@@ -96,7 +96,13 @@ function sleep(ms) {
 async function runPipInstallWithRetry(sbx, cmd, label, { timeoutMs = 20 * 60 * 1000, maxAttempts = 4 } = {}) {
   let lastOutput = "";
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const result = await Computer.runOnSandbox(sbx, cmd, { timeoutMs });
+    // Escalate, don't just repeat: a download that timed out once is
+    // more likely to time out again at the same limit, so each retry
+    // gets more time, not just another identical shot at the same
+    // window. Attempt 1 = base timeout, attempt 2 = 1.5x, attempt 3 =
+    // 2x, attempt 4 = 2.5x.
+    const attemptTimeoutMs = Math.round(timeoutMs * (1 + 0.5 * (attempt - 1)));
+    const result = await Computer.runOnSandbox(sbx, cmd, { timeoutMs: attemptTimeoutMs });
     if (result.ok) return result;
 
     lastOutput = (result.stderr || result.stdout || "").trim();
@@ -107,12 +113,12 @@ async function runPipInstallWithRetry(sbx, cmd, label, { timeoutMs = 20 * 60 * 1
     }
 
     if (attempt < maxAttempts) {
-      const backoffMs = 5000 * attempt; // 5s, 10s, 15s...
-      console.warn(`[VOICE-CLONE] ${label} install hit a transient network error (attempt ${attempt}/${maxAttempts}) — auto-retrying in ${backoffMs / 1000}s...`);
+      const backoffMs = 8000 * attempt; // 8s, 16s, 24s...
+      console.warn(`[VOICE-CLONE] ${label} install hit a transient network error (attempt ${attempt}/${maxAttempts}, timeout was ${Math.round(attemptTimeoutMs / 1000)}s) — auto-retrying in ${backoffMs / 1000}s with a longer timeout...`);
       await sleep(backoffMs);
     }
   }
-  throw new Error(`Engine install failed on Jarvis's computer (${label}) after ${maxAttempts} automatic retries, still network-related: ${lastOutput.slice(0, 500)}`);
+  throw new Error(`Engine install failed on Jarvis's computer (${label}) after ${maxAttempts} automatic retries with increasing timeouts, still network-related: ${lastOutput.slice(0, 500)}`);
 }
 
 function ensureDirs() {
@@ -248,10 +254,41 @@ async function ensureEngineInstalled(sbx) {
     { timeoutMs: 20 * 60 * 1000 }
   );
 
+  // chatterbox-tts's OWN PyPI metadata (verified by pulling the actual
+  // wheel) hard-pins torch==2.6.0/torchaudio==2.6.0 EXACTLY, and also
+  // requires gradio==6.8.0 and the full CJK tokenizer stack
+  // (pykakasi, spacy-pkuseg). Installing it normally makes pip
+  // re-resolve torch to that exact pin — redownloading a ~700MB wheel
+  // we may already have a compatible version of — on top of gradio's
+  // own huge dependency tree (fastapi/pandas/pillow-adjacent packages
+  // for a demo UI). None of that is needed: 'import gradio' does not
+  // appear anywhere in the package's actual source, and pykakasi /
+  // spacy-pkuseg are only imported lazily inside try/except blocks for
+  // Japanese/Chinese text — not on the English-only import path this
+  // worker uses (`from chatterbox.tts import ChatterboxTTS`).
+  //
+  // --no-deps skips all of that, keeping the torch/torchaudio we just
+  // installed untouched, then a second call installs only the
+  // packages chatterbox/tts.py, vc.py, and the s3gen/t3 model modules
+  // actually import.
   await runPipInstallWithRetry(
     sbx,
-    `pip install --quiet ${PIP_FLAGS} chatterbox-tts soundfile --break-system-packages || pip install --quiet ${PIP_FLAGS} chatterbox-tts soundfile`,
-    "chatterbox-tts",
+    `pip install --quiet ${PIP_FLAGS} --no-deps chatterbox-tts --break-system-packages || pip install --quiet ${PIP_FLAGS} --no-deps chatterbox-tts`,
+    "chatterbox-tts (package itself, no-deps)",
+    { timeoutMs: 10 * 60 * 1000 }
+  );
+
+  const CHATTERBOX_CORE_DEPS = [
+    "numpy", "librosa==0.11.0", "s3tokenizer", "transformers==5.2.0",
+    "diffusers==0.29.0", "resemble-perth>=1.0.0", "conformer==0.3.2",
+    "safetensors==0.5.3", "omegaconf", "pyloudnorm", "einops",
+    "huggingface_hub", "tokenizers", "scipy", "soundfile",
+  ];
+  await runPipInstallWithRetry(
+    sbx,
+    `pip install --quiet ${PIP_FLAGS} ${CHATTERBOX_CORE_DEPS.map((d) => `"${d}"`).join(" ")} --break-system-packages || ` +
+    `pip install --quiet ${PIP_FLAGS} ${CHATTERBOX_CORE_DEPS.map((d) => `"${d}"`).join(" ")}`,
+    "chatterbox-tts (runtime dependencies)",
     { timeoutMs: 20 * 60 * 1000 }
   );
 }
