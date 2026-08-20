@@ -102,6 +102,31 @@ def _call_with_hf_fallback(fn):
         return fn()
 
 
+def _prime_hf_cache():
+    """
+    Explicitly downloads/verifies Chatterbox's weights via
+    snapshot_download BEFORE calling ChatterboxTTS.from_pretrained(),
+    instead of letting that call do a completely silent, one-shot
+    download internally with zero visibility. Two concrete wins:
+
+      1. Visibility — prints a checkpoint before and after, so if THIS
+         attempt also gets killed by the timeout, the next person
+         looking at it sees "was still downloading" instead of total
+         blank output that's impossible to diagnose (exactly what
+         happened last time).
+      2. Resumability — huggingface_hub already resumes partial
+         downloads across calls by default (it keeps .incomplete files
+         in the cache dir), so if this run times out partway through,
+         the automatic retry sweep in voice-clone-routes.js picks up
+         from wherever THIS one left off instead of starting the whole
+         ~1-2GB download over from zero.
+    """
+    from huggingface_hub import snapshot_download
+    print(json.dumps({"note": "Downloading/verifying model weights (first time only, can take a while)…"}), file=sys.stderr, flush=True)
+    _call_with_hf_fallback(lambda: snapshot_download(repo_id="ResembleAI/chatterbox"))
+    print(json.dumps({"note": "Model weights ready on disk."}), file=sys.stderr, flush=True)
+
+
 def _load_model():
     global _model
     if _model is not None:
@@ -141,7 +166,24 @@ def _load_model():
         else:
             os.environ["HF_HUB_OFFLINE"] = prev_offline
 
-    _model = _call_with_hf_fallback(lambda: ChatterboxTTS.from_pretrained(device=device))
+    # Download/verify the weights explicitly first (prints its own
+    # progress checkpoints — see _prime_hf_cache), THEN load from the
+    # now-fully-cached files offline. Splitting it this way means a
+    # future timeout during the download shows up as "was still
+    # downloading" in the logs instead of nothing at all, and a
+    # partially-downloaded attempt resumes here next time instead of
+    # restarting from zero.
+    _prime_hf_cache()
+    print(json.dumps({"note": "Loading model into memory…"}), file=sys.stderr, flush=True)
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    try:
+        _model = ChatterboxTTS.from_pretrained(device=device)
+    finally:
+        if prev_offline is None:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+        else:
+            os.environ["HF_HUB_OFFLINE"] = prev_offline
+    print(json.dumps({"note": "Model loaded."}), file=sys.stderr, flush=True)
     return _model
 
 
@@ -154,6 +196,7 @@ def cmd_clone(user: str):
         model = _load_model()
         # Smoke-test the clip now so a bad/too-short/silent upload fails
         # here with a clear reason, instead of on the first real reply.
+        print(json.dumps({"note": "Running voice-check generation…"}), file=sys.stderr, flush=True)
         model.generate("Voice check.", audio_prompt_path=ref)
         print(json.dumps({"saved": True, "reason": "Cloned."}), flush=True)
     except Exception as e:
@@ -187,6 +230,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
         action, user = sys.argv[1], sys.argv[2]
+        print(json.dumps({"note": f"Worker started ({action}) for '{user}'."}), file=sys.stderr, flush=True)
         if action == "clone":
             cmd_clone(user)
         elif action == "synth":
