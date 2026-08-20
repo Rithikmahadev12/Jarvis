@@ -149,7 +149,7 @@ async function ensureEngineInstalled(sbx) {
   // cleanup needed.
   const check = await Computer.runOnSandbox(
     sbx,
-    `python3 -c "import torch, torchaudio; from TTS.api import TTS" >/dev/null 2>&1 && echo yes || echo no`,
+    `python3 -c "import torch, torchaudio, torchcodec; from TTS.api import TTS" >/dev/null 2>&1 && echo yes || echo no`,
     { timeoutMs: 30000 }
   );
   if (check.stdout.trim() === "yes") {
@@ -163,39 +163,49 @@ async function ensureEngineInstalled(sbx) {
   // (same code, same `from TTS.api import TTS` import) that supports current
   // Python — that's what actually installs here.
   //
-  // torch installed on its own, from the CPU-only wheel index: the default
-  // `pip install torch` pulls the full CUDA build (1.5-2GB+), and this
-  // sandbox has no GPU anyway (see clone_worker.py's cuda.is_available()
-  // check — it always falls through to CPU here). That huge unnecessary
-  // download is also the most likely reason installs have been dying
-  // mid-stream ("urllib3 ... _raw_read" is a connection drop during a
-  // download, not a real dependency error) — the CPU wheel is a fraction
-  // of the size. --retries/--timeout give it room to recover from any
-  // remaining flakiness instead of failing on the first hiccup.
-  //
-  // torchaudio is a SEPARATE package from torch (coqui-tts imports it
-  // directly for audio I/O) — pip does not pull it in automatically, so
-  // it has to be listed explicitly. It's installed from the same CPU
-  // index and alongside torch in one command so pip resolves matching
-  // versions together; installing them separately risks a torchaudio
-  // build that doesn't match the torch version already on disk.
+  // Every package below is version-PINNED, not left to "latest compatible" —
+  // three rounds of fixing this one dependency at a time (torchaudio missing,
+  // transformers 5.0 removing isin_mps_friendly, torchaudio 2.9+ needing
+  // torchcodec) all came from letting pip pick whatever was newest at
+  // install time. Pinning the whole chain to one known-working combination
+  // means a new release of any single package can't silently break this
+  // again — the trade-off is that bumping any of these later has to be
+  // done deliberately, by testing a new combination and updating the pins
+  // together, not by dropping one version number.
+  //   torch/torchaudio: from the CPU-only wheel index — the default
+  //     `pip install torch` pulls the full CUDA build (1.5-2GB+), and this
+  //     sandbox has no GPU (see clone_worker.py's cuda.is_available() check,
+  //     it always falls through to CPU) — so that's a pure wasted download
+  //     (and the likely cause of the earlier "urllib3 ... _raw_read"
+  //     connection-drop failures on the large CUDA wheel).
+  //   torchcodec: torchaudio 2.9+ dropped its built-in audio-decoding
+  //     backends in favor of this separate package; version must match the
+  //     torch line exactly (0.9.x pairs with torch/torchaudio 2.9.x).
+  //   transformers: coqui-tts imports `isin_mps_friendly` from
+  //     transformers.pytorch_utils, which was deleted in transformers 5.0
+  //     (github.com/idiap/coqui-ai-TTS issue #558) — 4.57.x is the last
+  //     line before that removal.
   const PIP_FLAGS = "--retries 5 --timeout 120";
   const installTorch = await Computer.runOnSandbox(
     sbx,
-    `pip install --quiet ${PIP_FLAGS} torch torchaudio --index-url https://download.pytorch.org/whl/cpu --break-system-packages || ` +
-    `pip install --quiet ${PIP_FLAGS} torch torchaudio --index-url https://download.pytorch.org/whl/cpu`,
+    `pip install --quiet ${PIP_FLAGS} torch==2.9.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cpu --break-system-packages || ` +
+    `pip install --quiet ${PIP_FLAGS} torch==2.9.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cpu`,
     { timeoutMs: 20 * 60 * 1000 }
   );
   if (!installTorch.ok) {
     throw new Error(`Engine install failed on Jarvis's computer (torch/torchaudio): ${installTorch.stderr.slice(0, 500) || installTorch.stdout.slice(0, 500)}`);
   }
-  // coqui-tts still imports `isin_mps_friendly` from transformers.pytorch_utils,
-  // which HuggingFace removed in transformers 5.0 (github.com/idiap/coqui-ai-TTS
-  // issue #558) — an unpinned install grabs the latest transformers and breaks
-  // the import at load time. Pinning <5 keeps it on the last compatible line.
+  const installCodec = await Computer.runOnSandbox(
+    sbx,
+    `pip install --quiet ${PIP_FLAGS} "torchcodec>=0.9,<0.10" --break-system-packages || pip install --quiet ${PIP_FLAGS} "torchcodec>=0.9,<0.10"`,
+    { timeoutMs: 10 * 60 * 1000 }
+  );
+  if (!installCodec.ok) {
+    throw new Error(`Engine install failed on Jarvis's computer (torchcodec): ${installCodec.stderr.slice(0, 500) || installCodec.stdout.slice(0, 500)}`);
+  }
   const install = await Computer.runOnSandbox(
     sbx,
-    `pip install --quiet ${PIP_FLAGS} coqui-tts "transformers<5" soundfile --break-system-packages || pip install --quiet ${PIP_FLAGS} coqui-tts "transformers<5" soundfile`,
+    `pip install --quiet ${PIP_FLAGS} coqui-tts "transformers>=4.57,<5" soundfile --break-system-packages || pip install --quiet ${PIP_FLAGS} coqui-tts "transformers>=4.57,<5" soundfile`,
     { timeoutMs: 20 * 60 * 1000 }
   );
   if (!install.ok) {
