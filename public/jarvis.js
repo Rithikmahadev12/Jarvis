@@ -4104,6 +4104,52 @@ async function saveAiSettings(partial) {
   }
 }
 
+// ── Voice-clone status polling ──────────────────────────────────────
+// /api/voice-clone/upload and /retry now respond immediately and do the
+// actual (often slow — 15-40 min on a cold sandbox) cloning in the
+// background, instead of making the browser hold one HTTP request open
+// the whole time (that was the cause of the "works for a while then
+// times out" failures — the connection had nowhere near that much
+// patience). This poll is what actually tells the user it finished.
+let cloneStatusPollTimer = null;
+
+function stopCloneStatusPolling() {
+  if (cloneStatusPollTimer) { clearInterval(cloneStatusPollTimer); cloneStatusPollTimer = null; }
+}
+
+async function refreshCloneStatus() {
+  const statusEl = $("ai-voice-clone-status");
+  if (!statusEl) return null;
+  try {
+    const res  = await fetch(`/api/voice-clone/status/${encodeURIComponent(state.user)}`);
+    const data = await res.json();
+    if (data.status === "ready") {
+      statusEl.style.color = "#00ff88"; statusEl.textContent = "Your cloned voice is ready.";
+      state.aiVoiceCloned = true;
+      stopCloneStatusPolling();
+    } else if (data.status === "processing" || data.status === "pending") {
+      statusEl.style.color = "var(--text-dim)";
+      statusEl.textContent = data.reason || "Cloning on Jarvis's computer…";
+    } else if (data.status === "failed") {
+      statusEl.style.color = "var(--red)"; statusEl.textContent = data.reason || "Cloning failed — try a different clip.";
+      stopCloneStatusPolling();
+    } else {
+      statusEl.textContent = "";
+      stopCloneStatusPolling();
+    }
+    return data;
+  } catch { return null; }
+}
+
+// Polls every 5s until the job lands on "ready" or "failed". Cheap
+// (a tiny JSON status check) and has none of the timeout problems the
+// old single-blocking-request approach had.
+function startCloneStatusPolling() {
+  stopCloneStatusPolling();
+  refreshCloneStatus();
+  cloneStatusPollTimer = setInterval(refreshCloneStatus, 5000);
+}
+
 function showAiSettings(opts) {
   const firstTime = !!(opts && opts.firstTime);
   let overlay = $("ai-settings-overlay");
@@ -4189,26 +4235,16 @@ function showAiSettings(opts) {
       presetSelect.style.display = modeSelect.value === "preset" ? "" : "none";
       customInput.style.display  = modeSelect.value === "custom" ? "" : "none";
       cloneBlock.style.display   = modeSelect.value === "clone"  ? "" : "none";
-      if (modeSelect.value === "clone") refreshCloneStatus();
+      if (modeSelect.value === "clone") startCloneStatusPolling();
+      else stopCloneStatusPolling();
     });
 
     // Reads the whole clip as base64 (fine for the short clips this is
     // meant for — 25MB server-side cap) and uploads it. The server
-    // decides on the spot whether to clone it right here or queue it
-    // for the desktop app — see /api/voice-clone/upload.
-    async function refreshCloneStatus() {
-      const statusEl = $("ai-voice-clone-status");
-      try {
-        const res  = await fetch(`/api/voice-clone/status/${encodeURIComponent(state.user)}`);
-        const data = await res.json();
-        if (data.status === "ready")      { statusEl.style.color = "#00ff88"; statusEl.textContent = "Your cloned voice is ready."; }
-        else if (data.status === "processing") { statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Cloning on Jarvis's computer…"; }
-        else if (data.status === "pending")     { statusEl.style.color = "var(--text-dim)"; statusEl.textContent = data.reason || "Queued — retrying shortly."; }
-        else if (data.status === "failed")      { statusEl.style.color = "var(--red)"; statusEl.textContent = data.reason || "Cloning failed — try a different clip."; }
-        else statusEl.textContent = "";
-      } catch { /* non-fatal — leave status blank */ }
-    }
-
+    // saves the clip and kicks off the actual clone in the background,
+    // responding right away with "pending" — it does NOT wait for the
+    // clone to finish (that can take 15-40 min the first time). This
+    // just starts the upload and hands off to the status poll above.
     $("ai-voice-clone-upload-btn").addEventListener("click", async () => {
       const fileInput = $("ai-voice-clone-file");
       const statusEl  = $("ai-voice-clone-status");
@@ -4228,9 +4264,12 @@ function showAiSettings(opts) {
         });
         const data = await res.json();
         if (!res.ok) { statusEl.style.color = "var(--red)"; statusEl.textContent = data.error || "Upload failed."; return; }
-        if (data.status === "ready")       { statusEl.style.color = "#00ff88"; statusEl.textContent = "Cloned! This is now your AI's voice."; state.aiVoiceCloned = true; }
-        else if (data.status === "processing"){ statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Cloning on Jarvis's computer…"; }
-        else { statusEl.style.color = "var(--red)"; statusEl.textContent = data.reason || "Cloning failed — try a clearer clip."; }
+        // Server now always returns "pending" here and finishes the
+        // real clone in the background — start polling instead of
+        // treating this response as the final answer.
+        statusEl.style.color = "var(--text-dim)";
+        statusEl.textContent = data.reason || "Cloning started on Jarvis's computer…";
+        startCloneStatusPolling();
       } catch (e) {
         statusEl.style.color = "var(--red)"; statusEl.textContent = "Upload failed — check your connection.";
       }
@@ -4315,11 +4354,18 @@ function showAiSettings(opts) {
     }
     $("ai-voice-cloned-toggle").checked = !!data.voiceCloned;
     $("ai-settings-status").textContent = "";
+    stopCloneStatusPolling();
     if (data.voiceCloneJob && data.voiceCloneJob.status && data.voiceCloneJob.status !== "none") {
       const s = $("ai-voice-clone-status");
       if (data.voiceCloneJob.status === "ready")      { s.style.color = "#00ff88"; s.textContent = "Your cloned voice is ready."; }
       else if (data.voiceCloneJob.status === "failed"){ s.style.color = "var(--red)"; s.textContent = data.voiceCloneJob.reason || "Cloning failed."; }
-      else { s.style.color = "var(--text-dim)"; s.textContent = data.voiceCloneJob.reason || "Cloning in progress…"; }
+      else {
+        s.style.color = "var(--text-dim)"; s.textContent = data.voiceCloneJob.reason || "Cloning in progress…";
+        // A clone from a previous session/tab may still be running in
+        // the background — resume polling so this panel picks it back
+        // up live instead of showing a stale "in progress" forever.
+        startCloneStatusPolling();
+      }
     }
   }).catch(() => {});
 
@@ -4330,6 +4376,7 @@ function showAiSettings(opts) {
 
 function hideAiSettings() {
   const overlay = $("ai-settings-overlay"); if (overlay) overlay.classList.add("hidden");
+  stopCloneStatusPolling(); // the clone itself keeps running server-side; just stop polling from a closed panel
   if (state.phase === "chatting") mic.resume();
 }
 
