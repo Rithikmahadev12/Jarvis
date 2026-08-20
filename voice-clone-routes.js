@@ -45,8 +45,8 @@ const CLONES_DIR     = path.join(DATA_DIR, "voice-clones");
 const JOBS_FILE       = path.join(CLONES_DIR, "jobs.json");
 const SANDBOX_FILE    = path.join(DATA_DIR, "voice-clone-sandbox.json");
 const WORKER_SCRIPT_LOCAL = path.join(__dirname, "voice-server", "clone_worker.py");
-const SANDBOX_ROOT    = "/root/voice-clones";
-const SANDBOX_WORKER  = "/root/clone_worker.py";
+const SANDBOX_ROOT    = "/tmp/voice-clones";
+const SANDBOX_WORKER  = "/tmp/clone_worker.py";
 
 function ensureDirs() {
   fs.mkdirSync(CLONES_DIR, { recursive: true });
@@ -141,7 +141,7 @@ async function getWorkerSandbox() {
 // the multi-minute reinstall too.
 async function ensureEngineInstalled(sbx) {
   if (_engineReady) return;
-  const marker = await Computer.runOnSandbox(sbx, "test -f /root/.voice-engine-ready && echo yes || echo no", { timeoutMs: 15000 });
+  const marker = await Computer.runOnSandbox(sbx, "test -f /tmp/.voice-engine-ready && echo yes || echo no", { timeoutMs: 15000 });
   if (marker.stdout.trim() === "yes") {
     _engineReady = true;
     return;
@@ -181,7 +181,7 @@ async function ensureEngineInstalled(sbx) {
     throw new Error(`Engine install failed on Jarvis's computer: ${install.stderr.slice(0, 500) || install.stdout.slice(0, 500)}`);
   }
   await Computer.runOnSandbox(sbx, `mkdir -p ${SANDBOX_ROOT}`, { timeoutMs: 15000 });
-  await Computer.runOnSandbox(sbx, "touch /root/.voice-engine-ready", { timeoutMs: 15000 });
+  await Computer.runOnSandbox(sbx, "touch /tmp/.voice-engine-ready", { timeoutMs: 15000 });
   _engineReady = true;
 }
 
@@ -235,8 +235,8 @@ async function synthesizeCloned(user, text) {
     await ensureEngineInstalled(sbx);
     await uploadWorkerScript(sbx);
 
-    const textPath = `/root/.synth-input-${key}-${Date.now()}.txt`;
-    const outPath  = `/root/.synth-output-${key}-${Date.now()}.wav`;
+    const textPath = `/tmp/.synth-input-${key}-${Date.now()}.txt`;
+    const outPath  = `/tmp/.synth-output-${key}-${Date.now()}.wav`;
     await sbx.files.write(textPath, text);
 
     const result = await Computer.runOnSandbox(sbx, `python3 ${SANDBOX_WORKER} synth ${key} ${textPath} ${outPath}`, { timeoutMs: 60000 });
