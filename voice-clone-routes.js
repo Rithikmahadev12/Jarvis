@@ -141,8 +141,18 @@ async function getWorkerSandbox() {
 // the multi-minute reinstall too.
 async function ensureEngineInstalled(sbx) {
   if (_engineReady) return;
-  const marker = await Computer.runOnSandbox(sbx, "test -f /tmp/.voice-engine-ready && echo yes || echo no", { timeoutMs: 15000 });
-  if (marker.stdout.trim() === "yes") {
+  // Actually import the packages rather than trusting a touch-file marker —
+  // a prior run could have "succeeded" at the pip step while still missing
+  // a dependency (e.g. torchaudio wasn't pulled in automatically), which
+  // would leave a stale marker and skip reinstalling forever. This is
+  // cheap (a few seconds) and self-heals from that case with no manual
+  // cleanup needed.
+  const check = await Computer.runOnSandbox(
+    sbx,
+    `python3 -c "import torch, torchaudio; from TTS.api import TTS" >/dev/null 2>&1 && echo yes || echo no`,
+    { timeoutMs: 30000 }
+  );
+  if (check.stdout.trim() === "yes") {
     _engineReady = true;
     return;
   }
@@ -162,15 +172,22 @@ async function ensureEngineInstalled(sbx) {
   // download, not a real dependency error) — the CPU wheel is a fraction
   // of the size. --retries/--timeout give it room to recover from any
   // remaining flakiness instead of failing on the first hiccup.
+  //
+  // torchaudio is a SEPARATE package from torch (coqui-tts imports it
+  // directly for audio I/O) — pip does not pull it in automatically, so
+  // it has to be listed explicitly. It's installed from the same CPU
+  // index and alongside torch in one command so pip resolves matching
+  // versions together; installing them separately risks a torchaudio
+  // build that doesn't match the torch version already on disk.
   const PIP_FLAGS = "--retries 5 --timeout 120";
   const installTorch = await Computer.runOnSandbox(
     sbx,
-    `pip install --quiet ${PIP_FLAGS} torch --index-url https://download.pytorch.org/whl/cpu --break-system-packages || ` +
-    `pip install --quiet ${PIP_FLAGS} torch --index-url https://download.pytorch.org/whl/cpu`,
+    `pip install --quiet ${PIP_FLAGS} torch torchaudio --index-url https://download.pytorch.org/whl/cpu --break-system-packages || ` +
+    `pip install --quiet ${PIP_FLAGS} torch torchaudio --index-url https://download.pytorch.org/whl/cpu`,
     { timeoutMs: 20 * 60 * 1000 }
   );
   if (!installTorch.ok) {
-    throw new Error(`Engine install failed on Jarvis's computer (torch): ${installTorch.stderr.slice(0, 500) || installTorch.stdout.slice(0, 500)}`);
+    throw new Error(`Engine install failed on Jarvis's computer (torch/torchaudio): ${installTorch.stderr.slice(0, 500) || installTorch.stdout.slice(0, 500)}`);
   }
   const install = await Computer.runOnSandbox(
     sbx,
