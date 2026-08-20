@@ -46,6 +46,17 @@ import os
 import sys
 import json
 
+# Silences huggingface_hub's "unauthenticated requests" notice. It's
+# informational, not an error — public model repos (like Chatterbox's)
+# download fine unauthenticated, just against a shared rate limit
+# instead of your own — but it was printing to stderr and looking
+# exactly like a real failure to anyone watching the logs. If
+# HF_TOKEN is set (see voice-clone-routes.js, which passes it through
+# from the Node process's own env when present), that actually raises
+# the rate limit this notice was warning about; this line just stops
+# the notice itself from printing either way.
+os.environ.setdefault("HF_HUB_VERBOSITY", "error")
+
 VOICE_DIR = "/tmp/voice-clones"
 
 
