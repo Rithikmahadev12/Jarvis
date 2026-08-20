@@ -189,9 +189,13 @@ async function ensureEngineInstalled(sbx) {
   if (!installTorch.ok) {
     throw new Error(`Engine install failed on Jarvis's computer (torch/torchaudio): ${installTorch.stderr.slice(0, 500) || installTorch.stdout.slice(0, 500)}`);
   }
+  // coqui-tts still imports `isin_mps_friendly` from transformers.pytorch_utils,
+  // which HuggingFace removed in transformers 5.0 (github.com/idiap/coqui-ai-TTS
+  // issue #558) — an unpinned install grabs the latest transformers and breaks
+  // the import at load time. Pinning <5 keeps it on the last compatible line.
   const install = await Computer.runOnSandbox(
     sbx,
-    `pip install --quiet ${PIP_FLAGS} coqui-tts soundfile --break-system-packages || pip install --quiet ${PIP_FLAGS} coqui-tts soundfile`,
+    `pip install --quiet ${PIP_FLAGS} coqui-tts "transformers<5" soundfile --break-system-packages || pip install --quiet ${PIP_FLAGS} coqui-tts "transformers<5" soundfile`,
     { timeoutMs: 20 * 60 * 1000 }
   );
   if (!install.ok) {
