@@ -199,7 +199,7 @@ async function extendDedicatedSandbox(sbx, timeoutMs) {
 async function runOnSandbox(sbx, cmd, opts = {}) {
   let result;
   try {
-    result = await sbx.commands.run(cmd, { timeoutMs: opts.timeoutMs || 120000, cwd: opts.cwd || undefined, background: !!opts.background });
+    result = await sbx.commands.run(cmd, { timeoutMs: opts.timeoutMs || 120000, cwd: opts.cwd || undefined, background: !!opts.background, envs: opts.envs || undefined });
   } catch (e) {
     if (typeof e.exitCode === "number" || typeof e.stdout === "string" || typeof e.stderr === "string") {
       result = { stdout: e.stdout || "", stderr: e.stderr || "", exitCode: e.exitCode };
