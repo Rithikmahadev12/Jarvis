@@ -7,10 +7,19 @@ someone's own desktop. Every account's cloning and synthesis happens on
 that one sandbox, so there's no capability check and no "wait for a
 better machine" queue — this IS the machine.
 
-Uses Coqui XTTS-v2 (open-source, zero-shot voice cloning): hand it a
-6-30s reference clip and it can speak any new sentence in that voice on
-the spot — no training step, no GPU required (works on CPU, just
-slower per line).
+Uses Chatterbox TTS (Resemble AI, MIT license, open-source code + open
+weights — no third-party API involved): hand it a ~5-10s reference clip
+and it can speak any new sentence in that voice on the spot — no
+training step, no GPU required (works on CPU, just slower per line).
+Switched from Coqui XTTS-v2 to this after repeated dependency-chain
+breakage (torchaudio/torchcodec/transformers version churn) — Chatterbox
+has fewer moving parts, ships under a permissive commercial-friendly
+license instead of XTTS's non-commercial CPML, and needs no interactive
+license-agreement workaround.
+
+Every output from Chatterbox carries Resemble's inaudible PerTh
+watermark baked in by the model itself — that's upstream behavior, not
+something this code adds or can turn off.
 
 Talks to the outside world purely through argv + files, so the Node
 side never needs anything fancier than Computer.runOnSandbox() +
@@ -27,24 +36,15 @@ USAGE (from inside the sandbox):
         Writes  <out_wav>
         Prints  {"ok": true}  (or an error)
 
-The XTTS-v2 model (~2GB) downloads from Hugging Face on first use and
-is cached in the sandbox's filesystem for the rest of that sandbox's
+The Chatterbox model (~1-2GB) downloads from Hugging Face on first use
+and is cached in the sandbox's filesystem for the rest of that sandbox's
 life (it's a long-lived dedicated sandbox, not the aggressively-reaped
 shared one — see createDedicatedSandbox in computer.js).
 """
 
-import io
 import os
 import sys
 import json
-import wave
-import struct
-
-# XTTS-v2 asks for an interactive y/n license agreement on first load —
-# with nobody at a terminal in the sandbox, that would just hang forever.
-# This env var pre-agrees to Coqui's non-commercial license, same as if
-# you'd typed "y". Must be set before `from TTS.api import TTS`.
-os.environ.setdefault("COQUI_TOS_AGREED", "1")
 
 VOICE_DIR = "/tmp/voice-clones"
 
@@ -54,73 +54,78 @@ def _reference_path(user: str) -> str:
     return os.path.join(VOICE_DIR, safe, "reference.wav")
 
 
-_engine = None
+_model = None
 
 
-def _load_engine():
-    global _engine
-    if _engine is not None:
-        return _engine
+def _load_model():
+    global _model
+    if _model is not None:
+        return _model
     import torch
-    from TTS.api import TTS
+    from chatterbox.tts import ChatterboxTTS
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    _engine = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
-    return _engine
+    _model = ChatterboxTTS.from_pretrained(device=device)
+    return _model
 
 
 def cmd_clone(user: str):
     ref = _reference_path(user)
     if not os.path.isfile(ref):
-        print(json.dumps({"saved": False, "reason": "No reference audio uploaded for this account."}))
+        print(json.dumps({"saved": False, "reason": "No reference audio uploaded for this account."}), flush=True)
         return
     try:
-        engine = _load_engine()
+        model = _load_model()
         # Smoke-test the clip now so a bad/too-short/silent upload fails
         # here with a clear reason, instead of on the first real reply.
-        engine.tts(text="Voice check.", speaker_wav=ref, language="en")
-        print(json.dumps({"saved": True, "reason": "Cloned."}))
+        model.generate("Voice check.", audio_prompt_path=ref)
+        print(json.dumps({"saved": True, "reason": "Cloned."}), flush=True)
     except Exception as e:
-        print(json.dumps({"saved": False, "reason": f"{e.__class__.__name__}: {e}"}))
+        print(json.dumps({"saved": False, "reason": f"{e.__class__.__name__}: {e}"}), flush=True)
 
 
 def cmd_synth(user: str, text_file: str, out_file: str):
     ref = _reference_path(user)
     if not os.path.isfile(ref):
-        print(json.dumps({"ok": False, "reason": "No cloned voice on file for this account."}))
+        print(json.dumps({"ok": False, "reason": "No cloned voice on file for this account."}), flush=True)
         return
     try:
         with open(text_file, "r", encoding="utf-8") as f:
             text = f.read().strip()
         if not text:
-            print(json.dumps({"ok": False, "reason": "Empty text."}))
+            print(json.dumps({"ok": False, "reason": "Empty text."}), flush=True)
             return
-        engine = _load_engine()
-        samples = engine.tts(text=text, speaker_wav=ref, language="en")
-        sample_rate = 24000  # XTTS-v2's native output rate
-        with wave.open(out_file, "wb") as w:
-            w.setnchannels(1)
-            w.setsampwidth(2)
-            w.setframerate(sample_rate)
-            frames = b"".join(struct.pack("<h", max(-32768, min(32767, int(s * 32767)))) for s in samples)
-            w.writeframes(frames)
-        print(json.dumps({"ok": True}))
+        import torchaudio as ta
+        model = _load_model()
+        wav = model.generate(text, audio_prompt_path=ref)
+        ta.save(out_file, wav, model.sr)
+        print(json.dumps({"ok": True}), flush=True)
     except Exception as e:
-        print(json.dumps({"ok": False, "reason": f"{e.__class__.__name__}: {e}"}))
+        print(json.dumps({"ok": False, "reason": f"{e.__class__.__name__}: {e}"}), flush=True)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        print(json.dumps({"ok": False, "reason": "usage: clone_worker.py <clone|synth> <user> [text_file] [out_file]"}))
-        sys.exit(1)
-
-    action, user = sys.argv[1], sys.argv[2]
-    if action == "clone":
-        cmd_clone(user)
-    elif action == "synth":
-        if len(sys.argv) < 5:
-            print(json.dumps({"ok": False, "reason": "synth needs <text_file> <out_file>"}))
+    try:
+        if len(sys.argv) < 3:
+            print(json.dumps({"ok": False, "reason": "usage: clone_worker.py <clone|synth> <user> [text_file] [out_file]"}), flush=True)
             sys.exit(1)
-        cmd_synth(user, sys.argv[3], sys.argv[4])
-    else:
-        print(json.dumps({"ok": False, "reason": f"unknown action '{action}'"}))
+
+        action, user = sys.argv[1], sys.argv[2]
+        if action == "clone":
+            cmd_clone(user)
+        elif action == "synth":
+            if len(sys.argv) < 5:
+                print(json.dumps({"ok": False, "reason": "synth needs <text_file> <out_file>"}), flush=True)
+                sys.exit(1)
+            cmd_synth(user, sys.argv[3], sys.argv[4])
+        else:
+            print(json.dumps({"ok": False, "reason": f"unknown action '{action}'"}), flush=True)
+            sys.exit(1)
+    except Exception as e:
+        # Last-resort catch-all: cmd_clone/cmd_synth already catch their own
+        # errors and print JSON, but this guarantees ONE valid JSON line
+        # comes out no matter what breaks (bad argv, an import-time error,
+        # anything outside those functions' own try/except) — the Node
+        # side's safeJson() always has something real to parse instead of
+        # falling through to a generic error message with no detail.
+        print(json.dumps({"ok": False, "saved": False, "reason": f"{e.__class__.__name__}: {e}"}), flush=True)
         sys.exit(1)
