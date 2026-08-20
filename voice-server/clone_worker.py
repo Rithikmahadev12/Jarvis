@@ -40,6 +40,12 @@ import json
 import wave
 import struct
 
+# XTTS-v2 asks for an interactive y/n license agreement on first load —
+# with nobody at a terminal in the sandbox, that would just hang forever.
+# This env var pre-agrees to Coqui's non-commercial license, same as if
+# you'd typed "y". Must be set before `from TTS.api import TTS`.
+os.environ.setdefault("COQUI_TOS_AGREED", "1")
+
 VOICE_DIR = "/root/voice-clones"
 
 
