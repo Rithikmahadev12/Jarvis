@@ -68,6 +68,40 @@ def _reference_path(user: str) -> str:
 _model = None
 
 
+def _call_with_hf_fallback(fn):
+    """
+    Calls fn() (a Hugging Face download/load call). If it fails AND an
+    HF_TOKEN is configured, the failure is very possibly the token
+    itself — expired, revoked, or just wrong — rather than the repo
+    actually being missing: Hugging Face returns the same misleading
+    "Repository Not Found" 401 for a bad token as it would if the repo
+    didn't exist, since it won't reveal a private-looking repo's
+    existence to a request it can't authenticate. Chatterbox's repo is
+    fully public, so a bad token is actively worse than no token at
+    all. Rather than surface that confusing error and give up, this
+    drops the token and retries once completely anonymously — exactly
+    how this worked before any token was ever configured, and that's
+    enough on its own for a public repo.
+    """
+    try:
+        return fn()
+    except Exception as e:
+        had_token = bool(os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN"))
+        msg = str(e)
+        looks_like_auth_problem = "401" in msg or "Repository Not Found" in msg or "authenticat" in msg.lower()
+        if not (had_token and looks_like_auth_problem):
+            raise
+        print(json.dumps({
+            "note": "Configured HF_TOKEN looks invalid/expired — dropping it and retrying anonymously.",
+        }), file=sys.stderr, flush=True)
+        # Drop it for the rest of THIS process's life, not just this one
+        # call — a token that's bad once will be bad again, and every
+        # call in this run should skip straight to anonymous from here.
+        os.environ.pop("HF_TOKEN", None)
+        os.environ.pop("HUGGING_FACE_HUB_TOKEN", None)
+        return fn()
+
+
 def _load_model():
     global _model
     if _model is not None:
@@ -107,7 +141,7 @@ def _load_model():
         else:
             os.environ["HF_HUB_OFFLINE"] = prev_offline
 
-    _model = ChatterboxTTS.from_pretrained(device=device)
+    _model = _call_with_hf_fallback(lambda: ChatterboxTTS.from_pretrained(device=device))
     return _model
 
 
