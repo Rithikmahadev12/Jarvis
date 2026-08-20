@@ -64,6 +64,20 @@ const SANDBOX_WORKER = "/tmp/clone_worker.py";
 
 const PIP_FLAGS = "--retries 5 --timeout 120";
 
+// If HF_TOKEN is set in Jarvis's own .env, pass it through into the
+// sandbox's environment so huggingface_hub picks it up automatically
+// (it reads HF_TOKEN itself — no code change needed on the Python
+// side beyond it being present in the process env). Gets you a much
+// higher/personal rate limit on the model download instead of the
+// shared unauthenticated one, and is what removes the "unauthenticated
+// requests" notice for real rather than just silencing it. Optional —
+// undefined here just means the sandbox runs with no extra env vars,
+// exactly like before.
+function hfEnvs() {
+  const token = (process.env.HF_TOKEN || "").trim();
+  return token ? { HF_TOKEN: token } : undefined;
+}
+
 // ── Auto-retry for TRANSIENT (network-class) pip failures ──────────
 // pip's own --retries only covers a single request; a connection that
 // drops mid-download (like the urllib3 _raw_read error this repo has
@@ -353,7 +367,7 @@ async function attemptClone(user) {
     // 25 minutes gives real headroom for that on a slow connection.
     // Subsequent clones on the same warm sandbox (weights already
     // cached) are fast and finish in a fraction of this.
-    const result = await Computer.runOnSandbox(sbx, `python3 ${SANDBOX_WORKER} clone ${key}`, { timeoutMs: 25 * 60 * 1000 });
+    const result = await Computer.runOnSandbox(sbx, `python3 ${SANDBOX_WORKER} clone ${key}`, { timeoutMs: 25 * 60 * 1000, envs: hfEnvs() });
     const parsed = safeJson(result.stdout);
     if (parsed && parsed.saved) {
       return setJob(user, { status: "ready", reason: "Cloned." });
@@ -390,7 +404,7 @@ async function synthesizeCloned(user, text) {
     const outPath  = `/tmp/.synth-output-${key}-${stamp}.wav`;
 
     await sbx.files.write(textPath, text);
-    const result = await Computer.runOnSandbox(sbx, `python3 ${SANDBOX_WORKER} synth ${key} ${textPath} ${outPath}`, { timeoutMs: 3 * 60 * 1000 });
+    const result = await Computer.runOnSandbox(sbx, `python3 ${SANDBOX_WORKER} synth ${key} ${textPath} ${outPath}`, { timeoutMs: 3 * 60 * 1000, envs: hfEnvs() });
     const parsed = safeJson(result.stdout);
     if (!parsed || !parsed.ok) {
       console.warn(`[VOICE-CLONE] Synthesis failed for "${key}": ${(parsed && parsed.reason) || result.stderr.slice(0, 300) || "no output"} — falling back.`);
