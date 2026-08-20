@@ -152,9 +152,29 @@ async function ensureEngineInstalled(sbx) {
   // E2B's modern Python image. "coqui-tts" is the actively-maintained fork
   // (same code, same `from TTS.api import TTS` import) that supports current
   // Python — that's what actually installs here.
+  //
+  // torch installed on its own, from the CPU-only wheel index: the default
+  // `pip install torch` pulls the full CUDA build (1.5-2GB+), and this
+  // sandbox has no GPU anyway (see clone_worker.py's cuda.is_available()
+  // check — it always falls through to CPU here). That huge unnecessary
+  // download is also the most likely reason installs have been dying
+  // mid-stream ("urllib3 ... _raw_read" is a connection drop during a
+  // download, not a real dependency error) — the CPU wheel is a fraction
+  // of the size. --retries/--timeout give it room to recover from any
+  // remaining flakiness instead of failing on the first hiccup.
+  const PIP_FLAGS = "--retries 5 --timeout 120";
+  const installTorch = await Computer.runOnSandbox(
+    sbx,
+    `pip install --quiet ${PIP_FLAGS} torch --index-url https://download.pytorch.org/whl/cpu --break-system-packages || ` +
+    `pip install --quiet ${PIP_FLAGS} torch --index-url https://download.pytorch.org/whl/cpu`,
+    { timeoutMs: 20 * 60 * 1000 }
+  );
+  if (!installTorch.ok) {
+    throw new Error(`Engine install failed on Jarvis's computer (torch): ${installTorch.stderr.slice(0, 500) || installTorch.stdout.slice(0, 500)}`);
+  }
   const install = await Computer.runOnSandbox(
     sbx,
-    "pip install --quiet coqui-tts torch soundfile --break-system-packages || pip install --quiet coqui-tts torch soundfile",
+    `pip install --quiet ${PIP_FLAGS} coqui-tts soundfile --break-system-packages || pip install --quiet ${PIP_FLAGS} coqui-tts soundfile`,
     { timeoutMs: 20 * 60 * 1000 }
   );
   if (!install.ok) {
