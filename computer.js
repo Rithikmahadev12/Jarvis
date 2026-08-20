@@ -186,8 +186,23 @@ async function connectDedicatedSandbox(sandboxId) {
 // shorter, task.
 async function extendDedicatedSandbox(sbx, timeoutMs) {
   if (sbx && typeof sbx.setTimeout === "function") {
-    try { await sbx.setTimeout(timeoutMs || 60 * 60 * 1000); }
-    catch (e) { console.warn(`[COMPUTER] Couldn't extend dedicated sandbox timeout: ${e.message}`); }
+    // IMPORTANT: this must actually throw on failure, not swallow the
+    // error. Every caller (voice-clone-routes.js's getWorkerSandbox,
+    // postiz-agent.js's getOrCreateSandbox/wakeIfSandboxHosted) relies
+    // on this throwing to detect "the saved sandbox ID is dead" and
+    // fall through to provisioning a fresh one. Swallowing it here
+    // used to mean that detection never fired — callers kept reusing
+    // the same dead sandbox ID forever, logging the same "doesn't
+    // exist" warning on every single call with no recovery. Callers
+    // that genuinely want best-effort behavior (e.g. the mid-retry
+    // lifetime reset in voice-clone-routes.js) already wrap their own
+    // call in try/catch; this function shouldn't decide that for them.
+    try {
+      await sbx.setTimeout(timeoutMs || 60 * 60 * 1000);
+    } catch (e) {
+      console.warn(`[COMPUTER] Couldn't extend dedicated sandbox timeout: ${e.message}`);
+      throw e;
+    }
   }
 }
 
