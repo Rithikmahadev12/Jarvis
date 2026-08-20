@@ -42,6 +42,20 @@ const CLONES_DIR        = path.join(DATA_DIR, "voice-clones");       // local co
 const JOBS_FILE          = path.join(CLONES_DIR, "jobs.json");
 const SANDBOX_ID_FILE    = path.join(DATA_DIR, "voice-clone-sandbox.json");
 const WORKER_SCRIPT_PATH = path.join(__dirname, "voice-server", "clone_worker.py");
+// Same file server.js's own loadProfiles/saveProfiles read/write — used
+// ONLY by processPendingClones() below (the scheduled sweep in
+// server.js, which runs outside any request and has no access to the
+// loadProfiles/saveProfiles passed into register()). The HTTP routes
+// still use the passed-in versions, so there is exactly one source of
+// truth for the file path either way.
+const PROFILES_FILE = path.join(DATA_DIR, "profiles.json");
+
+function loadProfilesDirect() {
+  try { return JSON.parse(fs.readFileSync(PROFILES_FILE, "utf8")); } catch { return {}; }
+}
+function saveProfilesDirect(p) {
+  fs.writeFileSync(PROFILES_FILE, JSON.stringify(p, null, 2), "utf8");
+}
 
 // Paths INSIDE the sandbox (must match voice-server/clone_worker.py's
 // own VOICE_DIR constant).
@@ -102,6 +116,14 @@ async function runPipInstallWithRetry(sbx, cmd, label, { timeoutMs = 20 * 60 * 1
     // window. Attempt 1 = base timeout, attempt 2 = 1.5x, attempt 3 =
     // 2x, attempt 4 = 2.5x.
     const attemptTimeoutMs = Math.round(timeoutMs * (1 + 0.5 * (attempt - 1)));
+    // Reset the SANDBOX's own lifetime clock before every attempt, not
+    // just once at the top of the whole clone job. Several escalating
+    // retries back to back on a slow connection can otherwise eat past
+    // the sandbox's own 1-hour ceiling even though each individual
+    // command's timeoutMs is well under it — that ends the job with a
+    // generic "sandbox not found"/timeout error that has nothing to do
+    // with the actual pip failure being retried.
+    try { await Computer.extendDedicatedSandbox(sbx, 60 * 60 * 1000); } catch { /* best-effort */ }
     const result = await Computer.runOnSandbox(sbx, cmd, { timeoutMs: attemptTimeoutMs });
     if (result.ok) return result;
 
@@ -312,12 +334,26 @@ async function attemptClone(user) {
     await Computer.runOnSandbox(sbx, `mkdir -p ${SANDBOX_ROOT}/${key}`, { timeoutMs: 15000 });
     await sbx.files.write(`${SANDBOX_ROOT}/${key}/reference.wav`, buf);
 
+    // Reset the SANDBOX's own lifetime clock (separate from the
+    // per-command timeoutMs below) back to a full hour right before the
+    // last, heaviest step. ensureEngineInstalled() above can itself eat
+    // most of an hour on a cold sandbox once pip retries/backoff are
+    // counted, and getWorkerSandbox() only extended the sandbox once, at
+    // the very start of this whole function — without this second
+    // extension, a slow first-time install could leave too little of
+    // the sandbox's own 1-hour ceiling for the ~1-2GB Hugging Face
+    // weights download + smoke-test clone that's about to run, and E2B
+    // would kill the sandbox out from under it (surfacing as a generic
+    // timeout with no useful reason).
+    await Computer.extendDedicatedSandbox(sbx, 60 * 60 * 1000);
+
     // First clone on a fresh sandbox also triggers Chatterbox's one-time
     // ~1-2GB model-weights download from Hugging Face inside
     // clone_worker.py, on top of the actual clone/smoke-test itself —
-    // 15 minutes gives real headroom for that. Subsequent clones on the
-    // same warm sandbox (weights already cached) are fast.
-    const result = await Computer.runOnSandbox(sbx, `python3 ${SANDBOX_WORKER} clone ${key}`, { timeoutMs: 15 * 60 * 1000 });
+    // 25 minutes gives real headroom for that on a slow connection.
+    // Subsequent clones on the same warm sandbox (weights already
+    // cached) are fast and finish in a fraction of this.
+    const result = await Computer.runOnSandbox(sbx, `python3 ${SANDBOX_WORKER} clone ${key}`, { timeoutMs: 25 * 60 * 1000 });
     const parsed = safeJson(result.stdout);
     if (parsed && parsed.saved) {
       return setJob(user, { status: "ready", reason: "Cloned." });
@@ -369,6 +405,21 @@ async function synthesizeCloned(user, text) {
   }
 }
 
+// If a clone job just finished "ready", flips the account over to
+// voiceMode "clone" so it's actually used — shared by the upload route,
+// the retry route, and the scheduled sweep below, so a job that
+// finishes in the background always activates itself the same way
+// regardless of which path completed it.
+function activateCloneIfReady(user, job, loadProfilesFn, saveProfilesFn) {
+  if (!job || job.status !== "ready") return;
+  const key = safeKey(user);
+  const profiles = loadProfilesFn();
+  if (!profiles[key]) return;
+  profiles[key].aiVoiceMode = "clone";
+  profiles[key].updatedAt = new Date().toISOString();
+  saveProfilesFn(profiles);
+}
+
 // Retries any job that isn't "ready" yet — e.g. E2B_API_KEY was just
 // added, or the sandbox had a transient error last time. Safe to call
 // on a schedule; a no-op when there's nothing pending.
@@ -378,7 +429,8 @@ async function processPendingClones() {
   if (!retryable.length) return;
   console.log(`[VOICE-CLONE] Retrying ${retryable.length} unfinished clone job(s) on Jarvis's computer...`);
   for (const user of retryable) {
-    await attemptClone(user);
+    const job = await attemptClone(user);
+    activateCloneIfReady(user, job, loadProfilesDirect, saveProfilesDirect);
   }
 }
 
@@ -396,6 +448,19 @@ function register(app, { loadProfiles, saveProfiles }) {
   // POST /api/voice-clone/upload  { user, audioBase64 }
   // audioBase64: raw base64 of an audio clip, no data: prefix.
   // A short (5-30s), single-speaker, low-noise clip clones best.
+  //
+  // Responds IMMEDIATELY once the clip is saved, then runs the actual
+  // clone in the background instead of awaiting it here. A cold
+  // sandbox (first clone ever, engine not installed yet) can
+  // legitimately take 15-40+ minutes: installing Chatterbox + deps,
+  // then the one-time ~1-2GB Hugging Face weights download, then the
+  // smoke-test clone itself. Holding this HTTP request open the whole
+  // time was the actual bug behind "it works for a while then times
+  // out" — the browser/host connection has nowhere near that much
+  // patience, so the request was getting killed out from under a clone
+  // job that was often still working fine in the background. The
+  // frontend now polls GET /api/voice-clone/status/:user instead, which
+  // has no such time limit since each poll is its own quick request.
   app.post("/api/voice-clone/upload", async (req, res) => {
     const { user, audioBase64 } = req.body || {};
     if (!user) return res.status(400).json({ error: "Missing user" });
@@ -415,25 +480,41 @@ function register(app, { loadProfiles, saveProfiles }) {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, "reference.wav"), buf);
 
-    const job = await attemptClone(key);
+    setJob(key, { status: "pending", reason: "Starting — this can take a while on the very first clone." });
+    res.json({
+      success: false,
+      status: "pending",
+      reason: "Cloning started on Jarvis's computer. This can take 15-40 minutes the very first time (installing the engine + a one-time model download) — check back or leave this open, it'll update on its own.",
+    });
 
-    if (job.status === "ready") {
-      profiles[key].aiVoiceMode = "clone";
-      profiles[key].updatedAt = new Date().toISOString();
-      saveProfiles(profiles);
-    }
-
-    res.json({ success: job.status === "ready", ...job });
+    attemptClone(key)
+      .then((job) => activateCloneIfReady(key, job, loadProfiles, saveProfiles))
+      .catch((e) => {
+        console.error(`[VOICE-CLONE] Background clone for "${key}" crashed: ${e.message}`);
+        setJob(key, { status: "failed", reason: e.message || "Unknown error." });
+      });
   });
 
-  // GET /api/voice-clone/status/:user
+  // GET /api/voice-clone/status/:user — the frontend polls this.
   app.get("/api/voice-clone/status/:user", (req, res) => {
     res.json(jobStatus(req.params.user));
   });
 
-  // POST /api/voice-clone/retry/:user — manual "try again" button.
+  // POST /api/voice-clone/retry/:user — manual "try again" button. Same
+  // immediate-response-then-background pattern as upload, for the same
+  // reason (a retry can be just as slow as the original attempt).
   app.post("/api/voice-clone/retry/:user", async (req, res) => {
-    res.json(await attemptClone(req.params.user));
+    const user = req.params.user;
+    const key = safeKey(user);
+    setJob(key, { status: "pending", reason: "Retrying on Jarvis's computer…" });
+    res.json({ success: false, status: "pending", reason: "Retrying — this can take a while, check back shortly." });
+
+    attemptClone(user)
+      .then((job) => activateCloneIfReady(user, job, loadProfiles, saveProfiles))
+      .catch((e) => {
+        console.error(`[VOICE-CLONE] Background retry for "${key}" crashed: ${e.message}`);
+        setJob(key, { status: "failed", reason: e.message || "Unknown error." });
+      });
   });
 }
 
