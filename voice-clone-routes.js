@@ -50,6 +50,71 @@ const SANDBOX_WORKER = "/tmp/clone_worker.py";
 
 const PIP_FLAGS = "--retries 5 --timeout 120";
 
+// ── Auto-retry for TRANSIENT (network-class) pip failures ──────────
+// pip's own --retries only covers a single request; a connection that
+// drops mid-download (like the urllib3 _raw_read error this repo has
+// hit) surfaces as a hard failure to pip itself, no different from a
+// real dependency conflict, unless something outside pip retries the
+// whole install. This wrapper does that: it re-runs the install command
+// a few times with backoff, but ONLY when the failure text looks
+// network-related — a genuine dependency/conflict error is surfaced
+// immediately instead of being retried pointlessly.
+const TRANSIENT_ERROR_PATTERNS = [
+  /_raw_read/i,
+  /connection (reset|aborted|broken)/i,
+  /connectionerror/i,
+  /chunkedencodingerror/i,
+  /incompleteread/i,
+  /read timed? ?out/i,
+  /timeout/i,
+  /econnreset/i,
+  /etimedout/i,
+  /temporary failure in name resolution/i,
+  /name or service not known/i,
+  /ssl.*(eof|wrong_version|handshake)/i,
+  /remote end closed connection/i,
+  /max retries exceeded/i,
+  /could not fetch url/i,
+  /new connection.*failed/i,
+  /network is unreachable/i,
+];
+
+function isTransientPipError(output) {
+  return TRANSIENT_ERROR_PATTERNS.some((re) => re.test(output));
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Runs a pip install command, auto-retrying with backoff on its own
+// whenever the failure looks like a dropped/flaky connection rather
+// than a real package problem. Only throws (surfacing to the caller,
+// which fails the job and shows the user a "retry" button) once it's
+// exhausted its attempts on a transient error, or immediately on a
+// non-transient one.
+async function runPipInstallWithRetry(sbx, cmd, label, { timeoutMs = 20 * 60 * 1000, maxAttempts = 4 } = {}) {
+  let lastOutput = "";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const result = await Computer.runOnSandbox(sbx, cmd, { timeoutMs });
+    if (result.ok) return result;
+
+    lastOutput = (result.stderr || result.stdout || "").trim();
+
+    if (!isTransientPipError(lastOutput)) {
+      // Not a network-class error — retrying won't help, so surface it now.
+      throw new Error(`Engine install failed on Jarvis's computer (${label}): ${lastOutput.slice(0, 500)}`);
+    }
+
+    if (attempt < maxAttempts) {
+      const backoffMs = 5000 * attempt; // 5s, 10s, 15s...
+      console.warn(`[VOICE-CLONE] ${label} install hit a transient network error (attempt ${attempt}/${maxAttempts}) — auto-retrying in ${backoffMs / 1000}s...`);
+      await sleep(backoffMs);
+    }
+  }
+  throw new Error(`Engine install failed on Jarvis's computer (${label}) after ${maxAttempts} automatic retries, still network-related: ${lastOutput.slice(0, 500)}`);
+}
+
 function ensureDirs() {
   fs.mkdirSync(CLONES_DIR, { recursive: true });
 }
@@ -175,24 +240,20 @@ async function ensureEngineInstalled(sbx) {
   // CPU-only wheel index since this sandbox has no GPU — the default
   // `pip install torch` pulls the full CUDA build (1.5-2GB+) for
   // nothing.
-  const installTorch = await Computer.runOnSandbox(
+  await runPipInstallWithRetry(
     sbx,
     `pip install --quiet ${PIP_FLAGS} "torch>=2.6,<2.9" "torchaudio>=2.6,<2.9" --index-url https://download.pytorch.org/whl/cpu --break-system-packages || ` +
     `pip install --quiet ${PIP_FLAGS} "torch>=2.6,<2.9" "torchaudio>=2.6,<2.9" --index-url https://download.pytorch.org/whl/cpu`,
+    "torch/torchaudio",
     { timeoutMs: 20 * 60 * 1000 }
   );
-  if (!installTorch.ok) {
-    throw new Error(`Engine install failed on Jarvis's computer (torch/torchaudio): ${(installTorch.stderr || installTorch.stdout).slice(0, 500)}`);
-  }
 
-  const installChatterbox = await Computer.runOnSandbox(
+  await runPipInstallWithRetry(
     sbx,
     `pip install --quiet ${PIP_FLAGS} chatterbox-tts soundfile --break-system-packages || pip install --quiet ${PIP_FLAGS} chatterbox-tts soundfile`,
+    "chatterbox-tts",
     { timeoutMs: 20 * 60 * 1000 }
   );
-  if (!installChatterbox.ok) {
-    throw new Error(`Engine install failed on Jarvis's computer (chatterbox-tts): ${(installChatterbox.stderr || installChatterbox.stdout).slice(0, 500)}`);
-  }
 }
 
 // ── CLONE job ────────────────────────────────────────────────────────
