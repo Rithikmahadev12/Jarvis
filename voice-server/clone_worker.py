@@ -64,6 +64,38 @@ def _load_model():
     import torch
     from chatterbox.tts import ChatterboxTTS
     device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Every clone/synth call runs as a brand-new `python3 clone_worker.py`
+    # process (see the module docstring — no server, no port), so the
+    # in-process _model cache above never survives between calls on its
+    # own. Without this, ChatterboxTTS.from_pretrained() would contact
+    # Hugging Face's servers on EVERY single call to re-verify the
+    # already-downloaded files even once they're fully cached on disk —
+    # that repeated contact is what trips the "unauthenticated requests"
+    # rate-limit warning (and can occasionally 429) over and over, not
+    # just once.
+    #
+    # Fix: try fully OFFLINE first — HF_HUB_OFFLINE=1 makes
+    # huggingface_hub read straight from its local cache directory and
+    # make zero network calls. That's what every call after the first
+    # ever run on this sandbox will hit, so HF Hub is never touched
+    # again once this sandbox's cache is warm. Only the very first
+    # clone on a brand-new sandbox falls through to a real (still
+    # unauthenticated — no token used or needed) online download to
+    # prime that cache.
+    prev_offline = os.environ.get("HF_HUB_OFFLINE")
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    try:
+        _model = ChatterboxTTS.from_pretrained(device=device)
+        return _model
+    except Exception:
+        pass  # not cached yet on this sandbox — fall through to a real download
+    finally:
+        if prev_offline is None:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+        else:
+            os.environ["HF_HUB_OFFLINE"] = prev_offline
+
     _model = ChatterboxTTS.from_pretrained(device=device)
     return _model
 
