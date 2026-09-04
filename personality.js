@@ -1,6 +1,6 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Personality Engine v3.0
+// Jarvis — Personality Engine v3.0
 // No preset phrase arrays. Responses built from context.
 // Genuine JARVIS voice — dry, precise, witty, never robotic.
 // ═══════════════════════════════════════════════════════════════
@@ -63,7 +63,7 @@ function buildJarvisResponse(context) {
     sentiment = null, // positive/negative/neutral
     tz = null,      // user's IANA timezone, e.g. "America/Los_Angeles"
     time = getTimeContext(tz),
-    name = "J.A.R.V.I.S", // this account's custom AI name (see server.js /api/ai-settings) — falls back to the default persona name if the user never renamed it
+    name = "Jarvis", // the AI's name — locked, always "Jarvis" (see server.js /api/ai-settings)
   } = context;
 
   switch (type) {
@@ -93,13 +93,7 @@ function buildJarvisResponse(context) {
     }
 
     case "identity": {
-      // Only spell out "Just A Rather Very Intelligent System" for
-      // accounts still using the default name — it's a real acronym of
-      // that specific name, so it stops making sense the moment someone
-      // renames their AI to something else.
-      const nameLine = name === "J.A.R.V.I.S"
-        ? "J.A.R.V.I.S — Just A Rather Very Intelligent System"
-        : name;
+      const nameLine = "Jarvis";
       return `${nameLine}, ${T}. I handle everything from writing production code in any language, generating terminal commands, running OSINT on people, controlling smart home devices, reading your screen, hand-tracked drafting and holographic projection, and considerably more. No fixed commands — just tell me what you need in plain language.`;
     }
 
@@ -197,7 +191,7 @@ function buildJarvisResponse(context) {
 // Reads what was actually said and responds to it specifically.
 // No arrays. Each response references the actual input.
 
-function routeSmallTalk(text, T, tz, aiName = "J.A.R.V.I.S") {
+function routeSmallTalk(text, T, tz, aiName = "Jarvis") {
   const lower = text.toLowerCase().trim();
 
   // Identity — who/what Jarvis is. This response already existed
@@ -488,7 +482,7 @@ async function getWebcamComment(base64Image, scene, T, sessionMinutes, tz) {
     const time = getTimeContext(tz);
     const h = getHourInTZ(tz);
 
-    const prompt = `You are J.A.R.V.I.S. — Tony Stark's AI from the Iron Man films. Formal, ` +
+    const prompt = `You are Jarvis. — Tony Stark's AI from the Iron Man films. Formal, ` +
       `impeccably composed British diction; dry, deadpan wit delivered completely ` +
       `straight-faced; understated, never crude, never mean, never explains the joke. ` +
       `Economical with words. You address the user as "${T}".\n\n` +
