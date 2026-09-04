@@ -4061,16 +4061,10 @@ async function loadAiSettings() {
     state.aiVoicePreset = data.voicePreset || null;
     state.aiVoiceCloned = !!data.voiceCloned;
 
-    // First login ever (brand-new account), OR an existing account
-    // that predates this feature (aiSetupDone is missing/false on
-    // profiles that were created before AI customization existed) —
-    // either way, they've never seen this step. Ask once, right now.
-    // Runs after applyAiName() so the on-screen title/wake word are
-    // already correct even if they close the prompt without choosing
-    // anything.
-    if (!data.aiSetupDone) {
-      maybeOnboardAiSetup();
-    }
+    // No more auto-popup on first login — everyone just gets the
+    // default rotating Camb.ai voice unless they go into AI Settings
+    // themselves and change it. (Used to fire maybeOnboardAiSetup()
+    // here on any account with aiSetupDone still false.)
   } catch (e) {
     console.warn("[AI SETTINGS] Couldn't load — using defaults:", e.message);
   }
@@ -4104,13 +4098,9 @@ async function saveAiSettings(partial) {
   }
 }
 
-// ── Voice-clone status polling ──────────────────────────────────────
-// /api/voice-clone/upload and /retry now respond immediately and do the
-// actual (often slow — 15-40 min on a cold sandbox) cloning in the
-// background, instead of making the browser hold one HTTP request open
-// the whole time (that was the cause of the "works for a while then
-// times out" failures — the connection had nowhere near that much
-// patience). This poll is what actually tells the user it finished.
+// ── Voice-clone status polling (kept in case /api/voice-clone routes
+// are still used elsewhere; the AI Settings panel no longer offers a
+// clone option, so nothing calls these from the UI anymore) ─────────
 let cloneStatusPollTimer = null;
 
 function stopCloneStatusPolling() {
@@ -4174,19 +4164,7 @@ function showAiSettings(opts) {
             <option value="default">Default rotating voice</option>
             <option value="preset">Choose from configured voices</option>
             <option value="custom">Paste a Camb.ai voice ID</option>
-            <option value="clone">Clone my own voice</option>
           </select>
-
-          <div id="ai-voice-clone-block" style="display:none;margin-bottom:10px">
-            <p style="font-family:var(--mono);font-size:0.6rem;color:var(--text-dim);margin:0 0 8px;line-height:1.5">
-              Upload a clear, single-speaker clip (10-30s works best). It's cloned automatically on
-              Jarvis's own cloud computer — usually done in under a minute.
-            </p>
-            <input id="ai-voice-clone-file" type="file" accept="audio/*"
-              style="width:100%;box-sizing:border-box;margin-bottom:8px;font-family:var(--mono);font-size:0.62rem;color:var(--text-dim)" />
-            <button class="hud-btn" id="ai-voice-clone-upload-btn" style="width:100%;padding:8px;margin-bottom:8px">UPLOAD &amp; CLONE</button>
-            <div id="ai-voice-clone-status" style="font-family:var(--mono);font-size:0.62rem;color:var(--text-dim);min-height:16px"></div>
-          </div>
 
           <select id="ai-voice-preset-select"
             style="width:100%;box-sizing:border-box;padding:9px 10px;margin-bottom:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.72rem;display:none"></select>
@@ -4226,49 +4204,9 @@ function showAiSettings(opts) {
     const modeSelect   = $("ai-voice-mode-select");
     const presetSelect = $("ai-voice-preset-select");
     const customInput  = $("ai-voice-custom-input");
-    const cloneBlock   = $("ai-voice-clone-block");
     modeSelect.addEventListener("change", () => {
       presetSelect.style.display = modeSelect.value === "preset" ? "" : "none";
       customInput.style.display  = modeSelect.value === "custom" ? "" : "none";
-      cloneBlock.style.display   = modeSelect.value === "clone"  ? "" : "none";
-      if (modeSelect.value === "clone") startCloneStatusPolling();
-      else stopCloneStatusPolling();
-    });
-
-    // Reads the whole clip as base64 (fine for the short clips this is
-    // meant for — 25MB server-side cap) and uploads it. The server
-    // saves the clip and kicks off the actual clone in the background,
-    // responding right away with "pending" — it does NOT wait for the
-    // clone to finish (that can take 15-40 min the first time). This
-    // just starts the upload and hands off to the status poll above.
-    $("ai-voice-clone-upload-btn").addEventListener("click", async () => {
-      const fileInput = $("ai-voice-clone-file");
-      const statusEl  = $("ai-voice-clone-status");
-      const file = fileInput.files && fileInput.files[0];
-      if (!file) { statusEl.style.color = "var(--red)"; statusEl.textContent = "Choose an audio file first."; return; }
-      statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Uploading…";
-      try {
-        const audioBase64 = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload  = () => resolve(reader.result.split(",")[1] || "");
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
-        const res  = await fetch("/api/voice-clone/upload", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ user: state.user, audioBase64 }),
-        });
-        const data = await res.json();
-        if (!res.ok) { statusEl.style.color = "var(--red)"; statusEl.textContent = data.error || "Upload failed."; return; }
-        // Server now always returns "pending" here and finishes the
-        // real clone in the background — start polling instead of
-        // treating this response as the final answer.
-        statusEl.style.color = "var(--text-dim)";
-        statusEl.textContent = data.reason || "Cloning started on Jarvis's computer…";
-        startCloneStatusPolling();
-      } catch (e) {
-        statusEl.style.color = "var(--red)"; statusEl.textContent = "Upload failed — check your connection.";
-      }
     });
 
     async function skipAiOnboarding() {
@@ -4299,10 +4237,9 @@ function showAiSettings(opts) {
 
     $("ai-settings-test-btn").addEventListener("click", () => {
       const opts = { text: `Hello, ${state.userTitle}. This is what I sound like.`, user: state.user };
-      if (modeSelect.value === "clone") opts.mode = "clone";
       if (modeSelect.value === "custom" && customInput.value) opts.voiceId = customInput.value;
       if (modeSelect.value === "preset" && presetSelect.value) opts.voicePreset = presetSelect.value;
-      if (modeSelect.value !== "default" && modeSelect.value !== "clone") opts.cloned = $("ai-voice-cloned-toggle").checked;
+      if (modeSelect.value !== "default") opts.cloned = $("ai-voice-cloned-toggle").checked;
       const statusEl = $("ai-settings-status");
       statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Generating preview…";
       fetch("/api/tts", {
@@ -4329,12 +4266,7 @@ function showAiSettings(opts) {
 
     const modeSelect  = $("ai-voice-mode-select");
     const customInput = $("ai-voice-custom-input");
-    const cloneBlock  = $("ai-voice-clone-block");
-    cloneBlock.style.display = "none";
-    if (data.voiceMode === "clone") {
-      modeSelect.value = "clone";
-      presetSelect.style.display = "none"; customInput.style.display = "none"; cloneBlock.style.display = "";
-    } else if (data.voiceId) {
+    if (data.voiceId) {
       modeSelect.value = "custom"; customInput.value = data.voiceId;
       presetSelect.style.display = "none"; customInput.style.display = "";
     } else if (data.voicePreset) {
@@ -4346,29 +4278,15 @@ function showAiSettings(opts) {
     }
     $("ai-voice-cloned-toggle").checked = !!data.voiceCloned;
     $("ai-settings-status").textContent = "";
-    stopCloneStatusPolling();
-    if (data.voiceCloneJob && data.voiceCloneJob.status && data.voiceCloneJob.status !== "none") {
-      const s = $("ai-voice-clone-status");
-      if (data.voiceCloneJob.status === "ready")      { s.style.color = "#00ff88"; s.textContent = "Your cloned voice is ready."; }
-      else if (data.voiceCloneJob.status === "failed"){ s.style.color = "var(--red)"; s.textContent = data.voiceCloneJob.reason || "Cloning failed."; }
-      else {
-        s.style.color = "var(--text-dim)"; s.textContent = data.voiceCloneJob.reason || "Cloning in progress…";
-        // A clone from a previous session/tab may still be running in
-        // the background — resume polling so this panel picks it back
-        // up live instead of showing a stale "in progress" forever.
-        startCloneStatusPolling();
-      }
-    }
   }).catch(() => {});
 
   overlay.classList.remove("hidden");
-  addMsg("system", firstTime ? "Set up your AI — name it, pick a voice, or keep the default." : "AI settings open.");
+  addMsg("system", firstTime ? "Set up Jarvis — pick a voice, or keep the default." : "AI settings open.");
   mic.suspend();
 }
 
 function hideAiSettings() {
   const overlay = $("ai-settings-overlay"); if (overlay) overlay.classList.add("hidden");
-  stopCloneStatusPolling(); // the clone itself keeps running server-side; just stop polling from a closed panel
   if (state.phase === "chatting") mic.resume();
 }
 
