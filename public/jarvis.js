@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Client Brain v4.3
+// Jarvis — Client Brain v4.3
 // Auth v2: unified Login + Create Account screen
 // Fixed: face recognition threshold 0.55 → 0.72
 // Added: intruder detection enable/disable voice command
@@ -77,7 +77,7 @@ const state = window.state = {
   activeTimers: [],
   memories: [],
   // ── Per-account AI customization (see /api/ai-settings) ──
-  aiName: "J.A.R.V.I.S",   // default persona name; overwritten after login if this account renamed it
+  aiName: "Jarvis",   // default persona name; overwritten after login if this account renamed it
   aiVoiceId: null,
   aiVoicePreset: null,
   aiVoiceCloned: false,
@@ -156,22 +156,22 @@ const notif = {
 
   intruder(T = "Sir") {
     if (!this.cfg.intruder) return;
-    this.push("⚠ J.A.R.V.I.S — INTRUDER ALERT", `Unknown face detected, ${T}. Recording has started.`, "intruder", true);
+    this.push("⚠ Jarvis — INTRUDER ALERT", `Unknown face detected, ${T}. Recording has started.`, "intruder", true);
     this.tone("intruder");
   },
   away(T = "Sir") {
     if (!this.cfg.away) return;
-    this.push("J.A.R.V.I.S — Away mode active", `No face detected. Monitoring active, ${T}.`, "away");
+    this.push("Jarvis — Away mode active", `No face detected. Monitoring active, ${T}.`, "away");
     this.tone("away");
   },
   userReturn(T = "Sir") {
     if (!this.cfg.return) return;
-    this.push("J.A.R.V.I.S — Welcome back", `${T} detected. Away mode deactivated.`, "user-return");
+    this.push("Jarvis — Welcome back", `${T} detected. Away mode deactivated.`, "user-return");
     this.tone("return");
   },
   system(msg) {
     if (!this.cfg.system) return;
-    this.push("J.A.R.V.I.S", msg, "system-event");
+    this.push("Jarvis", msg, "system-event");
     this.tone("system");
   },
 };
@@ -3549,7 +3549,7 @@ async function handleAction(action, meta, replyText) {
       speak(replyText, () => mic.resume());
       if (meta.linkGroups && meta.linkGroups.length > 0) {
         const wrap = document.createElement("div"); wrap.className = "msg system";
-        let html = `<div class="msg-label">J.A.R.V.I.S — LINK BANK (${meta.total} total)</div><div class="msg-text link-bank-display">`;
+        let html = `<div class="msg-label">Jarvis — LINK BANK (${meta.total} total)</div><div class="msg-text link-bank-display">`;
         for (const group of meta.linkGroups) {
           html += `<div class="link-group"><div class="link-group-name">${group.name.toUpperCase()} <span class="link-count">(${group.count})</span></div>`;
           if (group.count <= 5) {
@@ -3569,7 +3569,7 @@ async function handleAction(action, meta, replyText) {
     case "OPEN_LINK": {
       if (meta.found) {
         const wrap = document.createElement("div"); wrap.className = "msg jarvis";
-        wrap.innerHTML = `<div class="msg-label">J.A.R.V.I.S — LINK</div><div class="msg-text"><a href="${meta.url}" target="_blank" rel="noopener" class="jarvis-link">${meta.url}</a></div>`;
+        wrap.innerHTML = `<div class="msg-label">Jarvis — LINK</div><div class="msg-text"><a href="${meta.url}" target="_blank" rel="noopener" class="jarvis-link">${meta.url}</a></div>`;
         $("transcript").appendChild(wrap); $("transcript").scrollTop = $("transcript").scrollHeight;
         speak(replyText, () => { window.open(meta.url, "_blank", "noopener"); mic.resume(); });
       } else {
@@ -3586,7 +3586,7 @@ async function handleAction(action, meta, replyText) {
       const links = Array.isArray(meta?.links) ? meta.links : [];
       if (links.length) {
         const wrap = document.createElement("div"); wrap.className = "msg jarvis";
-        let html = `<div class="msg-label">J.A.R.V.I.S — LINKS</div><div class="msg-text">`;
+        let html = `<div class="msg-label">Jarvis — LINKS</div><div class="msg-text">`;
         for (const l of links) {
           html += `<a href="${l.url}" target="_blank" rel="noopener" class="jarvis-link link-item">${l.label || l.url}</a>`;
         }
@@ -3751,7 +3751,7 @@ async function handleAction(action, meta, replyText) {
           addMsg("jarvis", alertMsg);
           speak(alertMsg);
           notif.tone("timer");
-          notif.push("⏱ J.A.R.V.I.S — Timer", alertMsg, "timer", true);
+          notif.push("⏱ Jarvis — Timer", alertMsg, "timer", true);
           hideTimerBadge(timerId);
           const orb = $("orb");
           if (orb) { orb.classList.add("speaking"); setTimeout(() => orb.classList.remove("speaking"), 3000); }
@@ -3896,7 +3896,7 @@ function showCalendarUI(meta) {
   const currentId = meta.current?.id;
 
   let html = `<div id="jarvis-calendar-panel">
-    <h2>J.A.R.V.I.S — AGENDA <button class="jc-close" id="jc-close-btn">CLOSE</button></h2>`;
+    <h2>Jarvis — AGENDA <button class="jc-close" id="jc-close-btn">CLOSE</button></h2>`;
 
   html += `<div class="jc-section-title">Today's Routine</div>`;
   if (blocks.length) {
@@ -4020,10 +4020,10 @@ function showNotifSettings() {
     const toggleMap = { "nt-intruder":"intruder","nt-away":"away","nt-return":"return","nt-system":"system" };
     for (const [id, key] of Object.entries(toggleMap)) $(id)?.addEventListener("change", (e) => { notif.cfg[key] = e.target.checked; });
     const testT = state.userTitle || "Sir";
-    $("ntest-intruder").addEventListener("click", () => { notif.tone("intruder"); notif.push("⚠ J.A.R.V.I.S — TEST", `Test: intruder alert, ${testT}.`, "test-intruder"); });
-    $("ntest-away").addEventListener("click",     () => { notif.tone("away");     notif.push("J.A.R.V.I.S — TEST", `Test: away mode, ${testT}.`, "test-away"); });
-    $("ntest-return").addEventListener("click",   () => { notif.tone("return");   notif.push("J.A.R.V.I.S — TEST", `Test: welcome back, ${testT}.`, "test-return"); });
-    $("ntest-system").addEventListener("click",   () => { notif.tone("system");   notif.push("J.A.R.V.I.S — TEST", "Test: system ping.", "test-system"); });
+    $("ntest-intruder").addEventListener("click", () => { notif.tone("intruder"); notif.push("⚠ Jarvis — TEST", `Test: intruder alert, ${testT}.`, "test-intruder"); });
+    $("ntest-away").addEventListener("click",     () => { notif.tone("away");     notif.push("Jarvis — TEST", `Test: away mode, ${testT}.`, "test-away"); });
+    $("ntest-return").addEventListener("click",   () => { notif.tone("return");   notif.push("Jarvis — TEST", `Test: welcome back, ${testT}.`, "test-return"); });
+    $("ntest-system").addEventListener("click",   () => { notif.tone("system");   notif.push("Jarvis — TEST", "Test: system ping.", "test-system"); });
   }
   overlay.classList.remove("hidden");
   updateNotifPermDisplay();
@@ -4044,7 +4044,7 @@ function hideNotifSettings() {
 // here touches anyone else's account.
 
 function applyAiName(name) {
-  state.aiName = (name && name.trim()) ? name.trim() : "J.A.R.V.I.S";
+  state.aiName = "Jarvis"; // locked — renaming is disabled, name arg is ignored
   document.querySelectorAll(".jr-title, .lock-orb-title").forEach((el) => {
     el.textContent = state.aiName;
   });
@@ -4165,12 +4165,8 @@ function showAiSettings(opts) {
         </div>
         <div class="notif-section">
           <p id="ai-settings-intro" style="font-family:var(--mono);font-size:0.62rem;color:var(--text-dim);margin:0 0 14px;line-height:1.6">
-            This is YOUR AI — rename it and pick its voice. Changes only apply to your account.
+            This is Jarvis — pick its voice below. The name is fixed and can't be changed.
           </p>
-
-          <label style="font-family:var(--mono);font-size:0.6rem;color:var(--text-dim);display:block;margin-bottom:6px">AI NAME</label>
-          <input id="ai-name-input" type="text" maxlength="40" placeholder="J.A.R.V.I.S"
-            style="width:100%;box-sizing:border-box;padding:9px 10px;margin-bottom:16px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:var(--text);font-family:var(--mono);font-size:0.72rem" />
 
           <label style="font-family:var(--mono);font-size:0.6rem;color:var(--text-dim);display:block;margin-bottom:6px">VOICE</label>
           <select id="ai-voice-mode-select"
@@ -4209,7 +4205,7 @@ function showAiSettings(opts) {
             <button class="hud-btn" id="ai-settings-save-btn" style="flex:1;padding:10px">SAVE</button>
             <button class="hud-btn" id="ai-settings-test-btn" style="flex:1;padding:10px">TEST VOICE</button>
           </div>
-          <button class="hud-btn" id="ai-settings-skip-btn" style="width:100%;padding:10px;margin-top:10px;display:none">KEEP DEFAULT (J.A.R.V.I.S)</button>
+          <button class="hud-btn" id="ai-settings-skip-btn" style="width:100%;padding:10px;margin-top:10px;display:none">KEEP DEFAULT VOICE</button>
         </div>
       </div>`;
     document.body.appendChild(overlay);
@@ -4287,7 +4283,6 @@ function showAiSettings(opts) {
       const statusEl = $("ai-settings-status");
       statusEl.style.color = "var(--text-dim)"; statusEl.textContent = "Saving…";
       const payload = {
-        aiName:      $("ai-name-input").value,
         voiceMode:   modeSelect.value,
         voicePreset: presetSelect.value || null,
         voiceId:     customInput.value || null,
@@ -4295,10 +4290,10 @@ function showAiSettings(opts) {
       };
       const data = await saveAiSettings(payload);
       if (!data) { statusEl.style.color = "var(--red)"; statusEl.textContent = "Couldn't save — try again."; return; }
-      applyAiName(data.aiName || "J.A.R.V.I.S");
+      applyAiName("Jarvis");
       state.aiVoiceId = data.voiceId; state.aiVoicePreset = data.voicePreset; state.aiVoiceCloned = data.voiceCloned;
       statusEl.style.color = "#00ff88"; statusEl.textContent = "Saved.";
-      const msg = `Understood, ${state.userTitle}. From now on, call me ${state.aiName}.`;
+      const msg = `Understood, ${state.userTitle}. Voice updated.`;
       addMsg("jarvis", msg); speak(msg);
     });
 
@@ -4320,17 +4315,14 @@ function showAiSettings(opts) {
 
   // First-run vs. regular-settings copy/controls
   overlay.dataset.firstTime = firstTime ? "1" : "0";
-  $("ai-settings-title").textContent = firstTime ? "🤖 NAME YOUR AI" : "🤖 AI SETTINGS";
+  $("ai-settings-title").textContent = firstTime ? "🤖 PICK JARVIS'S VOICE" : "🤖 AI SETTINGS";
   $("ai-settings-intro").textContent = firstTime
-    ? "Before we get started — this is YOUR AI. Give it a name and pick its voice, or keep the default. You can always change this later from Settings."
-    : "This is YOUR AI — rename it and pick its voice. Changes only apply to your account.";
+    ? "Before we get started — pick Jarvis's voice, or keep the default. You can always change this later from Settings."
+    : "This is Jarvis — pick its voice below. The name is fixed and can't be changed.";
   $("ai-settings-skip-btn").style.display = firstTime ? "" : "none";
 
   // Populate current values every time it's opened
   fetch(`/api/ai-settings/${encodeURIComponent(state.user)}`).then(r => r.json()).then((data) => {
-    $("ai-name-input").value = data.aiName || "";
-    $("ai-name-input").placeholder = data.defaultAiName || "J.A.R.V.I.S";
-
     const presetSelect = $("ai-voice-preset-select");
     presetSelect.innerHTML = (data.presets || []).map((p) =>
       `<option value="${p.slot}">${p.label}</option>`).join("") || `<option value="">No presets configured</option>`;
@@ -5141,7 +5133,7 @@ function handleLogout(meta) {
 
 // ── TRANSCRIPT ──
 function addMsg(type, text, attachments) {
-  const labels = { user:"YOU", jarvis:"J.A.R.V.I.S", system:"SYSTEM" };
+  const labels = { user:"YOU", jarvis:"Jarvis", system:"SYSTEM" };
   const wrap   = document.createElement("div"); wrap.className = `msg ${type}`;
   wrap.innerHTML = `<div class="msg-label">${labels[type] || type}</div><div class="msg-text">${text}</div>`;
   if (attachments && attachments.length) {
