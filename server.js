@@ -633,15 +633,13 @@ function ensureDataDir() {
 }
 function loadProfiles() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(PROFILES_FILE, "utf8")); } catch { return {}; } }
 function saveProfiles(p) { ensureDataDir(); fs.writeFileSync(PROFILES_FILE, JSON.stringify(p, null, 2), "utf8"); }
-// This account's custom AI name (set via /api/ai-settings), or null
-// if they never renamed it / no account matches — callers decide
-// their own default (buildJarvisResponse's identity case wants the
-// full "J.A.R.V.I.S" acronym form; a spoken call intro just wants
-// the plain "Jarvis").
+// The AI's name is locked to "Jarvis" for every account — renaming is
+// disabled (see POST /api/ai-settings below, which now ignores any
+// aiName sent by the client). This always returns null so every caller
+// falls through to its own "Jarvis" default instead of reading a
+// per-account override.
 function getAiNameForUser(userName) {
-  if (!userName) return null;
-  const profile = loadProfiles()[String(userName).toLowerCase().trim()];
-  return profile?.aiName || null;
+  return null;
 }
 function loadMemories() { ensureDataDir(); try { return JSON.parse(fs.readFileSync(MEMORIES_FILE, "utf8")); } catch { return {}; } }
 function saveMemories(m) { ensureDataDir(); fs.writeFileSync(MEMORIES_FILE, JSON.stringify(m, null, 2), "utf8"); }
@@ -1116,13 +1114,13 @@ app.post("/api/home/device/:id/room", async (req, res) => {
 app.post("/api/home/message/:id", async (req, res) => {
   const { message, from } = req.body;
   if (!message) return res.status(400).json({ error: "Missing message" });
-  const result = await Home.sendMessageToDevice(decodeURIComponent(req.params.id), message, from || "J.A.R.V.I.S");
+  const result = await Home.sendMessageToDevice(decodeURIComponent(req.params.id), message, from || "Jarvis");
   res.json(result);
 });
 app.post("/api/home/broadcast", async (req, res) => {
   const { message, from } = req.body;
   if (!message) return res.status(400).json({ error: "Missing message" });
-  const results = await Home.broadcastMessage(message, from || "J.A.R.V.I.S");
+  const results = await Home.broadcastMessage(message, from || "Jarvis");
   res.json({ ok: true, results });
 });
 app.post("/api/home/add-tuya", async (req, res) => {
@@ -1236,7 +1234,7 @@ app.post("/api/register", (req, res) => {
     // null/unset just means "use the default persona name" everywhere
     // that reads it, same as an unset voice means "use the default
     // rotating Camb.ai voice".
-    aiName:         aiName ? String(aiName).trim().slice(0, 40) : (profiles[key]?.aiName || null),
+    aiName:         null, // renaming is disabled — always "Jarvis"
     aiVoiceId:       profiles[key]?.aiVoiceId || null,
     aiVoicePreset:   profiles[key]?.aiVoicePreset || null,
     aiVoiceCloned:   profiles[key]?.aiVoiceCloned || false,
@@ -1278,8 +1276,8 @@ app.get("/api/ai-settings/:user", (req, res) => {
   const profile = profiles[key];
   if (!profile) return res.status(404).json({ error: `No account found for "${req.params.user}".` });
   res.json({
-    aiName:        profile.aiName || null,
-    defaultAiName: "J.A.R.V.I.S",
+    aiName:        "Jarvis", // locked — renaming is disabled
+    defaultAiName: "Jarvis",
     voiceId:       profile.aiVoiceId || null,
     voicePreset:   profile.aiVoicePreset || null,
     voiceCloned:   !!profile.aiVoiceCloned,
@@ -1307,10 +1305,9 @@ app.post("/api/ai-settings", (req, res) => {
   const key = user.toLowerCase().trim();
   if (!profiles[key]) return res.status(404).json({ error: `No account found for "${user}".` });
 
-  if (aiName !== undefined) {
-    const trimmed = String(aiName || "").trim().slice(0, 40);
-    profiles[key].aiName = trimmed || null; // empty string resets to the default name
-  }
+  // Renaming is disabled — the AI is always called "Jarvis", no matter
+  // what aiName the client sends. Voice customization below is untouched.
+  profiles[key].aiName = null;
   if (voiceMode === "default") {
     profiles[key].aiVoiceId = null;
     profiles[key].aiVoicePreset = null;
@@ -1353,7 +1350,7 @@ app.post("/api/ai-settings", (req, res) => {
   saveProfiles(profiles);
   res.json({
     success:     true,
-    aiName:      profiles[key].aiName || null,
+    aiName:      "Jarvis", // locked — renaming is disabled
     voiceId:     profiles[key].aiVoiceId || null,
     voicePreset: profiles[key].aiVoicePreset || null,
     voiceCloned: !!profiles[key].aiVoiceCloned,
@@ -3307,7 +3304,7 @@ function handleChangeModel(T) {
 // Real facts about this app's own architecture, so a board about
 // "how you work" is grounded instead of invented.
 const JARVIS_SELF_KNOWLEDGE = `
-JARVIS's brain is Groq's cloud API (hermes-engine.js) — the conversation is sent to Groq along with a list of real callable tools, and Groq itself decides from natural language whether to answer in words or call one of them; there's no rigid keyword list. Tools include timers, reminders and the agenda (reminders.js), weather, on-screen music playback pulled from YouTube, a hand-tracked 3D Build Mode workspace (Three.js + a real camera hand-tracking pipeline), a news page/widget, smart-home device control, real Gmail and Google Calendar access via OAuth, person lookup/research, and now these floating boards. A self-improvement loop (self-improve.js, trainer.js) logs anything it fumbles and learns new phrasings over time. The personality layer (personality.js) is J.A.R.V.I.S from the Iron Man films — formal, dry British wit. It runs as a Node/Express server with a browser front end (public/jarvis.js) doing speech recognition and speech synthesis, and a data/ folder mirrored to Supabase storage (persistence.js) so memories, reminders, and boards survive restarts, not just refreshes.
+JARVIS's brain is Groq's cloud API (hermes-engine.js) — the conversation is sent to Groq along with a list of real callable tools, and Groq itself decides from natural language whether to answer in words or call one of them; there's no rigid keyword list. Tools include timers, reminders and the agenda (reminders.js), weather, on-screen music playback pulled from YouTube, a hand-tracked 3D Build Mode workspace (Three.js + a real camera hand-tracking pipeline), a news page/widget, smart-home device control, real Gmail and Google Calendar access via OAuth, person lookup/research, and now these floating boards. A self-improvement loop (self-improve.js, trainer.js) logs anything it fumbles and learns new phrasings over time. The personality layer (personality.js) is Jarvis from the Iron Man films — formal, dry British wit. It runs as a Node/Express server with a browser front end (public/jarvis.js) doing speech recognition and speech synthesis, and a data/ folder mirrored to Supabase storage (persistence.js) so memories, reminders, and boards survive restarts, not just refreshes.
 `.trim();
 
 function isSelfTopic(topic) {
@@ -3468,7 +3465,7 @@ async function handleFeatureDraft(message, T) {
     const pr = await GitDeploy.openPullRequest(
       branchName,
       desc,
-      `Drafted by J.A.R.V.I.S\n\nFile: \`${filePath}\`\n\nReview before merging.`
+      `Drafted by Jarvis\n\nFile: \`${filePath}\`\n\nReview before merging.`
     );
     _pendingPR = pr.number;
     return {
@@ -5224,7 +5221,7 @@ app.get("/api/home-talk/status", (req, res) => {
 
 function startServer() {
   httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`\nJ.A.R.V.I.S online → http://localhost:${PORT}`);
+    console.log(`\nJarvis online → http://localhost:${PORT}`);
     console.log(`  Comms panel    → http://localhost:${PORT}/comms`);
     console.log(`  Drafting table → http://localhost:${PORT}/blueprint`);
     console.log(`  Groq AI:       ${Groq.isConfigured() ? "✓ configured — primary brain active" : "✗ not configured (add GROQ_API_KEY to .env)"}`);
