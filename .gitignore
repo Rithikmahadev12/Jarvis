@@ -3,3 +3,4 @@ node_modules/
 voice-server/voices/
 *.log
 wallet.json
+wallet-keys/
