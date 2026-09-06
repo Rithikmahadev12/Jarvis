@@ -652,6 +652,19 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "get_superteam_claim_code",
+      description: "Get a user's saved Superteam Earn agent claim code and claim URL, registering that user's agent first if it hasn't been registered yet. Use when the user asks for their claim code, agent status, or to set up/register the Superteam agent.",
+      parameters: {
+        type: "object",
+        properties: {
+          user_key: { type: "string", description: "Which account this is for, if the app has multiple enrolled users. Omit to default to the owner." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "set_timer",
       description: "Start a short countdown timer, e.g. 'set a timer for 10 minutes' or 'ping me in 90 seconds'. Use for short countdowns — not for a reminder tied to a specific clock time or day.",
       parameters: {
