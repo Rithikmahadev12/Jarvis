@@ -24,10 +24,22 @@ async function main() {
   console.log("[SUPERTEAM-SCAN] Pulling latest state from Supabase...");
   await Persistence.pullAll();
 
+  console.log("[SUPERTEAM-SCAN] Checking for known users without a Superteam identity yet...");
+  const registrations = await SuperteamAgent.ensureAllRegistered();
+  for (const r of registrations) {
+    if (r.alreadyRegistered) continue;
+    if (r.error) {
+      console.error(`[SUPERTEAM-SCAN] Auto-registration failed for "${r.userKey}": ${r.error}`);
+    } else {
+      console.log(`[SUPERTEAM-SCAN] Auto-registered "${r.userKey}" -- claim code: ${r.claimCode} ` +
+        `(ask Jarvis "what's my Superteam claim code" to get this again later)`);
+    }
+  }
+
   const users = SuperteamAgent.listRegisteredUsers();
   if (users.length === 0) {
-    console.log("[SUPERTEAM-SCAN] No users registered yet. Run " +
-      "`node scripts/register-superteam-agent.js <userKey>` locally for each user first.");
+    console.log("[SUPERTEAM-SCAN] Still no registered users -- nothing in config.json/profiles.json yet, " +
+      "or every registration attempt above failed.");
   } else {
     console.log(`[SUPERTEAM-SCAN] Running for ${users.length} registered user(s): ${users.join(", ")}`);
     const results = await SuperteamAgent.scanAndSubmitAll();
