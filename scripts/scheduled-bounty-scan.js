@@ -70,12 +70,24 @@ async function main() {
     console.log("[BOUNTY-SCAN] Checking posted offers for maintainer replies...");
     try {
       const replyResult = await GithubBounty.checkPostedForReplies();
-      console.log(`[BOUNTY-SCAN] Replies — approved: ${replyResult.approved.length}, ` +
+      console.log(`[BOUNTY-SCAN] Replies — approved (awaiting payment): ${replyResult.approved.length}, ` +
         `declined: ${replyResult.declined.length}, unclear: ${replyResult.unclear.length}, ` +
         `errors: ${replyResult.errors.length}.`);
 
-      if (replyResult.approved.length > 0) {
-        console.log(`[BOUNTY-SCAN] Writing draft fixes for ${replyResult.approved.length} approved candidate(s)...`);
+      // PAYMENT GATE: a maintainer saying "yes" only moves a candidate to
+      // awaiting_payment (see checkPostedForReplies()). This step is the
+      // only thing that can move it further, and only once the chain
+      // actually shows THIS candidate's payment reference was paid.
+      console.log("[BOUNTY-SCAN] Checking for confirmed payments on awaiting-payment candidates...");
+      const paymentResult = await GithubBounty.checkBountyPayments();
+      console.log(`[BOUNTY-SCAN] Payments — confirmed: ${paymentResult.paid.length}, ` +
+        `still waiting: ${paymentResult.stillWaiting.length}, errors: ${paymentResult.errors.length}.`);
+      for (const p of paymentResult.paid) {
+        console.log(`[BOUNTY-SCAN]   ✅ Paid — "${p.title}" (${p.txUrl})`);
+      }
+
+      if (paymentResult.paid.length > 0) {
+        console.log(`[BOUNTY-SCAN] Writing draft fixes for ${paymentResult.paid.length} PAID candidate(s)...`);
         const codeResults = await BountyCoder.codeAllAwaiting();
         for (const r of codeResults) {
           if (r.error) console.warn(`[BOUNTY-SCAN] Candidate #${r.candidateId} needs manual code:`, r.error);
