@@ -22,10 +22,18 @@
 const { exec } = require("child_process");
 const fs   = require("fs");
 const path = require("path");
+const SolanaWallet = require("./solana-wallet");
 
 const REPO_ROOT   = __dirname;
 const SCRIPT_PATH = path.join(REPO_ROOT, "make_wallet.py");
+const USER_SCRIPT_PATH = path.join(REPO_ROOT, "make_user_wallet.py");
 const ENV_PATH    = path.join(REPO_ROOT, ".env");
+// Deliberately its OWN directory, separate from data/ — persistence.js
+// syncs the whole data/ folder to Supabase, and a private key has no
+// business leaving this machine, ever, for any reason. Gitignored too
+// (see .gitignore). If this key file leaves this disk by any path,
+// treat every fund in that wallet as gone.
+const USER_KEYS_DIR = path.join(REPO_ROOT, "wallet-keys");
 
 function run(cmd, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -88,4 +96,85 @@ function hasExistingWallet() {
   return fs.existsSync(path.join(REPO_ROOT, "wallet.json"));
 }
 
-module.exports = { generateWallet, hasExistingWallet };
+// ── AUTO-PROVISIONING (per enrolled account) ─────────────────────
+// Unlike generateWallet() above — which is the ONE deliberately
+// manual, local-only, "you have to run this yourself" step for the
+// owner's own wallet — this is meant to be called automatically by
+// app code (e.g. github-bounty.js's approveCandidate()) whenever an
+// account needs a payment link but hasn't linked a wallet yet.
+//
+// IMPORTANT TRADE-OFF, read before relying on this in production:
+// generateWallet() exists as a separate, manual step specifically so
+// a private key only ever gets created on a machine a human chose,
+// on purpose, in the moment. Calling this function automatically
+// means Jarvis creates AND holds a private key on whatever machine
+// this code happens to run on — which, per render.yaml/STORE_BASE_URL,
+// may be a cloud box (Render), not your own PC. That's a materially
+// different trust model: it turns Jarvis into a small custodial
+// wallet provider for its users, on a server, unattended. Mitigations
+// in place here:
+//   - Keys are written to wallet-keys/, NOT data/ — persistence.js
+//     only syncs data/ to Supabase, so keys are never uploaded there.
+//   - wallet-keys/ is gitignored, so `git push` never sends them out.
+//   - Each key file is chmod 600 where the OS supports it.
+// None of that changes the fact that anyone who gets shell/disk
+// access to wherever this runs can drain every auto-created wallet.
+// For anything beyond small/test amounts, the safer pattern is
+// having each user paste in their OWN existing wallet address
+// (SolanaWallet.setWalletForUser) instead of Jarvis custodying a key
+// on their behalf.
+async function ensureUserWallet(userKey) {
+  const key = String(userKey || "").toLowerCase().trim();
+  if (!key) return { error: "Missing userName." };
+
+  // Already has one — never overwrite silently.
+  if (SolanaWallet.isConfigured(key)) {
+    return { address: SolanaWallet.getAddress(key), created: false };
+  }
+
+  try {
+    await ensureSolders();
+  } catch (e) {
+    return { error: `Couldn't install the "solders" Python package: ${e.message}` };
+  }
+
+  let stdout;
+  try {
+    stdout = await run(`python3 "${USER_SCRIPT_PATH}"`);
+  } catch (e) {
+    return { error: `Wallet generation failed: ${e.message}` };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout.trim());
+  } catch {
+    return { error: "Couldn't parse the wallet generator's output.", raw: stdout };
+  }
+  const { address, secret } = parsed;
+  if (!address || !Array.isArray(secret)) {
+    return { error: "Wallet generator returned an unexpected shape.", raw: stdout };
+  }
+
+  if (!fs.existsSync(USER_KEYS_DIR)) fs.mkdirSync(USER_KEYS_DIR, { recursive: true });
+  const keyPath = path.join(USER_KEYS_DIR, `${key}.json`);
+  fs.writeFileSync(keyPath, JSON.stringify(secret), "utf8");
+  try { fs.chmodSync(keyPath, 0o600); } catch { /* Windows: no-op */ }
+
+  const link = SolanaWallet.isOwner(key)
+    ? SolanaWallet.setOwnerWallet(address)
+    : SolanaWallet.setWalletForUser(key, address);
+
+  if (link.error) {
+    return { error: `Generated a wallet but couldn't link it to the account: ${link.error}`, address, keyFile: keyPath };
+  }
+
+  return {
+    address,
+    created: true,
+    keyFile: keyPath,
+    warning: "Jarvis generated and now holds this account's private key in wallet-keys/ (gitignored, never synced to Supabase, chmod 600). Anyone with disk access to this server can spend from it — for real money, having the user link their own existing wallet instead is safer.",
+  };
+}
+
+module.exports = { generateWallet, hasExistingWallet, ensureUserWallet };
