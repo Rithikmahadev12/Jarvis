@@ -3525,6 +3525,23 @@ async function executeAssistantTool(name, args, ctx) {
   const { T, userTimezone, userName, sessionId } = ctx;
 
   switch (name) {
+    case "get_superteam_claim_code": {
+      const SuperteamAgent = require("./superteam-agent.js");
+      const key = args.user_key || userName || "owner";
+      try {
+        const info = await SuperteamAgent.ensureRegistered(key);
+        const walletNote = info.walletAddress
+          ? ` Linked wallet (same one bounty-hunt uses for ${key}): ${info.walletAddress}.`
+          : info.walletLinked === false
+            ? ` ⚠️ Wallet did NOT link — bounty-hunt and Superteam earnings won't line up for "${key}" yet.`
+            : "";
+        return { reply: `Agent "${info.username || key}" — claim code: ${info.claimCode}. ` +
+          `Claim any payout at: ${info.claimUrl || `https://superteam.fun/earn/claim/${info.claimCode}`}` + walletNote };
+      } catch (e) {
+        return { reply: `Couldn't get the claim code for ${key}, ${T}: ${e.message}` };
+      }
+    }
+
     case "set_timer": {
       const secs = Number(args.duration_seconds) || 0;
       if (secs <= 0) return { reply: `How long should the timer be, ${T}?` };
