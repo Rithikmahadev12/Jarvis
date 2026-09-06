@@ -98,6 +98,14 @@ function isOwnerKey(key, profiles) {
   return profiles[key]?.role === "owner";
 }
 
+// Exported wrapper so other modules (wallet-setup.js's ensureUserWallet)
+// can tell owner apart from a regular enrolled account without
+// reimplementing the profiles.json lookup themselves.
+function isOwner(userKey) {
+  const key = normalizeKey(userKey);
+  return isOwnerKey(key, loadProfiles());
+}
+
 // The core resolver — see the header comment above for the full
 // fallback chain this implements.
 function getAddress(userKey) {
@@ -345,6 +353,7 @@ function totalEarningsUsd(userKey) {
 
 module.exports = {
   isConfigured,
+  isOwner,
   getAddress,
   setWalletForUser,
   setOwnerWallet,
