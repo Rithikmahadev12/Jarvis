@@ -1,0 +1,44 @@
+name: Superteam Earn Agent
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # every 6 hours; tune to taste
+  workflow_dispatch: {}      # trigger manually from the Actions tab to test
+
+jobs:
+  superteam-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install --omit=dev
+
+      - name: Run Superteam Earn scan
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
+          # Filters — override any of these as repo secrets if you want
+          # different values than superteam-agent.js's defaults.
+          SUPERTEAM_MIN_REWARD_USD: ${{ secrets.SUPERTEAM_MIN_REWARD_USD }}
+          SUPERTEAM_MAX_REWARD_USD: ${{ secrets.SUPERTEAM_MAX_REWARD_USD }}
+          SUPERTEAM_MAX_HOURS_LEFT: ${{ secrets.SUPERTEAM_MAX_HOURS_LEFT }}
+          SUPERTEAM_MAX_SUBMISSIONS: ${{ secrets.SUPERTEAM_MAX_SUBMISSIONS }}
+          SUPERTEAM_SKILLS: ${{ secrets.SUPERTEAM_SKILLS }}
+          # Set to "true" to have it submit automatically; leave unset
+          # to only draft + log/queue, nothing gets sent.
+          SUPERTEAM_AUTO_SUBMIT: ${{ secrets.SUPERTEAM_AUTO_SUBMIT }}
+          # Your own Telegram, required for "project" listings.
+          SUPERTEAM_TELEGRAM_URL: ${{ secrets.SUPERTEAM_TELEGRAM_URL }}
+          # Same self-hosted-Ollama-first drafting chain as bounty-hunt.
+          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: node scripts/scheduled-superteam-scan.js
