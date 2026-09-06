@@ -69,6 +69,7 @@ const path = require("path");
 const GroqKeys = require("./groq-keys");
 const Groq     = require("./hermes-engine");
 const SolanaWallet = require("./solana-wallet");
+const WalletSetup  = require("./wallet-setup");
 
 // ── CONFIG ──────────────────────────────────────────────────────
 const GITHUB_TOKEN = process.env.GITHUB_BOUNTY_TOKEN || process.env.GITHUB_TOKEN || "";
@@ -498,11 +499,16 @@ function claimCandidate(id, userKey) {
 // userKey optionally assigns the candidate at approval time (if it
 // wasn't already claimed via claimCandidate()) — whoever it ends up
 // assigned to gets a direct Solana Pay link to THEIR OWN wallet
-// appended to the offer comment, if they've linked one. Maintainers
-// who pay via that link send funds straight to the person doing the
-// work, not a pooled account. If nobody's assigned (or the assigned
-// person has no wallet linked), the comment goes out exactly as
-// before — no link, price stated in the offer text as always.
+// appended to the offer comment.
+//
+// PAYMENT-FIRST GATE: a wallet (and therefore a Solana Pay link with
+// a unique reference) is now REQUIRED to approve a candidate at all.
+// Without a link there is no way to tell "maintainer said yes" apart
+// from "maintainer actually paid," and coding on someone else's
+// say-so with no money down is exactly the failure mode this whole
+// gate exists to close. The offer comment is explicit that code only
+// starts once that specific link is paid — see checkPostedForReplies()
+// and checkBountyPayments() below for the rest of the gate.
 async function approveCandidate(id, userKey) {
   if (!isConfigured()) return { error: "No GitHub token configured." };
   const store = loadStore();
@@ -512,17 +518,26 @@ async function approveCandidate(id, userKey) {
 
   if (userKey && !c.assignedTo) c.assignedTo = String(userKey).toLowerCase().trim();
 
-  let proposalText = c.proposalText;
   const payKey = c.assignedTo && c.assignedTo !== "owner" ? c.assignedTo : undefined;
-  if (SolanaWallet.isConfigured(payKey)) {
-    const link = SolanaWallet.buildPaymentLink({
-      amount: c.priceUsd, token: "usdc", label: `Bounty: ${c.title}`.slice(0, 60),
-      message: `Payment for ${c.key}`, userKey: payKey,
-    });
-    if (!link.error) {
-      proposalText = `${proposalText}\n\nIf you'd rather pay directly instead of through whatever platform you'd normally use, here's a Solana Pay link: ${link.uri}`;
+  if (!SolanaWallet.isConfigured(payKey)) {
+    // No wallet linked yet for whoever this is assigned to — auto-provision
+    // one instead of blocking approval. See wallet-setup.js's
+    // ensureUserWallet() for the security trade-offs of doing this
+    // automatically (private key gets created and held on THIS machine).
+    const provisioned = await WalletSetup.ensureUserWallet(payKey || "owner");
+    if (provisioned.error) {
+      return { error: `No wallet linked, and auto-creating one failed: ${provisioned.error}` };
     }
   }
+
+  const reference = SolanaWallet.generateReference ? SolanaWallet.generateReference() : undefined;
+  const link = SolanaWallet.buildPaymentLink({
+    amount: c.priceUsd, token: "usdc", label: `Bounty: ${c.title}`.slice(0, 60),
+    message: `Payment for ${c.key}`, userKey: payKey, reference,
+  });
+  if (link.error) return { error: `Couldn't build a payment link: ${link.error}` };
+
+  const proposalText = `${c.proposalText}\n\n💳 To confirm: I'll start coding as soon as payment lands at this link — $${c.priceUsd} USDC: ${link.uri}\n(No payment, no code — just being upfront about how this works on my end.)`;
 
   try {
     const comment = await postComment(c.owner, c.repo, c.issueNumber, proposalText);
@@ -530,6 +545,8 @@ async function approveCandidate(id, userKey) {
     c.status = "posted";
     c.postedAt = new Date().toISOString();
     c.commentUrl = comment.html_url;
+    c.paymentReference = link.reference;
+    c.paymentLink = link.uri;
     store.pending.splice(idx, 1);
     store.history.push(c);
     saveStore(store);
@@ -633,7 +650,12 @@ async function checkPostedForReplies() {
 
       c.maintainerReply = { verdict: verdict.verdict, reason: verdict.reason, checkedAt: new Date().toISOString() };
       if (verdict.verdict === "approved") {
-        c.status = "awaiting_code"; // bounty-coder.js picks this up
+        // NOT awaiting_code yet — a verbal "yes, $X works" is not money.
+        // checkBountyPayments() below is the only thing that can move a
+        // candidate from here into awaiting_code, and it only does so
+        // once the chain actually shows this candidate's specific
+        // payment reference was paid.
+        c.status = "awaiting_payment";
         results.approved.push({ id: c.id, key: c.key, title: c.title });
       } else if (verdict.verdict === "declined") {
         c.status = "declined";
@@ -650,8 +672,54 @@ async function checkPostedForReplies() {
   return results;
 }
 
+// ── PAYMENT CONFIRMATION (the actual gate into coding) ───────────
+// For every candidate the maintainer verbally agreed to pay for,
+// checks the chain for a transaction tagged with THAT candidate's
+// own payment reference. Only once that's found does the candidate
+// become awaiting_code — the one status bounty-coder.js will act on.
+// This is what makes "no payment, no code" real instead of just
+// something the offer comment says: an unpaid "yes" sits in
+// awaiting_payment forever (re-checked every scan) and never reaches
+// bounty-coder.js.
+async function checkBountyPayments() {
+  const store = loadStore();
+  const results = { paid: [], stillWaiting: [], errors: [] };
+  const toCheck = store.history.filter(c => c.status === "awaiting_payment" && c.paymentReference);
+
+  for (const c of toCheck) {
+    try {
+      const found = await SolanaWallet.findTransactionByReference(c.paymentReference);
+      if (found.error) {
+        results.errors.push({ issue: c.key, error: found.error });
+        continue;
+      }
+      if (found.found) {
+        c.status = "awaiting_code"; // bounty-coder.js picks this up now
+        c.paid = true;
+        c.paidAt = found.blockTime || new Date().toISOString();
+        c.paidAmountUsd = c.priceUsd;
+        c.paymentTxUrl = found.explorerUrl;
+        const key = (c.assignedTo || "owner").toLowerCase().trim();
+        SolanaWallet.recordEarning({ source: `bounty:${c.key}`, amountUsd: c.priceUsd, note: c.title, userKey: key });
+        results.paid.push({ id: c.id, key: c.key, title: c.title, txUrl: found.explorerUrl });
+      } else {
+        results.stillWaiting.push({ id: c.id, key: c.key, title: c.title });
+      }
+    } catch (e) {
+      results.errors.push({ issue: c.key, error: e.message });
+    }
+  }
+
+  saveStore(store);
+  return results;
+}
+
 function listAwaitingCode() {
   return loadStore().history.filter(c => c.status === "awaiting_code");
+}
+
+function listAwaitingPayment() {
+  return loadStore().history.filter(c => c.status === "awaiting_payment");
 }
 
 // Used by bounty-coder.js to move a candidate to its final state once
@@ -713,7 +781,9 @@ module.exports = {
   rejectCandidate,
   getStats,
   checkPostedForReplies,
+  checkBountyPayments,
   listAwaitingCode,
+  listAwaitingPayment,
   updateCandidateStatus,
   // exported so bounty-coder.js can reuse the same auth'd GitHub
   // client and Groq JSON helper instead of duplicating them
