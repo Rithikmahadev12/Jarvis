@@ -62,6 +62,53 @@ function listRegisteredUsers() {
   }
 }
 
+// ---- Discover every known app user, registered or not ----
+// Same two sources server.js itself uses to know who exists:
+// config.json's owner, and every key in data/profiles.json (enrolled
+// Face-ID accounts). This is "who COULD have a Superteam identity",
+// separate from listRegisteredUsers() ("who already DOES").
+function listKnownUserKeys() {
+  const keys = new Set();
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "config.json"), "utf8"));
+    if (cfg.owner?.username) keys.add(normalizeKey(cfg.owner.username));
+  } catch { /* no config.json yet */ }
+  try {
+    const profiles = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "data", "profiles.json"), "utf8"));
+    for (const k of Object.keys(profiles)) keys.add(normalizeKey(k));
+  } catch { /* no profiles.json yet */ }
+  return [...keys];
+}
+
+// ---- Register anyone known who isn't registered yet ----
+// This is what makes registration hands-off: instead of requiring
+// `node scripts/register-superteam-agent.js <userKey>` run manually
+// per person, the scheduled job can call this first and it registers
+// only whoever's missing, leaving everyone already configured alone.
+async function ensureAllRegistered() {
+  const known = listKnownUserKeys();
+  const already = new Set(listRegisteredUsers());
+  const results = [];
+  for (const key of known) {
+    if (already.has(key)) {
+      results.push({ userKey: key, alreadyRegistered: true });
+      continue;
+    }
+    try {
+      const res = await registerAgent(key);
+      results.push({
+        userKey: key, alreadyRegistered: false,
+        agentId: res.agentId, username: res.username, claimCode: res.claimCode,
+        walletAddress: res.walletLink?.address || null,
+        walletLinked: !res.walletLink?.error,
+      });
+    } catch (e) {
+      results.push({ userKey: key, error: e.message });
+    }
+  }
+  return results;
+}
+
 function isConfigured(userKey) {
   const cfg = loadConfig(userKey);
   return !!(cfg.apiKey && cfg.agentId);
@@ -228,5 +275,6 @@ async function scanAndSubmitAll() {
 module.exports = {
   isConfigured, registerAgent, ensureRegistered, getClaimInfo,
   discoverListings, getListingDetails, draftSubmission, submitListing,
-  scanAndSubmit, scanAndSubmitAll, listRegisteredUsers, loadConfig, normalizeKey,
+  scanAndSubmit, scanAndSubmitAll, listRegisteredUsers, listKnownUserKeys,
+  ensureAllRegistered, loadConfig, normalizeKey,
 };
