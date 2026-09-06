@@ -139,7 +139,14 @@ function setWalletForUser(userKey, address) {
   if (!key) return { error: "Missing userName." };
   if (!address || typeof address !== "string") return { error: "Missing wallet address." };
   const profiles = loadProfiles();
-  if (!profiles[key]) return { error: `No account found for "${userKey}".` };
+  // Auto-create a minimal profile stub if this account hasn't been
+  // seen before, same as setOsintTier()/set_music_platform elsewhere
+  // in this codebase — a wallet link shouldn't be blocked on a
+  // separate enrollment step that most per-user features don't
+  // require either. This account still has no wallet of its own
+  // until this call succeeds, so nothing is granted access to funds
+  // by this stub existing.
+  if (!profiles[key]) profiles[key] = { name: userKey, createdAt: new Date().toISOString() };
   profiles[key].wallet = { ...(profiles[key].wallet || {}), address: address.trim(), linkedAt: new Date().toISOString() };
   profiles[key].updatedAt = new Date().toISOString();
   saveProfiles(profiles);
