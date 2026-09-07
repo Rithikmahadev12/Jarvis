@@ -18,21 +18,31 @@
 //     3. Gemini (GEMINI_API_KEY)
 //     4. Groq (GROQ_API_KEY)
 //
-// IMPORTANT — screenshot-desktop (used by screen-vision.js) captures
-// whatever machine THIS NODE PROCESS is running on. That means:
-//   - Running as the Electron desktop app on your own PC -> it reads
-//     YOUR actual screen. This is the mode this widget is built for.
-//   - Running as the plain Render web deployment -> it would be
-//     reading Render's headless container, not your screen, and will
-//     fail/return nothing useful. Run the desktop app for this
-//     feature to do anything.
+// SCREEN SOURCE — the widget sends the frame, we don't go grab one:
+// The browser panel (help-widget.js) shares the user's screen itself
+// via getDisplayMedia() — the standard browser "choose a tab/window/
+// screen to share" picker, no extension, no desktop-only capture —
+// grabs a still frame from that live stream, and sends it here as
+// base64 PNG on every question (`screenshot` field below). That's
+// handed straight to screen-vision.js's ocrImage()/lookAtImage(),
+// which is the *same* OCR-first-then-vision pipeline lookAtScreen()
+// uses, just fed an image instead of grabbing one via
+// screenshot-desktop. Because the BROWSER captured the frame, this
+// works identically whether Jarvis is running locally or deployed
+// (Render, etc.) — unlike screenshot-desktop, which only ever sees
+// whatever machine the Node process itself happens to be on.
+//
+// If the browser didn't/couldn't share a frame this time (permission
+// denied, unsupported browser, or the caller is the old desktop-only
+// flow), we fall back to lookAtScreen(), which still works when
+// Jarvis is the Electron desktop app running on your own PC.
 // ═══════════════════════════════════════════════════════════════
 
 const Vision = require("./screen-vision");
 
 module.exports = function registerHelpWidgetRoutes(app) {
   app.post("/api/help-widget/ask", async (req, res) => {
-    const { question, userTitle } = req.body || {};
+    const { question, userTitle, screenshot } = req.body || {};
     const T = userTitle || "Sir";
 
     if (!Vision.isConfigured()) {
@@ -45,11 +55,19 @@ module.exports = function registerHelpWidgetRoutes(app) {
     const q = (question || "").trim() ||
       "What's on my screen right now, and what does it look like I might need help with here?";
 
+    // Strip a data: URL prefix if the frontend sent the raw
+    // canvas.toDataURL() string instead of just the base64 payload.
+    const frame = typeof screenshot === "string"
+      ? screenshot.replace(/^data:image\/\w+;base64,/, "")
+      : null;
+
     try {
-      const reply = await Vision.lookAtScreen(q);
-      res.json({ reply, configured: true });
+      const reply = frame
+        ? await Vision.lookAtImage(frame, q)
+        : await Vision.lookAtScreen(q);
+      res.json({ reply, configured: true, source: frame ? "shared-frame" : "desktop-capture" });
     } catch (e) {
-      console.error("[HELP-WIDGET] lookAtScreen failed:", e.message);
+      console.error("[HELP-WIDGET] screen read failed:", e.message);
       res.status(500).json({
         reply: `I ran into a problem reading the screen, ${T}: ${e.message}`,
         configured: true,
