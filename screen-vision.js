@@ -301,6 +301,62 @@ function getPrimaryDisplaySize() {
   });
 }
 
+// ── OCR/VISION ON A SUPPLIED IMAGE (browser screen-share path) ──
+// captureScreenshot()/ocrScreen() above only ever see whatever
+// machine the Node process itself is running on (via
+// screenshot-desktop) — fine for the Electron desktop build, useless
+// for a browser tab or a cloud deployment. ocrImage()/lookAtImage()
+// are the same pipeline (OCR first, vision-model fallback) but take
+// an already-captured frame — a base64 PNG the BROWSER captured
+// itself via getDisplayMedia() (the user picks a tab/window/screen
+// to share, exactly like Zoom/Meet's screen-share picker) — instead
+// of trying to grab one server-side. This is what the help widget's
+// "share your screen" flow (public/help-widget.js) calls, and it
+// works the same whether Jarvis is running locally or on Render,
+// because the browser did the capturing, not the server.
+async function ocrImage(base64) {
+  const buf = Buffer.from(base64, "base64");
+  const dims = getPngDimensions(buf) || { width: null, height: null };
+  let text = "";
+  let words = [];
+  try {
+    const worker = await getOcrWorker();
+    const { data } = await worker.recognize(buf);
+    text = (data?.text || "").trim();
+    words = (data?.words || [])
+      .filter(w => w.text && w.text.trim() && (w.confidence ?? 100) >= OCR_MIN_CONFIDENCE)
+      .map(w => ({
+        text: w.text.trim(),
+        x: Math.round((w.bbox.x0 + w.bbox.x1) / 2),
+        y: Math.round((w.bbox.y0 + w.bbox.y1) / 2),
+      }));
+  } catch (e) {
+    console.error("[VISION] Local OCR (shared-frame) failed, falling back to vision model:", e.message);
+  }
+  return { text, words, base64, width: dims.width, height: dims.height };
+}
+
+// Same shape/behavior as lookAtScreen() below, but against a frame
+// the browser already captured and handed us, rather than one we
+// grab ourselves via screenshot-desktop.
+async function lookAtImage(base64, question) {
+  const q = question && question.trim()
+    ? question.trim()
+    : "Describe what's currently on screen in a few sentences, focused on anything that looks important or actionable.";
+
+  const { text } = await ocrImage(base64);
+
+  if (text && text.length > 20) {
+    const answer = await askText(
+      `You're an AI assistant that was given the raw text extracted (via OCR) from a frame of the user's shared screen — not the image itself. It may contain OCR noise or garbled fragments; use judgement and ignore obvious junk. Answer the question concisely and naturally, like you glanced over and are reporting back. If the extracted text genuinely doesn't contain enough to answer, say so plainly rather than guessing.\n\nQuestion: ${q}\n\nExtracted screen text:\n${text.slice(0, 4000)}`
+    );
+    return answer.trim();
+  }
+
+  const answer = await askVision(base64, `You're an AI assistant looking at the user's screen through a shared frame from their browser. Answer concisely and naturally, like you're glancing over and reporting back. Question: ${q}`);
+  return answer.trim();
+}
+
 // ── LOCAL OCR ───────────────────────────────────────────────────
 // Lazily-created singleton worker — spinning one up loads tesseract's
 // language data, which takes a moment, so we pay that cost once per
@@ -871,6 +927,8 @@ module.exports = {
   ocrScreen,
   pageContainsText,
   lookAtScreen,
+  ocrImage,
+  lookAtImage,
   locateElement,
   forgetElement,
   clickAt,
