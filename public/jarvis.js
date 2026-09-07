@@ -3672,6 +3672,20 @@ async function handleAction(action, meta, replyText) {
       });
       break;
     }
+    // Opens the small code-reveal card (see code-widget.js) whenever
+    // the backend hands back something to copy exactly — a claim
+    // code, a wallet address, a generated code, etc. Which replies
+    // set this action is a server-side decision (specific tools
+    // only, see server.js) — never a client-side guess based on what
+    // the reply text looks like, so news readouts and stories never
+    // trigger it just because they happen to contain numbers.
+    case "CODE_REVEAL": {
+      speak(replyText, () => {
+        window.CodeWidget?.open({ label: meta?.label, code: meta?.code, note: meta?.note });
+        mic.resume();
+      });
+      break;
+    }
     case "OPEN_WEBSITE_BUILD": {
       speak(replyText, () => {
         openWebsiteBuild(meta);
