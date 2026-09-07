@@ -14,6 +14,7 @@ const News        = require("./news");
 const Spotify     = require("./spotify");
 const Instagram   = require("./instagram");
 const Computer    = require("./computer");
+const registerHelpWidgetRoutes = require("./help-widget-routes");
 const Google      = require("./google");
 const AgentMail   = require("./agent-mail"); // was "./agentmail" — didn't match the actual filename, so every AgentMail.* call below was throwing on require
 const GithubBounty = require("./github-bounty");
@@ -2195,6 +2196,11 @@ app.post("/api/research/person", async (req, res) => {
     res.json({ reply: report, raw: data, name });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
+
+// ═══════════════════════════════════════════════════════════════
+// ── HELP WIDGET ("jarvis, help me on this" floating panel)
+// ═══════════════════════════════════════════════════════════════
+registerHelpWidgetRoutes(app);
 
 // ═══════════════════════════════════════════════════════════════
 // ── SCREEN ANALYSIS
