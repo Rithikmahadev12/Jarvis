@@ -10,11 +10,25 @@
 // reading a field name (reward/skills/deadline) the real API
 // doesn't actually use.
 
+require("dotenv").config();
 const path = require("path");
 const SuperteamAgent = require(path.join(__dirname, "..", "superteam-agent.js"));
+const Persistence = require(path.join(__dirname, "..", "persistence.js"));
 
 async function main() {
   const userKey = process.argv[2] || "owner";
+
+  // If this account was registered by the scheduled GitHub Actions
+  // run rather than locally, its config only exists in Supabase --
+  // pull it down first or isConfigured() below will wrongly say
+  // "not registered" even though it actually is.
+  if (Persistence.isConfigured()) {
+    console.log("Pulling latest state from Supabase first...");
+    await Persistence.pullAll();
+  } else {
+    console.log("SUPABASE_* not set locally -- checking only what's on this machine's disk.");
+  }
+
   if (!SuperteamAgent.isConfigured(userKey)) {
     console.error(`"${userKey}" isn't registered yet. Run scripts/register-superteam-agent.js ${userKey} first.`);
     process.exit(1);
