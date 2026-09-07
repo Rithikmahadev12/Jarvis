@@ -4,33 +4,133 @@
 // Triggered by saying/typing "Jarvis, help me on this" / "Jarvis, I
 // need help on this" / "Jarvis, I need a website helper" (see the
 // HELP_WIDGET_RE hook added in jarvis.js). No browser extension
-// involved — this reads the screen server-side via screen-vision.js
-// (screenshot-desktop + OCR, with a self-hosted Ollama vision model
-// running in Jarvis's own E2B sandbox as a fallback for anything OCR
-// can't read).
+// involved — YOU share your own screen with the browser's own
+// screen-share picker (the same "choose a tab/window/screen" prompt
+// Zoom/Meet/Teams use — getDisplayMedia), exactly like the
+// "Sharing this tab to ..." bar Chrome shows at the top when you're
+// screen-sharing. Jarvis grabs a still frame from that live share
+// and sends it to the backend, which reads it with OCR first, then
+// falls back to a vision model (self-hosted Ollama in Jarvis's own
+// E2B sandbox, tried before Gemini/Groq — see help-widget-routes.js).
+//
+// Because the BROWSER does the capturing (not screenshot-desktop on
+// the server), this works the same locally or on a cloud deploy —
+// no more "only works in the Electron desktop app" limitation.
 //
 // Behavior:
-//   - Opens a small floating panel: "Sir, tell me what you need
-//     help with." with a text box.
-//   - Type a question and hit Enter/Send -> answer streams into the
-//     box as text (silent by default).
+//   - Opens a small floating panel and immediately asks the browser
+//     to share your screen. Once you pick something to share, a
+//     green "LIVE" dot shows Jarvis can see it.
+//   - "Sir, tell me what you need help with." + a text box.
+//   - Type a question and hit Enter/Send -> Jarvis grabs the current
+//     frame from your shared screen and answers into the box
+//     (silent by default).
 //   - Tap the mic button to switch to voice mode: your next question
 //     can be spoken instead of typed, AND the answer is spoken back
 //     out loud. Tap again to go back to text-only.
-//   - Closing the panel (X) stops any listening/speaking in progress
-//     and everything goes back to normal.
+//   - Closing the panel (X) stops the screen share, stops any
+//     listening/speaking in progress, and everything goes back to
+//     normal.
 //
 // window.HelpWidget.show() / .hide() / .toggle()
 // ═══════════════════════════════════════════════════════════════
 
 window.HelpWidget = (function () {
-  let panel = null, logEl = null, inputEl = null, sendBtn = null, micBtn = null, statusEl = null;
+  let panel = null, logEl = null, inputEl = null, sendBtn = null, micBtn = null;
+  let shareBtn = null, liveDot = null, liveLabel = null;
   let voiceOn = false;
   let recognition = null;
   let listening = false;
   let currentAudio = null;
   let savedPhase = null;
   let busy = false;
+
+  // ── SCREEN SHARE (browser-native, no extension) ────────────────
+  let mediaStream = null;
+  let videoEl = null;   // hidden <video> fed by the shared stream, used to grab frames
+  let sharing = false;
+
+  async function startScreenShare({ silent } = {}) {
+    if (sharing) return true;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      addLine("status", "Your browser doesn't support screen sharing, so I can't see your screen here — you can still ask text questions.");
+      return false;
+    }
+    try {
+      mediaStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { cursor: "always" },
+        audio: false,
+      });
+    } catch (e) {
+      if (!silent) addLine("status", "I need permission to see your screen — click \"Share screen\" whenever you're ready.");
+      setLive(false);
+      return false;
+    }
+
+    videoEl = document.createElement("video");
+    videoEl.muted = true;
+    videoEl.playsInline = true;
+    videoEl.srcObject = mediaStream;
+    try { await videoEl.play(); } catch {}
+
+    sharing = true;
+    setLive(true);
+
+    const track = mediaStream.getVideoTracks()[0];
+    if (track) {
+      track.addEventListener("ended", () => {
+        // Fires when the user clicks the browser's own "Stop sharing"
+        // button (see the bar at the top of the shared tab), not just
+        // when we call stopScreenShare() ourselves.
+        sharing = false;
+        setLive(false);
+        addLine("status", "Screen sharing stopped. Click \"Share screen\" to let me see it again.");
+      });
+    }
+    if (!silent) addLine("status", "I can see your screen now.");
+    return true;
+  }
+
+  function stopScreenShare() {
+    if (mediaStream) {
+      try { mediaStream.getTracks().forEach((t) => t.stop()); } catch {}
+    }
+    mediaStream = null;
+    videoEl = null;
+    sharing = false;
+    setLive(false);
+  }
+
+  function setLive(on) {
+    if (!liveDot || !liveLabel || !shareBtn) return;
+    liveDot.classList.toggle("jhw-live-on", on);
+    liveLabel.textContent = on ? "LIVE" : "Not sharing";
+    shareBtn.textContent = on ? "Stop sharing" : "Share screen";
+  }
+
+  // Grabs the current frame from the live share as a bare base64 PNG
+  // (no "data:image/png;base64," prefix). Returns null if we don't
+  // have an active, ready share.
+  function captureFrame() {
+    if (!sharing || !videoEl || !videoEl.videoWidth) return null;
+    const canvas = document.createElement("canvas");
+    canvas.width = videoEl.videoWidth;
+    canvas.height = videoEl.videoHeight;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL("image/png");
+    const comma = dataUrl.indexOf(",");
+    return comma >= 0 ? dataUrl.slice(comma + 1) : null;
+  }
+
+  async function toggleShare() {
+    if (sharing) {
+      stopScreenShare();
+      addLine("status", "Stopped sharing your screen.");
+    } else {
+      await startScreenShare();
+    }
+  }
 
   // ── STYLES (self-contained, no separate CSS file to wire up) ──
   function injectStyles() {
@@ -40,7 +140,7 @@ window.HelpWidget = (function () {
     style.textContent = `
       #jhw-panel {
         position: fixed; bottom: 24px; right: 24px; width: 340px;
-        max-height: 420px; display: flex; flex-direction: column;
+        max-height: 460px; display: flex; flex-direction: column;
         background: rgba(10, 14, 20, 0.92); border: 1px solid rgba(80, 200, 255, 0.35);
         border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,0.55), 0 0 24px rgba(80,200,255,0.08);
         font-family: inherit; color: #d9f1ff; z-index: 999999;
@@ -56,6 +156,22 @@ window.HelpWidget = (function () {
       }
       #jhw-close { background: none; border: none; color: #8fb8cc; font-size: 16px; cursor: pointer; line-height: 1; padding: 2px 4px; }
       #jhw-close:hover { color: #fff; }
+      #jhw-sharerow {
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        padding: 8px 12px; border-bottom: 1px solid rgba(80,200,255,0.12);
+      }
+      #jhw-livewrap { display: flex; align-items: center; gap: 6px; font-size: 11px; letter-spacing: 0.04em; color: #8fb8cc; }
+      #jhw-livedot {
+        width: 8px; height: 8px; border-radius: 50%; background: #55606b; flex-shrink: 0;
+        transition: background .2s ease, box-shadow .2s ease;
+      }
+      #jhw-livedot.jhw-live-on { background: #3ee06f; box-shadow: 0 0 6px rgba(62,224,111,0.8); animation: jhw-live-pulse 1.6s infinite; }
+      @keyframes jhw-live-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.55; } }
+      #jhw-sharebtn {
+        font-size: 11px; padding: 4px 9px; border-radius: 6px; cursor: pointer;
+        background: rgba(80,200,255,0.1); border: 1px solid rgba(80,200,255,0.3); color: #bfe9ff;
+      }
+      #jhw-sharebtn:hover { background: rgba(80,200,255,0.22); }
       #jhw-log { flex: 1; overflow-y: auto; padding: 12px; font-size: 13.5px; line-height: 1.45; }
       #jhw-log .jhw-msg { margin-bottom: 10px; }
       #jhw-log .jhw-msg.jhw-user { color: #9fe6ff; }
@@ -90,6 +206,10 @@ window.HelpWidget = (function () {
         <span>J.A.R.V.I.S — Screen Helper</span>
         <button id="jhw-close" title="Close">&#10005;</button>
       </div>
+      <div id="jhw-sharerow">
+        <div id="jhw-livewrap"><span id="jhw-livedot"></span><span id="jhw-livelabel">Not sharing</span></div>
+        <button id="jhw-sharebtn">Share screen</button>
+      </div>
       <div id="jhw-log"></div>
       <div id="jhw-inputrow">
         <input id="jhw-input" type="text" placeholder="Tell me what you need help with..." autocomplete="off" />
@@ -103,11 +223,15 @@ window.HelpWidget = (function () {
     inputEl = panel.querySelector("#jhw-input");
     sendBtn = panel.querySelector("#jhw-send");
     micBtn = panel.querySelector("#jhw-mic");
+    shareBtn = panel.querySelector("#jhw-sharebtn");
+    liveDot = panel.querySelector("#jhw-livedot");
+    liveLabel = panel.querySelector("#jhw-livelabel");
 
     panel.querySelector("#jhw-close").addEventListener("click", hide);
     sendBtn.addEventListener("click", handleSend);
     inputEl.addEventListener("keydown", (e) => { if (e.key === "Enter") handleSend(); });
     micBtn.addEventListener("click", toggleVoice);
+    shareBtn.addEventListener("click", toggleShare);
   }
 
   function addLine(kind, text) {
@@ -135,6 +259,10 @@ window.HelpWidget = (function () {
       window.state.phase = "help-widget";
     }
     inputEl.focus();
+    // Ask for screen share right away (silent: true just means don't
+    // nag with a status line if they dismiss the browser prompt —
+    // the Share button is always right there to try again).
+    if (!sharing) startScreenShare({ silent: true });
   }
 
   function hide() {
@@ -142,6 +270,7 @@ window.HelpWidget = (function () {
     panel.classList.remove("jhw-in");
     stopListening();
     stopSpeakingWidget();
+    stopScreenShare();
     if (savedPhase && window.state) {
       window.state.phase = savedPhase;
       savedPhase = null;
@@ -245,7 +374,12 @@ window.HelpWidget = (function () {
     inputEl.value = "";
     stopListening();
     addLine("user", question);
-    const thinkingLine = addLine("status", "Looking at your screen...");
+
+    // Make sure we've got a live frame to send. If sharing dropped
+    // (or was never granted), try once more before answering blind.
+    if (!sharing) await startScreenShare({ silent: true });
+    const frame = captureFrame();
+    const thinkingLine = addLine("status", frame ? "Looking at your screen..." : "I can't see your screen right now — answering from your question alone...");
     busy = true;
     sendBtn.disabled = true;
 
@@ -253,7 +387,11 @@ window.HelpWidget = (function () {
       const res = await fetch("/api/help-widget/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question, userTitle: (window.state && window.state.userTitle) || "Sir" }),
+        body: JSON.stringify({
+          question,
+          userTitle: (window.state && window.state.userTitle) || "Sir",
+          screenshot: frame || undefined,
+        }),
         signal: AbortSignal.timeout(45000),
       });
       const data = await res.json().catch(() => ({}));
