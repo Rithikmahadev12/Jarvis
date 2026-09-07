@@ -653,11 +653,27 @@ const TOOLS = [
     type: "function",
     function: {
       name: "get_superteam_claim_code",
-      description: "Get a user's saved Superteam Earn agent claim code and claim URL, registering that user's agent first if it hasn't been registered yet. Shows the code on screen in a copyable card. Use when the user asks for their claim code, agent status, or to set up/register the Superteam agent.",
+      description: "Get a user's saved Superteam Earn agent claim code and claim URL, registering that user's agent first if it hasn't been registered yet. Shows the code on screen in a copyable card, and reports how many Superteam bounties have been won so far. Use when the user asks for their claim code, agent status, or to set up/register the Superteam agent.",
       parameters: {
         type: "object",
         properties: {
           user_key: { type: "string", description: "Which account this is for, if the app has multiple enrolled users. Omit to default to the owner." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "record_superteam_win",
+      description: "Manually log a won Superteam Earn bounty for a user, e.g. 'mark that Superteam submission as a win', 'log a $50 Superteam win'. Use this since automatic win detection isn't confirmed yet — the count it keeps is used when reporting the claim code.",
+      parameters: {
+        type: "object",
+        properties: {
+          user_key: { type: "string", description: "Which account this is for. Omit to default to the owner." },
+          listing_slug: { type: "string", description: "The bounty/listing's slug or id, if known." },
+          title: { type: "string", description: "The bounty's title, if known." },
+          amount_usd: { type: "number", description: "The payout amount in USD, if known." },
         },
       },
     },
