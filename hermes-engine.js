@@ -653,7 +653,7 @@ const TOOLS = [
     type: "function",
     function: {
       name: "get_superteam_claim_code",
-      description: "Get a user's saved Superteam Earn agent claim code and claim URL, registering that user's agent first if it hasn't been registered yet. Use when the user asks for their claim code, agent status, or to set up/register the Superteam agent.",
+      description: "Get a user's saved Superteam Earn agent claim code and claim URL, registering that user's agent first if it hasn't been registered yet. Shows the code on screen in a copyable card. Use when the user asks for their claim code, agent status, or to set up/register the Superteam agent.",
       parameters: {
         type: "object",
         properties: {
@@ -780,6 +780,19 @@ const TOOLS = [
         type: "object",
         properties: { candidate_id: { type: "number", description: "The candidate's queue id, e.g. 3 for 'bounty 3'." } },
         required: ["candidate_id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_wallet_address",
+      description: "Get a user's Solana wallet public address, shown on screen in a copyable card — 'what's my wallet address', 'what's my solana address', 'give me my wallet'. Use this for the address itself, not the balance (use check_wallet_balance for that).",
+      parameters: {
+        type: "object",
+        properties: {
+          user_key: { type: "string", description: "Which account this is for, if the app has multiple enrolled users. Omit to default to the owner." },
+        },
       },
     },
   },
