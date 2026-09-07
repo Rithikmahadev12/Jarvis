@@ -267,6 +267,45 @@ async function getListingDetails(userKey, slug) {
   return apiFetch(userKey, `/api/agents/listings/details/${encodeURIComponent(slug)}`);
 }
 
+// ---- Diagnostic: raw response + why each listing was kept/dropped ----
+// Same call discoverListings() makes, but returns the untouched API
+// response plus a per-listing reason instead of silently filtering.
+// Use this first whenever "scanned 0" looks wrong — it tells you
+// whether that's genuinely zero live listings, or normalizeListing()
+// reading a field name the real API doesn't actually use (its
+// reward/skills/deadline mapping was a guess, never confirmed).
+async function debugDiscovery(userKey, { type } = {}) {
+  const qs = new URLSearchParams({ take: "50" });
+  if (type) qs.set("type", type);
+  const pathname = `/api/agents/listings/live?${qs.toString()}`;
+  const res = await apiFetch(userKey, pathname);
+  const rawList = res.listings || res.data || res || [];
+  const rows = rawList.map(raw => {
+    const l = normalizeListing(raw);
+    const reasons = [];
+    if (l.reward == null) reasons.push("reward field not found on this listing (check normalizeListing's field guesses against sampleRawKeys below)");
+    else if (l.reward < MIN_REWARD_USD) reasons.push(`reward $${l.reward} < MIN_REWARD_USD (${MIN_REWARD_USD})`);
+    else if (l.reward > MAX_REWARD_USD) reasons.push(`reward $${l.reward} > MAX_REWARD_USD (${MAX_REWARD_USD})`);
+    if (l.hoursLeft != null && l.hoursLeft > MAX_HOURS_LEFT) reasons.push(`${l.hoursLeft.toFixed(1)}h left > MAX_HOURS_LEFT (${MAX_HOURS_LEFT})`);
+    if (l.submissionCount > MAX_SUBMISSIONS) reasons.push(`${l.submissionCount} submissions > MAX_SUBMISSIONS (${MAX_SUBMISSIONS})`);
+    if (ALLOWED_SKILLS.length && l.skills.length && !l.skills.some(s => ALLOWED_SKILLS.some(a => s.includes(a)))) {
+      reasons.push(`skills [${l.skills.join(", ")}] don't match SUPERTEAM_SKILLS [${ALLOWED_SKILLS.join(", ")}]`);
+    }
+    return {
+      slug: l.slug, title: raw.title || null, reward: l.reward, hoursLeft: l.hoursLeft,
+      submissionCount: l.submissionCount, skills: l.skills,
+      kept: reasons.length === 0, reasons,
+      sampleRawKeys: Object.keys(raw).slice(0, 25),
+    };
+  });
+  return {
+    endpoint: pathname, rawCount: rawList.length, keptCount: rows.filter(r => r.kept).length,
+    filters: { MIN_REWARD_USD, MAX_REWARD_USD, MAX_HOURS_LEFT, MAX_SUBMISSIONS, ALLOWED_SKILLS },
+    firstRawListing: rawList[0] || null,
+    rows,
+  };
+}
+
 async function draftSubmission(listing) {
   const Hermes = require(path.join(REPO_ROOT, "hermes-engine.js"));
   const prompt =
@@ -328,7 +367,7 @@ async function scanAndSubmitAll() {
 
 module.exports = {
   isConfigured, registerAgent, ensureRegistered, getClaimInfo,
-  discoverListings, getListingDetails, draftSubmission, submitListing,
+  discoverListings, debugDiscovery, getListingDetails, draftSubmission, submitListing,
   scanAndSubmit, scanAndSubmitAll, listRegisteredUsers, listKnownUserKeys,
   ensureAllRegistered, loadConfig, normalizeKey,
   recordWin, getWinCount,
