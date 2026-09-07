@@ -3536,15 +3536,39 @@ async function executeAssistantTool(name, args, ctx) {
           : info.walletLinked === false
             ? `⚠️ Wallet did NOT link — bounty-hunt and Superteam earnings won't line up for "${key}" yet.`
             : "";
+        const { count: wins, source: winSource } = await SuperteamAgent.getWinCount(key);
+        const winLine = wins > 0
+          ? `Sir, I've won ${wins} time${wins === 1 ? "" : "s"}.`
+          : `Sir, sadly I haven't won anything yet.`;
+        // winSource "local" means this is the manual counter, not a
+        // confirmed read from Superteam's own API — see
+        // getWinCount()'s comment in superteam-agent.js.
+        const winCaveat = winSource === "local" ? " (Manually tracked — ask me to log a win after one clears.)" : "";
         return {
-          reply: `Here's the claim code for "${info.username || key}", ${T} — it's on screen so you can copy it.`,
+          reply: `${winLine} Here's the claim code for "${info.username || key}", ${T} — it's on screen so you can copy it.${winCaveat}`,
           action: "CODE_REVEAL", intent: "wallet",
           meta: { label: `Superteam claim code — ${info.username || key}`, code: info.claimCode,
-            note: `Claim any payout at ${claimUrl}${walletNote ? ` — ${walletNote}` : ""}` },
+            note: `${winLine} Claim any payout at ${claimUrl}${walletNote ? ` — ${walletNote}` : ""}` },
         };
       } catch (e) {
         return { reply: `Couldn't get the claim code for ${key}, ${T}: ${e.message}` };
       }
+    }
+
+    // ── record_superteam_win ─────────────────────────────────────
+    // Manual fallback until Superteam's real "did this win" endpoint
+    // is confirmed (see getWinCount()'s comment) — "mark that
+    // Superteam bounty as a win", "log a $50 win on the design one".
+    case "record_superteam_win": {
+      const SuperteamAgent = require("./superteam-agent.js");
+      const key = args.user_key || userName || "owner";
+      const res = SuperteamAgent.recordWin(key, {
+        slug: args.listing_slug ? String(args.listing_slug).trim() : null,
+        title: args.title ? String(args.title).trim() : null,
+        amountUsd: args.amount_usd != null ? Number(args.amount_usd) : null,
+      });
+      if (res.error) return { reply: `Couldn't log that, ${T}: ${res.error}` };
+      return { reply: `Logged, ${T} — that's ${res.winCount} win${res.winCount === 1 ? "" : "s"} for "${key}" now.` };
     }
 
     // ── get_wallet_address ──────────────────────────────────────
