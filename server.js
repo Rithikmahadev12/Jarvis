@@ -3530,16 +3530,40 @@ async function executeAssistantTool(name, args, ctx) {
       const key = args.user_key || userName || "owner";
       try {
         const info = await SuperteamAgent.ensureRegistered(key);
+        const claimUrl = info.claimUrl || `https://superteam.fun/earn/claim/${info.claimCode}`;
         const walletNote = info.walletAddress
-          ? ` Linked wallet (same one bounty-hunt uses for ${key}): ${info.walletAddress}.`
+          ? `Linked wallet (same one bounty-hunt uses for ${key}): ${info.walletAddress}.`
           : info.walletLinked === false
-            ? ` ⚠️ Wallet did NOT link — bounty-hunt and Superteam earnings won't line up for "${key}" yet.`
+            ? `⚠️ Wallet did NOT link — bounty-hunt and Superteam earnings won't line up for "${key}" yet.`
             : "";
-        return { reply: `Agent "${info.username || key}" — claim code: ${info.claimCode}. ` +
-          `Claim any payout at: ${info.claimUrl || `https://superteam.fun/earn/claim/${info.claimCode}`}` + walletNote };
+        return {
+          reply: `Here's the claim code for "${info.username || key}", ${T} — it's on screen so you can copy it.`,
+          action: "CODE_REVEAL", intent: "wallet",
+          meta: { label: `Superteam claim code — ${info.username || key}`, code: info.claimCode,
+            note: `Claim any payout at ${claimUrl}${walletNote ? ` — ${walletNote}` : ""}` },
+        };
       } catch (e) {
         return { reply: `Couldn't get the claim code for ${key}, ${T}: ${e.message}` };
       }
+    }
+
+    // ── get_wallet_address ──────────────────────────────────────
+    // Just the public address, shown in the same copyable card as
+    // the claim code above — for "what's my solana wallet address",
+    // "what's my wallet", etc. Never the private key: solana-wallet.js
+    // is read-only by design (see its header comment), so there's
+    // nothing more sensitive than a public address for this to leak.
+    case "get_wallet_address": {
+      const key = args.user_key || userName || "owner";
+      const address = SolanaWallet.getAddress(key);
+      if (!address) {
+        return { reply: `No wallet linked for "${key}" yet, ${T}. Want me to generate one?` };
+      }
+      return {
+        reply: `Here's the wallet address for "${key}", ${T} — it's on screen so you can copy it.`,
+        action: "CODE_REVEAL", intent: "wallet",
+        meta: { label: `Solana wallet — ${key}`, code: address },
+      };
     }
 
     case "set_timer": {
@@ -3674,8 +3698,9 @@ async function executeAssistantTool(name, args, ctx) {
       const result = await WalletSetup.generateWallet({ overwrite: !!args.overwrite });
       if (result.error) return { reply: `Couldn't generate a wallet, ${T}: ${result.error}` };
       return {
-        reply: `New wallet generated, ${T}. Address: ${result.address}. ${result.warning} I'll need a restart to start watching it.`,
-        action: "WALLET_GENERATED", intent: "wallet",
+        reply: `New wallet generated, ${T} — address is on screen so you can copy it. I'll need a restart to start watching it.`,
+        action: "CODE_REVEAL", intent: "wallet",
+        meta: { label: "New Solana wallet", code: result.address, note: result.warning },
       };
     }
 
