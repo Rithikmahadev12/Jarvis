@@ -2706,6 +2706,18 @@ function handleChatCommand(text, attachments) {
     return;
   }
 
+  // ── SCREEN HELP WIDGET — "Jarvis, help me on this" / "Jarvis, I
+  //    need help on this" / "Jarvis, I need a website helper". Only
+  //    fires when the wake word was actually used (rawHasWake), so
+  //    ordinary sentences containing "I need help" mid-conversation
+  //    don't accidentally pop the panel. See public/help-widget.js.
+  const HELP_WIDGET_RE = /\b(help me (?:on|with) this|need help (?:on|with) this|need a website helper|website helper)\b/;
+  if (rawHasWake && HELP_WIDGET_RE.test(cleanedTrim)) {
+    state.lastInteraction = Date.now();
+    if (window.HelpWidget) window.HelpWidget.show();
+    return;
+  }
+
   // ── Context injection: if user says "yes/no/sure/ok" after JARVIS asked
   //    a question — including a question JARVIS asked UNPROMPTED, e.g. via
   //    ambient assist ("would you like me to pull up some recipes?") —
