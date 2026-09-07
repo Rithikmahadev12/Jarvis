@@ -185,6 +185,60 @@ function getClaimInfo(userKey) {
   };
 }
 
+// ---- Win tracking ----
+// Superteam's docs don't pin an exact "did this submission win"
+// endpoint/field the way they pin /api/agents/submissions/create —
+// same honest gap as normalizeListing()'s reward/skills/deadline
+// guessing. So wins are tracked two ways:
+//   1) Best-effort automatic check against a GUESSED submissions
+//      list endpoint — wrapped so a wrong guess just fails quietly
+//      and falls back to (2) instead of breaking the claim-code ask.
+//   2) A locally-kept counter (recordWin) for the owner to bump
+//      manually — "mark that bounty as a win" — until the real
+//      field names are confirmed against the live API.
+function loadWinsLocal(userKey) {
+  const cfg = loadConfig(userKey);
+  return Array.isArray(cfg.wins) ? cfg.wins : [];
+}
+
+function recordWin(userKey, { slug, title, amountUsd } = {}) {
+  const key = normalizeKey(userKey);
+  const cfg = loadConfig(key);
+  if (!cfg.apiKey) return { error: `"${key}" isn't registered yet.` };
+  cfg.wins = Array.isArray(cfg.wins) ? cfg.wins : [];
+  cfg.wins.push({ slug: slug || null, title: title || null, amountUsd: amountUsd ?? null, recordedAt: new Date().toISOString() });
+  saveConfig(key, cfg);
+  return { userKey: key, winCount: cfg.wins.length };
+}
+
+// Guessed endpoint — adjust the path/field names here once the real
+// shape is confirmed, same as normalizeListing() below. Returns null
+// (not 0) on any failure so callers know to fall back to the local
+// count instead of reporting a false "zero wins."
+async function fetchWinCountFromApi(userKey) {
+  try {
+    const res = await apiFetch(userKey, "/api/agents/submissions");
+    const list = res.submissions || res.data || res;
+    if (!Array.isArray(list)) return null;
+    return list.filter(s => {
+      const status = String(s.status || s.result || "").toLowerCase();
+      return status.includes("win") || s.isWinner === true || s.winner === true;
+    }).length;
+  } catch {
+    return null;
+  }
+}
+
+// What get_superteam_claim_code actually calls: tries the live API
+// first, falls back to the local counter if that guess doesn't pan
+// out, and says which source it used so a wrong number is at least
+// traceable.
+async function getWinCount(userKey) {
+  const apiCount = await fetchWinCountFromApi(userKey);
+  if (apiCount != null) return { count: apiCount, source: "api" };
+  return { count: loadWinsLocal(userKey).length, source: "local" };
+}
+
 // ---- Discovery (not user-specific — listings are global) ----
 function normalizeListing(raw) {
   const reward = raw.rewardAmount ?? raw.reward ?? raw.compensation?.amount ?? raw.usdValue ?? null;
@@ -277,4 +331,5 @@ module.exports = {
   discoverListings, getListingDetails, draftSubmission, submitListing,
   scanAndSubmit, scanAndSubmitAll, listRegisteredUsers, listKnownUserKeys,
   ensureAllRegistered, loadConfig, normalizeKey,
+  recordWin, getWinCount,
 };
