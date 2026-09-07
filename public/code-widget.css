@@ -1,0 +1,132 @@
+/* ═══════════════════════════════════════════════════════════════
+   J.A.R.V.I.S — CODE REVEAL WIDGET
+   Small floating card that appears whenever Jarvis hands back
+   something you'd need to copy exactly — a claim code, a wallet
+   address, a generated code, etc. — so it's still sitting on screen
+   even if you miss it spoken aloud. Mirrors phone-widget's floating-
+   card pattern (same corner, same size class) so the two never feel
+   like different UI languages.
+   ═══════════════════════════════════════════════════════════════ */
+
+.code-widget {
+  position: fixed;
+  top: 84px;
+  right: 20px;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  z-index: 9600;
+  background: var(--panel-bg, rgba(2,18,36,0.94));
+  border: 1px solid rgba(0,200,255,0.18);
+  border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.03) inset;
+  backdrop-filter: blur(14px);
+  font-family: var(--raj, 'Rajdhani', sans-serif);
+  color: var(--text-bright, #d8f4ff);
+  opacity: 0;
+  transform: translateY(-10px) scale(0.98);
+  transition: opacity 0.22s ease, transform 0.22s ease;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.code-widget.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.code-widget.hidden { display: none; }
+
+/* ── header row: label + close ───────────────────────────────── */
+.cw-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 10px 8px 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.cw-label {
+  font-family: var(--hud, 'Orbitron', monospace);
+  font-size: 0.58rem;
+  letter-spacing: 0.14em;
+  color: var(--blue, #00c8ff);
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cw-close {
+  background: none;
+  border: none;
+  color: rgba(216,244,255,0.55);
+  font-size: 1.15rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.cw-close:hover { color: #fff; background: rgba(255,255,255,0.08); }
+
+/* ── body ─────────────────────────────────────────────────────── */
+.cw-body {
+  padding: 12px 14px 14px;
+}
+
+.cw-code {
+  font-family: 'Consolas', 'SF Mono', 'Roboto Mono', monospace;
+  font-size: 0.95rem;
+  letter-spacing: 0.03em;
+  color: #fff;
+  background: rgba(0,200,255,0.08);
+  border: 1px solid rgba(0,200,255,0.16);
+  border-radius: 9px;
+  padding: 10px 12px;
+  word-break: break-all;
+  user-select: all;
+}
+
+.cw-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.cw-copy {
+  flex: 1;
+  font-family: var(--hud, 'Orbitron', monospace);
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #001018;
+  background: var(--blue, #00c8ff);
+  border: none;
+  border-radius: 8px;
+  padding: 9px 10px;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.1s ease;
+}
+.cw-copy:hover { filter: brightness(1.1); }
+.cw-copy:active { transform: scale(0.97); }
+
+.cw-copied {
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: #6cf7a3;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  white-space: nowrap;
+}
+.cw-copied.show { opacity: 1; }
+
+.cw-note {
+  margin-top: 9px;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: rgba(216,244,255,0.65);
+  display: none;
+}
+.cw-note.show { display: block; }
