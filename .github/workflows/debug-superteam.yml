@@ -1,0 +1,43 @@
+name: Debug Superteam Listings
+
+# Manual-only — click "Run workflow" in the Actions tab. This exists
+# so you can run scripts/debug-superteam-listings.js WITHOUT needing
+# SUPABASE_SERVICE_ROLE_KEY in your local .env at all: secrets only
+# ever get injected into a run happening on GitHub's own machines,
+# never handed back out to a local script or to you — that's a
+# GitHub platform rule, not something this workflow can loosen. This
+# just runs the same script in the one place that already has them.
+on:
+  workflow_dispatch:
+    inputs:
+      user_key:
+        description: "Which registered user to check (e.g. rithik)"
+        required: true
+        default: "owner"
+
+jobs:
+  debug-listings:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install --omit=dev
+
+      - name: Run listings debug script
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
+          SUPERTEAM_MIN_REWARD_USD: ${{ secrets.SUPERTEAM_MIN_REWARD_USD }}
+          SUPERTEAM_MAX_REWARD_USD: ${{ secrets.SUPERTEAM_MAX_REWARD_USD }}
+          SUPERTEAM_MAX_HOURS_LEFT: ${{ secrets.SUPERTEAM_MAX_HOURS_LEFT }}
+          SUPERTEAM_MAX_SUBMISSIONS: ${{ secrets.SUPERTEAM_MAX_SUBMISSIONS }}
+          SUPERTEAM_SKILLS: ${{ secrets.SUPERTEAM_SKILLS }}
+        run: node scripts/debug-superteam-listings.js "${{ inputs.user_key }}"
