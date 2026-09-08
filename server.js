@@ -24,6 +24,7 @@ const WalletSetup   = require("./wallet-setup");
 const DIY         = require("./diy-builder");
 const Build       = require("./build-engine");
 const BuildAI     = require("./build-ai");
+const MeshGen     = require("./mesh-generator"); // Tripo3D text->3D mesh generation
 const SiteBuilder = require("./site-builder");
 const Studio      = require("./studio");
 const Home        = require("./home");
@@ -408,6 +409,40 @@ app.post("/api/build/generate", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── BUILD MODE MESH GEN — Tripo3D text->3D, one step ABOVE the
+// parametric feature-tree fallback above. findOrBuildFromQuery() in
+// build-mode.html tries this before ever falling back to /api/build/generate,
+// so a "Building" project gets a real generated mesh whenever Sketchfab
+// doesn't have the part, and only drops to crude AI-assembled primitives
+// if Tripo3D itself is unavailable (no key / out of credits / API error).
+// Same background-job contract as /api/hologram/generate below (own route
+// so build-mode.html and the quick-view hologram widget can be told apart
+// in logs/metrics later if it matters) — see mesh-generator.js.
+app.post("/api/build/generate-mesh", (req, res) => {
+  const prompt = (req.body?.prompt || "").trim();
+  if (!prompt) return res.status(400).json({ error: "Missing 'prompt'." });
+  const jobId = MeshGen.startJob(prompt);
+  res.json({ jobId });
+});
+
+app.get("/api/build/generate-mesh/:jobId", (req, res) => {
+  res.json(MeshGen.getJob(req.params.jobId));
+});
+
+// ── HOLOGRAM QUICK-VIEW MESH GEN — "Jarvis, show me a hologram of X" —
+// same Tripo3D pipeline as above, used by hologram-widget.js's generate()
+// for one-off holograms that aren't part of a Building-mode project.
+app.post("/api/hologram/generate", (req, res) => {
+  const prompt = (req.body?.prompt || "").trim();
+  if (!prompt) return res.status(400).json({ error: "Missing 'prompt'." });
+  const jobId = MeshGen.startJob(prompt);
+  res.json({ jobId });
+});
+
+app.get("/api/hologram/generate/:jobId", (req, res) => {
+  res.json(MeshGen.getJob(req.params.jobId));
 });
 
 // ═══════════════════════════════════════════════════════════════
