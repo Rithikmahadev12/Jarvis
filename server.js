@@ -2370,6 +2370,14 @@ const HARD_COMMANDS = {
   // openOnPC/readScreen, neither of which this overlaps with in
   // wording — this is Jarvis's own cloud desktop, not your machine.
   pcView:       /\b(show (me )?(your |the )?pc\b|show (me )?your (computer|desktop)|pc view|remote (into|control) (your |the )?pc|take over (your |the )?pc|control (your |the )?(pc|computer)\b)\b/i,
+  // "Jarvis, close your pc" / "close all your pcs" — tears the E2B
+  // desktop sandbox (and, for the "all" phrasing, the plain
+  // code-interpreter sandbox too) back down instead of leaving it
+  // running until its idle timeout. pcCloseAll MUST be checked before
+  // pcClose (it is, since object key order = check order below) so
+  // "close all your pcs" doesn't get swallowed by the singular pattern.
+  pcCloseAll:   /\b(close|shut down|power down|end|kill|stop)\b.{0,15}\ball\b.{0,20}\b(pcs?|computers?|sandboxes?|desktops?)\b/i,
+  pcClose:      /\b(close|shut down|power down|end|kill|stop)\b.{0,15}\b(your |the |my )?(pc\b|computer\b|desktop\b)/i,
   hologram:     /\b(show me a (3d|hologram)|holographic|3d model|3d scan|build mode)\b/i,
   wireframe:    /\b(render (this|it)( into| as)? a wireframe|wireframe (mode|view|render|it|this)|show (me )?(the )?wireframe|turn (this|it) into a wireframe)\b/i,
   changeModel:  /\b((change|swap|switch) (the )?(sketchfab )?model|try (a |another )?different model|another model|next model|different (sketchfab )?model)\b/i,
@@ -3347,6 +3355,44 @@ async function handlePcViewOpen(message, T) {
   }
 }
 
+// ── PC CLOSE — "Jarvis, close your pc" / "close all your pcs" ────
+// Closing the widget window client-side (the × button, or just
+// navigating away) never touched the sandbox — it kept running in the
+// background until its own idle timeout. These actually tear it down.
+async function handlePcClose(T) {
+  if (!Computer.isDesktopConfigured() || !Computer.isDesktopRunning()) {
+    return { reply: `Nothing's running, ${T} — there's no desktop sandbox open to close.`, action: "PC_CLOSED", intent: "pcClose" };
+  }
+  try {
+    await Computer.killDesktopSandbox();
+    return { reply: `Powered down my desktop, ${T}.`, action: "PC_CLOSED", intent: "pcClose" };
+  } catch (e) {
+    return { reply: `Had trouble closing that down, ${T} — ${e.message}`, action: "ERROR", intent: "pcClose" };
+  }
+}
+
+// "All" version — tears down BOTH the desktop sandbox (the "show pc"
+// one) and the plain code-interpreter sandbox (the one run_in_sandbox
+// / coding tasks use), since the user said "all the sandboxes used for
+// this" and those are the two singleton sandbox instances this file
+// tracks. Each is independent and best-effort — one failing doesn't
+// stop the other from being tried.
+async function handlePcCloseAll(T) {
+  const closed = [];
+  if (Computer.isDesktopRunning()) {
+    try { await Computer.killDesktopSandbox(); closed.push("the desktop"); }
+    catch (e) { console.error("[PC VIEW] Failed closing desktop sandbox:", e.message); }
+  }
+  if (Computer.isRunning()) {
+    try { await Computer.killSandbox(); closed.push("the code sandbox"); }
+    catch (e) { console.error("[PC VIEW] Failed closing code sandbox:", e.message); }
+  }
+  if (!closed.length) {
+    return { reply: `Nothing was running, ${T} — no sandboxes to close.`, action: "PC_CLOSED_ALL", intent: "pcCloseAll" };
+  }
+  return { reply: `Shut it all down, ${T} — ${closed.join(" and ")} are gone.`, action: "PC_CLOSED_ALL", intent: "pcCloseAll" };
+}
+
 function handleHologramOpen(message, T) {
   const q = (message || "")
     .replace(/\b(jarvis|hey|show me a|3d model of|3d scan of|holographic view of|build mode|hologram|holographic|3d model|3d scan)\b/gi, "")
@@ -3625,6 +3671,12 @@ async function executeAssistantTool(name, args, ctx) {
           ? "show pc and open youtube"
           : "show pc";
       return await handlePcViewOpen(fakeMessage, T);
+    }
+    case "close_pc": {
+      return await handlePcClose(T);
+    }
+    case "close_all_pcs": {
+      return await handlePcCloseAll(T);
     }
     case "get_superteam_claim_code": {
       const SuperteamAgent = require("./superteam-agent.js");
@@ -5040,6 +5092,12 @@ app.post("/api/chat", async (req, res) => {
     if (hardCommandType === "pcView") {
       return res.json(await handlePcViewOpen(message, T));
     }
+    if (hardCommandType === "pcCloseAll") {
+      return res.json(await handlePcCloseAll(T));
+    }
+    if (hardCommandType === "pcClose") {
+      return res.json(await handlePcClose(T));
+    }
     if (hardCommandType === "hologram") {
       return res.json(handleHologramOpen(message, T));
     }
@@ -5257,6 +5315,20 @@ function resolveTtsOptionsForRequest(req) {
     cloned:     !!profile.aiVoiceCloned,
   };
 }
+
+// Fire-and-forget close for the PC view widget's × button — closing
+// the window client-side never used to touch the sandbox at all, so
+// it just kept running (and counting toward its idle timeout) after
+// you clicked away. This actually tears it down. No reply/T needed
+// since nothing is spoken for this — it's a UI action, not a voice command.
+app.post("/api/pc/close", async (req, res) => {
+  try {
+    if (Computer.isDesktopRunning()) await Computer.killDesktopSandbox();
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
 
 app.post("/api/tts", async (req, res) => {
   const { text } = req.body;
