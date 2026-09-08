@@ -1196,6 +1196,19 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "show_pc",
+      description: "Open a live view of JARVIS'S OWN cloud desktop — a separate E2B sandbox computer that is NOT the user's PC — and optionally open YouTube in it. Trigger for ANY phrasing like 'show pc', 'show me your pc/desktop', 'pc view', 'let me see your computer', 'remote into your pc', 'take over your pc', 'control your computer'. IMPORTANT: this is completely separate from open_on_computer/run_computer_command/type_text (which act on the USER's own local machine and only work when Jarvis happens to be running locally) — show_pc always works, cloud or not, because it's Jarvis's own sandbox, the same way run_in_sandbox is. If the request also mentions YouTube ('show pc and open youtube', 'show pc and watch X on youtube'), pass a youtube_query so it opens straight there instead of a bare desktop — leave youtube_query empty/omitted if YouTube wasn't mentioned at all.",
+      parameters: {
+        type: "object",
+        properties: {
+          youtube_query: { type: "string", description: "What to search/watch on YouTube once the desktop opens, e.g. 'lofi hip hop' or 'nba highlights'. Leave empty to just open youtube.com with nothing searched. Omit this property entirely if the user didn't mention YouTube." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "open_on_computer",
       description: "Open an application, file, folder, or URL on the user's own computer — e.g. 'open VS Code', 'launch chrome', 'open my resume'. Only works when Jarvis is running locally, not in the cloud. IMPORTANT: for compound requests like 'open VS Code and type a flappy bird script', call THIS tool AND type_text in the SAME response — don't stop after just opening. IMPORTANT: never use this for camera requests ('open camera', 'open the camera', 'show camera') — those mean the on-screen webcam feed, not launching an OS camera app. Use show_camera for those instead.",
       parameters: {
