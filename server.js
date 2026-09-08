@@ -3337,7 +3337,13 @@ async function handlePcViewOpen(message, T) {
       const audio = await Computer.ensureDesktopAudioStream();
       audioUrl = audio.url;
     } catch (e) {
-      audioNote = " Couldn't get sound working on it this time though, so it'll be silent for now.";
+      // Say the ACTUAL reason instead of a generic "couldn't get sound
+      // working" — the previous version swallowed e.message entirely,
+      // which is exactly why the last failure was a dead end (nothing
+      // to go on, and the log file it pointed to didn't even exist yet
+      // because the failure happened before ffmpeg ever started).
+      console.error("[PC VIEW] Audio bridge failed:", e.message);
+      audioNote = ` Couldn't get sound working on it this time though — ${e.message}`;
     }
 
     return {
