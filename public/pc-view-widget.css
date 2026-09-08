@@ -60,6 +60,22 @@
 }
 .pcv-close:hover { color: #fff; }
 
+.pcv-unmute {
+  background: rgba(120, 210, 255, 0.12);
+  border: 1px solid rgba(120, 210, 255, 0.35);
+  color: #7fd7ff;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  border-radius: 6px;
+  cursor: pointer;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+.pcv-unmute:hover {
+  background: rgba(120, 210, 255, 0.22);
+  color: #fff;
+}
+
 .pcv-viewport {
   flex: 1;
   background: #000;
