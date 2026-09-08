@@ -404,7 +404,10 @@ app.post("/api/build/generate", async (req, res) => {
   const prompt = (req.body?.prompt || "").trim();
   if (!prompt) return res.status(400).json({ error: "Missing 'prompt'." });
   try {
-    const plan = await BuildAI.generateBuildPlan(prompt);
+    // currentPlan (optional) — when present this is a conversational EDIT
+    // ("make it bigger", "add two bolts") against an existing feature
+    // tree rather than a fresh build. See build-ai.js's generateBuildPlan.
+    const plan = await BuildAI.generateBuildPlan(prompt, req.body?.currentPlan);
     res.json({ plan });
   } catch (e) {
     res.status(500).json({ error: e.message });
