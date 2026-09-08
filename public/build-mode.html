@@ -398,8 +398,47 @@ async function changeToNextModel() {
   log(`Switched to "${sketchfabResults[next].name}".`, "ok");
 }
 
+// ═══════════════════════════════════════════════════════════════
+// CONVERSATIONAL BUILD STATE — "talk to it after it builds the thing
+// to make changes" instead of re-describing the whole object or
+// starting a fresh search every time.
+//
+// currentSource tracks HOW the thing on screen got there, because that
+// determines what "make a change" even means:
+//   "plan"      — a parametric feature-tree build (build-ai.js). Real
+//                 structural edits work here: the current tree is sent
+//                 back to the model along with the instruction, and the
+//                 model returns a full updated tree.
+//   "mesh"      — a Tripo3D-generated mesh, or a Sketchfab model. Opaque
+//                 geometry — the model can't be told "add a bracket"
+//                 because there's no feature tree to edit. Simple visual
+//                 transforms (bigger/smaller/color/rotate) are handled
+//                 generically against the loaded object; anything more
+//                 structural re-runs generation with the instruction
+//                 folded into the original prompt (a fresh object, not
+//                 a true edit — see runMeshGenFromPrompt's editPrompt arg).
+//   null        — nothing loaded yet; the prompt bar does a fresh
+//                 find-or-build search.
+// ═══════════════════════════════════════════════════════════════
+let currentPlan   = null;
+let currentSource = null;
+let lastPrompt    = "";
+
+function updatePromptBarMode() {
+  const label = document.querySelector("#console .group-title");
+  const input = document.getElementById("prompt");
+  if (currentSource) {
+    if (label) label.textContent = "Jarvis — talk to make changes";
+    if (input) input.placeholder = 'e.g. "make it red", "add a bracket on top", "make the base wider"';
+  } else {
+    if (label) label.textContent = "Jarvis — build from a description";
+    if (input) input.placeholder = "e.g. a 4-cylinder inline crankshaft with pistons and connecting rods";
+  }
+}
+
 // ── FIND-OR-BUILD — the unified "search Sketchfab, else AI-generate"
-// flow. Used by the "Find" button, the bottom prompt bar, and voice
+// flow. Used by the "Find" button, the bottom prompt bar (only while
+// nothing is loaded yet — see the prompt-bar handler below), and voice
 // commands ("Jarvis, build me a drone") relayed via BUILD_SEARCH.
 //
 // Three-tier fallback:
@@ -415,6 +454,7 @@ async function changeToNextModel() {
 async function findOrBuildFromQuery(query) {
   const q = (query || "").trim();
   if (!q) return;
+  lastPrompt = q;
   log(`→ searching Sketchfab for "${q}"…`);
   try {
     const res = await fetch(`/api/build/find?q=${encodeURIComponent(q)}`);
@@ -425,6 +465,9 @@ async function findOrBuildFromQuery(query) {
       renderModelSwitcher();
       await loadSketchfabModel(data.results[0].uid, data.results[0].name);
       log(`Found ${data.results.length} match(es) on Sketchfab. Say "change the model" to try another.`, "ok");
+      currentSource = "mesh";
+      currentPlan = null;
+      updatePromptBarMode();
       return;
     }
     log("Nothing downloadable on Sketchfab for that — generating a real mesh instead.");
@@ -484,10 +527,110 @@ async function runMeshGenFromPrompt(prompt) {
     const gltf = await gltfLoader.loadAsync(data.url);
     frameSketchfabObject(gltf.scene);
     log(`✓ Generated "${prompt}" as a real mesh.`, "ok");
+    lastPrompt = prompt;
+    currentSource = "mesh";
+    currentPlan = null;
+    updatePromptBarMode();
   } catch (e) {
     log("✗ Mesh generated but failed to load: " + e.message + " — falling back to the AI feature-tree generator.", "err");
     return runAiBuildFromPrompt(prompt);
   }
+}
+
+// ── GENERIC TRANSFORM EDITS — apply to whatever's currently loaded
+// (mesh OR feature-tree) regardless of how it got there. Handles the
+// common "make it X" requests that don't need real structural editing.
+// Returns true if it recognized and applied the instruction, false if
+// the instruction needs a real (structural) edit instead.
+const COLOR_WORDS = {
+  red: "#c62828", blue: "#1565c0", green: "#2e7d32", yellow: "#f9a825",
+  orange: "#ef6c00", purple: "#6a1b9a", pink: "#d81b60", black: "#1a1a1a",
+  white: "#f0f0f0", gray: "#8a8a8a", grey: "#8a8a8a", silver: "#c0c0c0",
+  gold: "#d4af37", cyan: "#00acc1", teal: "#00796b",
+};
+function tryGenericTransform(instr) {
+  const lower = instr.toLowerCase();
+  const targetGroup = currentSource === "mesh" ? sketchfabGroup : displayGroup;
+  if (!targetGroup || !targetGroup.children.length) return false;
+
+  // Scale
+  const growWords = /\b(bigger|larger|scale.*up|grow|enlarge|huge|massive)\b/;
+  const shrinkWords = /\b(smaller|shrink|scale.*down|tiny|shrink it|make it small)\b/;
+  if (growWords.test(lower) || shrinkWords.test(lower)) {
+    const big = /\bbig(ger)?|huge|massive|a lot bigger|much bigger/.test(lower) && growWords.test(lower);
+    const factor = growWords.test(lower) ? (big ? 1.6 : 1.25) : (shrinkWords.test(lower) && /a lot|much|tiny/.test(lower) ? 0.65 : 0.8);
+    targetGroup.children.forEach(c => c.scale.multiplyScalar(factor));
+    log(`✓ Scaled it ${factor > 1 ? "up" : "down"} ${Math.round(Math.abs(factor - 1) * 100)}%.`, "ok");
+    return true;
+  }
+
+  // Rotate
+  const rotateMatch = lower.match(/rotate.*?(\d+)\s*deg|spin.*?(\d+)\s*deg|turn.*?(\d+)\s*deg/);
+  if (rotateMatch || /\bspin it around|rotate it\b/.test(lower)) {
+    const deg = Number(rotateMatch?.[1] || rotateMatch?.[2] || rotateMatch?.[3]) || 90;
+    targetGroup.rotation.y += THREE.MathUtils.degToRad(deg);
+    log(`✓ Rotated it ${deg}°.`, "ok");
+    return true;
+  }
+
+  // Color
+  const colorMatch = Object.keys(COLOR_WORDS).find(w => new RegExp(`\\b${w}\\b`).test(lower));
+  if (colorMatch && /\bcolor|colour|paint|make it (red|blue|green|yellow|orange|purple|pink|black|white|gray|grey|silver|gold|cyan|teal)\b/.test(lower)) {
+    const hex = COLOR_WORDS[colorMatch];
+    targetGroup.traverse(o => {
+      if (o.isMesh && o.material) {
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.forEach(m => { if (m.color) m.color.set(hex); });
+      }
+    });
+    log(`✓ Recolored it ${colorMatch}.`, "ok");
+    return true;
+  }
+
+  return false;
+}
+
+// ── REFINE — the actual "talk to it after it builds the thing to make
+// changes" loop. Called from the prompt bar once something is already
+// loaded (see the handler below), instead of doing a fresh search.
+async function refineCurrentBuild(instr) {
+  const text = (instr || "").trim();
+  if (!text) return;
+
+  if (currentSource === "plan" && currentPlan) {
+    // Real structural edit — send the current feature tree back with
+    // the instruction and load whatever full updated tree comes back.
+    log(`→ applying "${text}" to the current build…`);
+    try {
+      const res = await fetch("/api/build/generate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: text, currentPlan }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      loadScript(data.plan, false); // false = replace, since the response is the FULL tree
+      currentPlan = data.plan;
+      log(`✓ Updated${data.plan.name ? " — " + data.plan.name : ""}.`, "ok");
+    } catch (e) {
+      log("✗ " + e.message, "err");
+    }
+    return;
+  }
+
+  if (currentSource === "mesh") {
+    // Try a cheap generic transform first (color/scale/rotate) — no need
+    // to burn a Tripo3D generation for something that simple.
+    if (tryGenericTransform(text)) return;
+    // Anything more structural ("add an antenna", "give it wheels") can't
+    // be done to opaque mesh geometry — the honest option is to
+    // regenerate from a combined prompt, which produces a fresh object
+    // rather than truly editing the existing one.
+    log(`"${text}" needs a structural change I can't make to a generated mesh directly — regenerating with that folded in instead.`);
+    return runMeshGenFromPrompt(`${lastPrompt}, ${text}`);
+  }
+
+  // Nothing loaded and nothing to refine — treat it as a fresh build.
+  return findOrBuildFromQuery(text);
 }
 
 // ── WIREFRAME — toggles wireframe rendering across both the
@@ -1142,6 +1285,12 @@ document.getElementById("btnClear").onclick = () => {
   features = []; selectedId = null; idCounter = 1;
   paramsBox.style.display = "none";
   rebuildAll();
+  // A cleared tree means the next prompt-bar submission should search/build
+  // fresh again, not try to "edit" a build that no longer exists.
+  currentPlan = null;
+  currentSource = null;
+  lastPrompt = "";
+  updatePromptBarMode();
 };
 
 document.getElementById("btnSTL").onclick = () => {
@@ -1230,16 +1379,6 @@ function loadScript(plan, append) {
 // ═══════════════════════════════════════════════════════════════
 // JARVIS AI HOOK — POST /api/build/generate { prompt } -> { plan:{features:[...]} }
 // ═══════════════════════════════════════════════════════════════
-// The bottom prompt bar now goes through the same find-or-build flow
-// as voice commands: Sketchfab first, then Tripo3D mesh generation, and
-// only this parametric feature-tree generator as the last resort if
-// nothing else works. Kept as its own function (runAiBuildFromPrompt) so
-// the fallback path is callable directly, without re-running the earlier
-// tiers.
-document.getElementById("btnBuild").onclick = () => findOrBuildFromQuery(document.getElementById("prompt").value.trim());
-document.getElementById("prompt").addEventListener("keydown", e => {
-  if (e.key === "Enter") findOrBuildFromQuery(document.getElementById("prompt").value.trim());
-});
 async function runAiBuildFromPrompt(prompt) {
   if (!prompt) return;
   log("→ asking Jarvis to build it: " + prompt);
@@ -1250,12 +1389,33 @@ async function runAiBuildFromPrompt(prompt) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || res.statusText);
-    loadScript(data.plan, true);
+    loadScript(data.plan, false); // false = replace — this is a fresh build, not an edit
+    lastPrompt = prompt;
+    currentPlan = data.plan;
+    currentSource = "plan";
+    updatePromptBarMode();
   } catch (e) {
     log("✗ " + e.message, "err");
     log("(Needs a working Groq key in .env for hermes-engine — see build-ai.js)");
   }
 }
+
+// ── Prompt bar — while nothing is loaded it's a fresh find-or-build
+// search; once something is on screen it switches to conversational
+// refinement ("make it red", "add a bracket on top") instead of
+// starting a brand new search on every submission. updatePromptBarMode()
+// keeps the label/placeholder in sync with which mode is active.
+document.getElementById("btnBuild").onclick = () => {
+  const val = document.getElementById("prompt").value.trim();
+  if (!val) return;
+  document.getElementById("prompt").value = "";
+  if (currentSource) refineCurrentBuild(val);
+  else findOrBuildFromQuery(val);
+};
+document.getElementById("prompt").addEventListener("keydown", e => {
+  if (e.key === "Enter") document.getElementById("btnBuild").click();
+});
+updatePromptBarMode();
 
 // ── Manual "Find on Sketchfab" box + "next model" + wireframe toggle
 document.getElementById("btnSketchfabFind").onclick = () => {
