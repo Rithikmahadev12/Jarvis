@@ -401,6 +401,17 @@ async function changeToNextModel() {
 // ── FIND-OR-BUILD — the unified "search Sketchfab, else AI-generate"
 // flow. Used by the "Find" button, the bottom prompt bar, and voice
 // commands ("Jarvis, build me a drone") relayed via BUILD_SEARCH.
+//
+// Three-tier fallback:
+//   1. Sketchfab — a real, human-made model, when one exists.
+//   2. Tripo3D mesh generation — a real generated mesh (actual geometry
+//      and texture, not a handful of primitives), for anything Sketchfab
+//      doesn't have. This is the "building mode" Tripo3D integration —
+//      same pipeline as the quick-view hologram widget, via
+//      /api/build/generate-mesh (see mesh-generator.js).
+//   3. The parametric feature-tree AI generator (/api/build/generate) —
+//      last resort, only reached if Tripo3D itself is unavailable (no
+//      API key configured, out of monthly credits, or a request failure).
 async function findOrBuildFromQuery(query) {
   const q = (query || "").trim();
   if (!q) return;
@@ -414,13 +425,68 @@ async function findOrBuildFromQuery(query) {
       renderModelSwitcher();
       await loadSketchfabModel(data.results[0].uid, data.results[0].name);
       log(`Found ${data.results.length} match(es) on Sketchfab. Say "change the model" to try another.`, "ok");
-    } else {
-      log("Nothing downloadable on Sketchfab for that — building it from scratch instead.");
-      await runAiBuildFromPrompt(q);
+      return;
     }
+    log("Nothing downloadable on Sketchfab for that — generating a real mesh instead.");
   } catch (e) {
-    log("✗ Search failed: " + e.message + " — trying the AI generator instead.", "err");
-    await runAiBuildFromPrompt(q);
+    log("✗ Search failed: " + e.message + " — generating a real mesh instead.", "err");
+  }
+  await runMeshGenFromPrompt(q);
+}
+
+// ── TRIPO3D MESH GENERATION — text -> real 3D mesh, same background-job
+// pipeline (submit, poll, load) as hologram-widget.js's generate(). Falls
+// through to the cruder parametric feature-tree generator only if this
+// itself fails (missing/expired API key, out of credits, network error,
+// or the job times out).
+async function runMeshGenFromPrompt(prompt) {
+  log(`→ generating a mesh for "${prompt}" (Tripo3D)…`);
+  let startData;
+  try {
+    const res = await fetch("/api/build/generate-mesh", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+    startData = await res.json();
+  } catch (e) {
+    log("✗ Mesh generation failed to start: " + e.message + " — falling back to the AI feature-tree generator.", "err");
+    return runAiBuildFromPrompt(prompt);
+  }
+  if (!startData.jobId) {
+    log("✗ " + (startData.error || "Mesh generation unavailable") + " — falling back to the AI feature-tree generator.", "err");
+    return runAiBuildFromPrompt(prompt);
+  }
+
+  // Poll instead of holding one request open — see hologram-widget.js's
+  // generate() for why (free-tier proxies kill long-idle requests).
+  const POLL_MS = 4000;
+  const MAX_POLLS = 90; // ~6 minutes ceiling
+  let data = null;
+  for (let i = 0; i < MAX_POLLS; i++) {
+    await new Promise(r => setTimeout(r, POLL_MS));
+    try {
+      const res = await fetch("/api/build/generate-mesh/" + encodeURIComponent(startData.jobId));
+      data = await res.json();
+    } catch (e) {
+      continue; // transient network hiccup — just try again next tick
+    }
+    if (data.stage) log(`  …${data.stage}`);
+    if (data.status === "done") break;
+  }
+
+  if (!data || data.status !== "done" || data.kind !== "gltf") {
+    const reason = data?.error || (data?.status !== "done" ? "timed out waiting for the generator" : "unknown error");
+    log(`✗ Mesh generation failed: ${reason} — falling back to the AI feature-tree generator.`, "err");
+    return runAiBuildFromPrompt(prompt);
+  }
+
+  try {
+    const gltf = await gltfLoader.loadAsync(data.url);
+    frameSketchfabObject(gltf.scene);
+    log(`✓ Generated "${prompt}" as a real mesh.`, "ok");
+  } catch (e) {
+    log("✗ Mesh generated but failed to load: " + e.message + " — falling back to the AI feature-tree generator.", "err");
+    return runAiBuildFromPrompt(prompt);
   }
 }
 
@@ -1165,10 +1231,11 @@ function loadScript(plan, append) {
 // JARVIS AI HOOK — POST /api/build/generate { prompt } -> { plan:{features:[...]} }
 // ═══════════════════════════════════════════════════════════════
 // The bottom prompt bar now goes through the same find-or-build flow
-// as voice commands: try Sketchfab for a real model first, and only
-// fall back to the AI feature-tree generator if nothing downloadable
-// turns up. Kept as its own function (runAiBuildFromPrompt) so the
-// fallback path is callable directly, without hitting Sketchfab again.
+// as voice commands: Sketchfab first, then Tripo3D mesh generation, and
+// only this parametric feature-tree generator as the last resort if
+// nothing else works. Kept as its own function (runAiBuildFromPrompt) so
+// the fallback path is callable directly, without re-running the earlier
+// tiers.
 document.getElementById("btnBuild").onclick = () => findOrBuildFromQuery(document.getElementById("prompt").value.trim());
 document.getElementById("prompt").addEventListener("keydown", e => {
   if (e.key === "Enter") findOrBuildFromQuery(document.getElementById("prompt").value.trim());
