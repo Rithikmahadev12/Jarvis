@@ -504,6 +504,12 @@ let desktopIdleTimer = null;
 let streamStarted = false;
 let cachedAuthKey = null;
 
+// Audio bridge state (see ensureDesktopAudioStream() below) — tracked
+// the same lazy-per-sandbox-instance way as streamStarted/cachedAuthKey.
+const DESKTOP_AUDIO_PORT = parseInt(process.env.E2B_DESKTOP_AUDIO_PORT || "", 10) || 8079;
+let audioStreamStarted = false;
+let audioStreamFailed = false; // once true for this sandbox instance, don't retry every call
+
 function armDesktopIdleTimer() {
   if (desktopIdleTimer) clearTimeout(desktopIdleTimer);
   desktopIdleTimer = setTimeout(() => { killDesktopSandbox().catch(() => {}); }, DESKTOP_IDLE_TIMEOUT_MS);
@@ -526,6 +532,8 @@ async function getDesktop() {
   });
   streamStarted = false;
   cachedAuthKey = null;
+  audioStreamStarted = false;
+  audioStreamFailed = false;
   armDesktopIdleTimer();
   return activeDesktop;
 }
@@ -536,6 +544,8 @@ async function killDesktopSandbox() {
   activeDesktop = null;
   streamStarted = false;
   cachedAuthKey = null;
+  audioStreamStarted = false;
+  audioStreamFailed = false;
   if (d) {
     try { await d.kill(); } catch { /* already gone — fine */ }
   }
@@ -566,6 +576,77 @@ async function stopDesktopStream() {
     try { await activeDesktop.stream.stop(); } catch { /* best effort */ }
     streamStarted = false;
   }
+}
+
+// ── DESKTOP AUDIO BRIDGE — "...and share its sound too" ──────────
+// E2B's own desktop stream (above) is video-only — there is no audio
+// channel in their SDK at all, confirmed against @e2b/desktop's docs.
+// This bolts a companion audio stream on top of it, entirely with
+// tools already exposed for other things in this file:
+//   1. desktopRunCommand() sets up a PulseAudio null-sink inside the
+//      sandbox and makes it the default output, so anything the
+//      desktop plays (a YouTube tab, e.g.) routes through it.
+//   2. ffmpeg (installed if missing) reads that sink's monitor and
+//      re-encodes it as a live Opus/WebM stream, served straight out
+//      of the sandbox over plain HTTP via `-listen 1`.
+//   3. desktop.getHost(port) — the same port-forwarding mechanism the
+//      base E2B Sandbox uses for anything else you run in a sandbox —
+//      turns that into a URL reachable from the browser.
+// HONESTY NOTE: this is NOT an official E2B feature, just standard
+// Linux/ffmpeg plumbing run inside the sandbox. It depends on the
+// desktop image actually having (or being able to install) ffmpeg and
+// PulseAudio in a state desktopRunCommand's shell user can reach — it
+// hasn't been verified against a live sandbox. Treat failures here as
+// expected-possible and non-fatal: show video without sound rather
+// than blocking "show pc" on this. /tmp/jarvis_audio_bridge.log
+// inside the sandbox has ffmpeg's own output if it's worth checking.
+async function ensureDesktopAudioStream() {
+  const desktop = await getDesktop();
+
+  if (audioStreamStarted) {
+    return { url: `https://${desktop.getHost(DESKTOP_AUDIO_PORT)}` };
+  }
+  if (audioStreamFailed) {
+    throw new Error("Audio bridge already failed to start once this sandbox session — not retrying.");
+  }
+
+  const hasFfmpeg = await desktopRunCommand("which ffmpeg", { timeoutMs: 10000 });
+  if (!hasFfmpeg.ok || !hasFfmpeg.stdout.trim()) {
+    const install = await desktopRunCommand(
+      "apt-get update -qq && apt-get install -y -qq ffmpeg",
+      { timeoutMs: 120000 }
+    );
+    if (!install.ok) {
+      audioStreamFailed = true;
+      throw new Error(`Couldn't install ffmpeg in the sandbox: ${(install.stderr || install.stdout || "unknown error").slice(0, 300)}`);
+    }
+  }
+
+  const sink = await desktopRunCommand(
+    `pactl list short sinks | grep -q jarvis_out || pactl load-module module-null-sink sink_name=jarvis_out sink_properties=device.description=JarvisOut; pactl set-default-sink jarvis_out`,
+    { timeoutMs: 15000 }
+  );
+  if (!sink.ok) {
+    audioStreamFailed = true;
+    throw new Error(`Couldn't set up the audio sink in the sandbox: ${sink.stderr || "unknown error"}`);
+  }
+
+  // Clear out any stale ffmpeg from a previous attempt in this same
+  // sandbox before starting a fresh one on the same port.
+  await desktopRunCommand("pkill -f jarvis_audio_bridge_marker || true", { timeoutMs: 5000 });
+  await desktopRunCommand(
+    `nohup ffmpeg -f pulse -i jarvis_out.monitor -ac 2 -c:a libopus -b:a 128k -f webm ` +
+    `-metadata jarvis_audio_bridge_marker=1 -listen 1 http://0.0.0.0:${DESKTOP_AUDIO_PORT} ` +
+    `> /tmp/jarvis_audio_bridge.log 2>&1 & disown`,
+    { timeoutMs: 10000 }
+  );
+
+  // -listen mode needs a moment to actually bind the port before the
+  // returned URL is connectable.
+  await new Promise((r) => setTimeout(r, 1500));
+
+  audioStreamStarted = true;
+  return { url: `https://${desktop.getHost(DESKTOP_AUDIO_PORT)}` };
 }
 
 // Launches a GUI app inside the desktop (e.g. "firefox", "google-chrome").
@@ -884,6 +965,7 @@ module.exports = {
   killDesktopSandbox,
   ensureDesktopStream,
   stopDesktopStream,
+  ensureDesktopAudioStream,
   desktopLaunch,
   desktopScreenshot,
   desktopMoveMouse,
