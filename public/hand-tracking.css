@@ -95,6 +95,20 @@
 .ht-cursor-grabbing .ht-cursor-ring-bg {
   stroke: var(--ht-glass, rgba(230,245,255,0.95));
 }
+/* Fist-grab reuses the pinch's grabbing state (same size/behavior) but
+   tints amber instead of icy blue, so it's visually clear which grab
+   gesture is currently holding a widget. */
+.ht-cursor-fist.ht-cursor-grabbing .ht-cursor-dot {
+  background: rgba(255,190,90,0.95);
+  box-shadow:
+    0 0 16px rgba(255,170,60,0.9),
+    inset 0 0 6px rgba(255,255,255,0.9);
+  border-color: rgba(255,210,140,0.9);
+}
+.ht-cursor-fist.ht-cursor-grabbing .ht-cursor-ring-fill,
+.ht-cursor-fist.ht-cursor-grabbing .ht-cursor-ring-bg {
+  stroke: rgba(255,190,90,0.95);
+}
 @keyframes htClickPulse {
   0%   { transform: translate(-50%, -50%) scale(1); }
   50%  { transform: translate(-50%, -50%) scale(1.6); }
