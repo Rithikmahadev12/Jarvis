@@ -21,13 +21,18 @@
 //       doesn't pop open every time you just move your hand.
 // Example: window.addEventListener("jarvis:swipe", e => { ... });
 //
-// PINCH-DRAG — no event, no spoken command. Pinch thumb + index over any
-// element marked with the attribute `data-hand-drag="true"` and it moves
-// with your hand until you release the pinch. It works by dispatching
-// real PointerEvents at the pinch point, so it just rides whatever
-// pointer-drag handling that widget already has for mouse/touch — there's
-// no separate "move mode" to trigger, the widget just follows your hand
-// the moment you grab it, the same way it'd follow a mouse drag.
+// PINCH-DRAG / FIST-GRAB — no event, no spoken command. Pinch thumb + index,
+// OR close your whole hand into a fist, over any element marked with the
+// attribute `data-hand-drag="true"` and it moves with your hand until you
+// release. Both gestures feed the same grab pipeline: it works by
+// dispatching real PointerEvents at the grab point, so it just rides
+// whatever pointer-drag handling that widget already has for mouse/touch —
+// there's no separate "move mode" to trigger, the widget just follows your
+// hand the moment you grab it, the same way it'd follow a mouse drag. This
+// is also how "grab it and push it off screen" works for holograms: a fist
+// grabs the widget exactly like a pinch would, hologram-widget.js's own
+// edge-drag-to-dismiss physics does the rest — throw your closed hand past
+// either screen edge and let go to dismiss, no separate gesture needed.
 // To make a new widget hand-draggable, add `dataset.handDrag = "true"`
 // to its root element (see music-widget.js for the pattern).
 //
@@ -109,6 +114,16 @@ const HandTracking = (() => {
   let pinching     = false;
   let pinchDragTarget = null;
   let scriptsLoaded     = false;
+
+  // ── FIST-GRAB STATE ──
+  // A fist is "all four fingertips curled in past their knuckles" — see
+  // computeFistScore() below. Hysteresis (ON stricter than OFF) avoids the
+  // grab flickering on/off right at the threshold the way PINCH_ON/OFF do.
+  const FIST_ON  = 0.62; // curl score to CLOSE the hand into a grab
+  const FIST_OFF = 0.45; // must open past this to release the grab
+  const FIST_POINTER_ID = 9102; // distinct from the pinch pointer id so the two never collide
+  let fisting        = false;
+  let fistDragTarget = null;
 
   // ── GESTURE DETECTION STATE (swipe + two-hand zoom) ──
   let posHistory   = [];   // {x,y,t} raw cursor samples, single hand, for swipe
@@ -311,6 +326,7 @@ const HandTracking = (() => {
     if (overlayCtx) overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
     if (cursorEl) cursorEl.style.opacity = "0";
     endPinchDrag();
+    endFistDrag();
     // Only stamp over the status with a generic "STOPPED" if the caller
     // didn't already leave a more specific reason (e.g. "UNAVAILABLE" from
     // the circuit breaker above) — otherwise that reason gets silently
@@ -327,6 +343,7 @@ const HandTracking = (() => {
       cursorEl.style.opacity = "0.15";
       clearDwell();
       endPinchDrag(); // don't leave a widget stuck mid-drag if the hand drops out of frame
+      endFistDrag();
       posHistory = []; distHistory = []; // no hands → gesture state can't carry over
       resetIntent();
       return;
@@ -365,12 +382,15 @@ const HandTracking = (() => {
     cursorEl.style.left = `${smoothX}px`;
     cursorEl.style.top  = `${smoothY}px`;
 
-    // ── Pinch-drag ──
-    handlePinchDrag(landmarks, smoothX, smoothY);
+    // ── Pinch-drag / fist-grab (mutually exclusive: a closing fist also
+    //    closes the thumb-index gap, so check fist first and let it win) ──
+    handleFistDrag(landmarks, smoothX, smoothY);
+    if (!fisting) handlePinchDrag(landmarks, smoothX, smoothY);
+    else if (pinching) endPinchDrag(); // don't let a stale pinch also be "holding" something
 
-    // ── Dwell click (suppressed mid-pinch so grabbing a widget doesn't
+    // ── Dwell click (suppressed mid-grab so grabbing a widget doesn't
     //    also fire a dwell-click on whatever's underneath it) ──
-    if (!pinching) handleDwell(smoothX, smoothY);
+    if (!pinching && !fisting) handleDwell(smoothX, smoothY);
   }
 
   // ── PINCH-DRAG — grabs whatever [data-hand-drag] widget is under the
@@ -406,10 +426,10 @@ const HandTracking = (() => {
     }
   }
 
-  function dispatchPointer(el, type, x, y) {
+  function dispatchPointer(el, type, x, y, pointerId = DRAG_POINTER_ID) {
     const ev = new PointerEvent(type, {
       bubbles: true, cancelable: true, composed: true,
-      pointerId: DRAG_POINTER_ID, pointerType: "touch", isPrimary: true,
+      pointerId, pointerType: "touch", isPrimary: true,
       clientX: x, clientY: y, button: 0, buttons: type === "pointerup" ? 0 : 1,
     });
     el.dispatchEvent(ev);
@@ -425,6 +445,80 @@ const HandTracking = (() => {
     pinching = false;
     pinchDragTarget = null;
     if (cursorEl) cursorEl.classList.remove("ht-cursor-grabbing");
+  }
+
+  // ── FIST-GRAB — closing your whole hand into a fist over a
+  // [data-hand-drag] widget grabs it, exactly like a pinch does; moving
+  // the (still-closed) fist moves the widget; opening the hand drops it.
+  // Rides the same PointerEvent pipeline as pinch-drag (just a different
+  // pointerId so the two gestures can never be mistaken for one another
+  // mid-drag), so it's "free" for any widget that already supports
+  // pinch-drag — hologram-widget.js's edge-drag-to-dismiss included, which
+  // is what makes "make a fist and push it off the side to dismiss it" work
+  // with zero widget-side changes. ──
+  function computeFistScore(landmarks) {
+    // Curl = how far a fingertip has pulled IN toward the palm center
+    // relative to its own knuckle (PIP). A fully extended finger has the
+    // tip much farther from palm-center than the PIP (curl → 0); a
+    // fully-curled finger has the tip closer to palm-center than the PIP,
+    // or level with it (curl → 1).
+    const center = {
+      x: (landmarks[5].x + landmarks[9].x + landmarks[13].x + landmarks[17].x) / 4,
+      y: (landmarks[5].y + landmarks[9].y + landmarks[13].y + landmarks[17].y) / 4,
+    };
+    const handSize = Math.hypot(landmarks[0].x - landmarks[9].x, landmarks[0].y - landmarks[9].y) || 0.001;
+    const curl = (tipIdx, pipIdx) => {
+      const tip = landmarks[tipIdx], pip = landmarks[pipIdx];
+      const tipDist = Math.hypot(tip.x - center.x, tip.y - center.y);
+      const pipDist = Math.hypot(pip.x - center.x, pip.y - center.y);
+      return Math.max(0, Math.min(1, (pipDist - tipDist) / handSize + 0.5));
+    };
+    // Index/middle/ring/pinky only — thumb curl geometry is different
+    // (it folds across the palm rather than down into it) and noisy to
+    // score the same way, so it's left out; four curled fingers is
+    // already an unambiguous fist.
+    const score = (curl(8, 6) + curl(12, 10) + curl(16, 14) + curl(20, 18)) / 4;
+    return score;
+  }
+
+  function handleFistDrag(landmarks, x, y) {
+    const fistScore = computeFistScore(landmarks);
+    const wasFisting = fisting;
+    fisting = wasFisting ? fistScore > FIST_OFF : fistScore > FIST_ON;
+
+    if (fisting && !wasFisting && intentEngaged) {
+      // Just closed into a fist during what reads as deliberate motion —
+      // is there something grabbable under the cursor? (Same intent gate
+      // as pinch-drag: a fist made while just resting/stretching won't
+      // grab anything, since intentEngaged will be false.)
+      cursorEl.style.pointerEvents = "none";
+      const el = document.elementFromPoint(x, y);
+      cursorEl.style.pointerEvents = "";
+      const target = el ? el.closest("[data-hand-drag]") : null;
+      if (target) {
+        fistDragTarget = target;
+        cursorEl.classList.add("ht-cursor-grabbing", "ht-cursor-fist");
+        dispatchPointer(target, "pointerdown", x, y, FIST_POINTER_ID);
+      }
+    } else if (fisting && fistDragTarget) {
+      dispatchPointer(fistDragTarget, "pointermove", x, y, FIST_POINTER_ID);
+    } else if (!fisting && wasFisting && fistDragTarget) {
+      dispatchPointer(fistDragTarget, "pointerup", x, y, FIST_POINTER_ID);
+      fistDragTarget = null;
+      cursorEl.classList.remove("ht-cursor-grabbing", "ht-cursor-fist");
+    }
+  }
+
+  // Release any in-progress fist-grab cleanly (e.g. when tracking stops
+  // or the hand drops out of frame mid-grab) so the widget doesn't get
+  // stuck following a hand that's no longer being tracked.
+  function endFistDrag() {
+    if (fistDragTarget) {
+      dispatchPointer(fistDragTarget, "pointerup", smoothX || 0, smoothY || 0, FIST_POINTER_ID);
+    }
+    fisting = false;
+    fistDragTarget = null;
+    if (cursorEl) cursorEl.classList.remove("ht-cursor-grabbing", "ht-cursor-fist");
   }
 
   // ── SWIPE — one hand, fast horizontal motion → "jarvis:swipe" ──
