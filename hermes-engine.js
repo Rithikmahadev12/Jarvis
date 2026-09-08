@@ -1209,6 +1209,22 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "close_pc",
+      description: "Shut down Jarvis's own cloud desktop sandbox (the one show_pc opens) — NOT the user's PC. Trigger for 'close your pc', 'close the pc', 'shut down your desktop', 'power down your pc', 'end the pc sandbox'. Just closing the pc-view window on screen does NOT do this — it only hides the window, the sandbox keeps running until this is called (or it idles out on its own). Use this, not open_on_computer or run_computer_command, for anything about closing/shutting down/ending Jarvis's OWN desktop.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "close_all_pcs",
+      description: "Shut down ALL of Jarvis's own cloud sandboxes at once — both the desktop sandbox (show_pc) and the plain code sandbox (run_in_sandbox). Trigger for 'close all your pcs', 'end all the sandboxes', 'shut down everything', 'kill all your sandboxes' — phrasing that says 'all' rather than just 'the pc'. Use close_pc instead if they only mean the desktop one specifically.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "open_on_computer",
       description: "Open an application, file, folder, or URL on the user's own computer — e.g. 'open VS Code', 'launch chrome', 'open my resume'. Only works when Jarvis is running locally, not in the cloud. IMPORTANT: for compound requests like 'open VS Code and type a flappy bird script', call THIS tool AND type_text in the SAME response — don't stop after just opening. IMPORTANT: never use this for camera requests ('open camera', 'open the camera', 'show camera') — those mean the on-screen webcam feed, not launching an OS camera app. Use show_camera for those instead.",
       parameters: {
