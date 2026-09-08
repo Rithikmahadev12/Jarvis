@@ -3278,6 +3278,23 @@ async function handleNewsFetch(message, T, mode) {
 // the client a live, embeddable VNC stream URL for it. This is async
 // (spinning up the sandbox + starting the stream takes a few seconds
 // the first time), which is fine — the /api/chat route awaits it.
+// Pulls a YouTube target out of a "show pc" request that also asks to
+// watch/play something — "show pc and watch some lofi on youtube",
+// "jarvis show pc, put on youtube", "show me your pc, youtube: nba
+// highlights" all work. Returns a ready-to-load URL, or null if the
+// message never mentions YouTube at all (the normal "show pc" case,
+// which is left completely alone — bare desktop, nothing auto-opened).
+function extractYoutubeIntent(message) {
+  if (!/\byoutube\b/i.test(message || "")) return null;
+  const m =
+    message.match(/\b(?:watch|play|put on|pull up|open|search)\b\s+(.+?)\s+on\s+youtube\b/i) ||
+    message.match(/\byoutube\b\s*[:\-]?\s+(.+)$/i);
+  const query = (m && m[1] || "").trim();
+  return query
+    ? `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`
+    : "https://www.youtube.com";
+}
+
 async function handlePcViewOpen(message, T) {
   if (!Computer.isDesktopConfigured()) {
     return {
@@ -3288,11 +3305,38 @@ async function handlePcViewOpen(message, T) {
   }
   try {
     const { url } = await Computer.ensureDesktopStream();
+
+    // "...and watch youtube" — open it directly in the sandbox's own
+    // browser rather than leaving you on a bare desktop to do it
+    // yourself. Best-effort: if chrome isn't on the image, try
+    // firefox; if both fail, the PC view still opens either way.
+    const youtubeUrl = extractYoutubeIntent(message);
+    if (youtubeUrl) {
+      try {
+        await Computer.desktopLaunch("google-chrome", youtubeUrl);
+      } catch (e) {
+        try { await Computer.desktopLaunch("firefox", youtubeUrl); } catch (e2) { /* no browser available — still show the desktop */ }
+      }
+    }
+
+    // Best-effort audio bridge — see computer.js's
+    // ensureDesktopAudioStream() for why this exists (E2B's own VNC
+    // stream carries no audio at all) and its honesty caveats. Never
+    // lets a failure here block "show pc" itself.
+    let audioUrl = null;
+    let audioNote = "";
+    try {
+      const audio = await Computer.ensureDesktopAudioStream();
+      audioUrl = audio.url;
+    } catch (e) {
+      audioNote = " Couldn't get sound working on it this time though, so it'll be silent for now.";
+    }
+
     return {
-      reply: `Pulling up my computer now, ${T}.`,
+      reply: `Pulling up my computer now, ${T}.${youtubeUrl ? " Getting YouTube up for you." : ""}${audioNote}`,
       action: "SHOW_PC_VIEW",
       intent: "pcView",
-      meta: { streamUrl: url },
+      meta: { streamUrl: url, audioUrl },
     };
   } catch (e) {
     return {
