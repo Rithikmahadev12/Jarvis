@@ -612,13 +612,26 @@ async function ensureDesktopAudioStream() {
 
   const hasFfmpeg = await desktopRunCommand("which ffmpeg", { timeoutMs: 10000 });
   if (!hasFfmpeg.ok || !hasFfmpeg.stdout.trim()) {
-    const install = await desktopRunCommand(
-      "apt-get update -qq && apt-get install -y -qq ffmpeg",
+    // The desktop sandbox's shell user is "user" (E2B's own docs write
+    // paths under /home/user, not /root), not root, so a bare
+    // `apt-get install` was almost certainly failing with a silent
+    // permission error every single time — which is very likely why
+    // audio "never worked." Try passwordless sudo first (the normal
+    // setup for these sandbox images); fall back to plain apt-get in
+    // case this particular sandbox actually does run as root.
+    let install = await desktopRunCommand(
+      "sudo -n apt-get update -qq && sudo -n apt-get install -y -qq ffmpeg",
       { timeoutMs: 120000 }
     );
     if (!install.ok) {
+      install = await desktopRunCommand(
+        "apt-get update -qq && apt-get install -y -qq ffmpeg",
+        { timeoutMs: 120000 }
+      );
+    }
+    if (!install.ok) {
       audioStreamFailed = true;
-      throw new Error(`Couldn't install ffmpeg in the sandbox: ${(install.stderr || install.stdout || "unknown error").slice(0, 300)}`);
+      throw new Error(`Couldn't install ffmpeg in the sandbox (tried sudo and plain apt-get): ${(install.stderr || install.stdout || "unknown error").slice(0, 300)}`);
     }
   }
 
@@ -631,19 +644,34 @@ async function ensureDesktopAudioStream() {
     throw new Error(`Couldn't set up the audio sink in the sandbox: ${sink.stderr || "unknown error"}`);
   }
 
-  // Clear out any stale ffmpeg from a previous attempt in this same
-  // sandbox before starting a fresh one on the same port.
+  // Clear out any stale ffmpeg from a previous attempt, then start a
+  // fresh one that reads the sink's monitor and serves it live over
+  // HTTP. -multiple_requests keeps the listener alive across more than
+  // one incoming connection — without it, ffmpeg's -listen mode serves
+  // exactly ONE client and then exits, so a browser's own retry/probe
+  // connection (very common for <audio> elements) would silently kill
+  // the whole stream after the very first hit.
   await desktopRunCommand("pkill -f jarvis_audio_bridge_marker || true", { timeoutMs: 5000 });
   await desktopRunCommand(
+    `rm -f /tmp/jarvis_audio_bridge.log; ` +
     `nohup ffmpeg -f pulse -i jarvis_out.monitor -ac 2 -c:a libopus -b:a 128k -f webm ` +
-    `-metadata jarvis_audio_bridge_marker=1 -listen 1 http://0.0.0.0:${DESKTOP_AUDIO_PORT} ` +
+    `-metadata jarvis_audio_bridge_marker=1 -listen 1 -multiple_requests 1 http://0.0.0.0:${DESKTOP_AUDIO_PORT} ` +
     `> /tmp/jarvis_audio_bridge.log 2>&1 & disown`,
     { timeoutMs: 10000 }
   );
 
-  // -listen mode needs a moment to actually bind the port before the
-  // returned URL is connectable.
+  // -listen mode needs a moment to actually bind the port. Then VERIFY
+  // it actually stayed up instead of just assuming — if ffmpeg crashed
+  // immediately (bad pulse source name, missing codec, etc.) that used
+  // to fail totally silently. If it's dead, pull the log so the real
+  // error surfaces instead of just "silent, no idea why."
   await new Promise((r) => setTimeout(r, 1500));
+  const alive = await desktopRunCommand("pgrep -f jarvis_audio_bridge_marker", { timeoutMs: 5000 });
+  if (!alive.ok || !alive.stdout.trim()) {
+    const log = await desktopRunCommand("tail -n 20 /tmp/jarvis_audio_bridge.log 2>/dev/null", { timeoutMs: 5000 });
+    audioStreamFailed = true;
+    throw new Error(`ffmpeg audio bridge died immediately after starting. Log tail: ${(log.stdout || "(empty — check /tmp/jarvis_audio_bridge.log manually)").slice(0, 400)}`);
+  }
 
   audioStreamStarted = true;
   return { url: `https://${desktop.getHost(DESKTOP_AUDIO_PORT)}` };
