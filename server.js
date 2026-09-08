@@ -3613,6 +3613,19 @@ async function executeAssistantTool(name, args, ctx) {
   const { T, userTimezone, userName, sessionId } = ctx;
 
   switch (name) {
+    case "show_pc": {
+      // Same handler "show pc" uses via the legacy regex path (see
+      // handlePcViewOpen above) — reconstructing a fake message string
+      // so extractYoutubeIntent() still works off of it, since the AI
+      // tool-calling path (which reaches this case) hands over
+      // structured args instead of raw text.
+      const fakeMessage = args && args.youtube_query
+        ? `show pc and watch ${args.youtube_query} on youtube`
+        : args && args.youtube_query === ""
+          ? "show pc and open youtube"
+          : "show pc";
+      return await handlePcViewOpen(fakeMessage, T);
+    }
     case "get_superteam_claim_code": {
       const SuperteamAgent = require("./superteam-agent.js");
       const key = args.user_key || userName || "owner";
