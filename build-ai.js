@@ -281,14 +281,26 @@ function tryRepairTruncated(text) {
   return null;
 }
 
-async function generateBuildPlan(prompt) {
+async function generateBuildPlan(prompt, currentPlan) {
   if (!Hermes || !Hermes.isConfigured()) {
     throw new Error("Build AI isn't configured — set GROQ_API_KEY in .env to let Jarvis design builds.");
   }
-  const messages = [
-    { role: "system", content: SYSTEM_PROMPT },
-    { role: "user", content: `Build this: ${prompt}` },
-  ];
+  const messages = [{ role: "system", content: SYSTEM_PROMPT }];
+  if (currentPlan && Array.isArray(currentPlan.features) && currentPlan.features.length) {
+    // EDIT MODE — "talk to it to make changes" after a build already
+    // exists. Ship the current feature tree back to the model as
+    // context and ask for a full updated tree reflecting the requested
+    // change, rather than starting over from a blank prompt. Keeping
+    // ids stable where nothing changed lets a person iterate
+    // conversationally ("make the base wider", "add two more bolts")
+    // instead of re-describing the whole thing every time.
+    messages.push({
+      role: "user",
+      content: `Here is the CURRENT build's feature tree (a JSON object in the exact schema described above):\n${JSON.stringify(currentPlan)}\n\nApply this change to it: "${prompt}"\n\nReturn the FULL updated feature tree in the same JSON schema — not a diff, not just the changed features. Keep the ids and geometry of any feature the instruction doesn't touch exactly as they are; only add, remove, or modify what the instruction actually asks for.`,
+    });
+  } else {
+    messages.push({ role: "user", content: `Build this: ${prompt}` });
+  }
   const raw = await Hermes.groqFetch(messages, Hermes.MODELS.smart, 0.5, 5000);
   let parsed;
   try {
