@@ -3503,7 +3503,7 @@ async function handleAction(action, meta, replyText) {
     }
     case "SHOW_PC_VIEW": {
       speak(replyText, () => mic.resume());
-      if (window.PcViewWidget) window.PcViewWidget.show(meta && meta.streamUrl);
+      if (window.PcViewWidget) window.PcViewWidget.show(meta && meta.streamUrl, { audioUrl: meta && meta.audioUrl });
       break;
     }
     case "SHOW_HOLOGRAM": {
