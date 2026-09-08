@@ -96,6 +96,11 @@ window.PcViewWidget = (function () {
     if (frame) frame.src = 'about:blank';
     if (audioEl) { audioEl.pause(); audioEl.removeAttribute('src'); }
     if (unmuteBtn) unmuteBtn.hidden = true;
+    // Closing the window used to only hide it client-side — the
+    // sandbox kept running in the background regardless. This
+    // actually tears it down server-side too. Fire-and-forget: the
+    // window closes instantly either way, this just cleans up behind it.
+    fetch('/api/pc/close', { method: 'POST' }).catch(() => {});
   }
 
   return { show, hide };
