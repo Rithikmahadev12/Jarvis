@@ -815,6 +815,27 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "get_wallet_private_key",
+      description: "Get a user's Solana wallet PRIVATE KEY (plus its address) so they can import it into Phantom/Solflare/Backpack — 'give me my wallet private key', 'give me my solana wallet address and key so I can import it', 'let me get into my wallet'. Only use when the user clearly wants the private key itself, not just the address (use get_wallet_address for that). Only ever call this for the account making the request unless that account is the owner.",
+      parameters: {
+        type: "object",
+        properties: {
+          user_key: { type: "string", description: "Whose key to fetch. Only honored if the requester is the owner account — ignored otherwise. Omit to default to whoever is asking." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "refresh_owner_wallet",
+      description: "Retire the current owner Solana wallet and switch to a brand-new one, one-time — 'refresh the owner wallet', 'make a new wallet for me and use that one now', 'regenerate my wallet'. The old key is backed up automatically, never discarded. Owner account only.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "check_wallet_balance",
       description: "Check the balance of Jarvis's linked Solana wallet (SOL and USDC) and total recorded earnings — 'how much money have I made', 'check the wallet', 'what's my SOL balance'.",
       parameters: { type: "object", properties: {}, required: [] },
