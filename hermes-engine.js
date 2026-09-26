@@ -856,6 +856,40 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "pitch_business_website",
+      description: "Reach out to a business that has no website and pitch building them one at a flat price — 'call this business and offer them a website', 'pitch a website to [business]'. Tries a real phone call first, falls back to email if the calling API is out. Never charges anyone or sends code by itself — just makes contact and reports what they said.",
+      parameters: {
+        type: "object",
+        properties: {
+          business_name: { type: "string", description: "The business's name." },
+          business_phone: { type: "string", description: "Phone number to call, if calling." },
+          business_email: { type: "string", description: "Email to write to, used if calling isn't possible or the business has no phone." },
+          price_usd: { type: "number", description: "Flat price to quote for the website. Omit to use the configured default." },
+        },
+        required: ["business_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "build_and_deliver_website",
+      description: "Once a business has said yes to a website pitch, actually build it (a real working frontend + backend) and send it to them with a payment link — 'build the site for [business]', 'they said yes, go ahead and build it'. Only call this after the business has agreed, not as part of the initial pitch.",
+      parameters: {
+        type: "object",
+        properties: {
+          business_name: { type: "string", description: "The business's name — used to find the site's folder/files." },
+          business_email: { type: "string", description: "Where to email the finished site + payment link." },
+          requirements: { type: "string", description: "What they want on the site, from the call/email — pages, features, tone, etc." },
+          price_usd: { type: "number", description: "Price to charge. Omit to use the same default/quoted price." },
+        },
+        required: ["business_name", "requirements"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_agenda",
       description: "Get the user's upcoming reminders/timers/events — 'what's on my agenda', 'what do I have today', 'do I have anything coming up'.",
       parameters: {
