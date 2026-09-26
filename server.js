@@ -1819,6 +1819,39 @@ app.get("/api/wallet/private-key", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// ── BUSINESS WEBSITE OUTREACH (phone-first, email-fallback) ──
+// See outreach-agent.js's header comment for the full design.
+// ═══════════════════════════════════════════════════════════════
+app.post("/api/outreach/pitch", async (req, res) => {
+  const Outreach = require("./outreach-agent");
+  const { businessName, businessPhone, businessEmail, priceUsd, userName } = req.body || {};
+  try {
+    res.json(await Outreach.pitchBusiness(
+      { name: businessName, phone: businessPhone, email: businessEmail },
+      { userKey: userName, price: priceUsd },
+    ));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/outreach/build", async (req, res) => {
+  const Outreach = require("./outreach-agent");
+  const { businessName, businessEmail, requirements, priceUsd, userName, deliver } = req.body || {};
+  try {
+    res.json(await Outreach.buildAndDeliverSite(
+      { name: businessName, email: businessEmail },
+      requirements,
+      { userKey: userName, price: priceUsd, deliver: deliver !== false },
+    ));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/outreach/leads", (req, res) => {
+  const Outreach = require("./outreach-agent");
+  try { res.json({ leads: Outreach.listLeads(req.query.userName) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // ── LOOKUP (SixtyFour people-intelligence) ──
 // "jarvis lookup <name/email/username>" kicks a job off through
 // the lookup_accounts tool below, which hands back a task_id. The
@@ -3848,6 +3881,48 @@ async function executeAssistantTool(name, args, ctx) {
         reply: `Done, ${T} — the owner wallet is now this new address, on screen. ${result.warning}`,
         action: "CODE_REVEAL", intent: "wallet",
         meta: { label: "New owner wallet", code: result.address, note: result.warning },
+      };
+    }
+
+    // ── pitch_business_website ────────────────────────────────────
+    // Phone-first, email-fallback outreach — see outreach-agent.js's
+    // header comment for the full channel/failover story.
+    case "pitch_business_website": {
+      const Outreach = require("./outreach-agent");
+      const business = { name: args.business_name, phone: args.business_phone, email: args.business_email };
+      const { lead, error, notice } = await Outreach.pitchBusiness(business, {
+        userKey: userName, price: args.price_usd,
+      });
+      if (error) return { reply: `${error}` };
+      const switchLine = notice ? ` (Heads up — the calling account switched mid-run: ${notice.reason}.)` : "";
+      const channelLine = lead.channel === "email"
+        ? `I emailed ${business.name} instead of calling — the calling API was out.`
+        : `I called ${business.name} and here's how it went: ${lead.transcript || "(no transcript came back)"}.`;
+      return {
+        reply: `${channelLine} Quoted $${lead.price}.${switchLine} If they say yes, tell me and I'll build the site.`,
+        action: "OUTREACH_PITCHED", intent: "outreach",
+        meta: { leadId: lead.id, channel: lead.channel, price: lead.price },
+      };
+    }
+
+    // ── build_and_deliver_website ─────────────────────────────────
+    // Explicit second step, only after a real yes — see the header
+    // comment in outreach-agent.js. Never runs automatically off the
+    // pitch call alone.
+    case "build_and_deliver_website": {
+      const Outreach = require("./outreach-agent");
+      const business = { name: args.business_name, email: args.business_email };
+      const result = await Outreach.buildAndDeliverSite(business, args.requirements, {
+        userKey: userName, price: args.price_usd,
+      });
+      if (result.error) return { reply: `${result.error}` };
+      const deliveredLine = result.emailed
+        ? `Emailed it to ${business.email} along with the payment link.`
+        : `Built, but I didn't email it — ${business.email ? "AgentMail isn't set up." : "no email on file for them."} The files are saved locally.`;
+      return {
+        reply: `Site's built for "${business.name}", ${T}. ${deliveredLine} Payment link: ${result.paymentLink}`,
+        action: "CODE_REVEAL", intent: "outreach",
+        meta: { label: `Website build — ${business.name}`, code: result.paymentLink, note: `Price: $${result.price}. Files: ${result.siteDir}` },
       };
     }
 
