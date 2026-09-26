@@ -1817,6 +1817,20 @@ function waitForLockWakeWord() {
 // Finishes signing someone in who was already matched by the prescan —
 // no camera, no re-detection, just the welcome beat and straight into
 // the main HUD.
+// A single face-api detection is a noisy 128-d estimate — lighting, a
+// bad angle, or motion blur can nudge one frame close enough to the
+// wrong enrolled profile to trip a false match server-side. Averaging
+// a few consecutive frames before ever calling /api/verify-face
+// smooths that noise out, the same way retina-scan.js already
+// averages a whole enrollment scan instead of trusting one frame.
+function averageFaceDescriptors(list) {
+  const n = list.length, len = list[0].length;
+  const out = new Array(len).fill(0);
+  for (const d of list) for (let i = 0; i < len; i++) out[i] += d[i];
+  for (let i = 0; i < len; i++) out[i] /= n;
+  return out;
+}
+
 async function completeLockLogin(profile) {
   const lock = $("lock-screen");
   setLockStatus("FACE RECOGNIZED ✓", `Welcome back, ${profile.name}`);
@@ -1855,6 +1869,10 @@ async function runLockFaceScan() {
 
   const MAX_ATTEMPTS = 10; // ~5s scanning window — this runs automatically
                             // on load, so it should resolve fast either way
+  const FRAMES_PER_CHECK = 3; // average this many detections before ever
+                               // asking the server to match a face — see
+                               // averageFaceDescriptors()'s comment above
+  let frameBuffer = [];
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (!video || video.readyState < 2) { await delay(400); continue; }
 
@@ -1865,7 +1883,14 @@ async function runLockFaceScan() {
         .withFaceDescriptor();
 
       if (detection && detection.descriptor) {
-        const descriptor = Array.from(detection.descriptor);
+        frameBuffer.push(Array.from(detection.descriptor));
+      } else {
+        frameBuffer = []; // lost the face mid-buffer — start the average over
+      }
+
+      if (frameBuffer.length >= FRAMES_PER_CHECK) {
+        const descriptor = averageFaceDescriptors(frameBuffer);
+        frameBuffer = [];
         const res  = await fetch("/api/verify-face", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ descriptor }),
@@ -1887,6 +1912,9 @@ async function runLockFaceScan() {
           waitForLockWakeWord();
           return;
         }
+        // data.reason === "ambiguous_match" means a face WAS close to
+        // an enrolled profile but not clearly enough — worth trying a
+        // fresh set of frames rather than giving up immediately.
       }
     } catch (e) { /* keep scanning */ }
 
@@ -1975,6 +2003,8 @@ async function attemptFaceLogin() {
   if (label) label.textContent = "SCANNING FOR FACE…";
 
   const MAX_ATTEMPTS = 24; // ~ up to ~24s of scanning before giving up
+  const FRAMES_PER_CHECK = 3; // see averageFaceDescriptors()'s comment above
+  let frameBuffer = [];
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (runId !== _faceLoginRunId) return; // a newer scan superseded this one
     if (!vid || vid.readyState < 2) { await delay(500); continue; }
@@ -1986,7 +2016,14 @@ async function attemptFaceLogin() {
         .withFaceDescriptor();
 
       if (detection && detection.descriptor) {
-        const descriptor = Array.from(detection.descriptor);
+        frameBuffer.push(Array.from(detection.descriptor));
+      } else {
+        frameBuffer = []; // lost the face mid-buffer — start the average over
+      }
+
+      if (frameBuffer.length >= FRAMES_PER_CHECK) {
+        const descriptor = averageFaceDescriptors(frameBuffer);
+        frameBuffer = [];
         const res  = await fetch("/api/verify-face", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ descriptor }),
