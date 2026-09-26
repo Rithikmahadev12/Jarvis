@@ -38,9 +38,13 @@ const Reminders    = require("./reminders");
 const REPO_ROOT   = __dirname;
 const DATA_DIR    = path.join(REPO_ROOT, "data");
 const LEADS_PATH  = path.join(DATA_DIR, "outreach-leads.json");
+const QUEUE_PATH  = path.join(DATA_DIR, "outreach-queue.json");
 const SITES_DIR   = path.join(DATA_DIR, "generated-sites");
 
 const DEFAULT_PRICE_USD = Number(process.env.WEBSITE_BUILD_PRICE_USD || 400);
+// Cap per scheduled run so a big queue doesn't place dozens of real
+// phone calls / emails back-to-back in one go — tune via .env.
+const MAX_OUTREACH_PER_RUN = Number(process.env.OUTREACH_MAX_PER_RUN || 5);
 
 function normalizeKey(userKey) {
   return String(userKey || "owner").toLowerCase().trim();
@@ -56,6 +60,56 @@ function saveLeads(leads) {
 }
 function leadId(business) {
   return `${(business.name || "lead").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
+}
+
+// ── THE QUEUE — what makes a scheduled run possible at all ───────
+// Unlike github-bounty.js/superteam-agent.js, there's no API this app
+// can poll for "businesses with no website" on its own — that list
+// has to come from you. queueLead() is how a business gets added
+// (one at a time via chat/API, or in bulk by editing
+// data/outreach-queue.json directly); runQueuedOutreach() is what the
+// scheduled job below calls to work through whatever's waiting.
+function loadQueue() {
+  try { return JSON.parse(fs.readFileSync(QUEUE_PATH, "utf8") || "[]"); }
+  catch { return []; }
+}
+function saveQueue(queue) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(QUEUE_PATH, JSON.stringify(queue, null, 2));
+}
+
+function queueLead(business, { userKey, price } = {}) {
+  if (!business || !business.name) return { error: "Missing business name." };
+  if (!business.phone && !business.email) return { error: "Need at least a phone or an email for this business." };
+  const queue = loadQueue();
+  const entry = { id: leadId(business), business, userKey: normalizeKey(userKey), price: price || null, queuedAt: new Date().toISOString() };
+  queue.push(entry);
+  saveQueue(queue);
+  return { queued: entry, queueLength: queue.length };
+}
+
+function listQueue() { return loadQueue(); }
+
+// Called by scripts/scheduled-outreach-run.js. Pitches up to
+// MAX_OUTREACH_PER_RUN queued businesses (oldest first) and removes
+// each from the queue once contact has been attempted — successfully
+// or not; a hard failure (no channel available at all) is what
+// notifyOwnerLater() below is for, not an infinite silent retry.
+async function runQueuedOutreach() {
+  const queue = loadQueue();
+  const batch = queue.slice(0, MAX_OUTREACH_PER_RUN);
+  const remaining = queue.slice(MAX_OUTREACH_PER_RUN);
+  const results = [];
+  for (const entry of batch) {
+    try {
+      const res = await pitchBusiness(entry.business, { userKey: entry.userKey, price: entry.price });
+      results.push({ business: entry.business.name, ...res });
+    } catch (e) {
+      results.push({ business: entry.business.name, error: e.message });
+    }
+  }
+  saveQueue(remaining);
+  return { processed: results, remainingInQueue: remaining.length };
 }
 
 // Queues a "tell the owner about this next time they check in" note,
@@ -271,4 +325,7 @@ module.exports = {
   pitchBusiness,
   buildAndDeliverSite,
   listLeads,
+  queueLead,
+  listQueue,
+  runQueuedOutreach,
 };
