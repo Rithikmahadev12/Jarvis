@@ -1624,9 +1624,31 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
   const looksCompoundGenerate = /\b(type|write)\b/i.test(message) &&
     /\b(script|code|program|game|function|poem|essay|story|paragraph|text|snippet|class|component)\b/i.test(message);
 
+  // ── FORCED TOOL CHOICE: wallet private-key requests ──────────────
+  // "give me my wallet address and key" sits right on the boundary
+  // between get_wallet_address and get_wallet_private_key, and this
+  // account's fast/cheap Groq tier (gpt-oss-20b, low reasoning effort
+  // — see the token-budget note above) doesn't reliably pick the
+  // private-key tool over the plain-address one, even though its own
+  // description quotes this exact phrasing as a trigger example. That
+  // was the actual cause of "give me my wallet address and key" only
+  // returning the address: the model picked get_wallet_address before
+  // executeTool() and the owner/non-owner check inside
+  // get_wallet_private_key ever got a chance to run.
+  //
+  // Detecting the unambiguous "I want the key too" signal ourselves
+  // and forcing that specific tool doesn't loosen anything security-
+  // wise — the permission check that decides who's actually allowed
+  // to see whose key still lives entirely inside get_wallet_private_key
+  // itself (see its case in server.js). This just makes sure that
+  // function gets called at all instead of leaving it to a coin flip.
+  const wantsPrivateKey = /\bwallet\b/i.test(message) && /\bkey\b/i.test(message);
+
   const assistantMsg = await groqFetchRawWithFallback(messages, {
     tools: TOOLS,
-    tool_choice: "auto",
+    tool_choice: wantsPrivateKey
+      ? { type: "function", function: { name: "get_wallet_private_key" } }
+      : "auto",
     maxTokens: looksCompoundGenerate ? 2048 : 900,
     reasoning_effort: "low",
   });
