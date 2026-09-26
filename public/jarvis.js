@@ -4754,7 +4754,7 @@ async function checkFace() {
       let userPresent = false;
       for (const d of detections) {
         const dist = faceapi.euclideanDistance(d.descriptor, state.faceDescriptors);
-        if (dist < 0.72) { userPresent = true; break; }
+        if (dist < 0.5) { userPresent = true; break; }
       }
       if (userPresent) {
         if (state.awayMode) {
