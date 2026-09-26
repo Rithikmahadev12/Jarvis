@@ -1124,7 +1124,22 @@ function bootstrapOwnerAccount() {
 // ── FACE DESCRIPTOR MATCHING ───────────────────────────────────
 // face-api.js descriptors are 128-length float arrays. Euclidean distance
 // below ~0.5-0.6 is considered the same person (0.6 is face-api's own default).
-const FACE_MATCH_THRESHOLD = 0.55;
+// Was 0.55 — tightened to 0.5 (face-api's own recommended "strict" end
+// of that range) because 0.55 was loose enough that, in practice,
+// different people's faces were landing inside it and getting signed
+// in as whichever enrolled profile happened to be the closest guess —
+// which in a deployment with one heavily-used owner profile enrolled
+// early on meant everyone tended to match THAT one. See the margin
+// check in /api/verify-face below for the other half of the fix.
+const FACE_MATCH_THRESHOLD = 0.5;
+// Second half of the fix: a lower threshold alone only helps if the
+// wrong face was borderline. It doesn't help if descriptor quality is
+// just poor (bad lighting, a cheap webcam, a single noisy frame) and
+// TWO different enrolled people both happen to land close to the
+// incoming descriptor. In that case "closest" is still a guess, and
+// guessing wrong hands someone a stranger's account. Require the best
+// match to be clearly ahead of whoever came second, not just ahead.
+const FACE_MATCH_MIN_MARGIN = 0.08;
 function euclideanDistance(a, b) {
   if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return Infinity;
   let sum = 0;
@@ -1291,27 +1306,43 @@ app.post("/api/register", (req, res) => {
   // otherwise distinguish the two) requires the owner passcode. See
   // getOwnerUsernameKey()'s comment above for why this exists.
   const ownerKey = getOwnerUsernameKey();
-  if (ownerKey && key === ownerKey && passcode !== OWNER_USERNAME_LOCK_CODE) {
+  const isOwnerUsername = !!ownerKey && key === ownerKey;
+  if (isOwnerUsername && passcode !== OWNER_USERNAME_LOCK_CODE) {
     return res.status(403).json({
       error: "That username is reserved. Enter the owner passcode to claim or re-enroll it.",
     });
   }
 
   const profiles = loadProfiles();
+  const existing = profiles[key];
+  // BUG THIS FIXES: this used to build a brand-new object from
+  // scratch on every (re-)registration, with no `role` or `wallet`
+  // field anywhere in it. Fine for a first-time signup, but re-scan
+  // your face later (which re-POSTs here with the same username) and
+  // it silently replaced the existing profile — role: "owner" and
+  // all — with a fresh one that had neither. The passcode check above
+  // still passed (you *are* re-claiming your own protected username),
+  // so nothing looked wrong at registration time; it just quietly
+  // demoted the owner to a regular account, and every owner-only
+  // command (refresh_owner_wallet, get_wallet_private_key for someone
+  // else, etc.) started failing "only the owner can do that" for the
+  // actual owner. Preserve both fields across re-enrollment now.
   profiles[key] = {
     name:           name.trim(),
     faceDescriptor,
     title:          title || "Sir",
     voiceAliases:   voiceAliases || [],
+    role:           existing?.role,
+    wallet:         existing?.wallet,
     // This account's own AI — name + voice, customizable any time
     // afterward from Settings (see /api/ai-settings below). aiName
     // null/unset just means "use the default persona name" everywhere
     // that reads it, same as an unset voice means "use the default
     // rotating Camb.ai voice".
     aiName:         null, // renaming is disabled — always "Jarvis"
-    aiVoiceId:       profiles[key]?.aiVoiceId || null,
-    aiVoicePreset:   profiles[key]?.aiVoicePreset || null,
-    aiVoiceCloned:   profiles[key]?.aiVoiceCloned || false,
+    aiVoiceId:       existing?.aiVoiceId || null,
+    aiVoicePreset:   existing?.aiVoicePreset || null,
+    aiVoiceCloned:   existing?.aiVoiceCloned || false,
     // Has this account ever been through the "name your AI / pick a
     // voice" step (either by saving a choice or explicitly choosing
     // to keep the default)? Brand-new accounts start false so the
@@ -1319,10 +1350,21 @@ app.post("/api/register", (req, res) => {
     // is deliberately separate from aiName being null — null aiName
     // can legitimately mean "asked, and chose to keep the default"
     // once aiSetupDone flips true (see POST /api/ai-settings below).
-    aiSetupDone:    profiles[key]?.aiSetupDone || false,
-    createdAt:      profiles[key]?.createdAt || new Date().toISOString(),
+    aiSetupDone:    existing?.aiSetupDone || false,
+    createdAt:      existing?.createdAt || new Date().toISOString(),
     updatedAt:      new Date().toISOString(),
   };
+  // Belt-and-suspenders on top of the preservation above: the
+  // passcode gate already proved this re-registration is legitimately
+  // the owner reclaiming their own protected username, so this
+  // account IS the owner regardless of what `existing` looked like —
+  // covers a first-ever enrollment under this flow, or a profile that
+  // got corrupted/reset some other way and never had role set.
+  if (isOwnerUsername) profiles[key].role = "owner";
+  // Don't write literal `"role": undefined` / `"wallet": undefined`
+  // into profiles.json for everyone else.
+  if (profiles[key].role === undefined)   delete profiles[key].role;
+  if (profiles[key].wallet === undefined) delete profiles[key].wallet;
   saveProfiles(profiles);
   res.json({ success: true });
 });
@@ -1498,17 +1540,38 @@ app.post("/api/verify-face", (req, res) => {
     return res.status(400).json({ authorized: false, reason: "invalid_descriptor" });
   }
   const profiles = loadProfiles();
-  let best = null, bestDist = Infinity;
+  // Track the best AND second-best match, not just the best — see
+  // FACE_MATCH_MIN_MARGIN above for why the gap between them matters
+  // as much as the absolute distance does.
+  let best = null, bestDist = Infinity, secondBestDist = Infinity;
   for (const profile of Object.values(profiles)) {
     if (!Array.isArray(profile.faceDescriptor)) continue;
     const dist = euclideanDistance(profile.faceDescriptor, descriptor);
-    if (dist < bestDist) { bestDist = dist; best = profile; }
+    if (dist < bestDist) {
+      secondBestDist = bestDist;
+      bestDist = dist;
+      best = profile;
+    } else if (dist < secondBestDist) {
+      secondBestDist = dist;
+    }
   }
-  if (best && bestDist < FACE_MATCH_THRESHOLD) {
+  const clearedThreshold = !!best && bestDist < FACE_MATCH_THRESHOLD;
+  const clearedMargin    = (secondBestDist - bestDist) >= FACE_MATCH_MIN_MARGIN;
+  if (clearedThreshold && clearedMargin) {
     const { faceDescriptor, ...safe } = best;
     return res.json({ authorized: true, profile: safe, distance: bestDist });
   }
-  res.json({ authorized: false, reason: "no_match" });
+  // Distinguish the two failure modes in the response (and logs) —
+  // "no_match" means nobody enrolled looks like this face at all;
+  // "ambiguous_match" means someone did, but a second enrolled face
+  // was close enough behind it that guessing would be a coin flip.
+  // The caller should just try another frame rather than treat this
+  // as a hard rejection.
+  const reason = clearedThreshold ? "ambiguous_match" : "no_match";
+  if (reason === "ambiguous_match") {
+    console.warn(`[FACE] Ambiguous match rejected — best=${bestDist.toFixed(3)}, second=${secondBestDist.toFixed(3)}, margin needed=${FACE_MATCH_MIN_MARGIN}`);
+  }
+  res.json({ authorized: false, reason });
 });
 // One-time wipe: clears every stored account so the app starts fresh
 // with the new Face-ID-only sign in. Call once, e.g.:
