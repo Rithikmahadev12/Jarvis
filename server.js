@@ -1798,6 +1798,26 @@ app.post("/api/wallet/set-owner", (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// One-time refresh: retires the current owner wallet (backing up its
+// key first — see regenerateOwnerWallet()'s comment) and switches
+// the app over to a freshly generated one.
+app.post("/api/wallet/refresh-owner", async (req, res) => {
+  try { res.json(await WalletSetup.regenerateOwnerWallet(req.body?.userName)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Hands back a wallet's PRIVATE KEY (not just the address) so it can
+// be imported into Phantom/Solflare/etc. This app has no server-side
+// login check on any route (userName in the request body/query is
+// trusted everywhere, same as every other /api/wallet/* route above)
+// — that's an acceptable trust model for a single-owner assistant
+// running somewhere only you can reach, and a serious one to get
+// right before this is ever exposed on a shared or public deployment.
+app.get("/api/wallet/private-key", (req, res) => {
+  try { res.json(WalletSetup.getPrivateKey(req.query.userName)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // ── LOOKUP (SixtyFour people-intelligence) ──
 // "jarvis lookup <name/email/username>" kicks a job off through
@@ -3788,6 +3808,46 @@ async function executeAssistantTool(name, args, ctx) {
         reply: `Here's the wallet address for "${key}", ${T} — it's on screen so you can copy it.`,
         action: "CODE_REVEAL", intent: "wallet",
         meta: { label: `Solana wallet — ${key}`, code: address },
+      };
+    }
+
+    // ── get_wallet_private_key ───────────────────────────────────
+    // "give me my wallet address and private key", "let me import my
+    // wallet" — unlike get_wallet_address above, this hands back the
+    // actual private key. A non-owner can only ever ask for their OWN
+    // key (user_key is ignored for them); only the owner account can
+    // pull someone else's, e.g. for account-recovery support.
+    case "get_wallet_private_key": {
+      const requester = String(userName || "").toLowerCase().trim();
+      const isOwnerRequester = SolanaWallet.isOwner(requester);
+      const key = (isOwnerRequester && args.user_key) ? args.user_key : (requester || "owner");
+      const result = WalletSetup.getPrivateKey(key);
+      if (result.error) return { reply: `${result.error}` };
+      return {
+        reply: `Here's the full wallet for "${key}", ${T} — address and private key are on screen. That key gives full, permanent control of the funds, so only paste it into a wallet app's own "import" field, never anywhere else.`,
+        action: "CODE_REVEAL", intent: "wallet",
+        meta: {
+          label: `Solana wallet (with private key) — ${key}`,
+          code: result.secretBase58,
+          note: `Address: ${result.address}\n${result.warning}`,
+        },
+      };
+    }
+
+    // ── refresh_owner_wallet ─────────────────────────────────────
+    // One-time, explicit: retires the current owner wallet for a
+    // brand-new one. The old key is backed up, never just discarded
+    // — see regenerateOwnerWallet()'s comment in wallet-setup.js.
+    case "refresh_owner_wallet": {
+      if (!SolanaWallet.isOwner(String(userName || "").toLowerCase().trim())) {
+        return { reply: `Only the owner account can refresh the owner wallet, ${T}.` };
+      }
+      const result = await WalletSetup.regenerateOwnerWallet(userName);
+      if (result.error) return { reply: `Couldn't refresh the owner wallet, ${T}: ${result.error}` };
+      return {
+        reply: `Done, ${T} — the owner wallet is now this new address, on screen. ${result.warning}`,
+        action: "CODE_REVEAL", intent: "wallet",
+        meta: { label: "New owner wallet", code: result.address, note: result.warning },
       };
     }
 
