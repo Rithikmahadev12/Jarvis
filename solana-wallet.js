@@ -362,6 +362,7 @@ module.exports = {
   isConfigured,
   isOwner,
   getAddress,
+  base58Encode,
   setWalletForUser,
   setOwnerWallet,
   getSolBalance,
