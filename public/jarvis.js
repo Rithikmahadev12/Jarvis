@@ -3746,7 +3746,7 @@ async function handleAction(action, meta, replyText) {
     // trigger it just because they happen to contain numbers.
     case "CODE_REVEAL": {
       speak(replyText, () => {
-        window.CodeWidget?.open({ label: meta?.label, code: meta?.code, note: meta?.note });
+        window.CodeWidget?.open({ label: meta?.label, code: meta?.code, note: meta?.note, fields: meta?.fields });
         mic.resume();
       });
       break;
