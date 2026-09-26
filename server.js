@@ -3931,12 +3931,15 @@ async function executeAssistantTool(name, args, ctx) {
       const result = WalletSetup.getPrivateKey(key);
       if (result.error) return { reply: `${result.error}` };
       return {
-        reply: `Here's the full wallet for "${key}", ${T} — address and private key are on screen. That key gives full, permanent control of the funds, so only paste it into a wallet app's own "import" field, never anywhere else.`,
+        reply: `Here's the full wallet for "${key}", ${T} — address and private key are on screen, each in its own box. That key gives full, permanent control of the funds, so only paste it into a wallet app's own "import" field, never anywhere else.`,
         action: "CODE_REVEAL", intent: "wallet",
         meta: {
-          label: `Solana wallet (with private key) — ${key}`,
-          code: result.secretBase58,
-          note: `Address: ${result.address}\n${result.warning}`,
+          label: `Solana wallet — ${key}`,
+          fields: [
+            { label: "Address",      value: result.address },
+            { label: "Private key",  value: result.secretBase58 },
+          ],
+          note: result.warning,
         },
       };
     }
