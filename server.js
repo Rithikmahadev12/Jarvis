@@ -1053,6 +1053,29 @@ function syncOwnerUsernameInConfig(newName) {
   }
 }
 
+// ── OWNER USERNAME LOCK ──────────────────────────────────────
+// /api/register (below) used to key purely off whatever name was
+// typed on the CREATE ACCOUNT screen, with no ownership check at all —
+// so anyone who typed the owner's own username (case-insensitively)
+// would silently overwrite the owner's profile: their face descriptor,
+// role, and linked wallet, all replaced by the impostor's. That's how
+// "everyone gets recognized as [owner]" style bugs turn into an actual
+// account-takeover path, not just a face-matching quirk.
+//
+// This locks whichever username config.json lists as the owner's
+// (currently "Rithik") behind a shared secret code — required any
+// time someone tries to claim OR re-claim that exact username,
+// including the real owner re-enrolling after a reset.
+const OWNER_USERNAME_LOCK_CODE = "2014";
+function getOwnerUsernameKey() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf8"));
+    return (cfg?.owner?.username || "").toLowerCase().trim();
+  } catch {
+    return "";
+  }
+}
+
 function bootstrapOwnerAccount() {
   const configPath = path.join(__dirname, "config.json");
   if (!fs.existsSync(configPath)) return;
@@ -1257,12 +1280,24 @@ app.post("/api/learned/teach", (req, res) => {
 // ── PROFILE ROUTES
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/register", (req, res) => {
-  const { name, faceDescriptor, title, voiceAliases, aiName } = req.body;
+  const { name, faceDescriptor, title, voiceAliases, aiName, passcode } = req.body;
   if (!name || !Array.isArray(faceDescriptor) || faceDescriptor.length !== 128) {
     return res.status(400).json({ error: "Missing name or valid face descriptor" });
   }
-  const profiles = loadProfiles();
   const key = name.toLowerCase().trim();
+
+  // Protected username: claiming or re-claiming it (fresh enrollment
+  // OR overwriting an existing enrollment — this endpoint doesn't
+  // otherwise distinguish the two) requires the owner passcode. See
+  // getOwnerUsernameKey()'s comment above for why this exists.
+  const ownerKey = getOwnerUsernameKey();
+  if (ownerKey && key === ownerKey && passcode !== OWNER_USERNAME_LOCK_CODE) {
+    return res.status(403).json({
+      error: "That username is reserved. Enter the owner passcode to claim or re-enroll it.",
+    });
+  }
+
+  const profiles = loadProfiles();
   profiles[key] = {
     name:           name.trim(),
     faceDescriptor,
@@ -1412,7 +1447,7 @@ VoiceClone.register(app, { loadProfiles, saveProfiles });
 // nothing else needs touching. Face ID keeps working either way since
 // login matching compares descriptors across ALL profiles, not by key.
 app.post("/api/rename-user", (req, res) => {
-  const { currentUserName, newUserName } = req.body || {};
+  const { currentUserName, newUserName, passcode } = req.body || {};
   if (!currentUserName || !newUserName) {
     return res.status(400).json({ error: "Missing currentUserName or newUserName" });
   }
@@ -1426,6 +1461,13 @@ app.post("/api/rename-user", (req, res) => {
   if (!profiles[oldKey]) return res.status(404).json({ error: `No account found for "${currentUserName}".` });
   if (newKey !== oldKey && profiles[newKey]) {
     return res.status(409).json({ error: `"${cleanNew}" is already taken by another account.` });
+  }
+  // Same protected-username rule as /api/register: renaming yourself
+  // INTO the owner's username needs the passcode too, even in the
+  // rare case the key happens to be free (e.g. right after a reset).
+  const ownerKey = getOwnerUsernameKey();
+  if (ownerKey && newKey === ownerKey && profiles[oldKey]?.role !== "owner" && passcode !== OWNER_USERNAME_LOCK_CODE) {
+    return res.status(403).json({ error: "That username is reserved. Enter the owner passcode to claim it." });
   }
 
   profiles[newKey] = { ...profiles[oldKey], name: cleanNew, updatedAt: new Date().toISOString() };
@@ -4423,6 +4465,12 @@ async function executeAssistantTool(name, args, ctx) {
       }
       if (newKey !== oldKey && profiles[newKey]) {
         return { reply: `"${newName}" is already taken by another account, ${T} — try a different one.`, action: "ERROR", intent: "account" };
+      }
+      {
+        const ownerKey = getOwnerUsernameKey();
+        if (ownerKey && newKey === ownerKey && profiles[oldKey]?.role !== "owner") {
+          return { reply: `"${newName}" is a reserved username, ${T} — that one needs the owner passcode, which isn't something I can take over voice. Use the account screen instead.`, action: "ERROR", intent: "account" };
+        }
       }
 
       profiles[newKey] = { ...profiles[oldKey], name: newName, updatedAt: new Date().toISOString() };
