@@ -1,16 +1,22 @@
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Retina Scan Authentication Module v1.1
+// J.A.R.V.I.S — Retina Scan Authentication Module v2.0
 // Save this as: public/retina-scan.js
 // Add <script src="retina-scan.js"></script> to index.html
 // AFTER face-api is loaded (or it loads it automatically)
 //
-// HOW IT WORKS:
-// 1. Uses face-api.js (already in jarvis.js) to detect face landmarks
-// 2. Extracts the eye region from the video feed
-// 3. Builds an "iris descriptor" — a hash of iris pixel patterns
-// 4. Stores this as the user's biometric key in localStorage
-// 5. On login: compares new scan against stored descriptor
-// 6. On intruder alert: verifies the unknown face is NOT the owner
+// HOW IT WORKS (v2 — real face recognition):
+// 1. Uses face-api.js's faceRecognitionNet to compute a proper
+//    128-dimension face embedding (the same technique jarvis.js's
+//    main intruder-detection system uses) — NOT pixel sampling.
+// 2. Averages several embeddings captured during the scan for
+//    stability, then L2-normalises the result.
+// 3. Stores this as the user's biometric descriptor in localStorage.
+// 4. On login/verify: compares the new embedding against the stored
+//    one with faceapi.euclideanDistance() and a tuned threshold.
+//
+// The "iris scanner" visuals are kept for the HUD aesthetic, but the
+// actual biometric comparison underneath is real face recognition,
+// not an iris simulation — the eye-ring animation is cosmetic only.
 // ═══════════════════════════════════════════════════════════════
 
 window.RetinaScan = (function () {
@@ -30,9 +36,17 @@ window.RetinaScan = (function () {
     status:          'idle',
     onComplete:      null,
     mode:            'enroll',   // 'enroll' | 'login' | 'verify'
-    ENROLL_KEY:      'jarvis_iris_descriptor',
-    MATCH_THRESHOLD: 0.42,
-    SCAN_FRAMES:     90,
+    ENROLL_KEY:      'jarvis_face_descriptor_v2',
+    // face-api's faceRecognitionNet produces 128-d embeddings; 0.5 is
+    // a well-tested threshold (face-api's own FaceMatcher defaults to
+    // 0.6, which is looser). Lower = stricter match, fewer false
+    // positives; raise slightly (toward 0.55) if your own face keeps
+    // getting rejected under poor lighting.
+    MATCH_THRESHOLD: 0.5,
+    // Real face descriptors are expensive to compute (a full forward
+    // pass through the recognition net), so we only need a handful of
+    // good samples rather than 90 iris-pixel frames.
+    SCAN_FRAMES:     12,
     descriptorHistory: [],
   };
 
@@ -113,79 +127,34 @@ window.RetinaScan = (function () {
     rs.video    = document.getElementById('retina-video');
   }
 
-  // ── IRIS DESCRIPTOR BUILDER ────────────────────────────────
-  // Extracts the eye region from the video, samples pixel patterns
-  // across concentric rings of the iris, builds a 64-float descriptor.
-  // This is a simplified iris recognition — good enough for a
-  // personal home assistant but not bank-grade security.
-  function extractIrisDescriptor(videoEl, landmarks) {
-    if (!landmarks) return null;
-
-    // Get eye landmark positions from face-api
-    const leftEye  = landmarks.getLeftEye();
-    const rightEye = landmarks.getRightEye();
-
-    // Use whichever eye is more centred in frame
-    const eye = leftEye;
-    if (!eye || eye.length < 6) return null;
-
-    // Find eye centre + radius
-    const xs = eye.map(p => p.x);
-    const ys = eye.map(p => p.y);
-    const cx = xs.reduce((a,b)=>a+b,0)/xs.length;
-    const cy = ys.reduce((a,b)=>a+b,0)/ys.length;
-    const r  = Math.max(...xs) - Math.min(...xs);
-
-    if (r < 8) return null;
-
-    // Sample the video frame at this position
-    const tmpCanvas = document.createElement('canvas');
-    const size      = Math.max(r * 2, 40);
-    tmpCanvas.width = tmpCanvas.height = size;
-    const tmpCtx    = tmpCanvas.getContext('2d');
-
-    // Scale video coords to canvas coords
-    const scaleX = videoEl.videoWidth  / (videoEl.clientWidth  || videoEl.videoWidth);
-    const scaleY = videoEl.videoHeight / (videoEl.clientHeight || videoEl.videoHeight);
-
-    tmpCtx.drawImage(
-      videoEl,
-      (cx - r) * scaleX, (cy - r) * scaleY,
-      r * 2 * scaleX, r * 2 * scaleY,
-      0, 0, size, size
-    );
-
-    const pixels  = tmpCtx.getImageData(0, 0, size, size).data;
-    const desc    = new Float32Array(64);
-    const rings   = 8;
-    const samples = 8;
-
-    for (let ring = 0; ring < rings; ring++) {
-      const radius = (ring + 1) / rings * (size / 2) * 0.9;
-      for (let sample = 0; sample < samples; sample++) {
-        const angle = (sample / samples) * Math.PI * 2;
-        const px    = Math.round(size/2 + Math.cos(angle) * radius);
-        const py    = Math.round(size/2 + Math.sin(angle) * radius);
-        if (px < 0 || py < 0 || px >= size || py >= size) continue;
-        const idx = (py * size + px) * 4;
-        // Greyscale intensity
-        const grey = (pixels[idx] * 0.299 + pixels[idx+1] * 0.587 + pixels[idx+2] * 0.114) / 255;
-        desc[ring * samples + sample] = grey;
-      }
+  // ── FACE DESCRIPTOR EXTRACTION ─────────────────────────────
+  // Runs the actual face-recognition net (via face-api's
+  // .withFaceDescriptor()) on the current frame and returns its
+  // 128-dimension embedding. This is real face recognition — the
+  // same technique used by jarvis.js's intruder-detection system —
+  // not a pixel-sampling approximation.
+  async function extractFaceDescriptor(videoEl) {
+    if (!videoEl || videoEl.readyState < 2) return null;
+    try {
+      const detection = await faceapi
+        .detectSingleFace(videoEl, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+      if (!detection || !detection.descriptor) return null;
+      return detection.descriptor; // Float32Array(128)
+    } catch (_) {
+      return null;
     }
-
-    // L2-normalise
-    let norm = 0;
-    for (let i = 0; i < 64; i++) norm += desc[i] * desc[i];
-    norm = Math.sqrt(norm) || 1;
-    for (let i = 0; i < 64; i++) desc[i] /= norm;
-
-    return desc;
   }
 
   // ── DESCRIPTOR DISTANCE ────────────────────────────────────
+  // Delegates to face-api's own euclideanDistance when available
+  // (identical formula) so behaviour matches the rest of the app.
   function descriptorDistance(a, b) {
     if (!a || !b || a.length !== b.length) return 1;
+    if (window.faceapi && typeof faceapi.euclideanDistance === 'function') {
+      return faceapi.euclideanDistance(a, b);
+    }
     let sum = 0;
     for (let i = 0; i < a.length; i++) {
       const d = a[i] - b[i];
@@ -195,19 +164,20 @@ window.RetinaScan = (function () {
   }
 
   // ── AVERAGE DESCRIPTORS ────────────────────────────────────
+  // NOTE: face-api's 128-d embeddings are NOT unit-length vectors —
+  // euclideanDistance() is meant to run on the raw descriptor, and
+  // jarvis.js's own recognition never renormalises them either. We
+  // only average multiple samples for stability; we deliberately do
+  // NOT re-normalise afterwards, so distances stay comparable to the
+  // MATCH_THRESHOLD and to the rest of the app's face matching.
   function averageDescriptors(descs) {
     if (!descs.length) return null;
     const len = descs[0].length;
     const avg = new Float32Array(len);
     for (const d of descs) for (let i = 0; i < len; i++) avg[i] += d[i];
     for (let i = 0; i < len; i++) avg[i] /= descs.length;
-    let norm = 0;
-    for (let i = 0; i < len; i++) norm += avg[i] * avg[i];
-    norm = Math.sqrt(norm) || 1;
-    for (let i = 0; i < len; i++) avg[i] /= norm;
     return avg;
   }
-
   // ── ENROLL / SAVE ──────────────────────────────────────────
   function saveDescriptor(descriptor, userName) {
     const key  = `${rs.ENROLL_KEY}_${(userName || 'owner').toLowerCase()}`;
@@ -402,8 +372,14 @@ window.RetinaScan = (function () {
   }
 
   // ── ENSURE FACE-API LOADED ─────────────────────────────────
+  // Now also loads faceRecognitionNet — the model that actually
+  // computes the 128-d identity embedding. Without it, .withFaceDescriptor()
+  // silently fails, which is why the old iris-pixel hack existed in
+  // the first place.
   async function ensureFaceApi() {
-    if (window.faceapi && window.faceapi.nets.faceLandmark68Net.isLoaded) return true;
+    if (window.faceapi
+        && window.faceapi.nets.faceLandmark68Net.isLoaded
+        && window.faceapi.nets.faceRecognitionNet.isLoaded) return true;
     if (!window.faceapi) {
       await new Promise((res, rej) => {
         const s = document.createElement('script');
@@ -417,6 +393,7 @@ window.RetinaScan = (function () {
     await Promise.all([
       faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
     ]);
     return true;
   }
@@ -439,25 +416,26 @@ window.RetinaScan = (function () {
       let dist          = null;
       let confidence    = null;
 
-      // Try to detect eye landmarks every 3 frames (performance)
+      // Compute a real face descriptor every 3 frames (performance —
+      // running the recognition net every frame would be overkill and
+      // slow; a handful of good samples is enough to average).
       if (rs.scanFrame % 3 === 0 && rs.video.readyState >= 2) {
         try {
           const detection = await faceapi
             .detectSingleFace(rs.video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
-            .withFaceLandmarks();
+            .withFaceLandmarks()
+            .withFaceDescriptor();
 
-          if (detection) {
+          if (detection && detection.descriptor) {
             eyeDetected = true;
             confidence  = detection.detection.score;
-            const desc  = extractIrisDescriptor(rs.video, detection.landmarks);
+            const desc  = detection.descriptor;
 
-            if (desc) {
-              rs.descriptorHistory.push(desc);
-              framesWithEye++;
+            rs.descriptorHistory.push(desc);
+            framesWithEye++;
 
-              if (storedDescriptor) {
-                dist = descriptorDistance(desc, storedDescriptor);
-              }
+            if (storedDescriptor) {
+              dist = descriptorDistance(desc, storedDescriptor);
             }
           }
         } catch (_) {}
