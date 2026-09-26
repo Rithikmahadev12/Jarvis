@@ -856,6 +856,31 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "queue_business_outreach",
+      description: "Add a business (with no website) to the outreach queue for later, instead of contacting them right now — 'add [business] to the outreach list', 'queue up a pitch for [business]'. A scheduled job works through this queue on its own; use pitch_business_website instead to contact someone immediately.",
+      parameters: {
+        type: "object",
+        properties: {
+          business_name: { type: "string", description: "The business's name." },
+          business_phone: { type: "string", description: "Phone number, if known." },
+          business_email: { type: "string", description: "Email, if known. At least one of phone/email is required." },
+          price_usd: { type: "number", description: "Flat price to quote. Omit to use the configured default." },
+        },
+        required: ["business_name"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "run_outreach_queue",
+      description: "Go through the queued businesses right now instead of waiting for the scheduled run — 'run the outreach queue', 'go through my business list now', 'start calling the businesses I queued up'.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "pitch_business_website",
       description: "Reach out to a business that has no website and pitch building them one at a flat price — 'call this business and offer them a website', 'pitch a website to [business]'. Tries a real phone call first, falls back to email if the calling API is out. Never charges anyone or sends code by itself — just makes contact and reports what they said.",
       parameters: {
