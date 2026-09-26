@@ -52,6 +52,28 @@ async function ensureSolders() {
   }
 }
 
+// Runs make_user_wallet.py and returns the parsed {address, secret}
+// keypair. Shared by both the owner (regenerateOwnerWallet) and
+// per-account (ensureUserWallet) paths below so there's one place
+// that actually talks to the Python generator.
+async function createWalletKeypair() {
+  await ensureSolders();
+  const stdout = await run(`python3 "${USER_SCRIPT_PATH}"`);
+  const parsed = JSON.parse(stdout.trim());
+  if (!parsed.address || !Array.isArray(parsed.secret)) {
+    throw new Error("Wallet generator returned an unexpected shape.");
+  }
+  return parsed;
+}
+
+function writeKeyFile(key, secret) {
+  if (!fs.existsSync(USER_KEYS_DIR)) fs.mkdirSync(USER_KEYS_DIR, { recursive: true });
+  const keyPath = path.join(USER_KEYS_DIR, `${key}.json`);
+  fs.writeFileSync(keyPath, JSON.stringify(secret), "utf8");
+  try { fs.chmodSync(keyPath, 0o600); } catch { /* Windows: no-op */ }
+  return keyPath;
+}
+
 // Generates a new keypair via make_wallet.py, which saves the private
 // key to wallet.json (local, gitignored) and writes the public
 // address into .env itself. Returns the address this process parsed
@@ -177,4 +199,96 @@ async function ensureUserWallet(userKey) {
   };
 }
 
-module.exports = { generateWallet, hasExistingWallet, ensureUserWallet };
+// ── REFRESH THE OWNER'S WALLET (one-time, explicit) ──────────────
+// Generates a brand-new keypair for the owner and switches
+// config.json/profiles.json over to it. The OLD wallet.json is never
+// just overwritten and discarded — if it held any funds, that
+// private key is the only way to ever move them, so it's renamed
+// into wallet-keys/ as a timestamped backup first. Also drops the
+// new secret into wallet-keys/<ownerKey>.json (chmod 600) so it's
+// retrievable the same way as any other account's key — see
+// getPrivateKey() below.
+async function regenerateOwnerWallet(userKey) {
+  const key = String(userKey || "owner").toLowerCase().trim();
+  const oldKeyPath = path.join(REPO_ROOT, "wallet.json");
+  let backupPath = null;
+  if (fs.existsSync(oldKeyPath)) {
+    backupPath = path.join(USER_KEYS_DIR, `owner-backup-${Date.now()}.json`);
+    if (!fs.existsSync(USER_KEYS_DIR)) fs.mkdirSync(USER_KEYS_DIR, { recursive: true });
+    fs.copyFileSync(oldKeyPath, backupPath);
+    try { fs.chmodSync(backupPath, 0o600); } catch { /* Windows: no-op */ }
+  }
+
+  let kp;
+  try {
+    kp = await createWalletKeypair();
+  } catch (e) {
+    return { error: `Wallet generation failed: ${e.message}`, oldKeyBackedUpAt: backupPath };
+  }
+
+  // Overwrite the legacy root wallet.json too, so anything still
+  // reading it (e.g. hasExistingWallet()) sees the new key.
+  fs.writeFileSync(oldKeyPath, JSON.stringify(kp.secret), "utf8");
+  try { fs.chmodSync(oldKeyPath, 0o600); } catch { /* Windows: no-op */ }
+  const keyFile = writeKeyFile(key, kp.secret);
+
+  const SolanaWallet = require("./solana-wallet");
+  const link = SolanaWallet.setOwnerWallet(kp.address);
+  if (link.error) {
+    return { error: `Generated a wallet but couldn't link it to the account: ${link.error}`, address: kp.address, keyFile, oldKeyBackedUpAt: backupPath };
+  }
+
+  return {
+    address: kp.address,
+    keyFile,
+    oldKeyBackedUpAt: backupPath,
+    warning: backupPath
+      ? `The old owner wallet's key is preserved at ${backupPath} in case it still holds funds — move anything out of it, then delete that file when you're done. This new key is now the active owner wallet everywhere in the app.`
+      : "This new key is now the active owner wallet everywhere in the app.",
+  };
+}
+
+// ── HAND A WALLET'S PRIVATE KEY BACK TO ITS OWNER ─────────────────
+// Deliberately separate from solana-wallet.js (still read-only/
+// address-only, used everywhere else in the app) — this is the one
+// path that ever returns a secret key to a caller instead of just
+// writing it to disk. Returns it base58-encoded, the format Phantom/
+// Solflare/Backpack expect for "import private key", plus the raw
+// byte array for tools that want that instead.
+//
+// SECURITY NOTE, read before wiring this up to anything: whoever can
+// trigger this call for a given key gets full, irreversible spending
+// control over that wallet — there is no way to revoke a key once
+// it's been shown. Restrict which account can request which key at
+// the call site (a non-owner asking for someone else's key should
+// never reach this function) and treat every place this value
+// travels through (logs, chat history, screen) as sensitive.
+function getPrivateKey(userKey) {
+  const SolanaWallet = require("./solana-wallet");
+  const key = String(userKey || "owner").toLowerCase().trim();
+  if (!key) return { error: "Missing userName." };
+
+  let secret = null;
+  const perAccountPath = path.join(USER_KEYS_DIR, `${key}.json`);
+  if (fs.existsSync(perAccountPath)) {
+    secret = JSON.parse(fs.readFileSync(perAccountPath, "utf8"));
+  } else if (SolanaWallet.isOwner(key) && fs.existsSync(path.join(REPO_ROOT, "wallet.json"))) {
+    // Legacy path: an owner wallet made by generateWallet() before
+    // this function existed only ever lived in root wallet.json.
+    secret = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "wallet.json"), "utf8"));
+  }
+
+  if (!Array.isArray(secret)) {
+    return { error: `Jarvis doesn't hold a private key for "${key}" — either no wallet's been generated for this account, or they linked their own existing wallet instead (in which case only they have that key, by design).` };
+  }
+
+  return {
+    userKey: key,
+    address: SolanaWallet.getAddress(key),
+    secretBase58: SolanaWallet.base58Encode(Uint8Array.from(secret)),
+    secretArray: secret,
+    warning: "This is a full private key — anyone who has it can spend everything in this wallet, permanently and irreversibly. Never paste it anywhere but a wallet app's own 'import private key' field.",
+  };
+}
+
+module.exports = { generateWallet, hasExistingWallet, ensureUserWallet, regenerateOwnerWallet, getPrivateKey };
