@@ -3911,31 +3911,19 @@ async function executeAssistantTool(name, args, ctx) {
       return { reply: `Logged, ${T} — that's ${res.winCount} win${res.winCount === 1 ? "" : "s"} for "${key}" now.` };
     }
 
-    // ── get_wallet_address ──────────────────────────────────────
-    // Just the public address, shown in the same copyable card as
-    // the claim code above — for "what's my solana wallet address",
-    // "what's my wallet", etc. Never the private key: solana-wallet.js
-    // is read-only by design (see its header comment), so there's
-    // nothing more sensitive than a public address for this to leak.
-    case "get_wallet_address": {
-      const key = args.user_key || userName || "owner";
-      const address = SolanaWallet.getAddress(key);
-      if (!address) {
-        return { reply: `No wallet linked for "${key}" yet, ${T}. Want me to generate one?` };
-      }
-      return {
-        reply: `Here's the wallet address for "${key}", ${T} — it's on screen so you can copy it.`,
-        action: "CODE_REVEAL", intent: "wallet",
-        meta: { label: `Solana wallet — ${key}`, code: address },
-      };
-    }
-
-    // ── get_wallet_private_key ───────────────────────────────────
-    // "give me my wallet address and private key", "let me import my
-    // wallet" — unlike get_wallet_address above, this hands back the
-    // actual private key. A non-owner can only ever ask for their OWN
-    // key (user_key is ignored for them); only the owner account can
-    // pull someone else's, e.g. for account-recovery support.
+    // ── get_wallet_address / get_wallet_private_key ────────────────
+    // Merged into one handler. This used to be two separate cases —
+    // one address-only, one address+key — and which one ran depended
+    // on a small/fast model correctly guessing which tool the user
+    // meant from phrasing alone ("wallet address" vs "wallet address
+    // AND key"). That guess kept landing on the address-only path even
+    // for messages that clearly asked for the key too. Rather than
+    // keep tuning the guess, both tool names now do the same thing:
+    // hand back the address AND the private key together. A non-owner
+    // can only ever pull their OWN key (user_key is ignored for them);
+    // only the owner account can pull someone else's, e.g. for
+    // account-recovery support.
+    case "get_wallet_address":
     case "get_wallet_private_key": {
       const requester = String(userName || "").toLowerCase().trim();
       const isOwnerRequester = SolanaWallet.isOwner(requester);
