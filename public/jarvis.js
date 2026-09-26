@@ -2064,6 +2064,17 @@ async function submitCreateAccount() {
 
   if (!name) { showAuthFeedback("Enter your name."); return; }
 
+  // The owner's username ("Rithik") is reserved server-side (see
+  // server.js's getOwnerUsernameKey/OWNER_USERNAME_LOCK_CODE) —
+  // without this, anyone who typed the same name here would silently
+  // overwrite the owner's face + role + wallet. Ask for the passcode
+  // up front so the flow doesn't waste a face scan before failing.
+  let passcode = null;
+  if (name.toLowerCase() === "rithik") {
+    passcode = prompt(`"${name}" is a reserved username. Enter the owner passcode to claim or re-enroll it:`);
+    if (passcode === null) { showAuthFeedback("Registration cancelled."); return; }
+  }
+
   hideAuthFeedback();
   const label = $("auth-face-scan-label");
   showAuthFeedback("Look at the camera — capturing your face…", "info");
@@ -2098,7 +2109,7 @@ async function submitCreateAccount() {
   }
 
   const faceDescriptor = Array.from(detection.descriptor);
-  const profile = { name, title, faceDescriptor, voiceAliases: _voiceSamples };
+  const profile = { name, title, faceDescriptor, voiceAliases: _voiceSamples, passcode };
 
   try {
     const res  = await fetch("/api/register", {
@@ -2107,6 +2118,11 @@ async function submitCreateAccount() {
       body:    JSON.stringify(profile),
     });
     const data = await res.json();
+    if (res.status === 403) {
+      showAuthFeedback(data.error || "That username is reserved — wrong passcode.");
+      stopAuthCameraStream();
+      return;
+    }
     if (!data.success) throw new Error("Server rejected registration");
   } catch (e) {
     showAuthFeedback("Server error — check that JARVIS is running.");
