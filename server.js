@@ -1851,6 +1851,29 @@ app.get("/api/outreach/leads", (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+app.post("/api/outreach/queue", (req, res) => {
+  const Outreach = require("./outreach-agent");
+  const { businessName, businessPhone, businessEmail, priceUsd, userName } = req.body || {};
+  try {
+    res.json(Outreach.queueLead(
+      { name: businessName, phone: businessPhone, email: businessEmail },
+      { userKey: userName, price: priceUsd },
+    ));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.get("/api/outreach/queue", (req, res) => {
+  const Outreach = require("./outreach-agent");
+  try { res.json({ queue: Outreach.listQueue() }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/outreach/run-queue", async (req, res) => {
+  const Outreach = require("./outreach-agent");
+  try { res.json(await Outreach.runQueuedOutreach()); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ═══════════════════════════════════════════════════════════════
 // ── LOOKUP (SixtyFour people-intelligence) ──
 // "jarvis lookup <name/email/username>" kicks a job off through
@@ -3887,6 +3910,30 @@ async function executeAssistantTool(name, args, ctx) {
     // ── pitch_business_website ────────────────────────────────────
     // Phone-first, email-fallback outreach — see outreach-agent.js's
     // header comment for the full channel/failover story.
+    // ── queue_business_outreach ───────────────────────────────────
+    // Adds a business to the outreach queue instead of contacting
+    // them immediately — this is what the scheduled GitHub Action
+    // (outreach-run.yml) works through on its own cadence. Use
+    // pitch_business_website instead for "call them right now."
+    case "queue_business_outreach": {
+      const Outreach = require("./outreach-agent");
+      const business = { name: args.business_name, phone: args.business_phone, email: args.business_email };
+      const result = Outreach.queueLead(business, { userKey: userName, price: args.price_usd });
+      if (result.error) return { reply: `${result.error}` };
+      return { reply: `Added "${business.name}" to the outreach queue, ${T} — ${result.queueLength} waiting now. The scheduled run will get to it, or say "run the outreach queue" to go now.`, action: "OUTREACH_QUEUED", intent: "outreach" };
+    }
+
+    // ── run_outreach_queue ────────────────────────────────────────
+    // Manual trigger for the same batch the scheduled job runs —
+    // "run the outreach queue now", "go through my business list".
+    case "run_outreach_queue": {
+      const Outreach = require("./outreach-agent");
+      const result = await Outreach.runQueuedOutreach();
+      if (result.processed.length === 0) return { reply: `Nothing queued right now, ${T}.` };
+      const lines = result.processed.map(r => r.error ? `${r.business}: failed (${r.error})` : `${r.business}: contacted by ${r.lead?.channel || "?"}`).join("; ");
+      return { reply: `Worked through ${result.processed.length}, ${T}: ${lines}. ${result.remainingInQueue} still queued.`, action: "OUTREACH_RUN", intent: "outreach" };
+    }
+
     case "pitch_business_website": {
       const Outreach = require("./outreach-agent");
       const business = { name: args.business_name, phone: args.business_phone, email: args.business_email };
