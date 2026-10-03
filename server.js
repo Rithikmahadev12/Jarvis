@@ -1910,6 +1910,7 @@ app.get("/api/wallet/private-key", (req, res) => {
 // See outreach-agent.js's header comment for the full design.
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/outreach/pitch", async (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
   const Outreach = require("./outreach-agent");
   const { businessName, businessPhone, businessEmail, priceUsd, userName } = req.body || {};
   try {
@@ -1921,6 +1922,7 @@ app.post("/api/outreach/pitch", async (req, res) => {
 });
 
 app.post("/api/outreach/build", async (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
   const Outreach = require("./outreach-agent");
   const { businessName, businessEmail, requirements, priceUsd, userName, deliver } = req.body || {};
   try {
@@ -1939,6 +1941,7 @@ app.get("/api/outreach/leads", (req, res) => {
 });
 
 app.post("/api/outreach/queue", (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
   const Outreach = require("./outreach-agent");
   const { businessName, businessPhone, businessEmail, priceUsd, userName } = req.body || {};
   try {
@@ -1956,9 +1959,50 @@ app.get("/api/outreach/queue", (req, res) => {
 });
 
 app.post("/api/outreach/run-queue", async (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
   const Outreach = require("./outreach-agent");
   try { res.json(await Outreach.runQueuedOutreach()); }
+  catch (e) { res.status(500).json({ error: e.message });
+
+// Finds businesses with no website on its own (see lead-finder.js) and queues them.
+// body: { area?, limit?, userName?, price? }  — area omitted = next one in OUTREACH_AREAS.
+app.post("/api/outreach/discover", async (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
+  const Outreach = require("./outreach-agent");
+  try {
+    const { area, limit, userName, price } = req.body || {};
+    res.json(await Outreach.discoverAndQueue({ area, limit, userKey: userName, price }));
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// One full automatic pass: top up the queue, then contact. body: { force? }
+app.post("/api/outreach/auto-run", async (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
+  const Outreach = require("./outreach-agent");
+  try { res.json(await Outreach.runAutoOutreach({ force: !!req.body?.force, userKey: req.body?.userName })); }
   catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// GET current auto-outreach settings / POST { areas: ["Austin, TX"], categories?, autoEnabled? }
+app.get("/api/outreach/settings", (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
+  res.json(require("./lead-finder").loadSettings());
+});
+app.post("/api/outreach/settings", (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
+  const { areas, categories, autoEnabled } = req.body || {};
+  const patch = {};
+  if (Array.isArray(areas)) patch.areas = areas.map(String).map(a => a.trim()).filter(Boolean);
+  if (Array.isArray(categories)) patch.categories = categories.map(String).map(a => a.trim()).filter(Boolean);
+  if (typeof autoEnabled === "boolean") patch.autoEnabled = autoEnabled;
+  res.json(require("./lead-finder").saveSettings(patch));
+});
+
+// Add someone to the do-not-contact list. body: { name?, phone?, email? }
+app.post("/api/outreach/opt-out", (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
+  res.json(require("./outreach-agent").addOptOut(req.body || {}));
+}); }
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -4010,6 +4054,32 @@ async function executeAssistantTool(name, args, ctx) {
       if (result.processed.length === 0) return { reply: `Nothing queued right now, ${T}.` };
       const lines = result.processed.map(r => r.error ? `${r.business}: failed (${r.error})` : `${r.business}: contacted by ${r.lead?.channel || "?"}`).join("; ");
       return { reply: `Worked through ${result.processed.length}, ${T}: ${lines}. ${result.remainingInQueue} still queued.`, action: "OUTREACH_RUN", intent: "outreach" };
+    }
+
+    // ── find_businesses_for_outreach ──────────────────────────────
+    // Jarvis discovers businesses with no website on its own and
+    // queues them. With run_now it also contacts them immediately.
+    case "find_businesses_for_outreach": {
+      const Outreach = require("./outreach-agent");
+      const LF = require("./lead-finder");
+      if (args.area) {
+        const cur = LF.loadSettings();
+        if (!cur.areas.map(a => a.toLowerCase()).includes(String(args.area).toLowerCase())) {
+          LF.saveSettings({ areas: [...cur.areas, args.area] }); // remember it for the scheduled runs too
+        }
+      }
+      const found = await Outreach.discoverAndQueue({ area: args.area, limit: args.limit, userKey: userName, price: args.price_usd });
+      if (found.error) return { reply: found.error };
+      if (!found.queued.length) return { reply: `Searched ${found.area} (${found.scanned} listings) but found no new businesses without a website, ${T}.`, intent: "outreach" };
+      let reply = `Found ${found.queued.length} in ${found.area}, ${T}: ${found.queued.join(", ")}.`;
+      if (args.run_now) {
+        const ran = await Outreach.runQueuedOutreach();
+        const lines = ran.processed.map(r => r.error ? `${r.business}: failed (${r.error})` : `${r.business}: contacted by ${r.lead?.channel || "?"}`).join("; ");
+        reply += ` Contacted: ${lines}.`;
+      } else {
+        reply += ` Queued — the scheduled run will contact them, or say "run the outreach queue" to go now.`;
+      }
+      return { reply, action: "OUTREACH_DISCOVERED", intent: "outreach" };
     }
 
     case "pitch_business_website": {
