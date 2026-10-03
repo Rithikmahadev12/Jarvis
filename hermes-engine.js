@@ -873,6 +873,23 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "find_businesses_for_outreach",
+      description: "Automatically FIND local businesses that have a phone number but no website, and queue them for a website pitch — 'find businesses without a website in Austin', 'go find me some clients', 'search for businesses to pitch'. Jarvis discovers them itself; the user doesn't need to supply names or numbers. Set run_now to also contact them immediately.",
+      parameters: {
+        type: "object",
+        properties: {
+          area: { type: "string", description: "City/area to search, e.g. 'Austin, TX'. Omit to use the configured areas." },
+          limit: { type: "number", description: "Max businesses to find. Omit for the default." },
+          run_now: { type: "boolean", description: "True to contact the found businesses right away instead of leaving them queued for the scheduled run." },
+          price_usd: { type: "number", description: "Flat price to quote. Omit for the configured default." },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "run_outreach_queue",
       description: "Go through the queued businesses right now instead of waiting for the scheduled run — 'run the outreach queue', 'go through my business list now', 'start calling the businesses I queued up'.",
       parameters: { type: "object", properties: {}, required: [] },
