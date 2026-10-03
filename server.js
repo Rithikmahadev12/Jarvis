@@ -1066,7 +1066,18 @@ function syncOwnerUsernameInConfig(newName) {
 // (currently "Rithik") behind a shared secret code — required any
 // time someone tries to claim OR re-claim that exact username,
 // including the real owner re-enrolling after a reset.
-const OWNER_USERNAME_LOCK_CODE = "2014";
+// Set OWNER_PASSCODE in Render's env vars to change this. The "2014"
+// fallback only exists so you aren't locked out before you set it.
+const OWNER_USERNAME_LOCK_CODE = process.env.OWNER_PASSCODE || "2014";
+
+// Gate for routes that can wipe accounts or touch wallets/private keys.
+// Pass the owner passcode as the x-owner-passcode header (or body/query "passcode").
+function requireOwnerPasscode(req, res) {
+  const given = req.get("x-owner-passcode") || req.body?.passcode || req.query?.passcode;
+  if (given && String(given) === String(OWNER_USERNAME_LOCK_CODE)) return true;
+  res.status(403).json({ error: "Owner passcode required." });
+  return false;
+}
 function getOwnerUsernameKey() {
   try {
     const cfg = JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf8"));
@@ -1360,7 +1371,14 @@ app.post("/api/register", (req, res) => {
   // account IS the owner regardless of what `existing` looked like —
   // covers a first-ever enrollment under this flow, or a profile that
   // got corrupted/reset some other way and never had role set.
-  if (isOwnerUsername) profiles[key].role = "owner";
+  if (isOwnerUsername) {
+    profiles[key].role = "owner";
+    // Re-attach the owner's wallet from config.json if the profile was recreated without one.
+    try {
+      const cfgWallet = JSON.parse(fs.readFileSync(path.join(__dirname, "config.json"), "utf8"))?.owner?.wallet;
+      if (cfgWallet?.address && !profiles[key].wallet?.address) profiles[key].wallet = { ...cfgWallet };
+    } catch { /* config unreadable: owner wallet still resolves via config.json fallback */ }
+  }
   // Don't write literal `"role": undefined` / `"wallet": undefined`
   // into profiles.json for everyone else.
   if (profiles[key].role === undefined)   delete profiles[key].role;
@@ -1577,6 +1595,7 @@ app.post("/api/verify-face", (req, res) => {
 // with the new Face-ID-only sign in. Call once, e.g.:
 //   curl -X POST http://localhost:3000/api/accounts/reset-all
 app.post("/api/accounts/reset-all", (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
   saveProfiles({});
   res.json({ success: true, message: "All accounts cleared. Create a new one to set up Face ID." });
 });
@@ -1841,6 +1860,7 @@ app.post("/api/wallet/earnings", (req, res) => {
 // Generates a brand-new wallet by running make_wallet.py on THIS
 // machine. Only makes sense called locally — see wallet-setup.js.
 app.post("/api/wallet/generate", async (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
   try { res.json(await WalletSetup.generateWallet(req.body || {})); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1849,6 +1869,7 @@ app.post("/api/wallet/generate", async (req, res) => {
 // owner account, use /api/wallet/set-owner instead (theirs lives in
 // config.json, not profiles.json — see solana-wallet.js).
 app.post("/api/wallet/link", (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
   const { userName, address } = req.body || {};
   try { res.json(SolanaWallet.setWalletForUser(userName, address)); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -1856,6 +1877,7 @@ app.post("/api/wallet/link", (req, res) => {
 
 // One-time/occasional: (re)sets the owner's wallet in config.json.
 app.post("/api/wallet/set-owner", (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
   const { address } = req.body || {};
   try { res.json(SolanaWallet.setOwnerWallet(address)); }
   catch (e) { res.status(500).json({ error: e.message }); }
@@ -1865,6 +1887,7 @@ app.post("/api/wallet/set-owner", (req, res) => {
 // key first — see regenerateOwnerWallet()'s comment) and switches
 // the app over to a freshly generated one.
 app.post("/api/wallet/refresh-owner", async (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
   try { res.json(await WalletSetup.regenerateOwnerWallet(req.body?.userName)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1877,6 +1900,7 @@ app.post("/api/wallet/refresh-owner", async (req, res) => {
 // running somewhere only you can reach, and a serious one to get
 // right before this is ever exposed on a shared or public deployment.
 app.get("/api/wallet/private-key", (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
   try { res.json(WalletSetup.getPrivateKey(req.query.userName)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -5534,6 +5558,7 @@ const PORT = process.env.PORT || 3000;
 // Everything that used to run inline here now runs inside boot().
 async function boot() {
   await Persistence.pullAll();
+  await WalletSetup.restoreKeys(); // decrypt wallet keys back from Supabase
 
   bootstrapOwnerAccount();
   Improve.ensureDirs();
