@@ -2,7 +2,7 @@ name: Business Website Outreach
 
 on:
   schedule:
-    - cron: "0 15 * * *"   # once a day, 3pm UTC; tune to taste
+    - cron: "0 15,18 * * 1-5"   # weekdays 3pm + 6pm UTC (inside US business hours); tune to taste
   workflow_dispatch: {}     # trigger manually from the Actions tab to test
 
 jobs:
@@ -34,4 +34,11 @@ jobs:
           # outreach-agent.js's MAX_OUTREACH_PER_RUN.
           OUTREACH_MAX_PER_RUN: ${{ secrets.OUTREACH_MAX_PER_RUN }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          # Auto-discovery: where to look and what kinds of business.
+          OUTREACH_AREAS: ${{ secrets.OUTREACH_AREAS }}
+          OUTREACH_CATEGORIES: ${{ secrets.OUTREACH_CATEGORIES }}
+          OUTREACH_TZ: ${{ secrets.OUTREACH_TZ }}
+          OUTREACH_COUNTRY_CODE: ${{ secrets.OUTREACH_COUNTRY_CODE }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          OUTREACH_FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: node scripts/scheduled-outreach-run.js
