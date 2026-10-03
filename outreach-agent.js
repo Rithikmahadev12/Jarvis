@@ -34,6 +34,7 @@ const AgentMail    = require("./agent-mail");
 const SolanaWallet = require("./solana-wallet");
 const Hermes       = require("./hermes-engine");
 const Reminders    = require("./reminders");
+const LeadFinder   = require("./lead-finder");
 
 const REPO_ROOT   = __dirname;
 const DATA_DIR    = path.join(REPO_ROOT, "data");
@@ -60,6 +61,59 @@ function saveLeads(leads) {
 }
 function leadId(business) {
   return `${(business.name || "lead").toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
+}
+
+// ── NEVER CONTACT TWICE / OPT-OUT ────────────────────────────────
+// data/outreach-contacted.json remembers every business we've reached
+// (by phone digits and normalized name) so auto-discovery never pitches
+// the same place again. data/outreach-optout.json is the do-not-contact
+// list: anyone who says stop is added here and is skipped forever.
+const CONTACTED_PATH = path.join(DATA_DIR, "outreach-contacted.json");
+const OPTOUT_PATH    = path.join(DATA_DIR, "outreach-optout.json");
+
+function readList(p) { try { return JSON.parse(fs.readFileSync(p, "utf8") || "[]"); } catch { return []; } }
+function writeList(p, arr) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(arr, null, 2));
+}
+function idsFor(b) {
+  const ids = [];
+  const phone = String(b.phone || "").replace(/\D/g, "");
+  if (phone) ids.push("p:" + phone.slice(-10));
+  if (b.email) ids.push("e:" + String(b.email).toLowerCase().trim());
+  if (b.name)  ids.push("n:" + String(b.name).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim());
+  return ids;
+}
+function isKnown(business) {
+  const blocked = new Set([...readList(CONTACTED_PATH), ...readList(OPTOUT_PATH)]);
+  for (const q of loadQueue()) idsFor(q.business).forEach(i => blocked.add(i));
+  return idsFor(business).some(i => blocked.has(i));
+}
+function isOptedOut(business) {
+  const out = new Set(readList(OPTOUT_PATH));
+  return idsFor(business).some(i => out.has(i));
+}
+function markContacted(business) {
+  const list = new Set(readList(CONTACTED_PATH));
+  idsFor(business).forEach(i => list.add(i));
+  writeList(CONTACTED_PATH, [...list]);
+}
+// "They said stop" — call with {name, phone, email} (any of them).
+function addOptOut(business) {
+  const list = new Set(readList(OPTOUT_PATH));
+  idsFor(business).forEach(i => list.add(i));
+  writeList(OPTOUT_PATH, [...list]);
+  return { optedOut: true };
+}
+
+// Only place calls during normal business hours in OUTREACH_TZ
+// (default America/New_York), Mon-Fri 9:00-17:00. Pass force to skip.
+function insideCallingHours(now = new Date()) {
+  const tz = process.env.OUTREACH_TZ || "America/New_York";
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short", hour: "numeric", hour12: false }).formatToParts(now);
+  const wd = parts.find(p => p.type === "weekday")?.value;
+  const hr = Number(parts.find(p => p.type === "hour")?.value) % 24;
+  return !["Sat", "Sun"].includes(wd) && hr >= 9 && hr < 17;
 }
 
 // ── THE QUEUE — what makes a scheduled run possible at all ───────
@@ -147,7 +201,9 @@ If that's of interest, just reply with:
 No obligation at all — happy to answer questions first if you'd rather.
 
 Best,
-${callerName || "Jarvis"}`;
+${callerName || "Jarvis"} (an AI assistant)
+
+If you'd rather not hear from me, just reply "stop" and I won't contact you again.`;
   return { subject, text };
 }
 
@@ -156,6 +212,7 @@ ${callerName || "Jarvis"}`;
 async function pitchBusiness(business, { userKey, price, callerName } = {}) {
   const key = normalizeKey(userKey);
   const quotedPrice = price || DEFAULT_PRICE_USD;
+  if (isOptedOut(business)) return { lead: null, error: `${business.name} asked not to be contacted — skipped.` };
   const lead = {
     id: leadId(business),
     userKey: key,
@@ -180,6 +237,7 @@ async function pitchBusiness(business, { userKey, price, callerName } = {}) {
       const leads = loadLeads();
       leads[lead.id] = lead;
       saveLeads(leads);
+      markContacted(business);
       return { lead, notice: AgentPhone.consumeSwitchNotice() };
     } catch (e) {
       if (!isAllAgentPhoneAccountsExhausted(e)) throw e;
@@ -207,6 +265,7 @@ async function pitchBusiness(business, { userKey, price, callerName } = {}) {
     const leads = loadLeads();
     leads[lead.id] = lead;
     saveLeads(leads);
+    markContacted(business);
     return { lead };
   } catch (e) {
     notifyOwnerLater(`AgentMail also failed trying to reach ${business.name} (${e.message}) — both outreach channels are down.`);
@@ -321,7 +380,51 @@ function listLeads(userKey) {
   return leads.filter((l) => l.userKey === key);
 }
 
+// ── AUTOMATIC MODE: find businesses by itself, then pitch them ───
+// Rotates through OUTREACH_AREAS (one area per run), finds businesses
+// with a phone and no website, skips anyone already contacted/opted
+// out/queued, queues them, and the caller then works the queue.
+async function discoverAndQueue({ area, limit, userKey, price } = {}) {
+  const settings = LeadFinder.loadSettings();
+  if (!settings.areas.length && !area) {
+    return { error: "No area set. Set OUTREACH_AREAS (e.g. \"Austin, TX\") in your env, or tell Jarvis \"search for businesses in Austin, TX\"." };
+  }
+  const chosen = area || settings.areas[settings.nextAreaIndex % settings.areas.length];
+  const want = limit || MAX_OUTREACH_PER_RUN;
+  const { found, scanned, area: resolved } = await LeadFinder.findBusinessesWithoutWebsite({
+    area: chosen, limit: want, exclude: isKnown,
+  });
+  if (!area) LeadFinder.saveSettings({ nextAreaIndex: (settings.nextAreaIndex + 1) % settings.areas.length });
+  const queued = [];
+  for (const b of found) {
+    const r = queueLead(b, { userKey, price });
+    if (!r.error) queued.push(b.name);
+  }
+  return { area: resolved || chosen, scanned, queued, queueLength: loadQueue().length };
+}
+
+// What the scheduled job calls. Tops up the queue if it's short, then
+// contacts up to MAX_OUTREACH_PER_RUN. force skips the calling-hours check.
+async function runAutoOutreach({ force = false, userKey } = {}) {
+  const settings = LeadFinder.loadSettings();
+  const out = { discovered: null, ran: null, skipped: null };
+  if (!force && !insideCallingHours()) {
+    out.skipped = "Outside calling hours (Mon-Fri 9-5 in OUTREACH_TZ) — nothing contacted this run.";
+    return out;
+  }
+  if (settings.autoEnabled && loadQueue().length < MAX_OUTREACH_PER_RUN) {
+    try { out.discovered = await discoverAndQueue({ userKey }); }
+    catch (e) { out.discovered = { error: e.message }; }
+  }
+  out.ran = await runQueuedOutreach();
+  return out;
+}
+
 module.exports = {
+  discoverAndQueue,
+  runAutoOutreach,
+  addOptOut,
+  insideCallingHours,
   pitchBusiness,
   buildAndDeliverSite,
   listLeads,
