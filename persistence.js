@@ -134,6 +134,7 @@ async function listRemoteFiles(prefix = "") {
   for (const item of data || []) {
     const itemPath = prefix ? `${prefix}/${item.name}` : item.name;
     if (item.id === null) {
+      if (itemPath === KEYS_PREFIX) continue; // handled separately, encrypted
       out = out.concat(await listRemoteFiles(itemPath)); // it's a folder — recurse
     } else {
       out.push(itemPath);
@@ -148,6 +149,14 @@ async function listRemoteFiles(prefix = "") {
 // only spends calls on files that actually changed.
 const _lastSynced = new Map();
 
+// SAFETY GATE: flush() must never run until a pull has succeeded.
+// Otherwise a fresh container whose restore failed (network blip, bad
+// key) would write a brand-new, near-empty profiles.json and push it
+// over the real one in Supabase — wiping the owner account. That is
+// how an owner ends up signed in as "a random user that doesn't exist".
+let _pullOk = false;
+const KEYS_PREFIX = "wallet-keys"; // encrypted key backups live here, never mirrored into data/
+
 // ── PULL: Supabase → local disk (call once, at boot, before
 // anything else reads data/) ───────────────────────────────────────
 async function pullAll() {
@@ -159,29 +168,42 @@ async function pullAll() {
     );
     return;
   }
-  try {
-    console.log("[MEMORY-SYNC] Connecting to Supabase — restoring saved memory...");
-    const relPaths = await listRemoteFiles();
-    let restored = 0;
-    for (const relPath of relPaths) {
-      const { data, error } = await client().storage.from(BUCKET).download(relPath);
-      if (error || !data) continue;
-      const buffer = Buffer.from(await data.arrayBuffer());
-      const fullPath = path.join(DATA_DIR, relPath);
-      fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-      fs.writeFileSync(fullPath, buffer);
-      _lastSynced.set(relPath, hashOf(buffer));
-      restored++;
+  const MAX_ATTEMPTS = 4;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      console.log(`[MEMORY-SYNC] Connecting to Supabase — restoring saved memory (try ${attempt}/${MAX_ATTEMPTS})...`);
+      const relPaths = await listRemoteFiles();
+      let restored = 0, failed = 0;
+      for (const relPath of relPaths) {
+        const { data, error } = await client().storage.from(BUCKET).download(relPath);
+        if (error || !data) { failed++; continue; }
+        const buffer = Buffer.from(await data.arrayBuffer());
+        const fullPath = path.join(DATA_DIR, relPath);
+        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+        fs.writeFileSync(fullPath, buffer);
+        _lastSynced.set(relPath, hashOf(buffer));
+        restored++;
+      }
+      if (failed) throw new Error(`${failed} file(s) failed to download`);
+      _pullOk = true;
+      console.log(`[MEMORY-SYNC] Restored ${restored} file(s) from Supabase. Memory intact.`);
+      return;
+    } catch (e) {
+      console.warn(`[MEMORY-SYNC] Pull failed (try ${attempt}/${MAX_ATTEMPTS}): ${e.message}`);
+      if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, 2000 * attempt));
     }
-    console.log(`[MEMORY-SYNC] Restored ${restored} file(s) from Supabase. Memory intact.`);
-  } catch (e) {
-    console.warn("[MEMORY-SYNC] Pull failed — continuing with whatever's on local disk:", e.message);
   }
+  console.error(
+    "[MEMORY-SYNC] Could NOT restore from Supabase. Pushing is DISABLED this run so your saved " +
+    "profiles/wallet data in Supabase can't be overwritten by an empty local copy. Check the " +
+    "SUPABASE_* env vars and redeploy."
+  );
 }
 
 // ── PUSH: local disk → Supabase (whatever changed since the last call) ──
 async function flush() {
   if (!isConfigured()) return 0;
+  if (!_pullOk) return 0; // never push before a successful restore — see _pullOk above
   const files = listLocalFiles(DATA_DIR);
   let pushed = 0;
   for (const fullPath of files) {
@@ -283,4 +305,73 @@ async function deleteRemote(relPath) {
   }
 }
 
-module.exports = { pullAll, flush, startAutoSync, isConfigured, getJSON, putJSON, deleteRemote };
+// ── ENCRYPTED SECRET BACKUP (wallet private keys) ─────────────────
+// Private keys are stored in the same Supabase bucket under
+// "wallet-keys/", but ONLY ever encrypted (AES-256-GCM) with a key
+// derived from WALLET_ENCRYPTION_SECRET, which lives in your Render
+// env vars and never in Supabase. Someone with only Supabase access
+// sees ciphertext. Lose WALLET_ENCRYPTION_SECRET and the backups are
+// unrecoverable — store it in a password manager too.
+function encryptionReady() {
+  return isConfigured() && !!process.env.WALLET_ENCRYPTION_SECRET;
+}
+function _aesKey() {
+  return crypto.scryptSync(process.env.WALLET_ENCRYPTION_SECRET, "jarvis-wallet-keys-v1", 32);
+}
+function _encrypt(plain) {
+  const iv = crypto.randomBytes(12);
+  const c  = crypto.createCipheriv("aes-256-gcm", _aesKey(), iv);
+  const ct = Buffer.concat([c.update(plain), c.final()]);
+  return Buffer.concat([Buffer.from("JK1"), iv, c.getAuthTag(), ct]);
+}
+function _decrypt(buf) {
+  if (buf.slice(0, 3).toString() !== "JK1") throw new Error("unknown backup format");
+  const iv = buf.slice(3, 15), tag = buf.slice(15, 31), ct = buf.slice(31);
+  const d = crypto.createDecipheriv("aes-256-gcm", _aesKey(), iv);
+  d.setAuthTag(tag);
+  return Buffer.concat([d.update(ct), d.final()]);
+}
+
+// name e.g. "rithik.json", "owner-wallet.json"
+async function putSecret(name, plainBuffer) {
+  if (!encryptionReady()) return false;
+  try {
+    const { error } = await client().storage.from(BUCKET)
+      .upload(`${KEYS_PREFIX}/${name}.enc`, _encrypt(plainBuffer), { contentType: "application/octet-stream", upsert: true });
+    if (error) throw error;
+    return true;
+  } catch (e) {
+    console.warn(`[KEY-BACKUP] Failed to back up ${name}: ${e.message}`);
+    return false;
+  }
+}
+
+// Restores every encrypted key into destDir (skips files that already exist locally).
+async function restoreSecrets(destDir) {
+  if (!encryptionReady()) return 0;
+  let n = 0;
+  try {
+    const { data, error } = await client().storage.from(BUCKET).list(KEYS_PREFIX, { limit: 1000 });
+    if (error) throw error;
+    for (const item of data || []) {
+      if (!item.name.endsWith(".enc")) continue;
+      const out = path.join(destDir, item.name.slice(0, -4));
+      if (fs.existsSync(out)) continue;
+      const dl = await client().storage.from(BUCKET).download(`${KEYS_PREFIX}/${item.name}`);
+      if (dl.error || !dl.data) continue;
+      try {
+        const plain = _decrypt(Buffer.from(await dl.data.arrayBuffer()));
+        fs.mkdirSync(destDir, { recursive: true });
+        fs.writeFileSync(out, plain, { mode: 0o600 });
+        n++;
+      } catch (e) {
+        console.warn(`[KEY-BACKUP] Could not decrypt ${item.name} (wrong WALLET_ENCRYPTION_SECRET?): ${e.message}`);
+      }
+    }
+  } catch (e) {
+    console.warn("[KEY-BACKUP] Restore failed:", e.message);
+  }
+  return n;
+}
+
+module.exports = { putSecret, restoreSecrets, encryptionReady, pullAll, flush, startAutoSync, isConfigured, getJSON, putJSON, deleteRemote };
