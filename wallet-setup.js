@@ -35,6 +35,60 @@ const ENV_PATH    = path.join(REPO_ROOT, ".env");
 // treat every fund in that wallet as gone.
 const USER_KEYS_DIR = path.join(REPO_ROOT, "wallet-keys");
 
+// ── DURABLE ENCRYPTED KEY BACKUP (Supabase) ──────────────────────
+// Every private key this module creates is also encrypted and saved to
+// Supabase (see persistence.js putSecret) and restored at boot, so a
+// Render redeploy can't destroy it. Needs SUPABASE_* plus
+// WALLET_ENCRYPTION_SECRET. On Render we refuse to create a key we
+// can't back up, because an un-backed-up key would vanish on redeploy
+// along with any funds sent to it.
+const Persistence = require("./persistence");
+const ON_RENDER = !!process.env.RENDER;
+
+function keysAreDurable() {
+  return Persistence.encryptionReady();
+}
+function durabilityBlocker() {
+  if (!ON_RENDER || keysAreDurable()) return null;
+  return "Refusing to create a wallet: this server's disk is wiped on every redeploy and encrypted Supabase key backup isn't set up. Set SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_BUCKET and WALLET_ENCRYPTION_SECRET in Render, then try again.";
+}
+async function backupKeyFile(name, filePath) {
+  try {
+    return await Persistence.putSecret(name, fs.readFileSync(filePath));
+  } catch (e) {
+    console.warn(`[KEY-BACKUP] ${name}: ${e.message}`);
+    return false;
+  }
+}
+async function backupAllKeys() {
+  let n = 0;
+  if (fs.existsSync(USER_KEYS_DIR)) {
+    for (const f of fs.readdirSync(USER_KEYS_DIR)) {
+      if (f.endsWith(".json") && await backupKeyFile(f, path.join(USER_KEYS_DIR, f))) n++;
+    }
+  }
+  const root = path.join(REPO_ROOT, "wallet.json");
+  if (fs.existsSync(root) && await backupKeyFile("_root-wallet.json", root)) n++;
+  return n;
+}
+// Call once at boot, after Persistence.pullAll().
+async function restoreKeys() {
+  if (!keysAreDurable()) {
+    if (ON_RENDER) console.warn("[KEY-BACKUP] WALLET_ENCRYPTION_SECRET not set — wallet keys are NOT backed up and will be lost on redeploy.");
+    return;
+  }
+  const restored = await Persistence.restoreSecrets(USER_KEYS_DIR);
+  const rootBackup = path.join(USER_KEYS_DIR, "_root-wallet.json");
+  const root = path.join(REPO_ROOT, "wallet.json");
+  if (fs.existsSync(rootBackup) && !fs.existsSync(root)) {
+    fs.copyFileSync(rootBackup, root);
+    try { fs.chmodSync(root, 0o600); } catch {}
+  }
+  // Upload anything that exists locally but isn't backed up yet (e.g. keys created before this feature).
+  const pushed = await backupAllKeys();
+  console.log(`[KEY-BACKUP] Restored ${restored} key file(s); ${pushed} encrypted backup(s) up to date in Supabase.`);
+}
+
 function run(cmd, opts = {}) {
   return new Promise((resolve, reject) => {
     exec(cmd, { cwd: REPO_ROOT, timeout: 30000, ...opts }, (err, stdout, stderr) => {
@@ -82,6 +136,8 @@ async function generateWallet({ overwrite = false } = {}) {
   if (!fs.existsSync(SCRIPT_PATH)) {
     return { error: "make_wallet.py not found next to server.js." };
   }
+  const blocked = durabilityBlocker();
+  if (blocked) return { error: blocked };
   const keyPath = path.join(REPO_ROOT, "wallet.json");
   if (fs.existsSync(keyPath) && !overwrite) {
     return { error: "wallet.json already exists. A wallet's already been generated — pass overwrite to replace it (this abandons the old address's funds unless you've backed up wallet.json)." };
@@ -106,9 +162,14 @@ async function generateWallet({ overwrite = false } = {}) {
     return { error: "Script ran but I couldn't parse an address out of its output.", raw: stdout };
   }
 
+  const backedUp = await backupKeyFile("_root-wallet.json", keyPath);
+  if (ON_RENDER && !backedUp) {
+    return { error: "Wallet was created but the encrypted Supabase backup failed, so it was NOT activated. Check your Supabase settings.", address };
+  }
   return {
     address,
     keyFile: keyPath,
+    backedUpToSupabase: backedUp,
     envUpdated: fs.existsSync(ENV_PATH) && fs.readFileSync(ENV_PATH, "utf8").includes(address),
     warning: "Private key saved locally to wallet.json — back it up somewhere safe (a password manager, not another cloud sync) and never commit or share that file.",
   };
@@ -154,6 +215,9 @@ async function ensureUserWallet(userKey) {
     return { address: SolanaWallet.getAddress(key), created: false };
   }
 
+  const blocked = durabilityBlocker();
+  if (blocked) return { error: blocked };
+
   try {
     await ensureSolders();
   } catch (e) {
@@ -183,6 +247,14 @@ async function ensureUserWallet(userKey) {
   fs.writeFileSync(keyPath, JSON.stringify(secret), "utf8");
   try { fs.chmodSync(keyPath, 0o600); } catch { /* Windows: no-op */ }
 
+  // Back up BEFORE linking: if the backup fails on Render, discard the key
+  // so no one ever sends funds to an address we can't recover.
+  const backedUp = await backupKeyFile(`${key}.json`, keyPath);
+  if (ON_RENDER && !backedUp) {
+    try { fs.unlinkSync(keyPath); } catch {}
+    return { error: "Couldn't back up the new wallet key to Supabase, so it was discarded. Check your Supabase settings and try again." };
+  }
+
   const link = SolanaWallet.isOwner(key)
     ? SolanaWallet.setOwnerWallet(address)
     : SolanaWallet.setWalletForUser(key, address);
@@ -195,7 +267,8 @@ async function ensureUserWallet(userKey) {
     address,
     created: true,
     keyFile: keyPath,
-    warning: "Jarvis generated and now holds this account's private key in wallet-keys/ (gitignored, never synced to Supabase, chmod 600). Anyone with disk access to this server can spend from it — for real money, having the user link their own existing wallet instead is safer.",
+    backedUpToSupabase: backedUp,
+    warning: "Jarvis generated this account's private key, saved it in wallet-keys/ and (if configured) an AES-256-GCM encrypted copy in Supabase. Anyone with disk access to this server can spend from it — for real money, having the user link their own existing wallet instead is safer.",
   };
 }
 
@@ -209,6 +282,8 @@ async function ensureUserWallet(userKey) {
 // retrievable the same way as any other account's key — see
 // getPrivateKey() below.
 async function regenerateOwnerWallet(userKey) {
+  const blocked = durabilityBlocker();
+  if (blocked) return { error: blocked };
   const key = String(userKey || "owner").toLowerCase().trim();
   const oldKeyPath = path.join(REPO_ROOT, "wallet.json");
   let backupPath = null;
@@ -231,6 +306,7 @@ async function regenerateOwnerWallet(userKey) {
   fs.writeFileSync(oldKeyPath, JSON.stringify(kp.secret), "utf8");
   try { fs.chmodSync(oldKeyPath, 0o600); } catch { /* Windows: no-op */ }
   const keyFile = writeKeyFile(key, kp.secret);
+  await backupAllKeys(); // includes the old-wallet backup file and the new key
 
   const SolanaWallet = require("./solana-wallet");
   const link = SolanaWallet.setOwnerWallet(kp.address);
@@ -291,4 +367,4 @@ function getPrivateKey(userKey) {
   };
 }
 
-module.exports = { generateWallet, hasExistingWallet, ensureUserWallet, regenerateOwnerWallet, getPrivateKey };
+module.exports = { restoreKeys, backupAllKeys, generateWallet, hasExistingWallet, ensureUserWallet, regenerateOwnerWallet, getPrivateKey };
