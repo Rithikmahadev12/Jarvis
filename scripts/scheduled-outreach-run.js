@@ -28,21 +28,21 @@ async function main() {
   console.log("[OUTREACH-RUN] Pulling latest state from Supabase...");
   await Persistence.pullAll();
 
-  const queued = Outreach.listQueue();
-  if (queued.length === 0) {
-    console.log("[OUTREACH-RUN] Queue is empty -- nothing to do this run.");
-  } else {
-    console.log(`[OUTREACH-RUN] ${queued.length} business(es) queued -- processing up to OUTREACH_MAX_PER_RUN...`);
-    const { processed, remainingInQueue } = await Outreach.runQueuedOutreach();
-    for (const r of processed) {
-      if (r.error) {
-        console.error(`[OUTREACH-RUN] ${r.business}: failed -- ${r.error}`);
-      } else {
-        console.log(`[OUTREACH-RUN] ${r.business}: contacted by ${r.lead?.channel || "unknown channel"}` +
-          (r.lead?.transcript ? ` -- "${String(r.lead.transcript).slice(0, 200)}..."` : ""));
-      }
+  // Fully automatic: finds new businesses by itself (see lead-finder.js),
+  // queues them, then contacts up to OUTREACH_MAX_PER_RUN. Set
+  // OUTREACH_FORCE=1 on a manual run to ignore the calling-hours window.
+  const force = process.env.OUTREACH_FORCE === "1";
+  const result = await Outreach.runAutoOutreach({ force });
+  if (result.skipped) console.log(`[OUTREACH-RUN] ${result.skipped}`);
+  if (result.discovered?.error) console.error(`[OUTREACH-RUN] Discovery: ${result.discovered.error}`);
+  else if (result.discovered) console.log(`[OUTREACH-RUN] Found ${result.discovered.queued.length} new business(es) in ${result.discovered.area} (scanned ${result.discovered.scanned}).`);
+  if (result.ran) {
+    for (const r of result.ran.processed) {
+      if (r.error) console.error(`[OUTREACH-RUN] ${r.business}: failed -- ${r.error}`);
+      else console.log(`[OUTREACH-RUN] ${r.business}: contacted by ${r.lead?.channel || "unknown channel"}` +
+        (r.lead?.transcript ? ` -- "${String(r.lead.transcript).slice(0, 200)}..."` : ""));
     }
-    console.log(`[OUTREACH-RUN] ${remainingInQueue} still queued for next run.`);
+    console.log(`[OUTREACH-RUN] ${result.ran.remainingInQueue} still queued for next run.`);
   }
 
   console.log("[OUTREACH-RUN] Pushing updated state back to Supabase...");
