@@ -357,7 +357,19 @@ async function withAccountFailover(ownerName, fn) {
       const hasNext = attempt < cfgs.length - 1;
       const shouldFailover = isAccountExhaustedError(e) && hasNext;
       console.error(`[AGENTPHONE] Account #${idx + 1} failed (${describeAccount(account, cfgs[idx], idx)}): ${e.message}`);
-      if (!shouldFailover) throw e;
+      if (!shouldFailover) {
+        // No backup account left (or this is the only one) and the error
+        // means "this account can't place calls" (402/401/403/429, out of
+        // funds, etc). Report it as ALL accounts being unavailable so the
+        // caller (outreach-agent.js) knows to fall back to email instead
+        // of treating it as an unrelated crash.
+        if (isAccountExhaustedError(e)) {
+          const all = new Error(`All ${cfgs.length} AgentPhone account(s) are unavailable. Last error: ${e.message}`);
+          all.status = e.status;
+          throw all;
+        }
+        throw e;
+      }
 
       const fromIdx = idx;
       const fromNumber = account.phoneNumber || null;
