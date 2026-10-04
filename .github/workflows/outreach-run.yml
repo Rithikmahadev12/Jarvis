@@ -28,6 +28,12 @@ jobs:
           AGENTPHONE_API_KEY: ${{ secrets.AGENTPHONE_API_KEY }}
           AGENTPHONE_API_KEY2: ${{ secrets.AGENTPHONE_API_KEY2 }}
           AGENTPHONE_API_KEY3: ${{ secrets.AGENTPHONE_API_KEY3 }}
+          AGENTPHONE_AGENT_ID: ${{ secrets.AGENTPHONE_AGENT_ID }}
+          AGENTPHONE_NUMBER_ID: ${{ secrets.AGENTPHONE_NUMBER_ID }}
+          AGENTPHONE_AGENT_ID2: ${{ secrets.AGENTPHONE_AGENT_ID2 }}
+          AGENTPHONE_NUMBER_ID2: ${{ secrets.AGENTPHONE_NUMBER_ID2 }}
+          AGENTPHONE_AGENT_ID3: ${{ secrets.AGENTPHONE_AGENT_ID3 }}
+          AGENTPHONE_NUMBER_ID3: ${{ secrets.AGENTPHONE_NUMBER_ID3 }}
           AGENTMAIL_API_KEY: ${{ secrets.AGENTMAIL_API_KEY }}
           WEBSITE_BUILD_PRICE_USD: ${{ secrets.WEBSITE_BUILD_PRICE_USD }}
           # Cap how many businesses one run contacts — see
