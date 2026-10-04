@@ -27,7 +27,10 @@ const SETTINGS_PATH = path.join(DATA_DIR, "outreach-settings.json");
 const UA = "JarvisOutreach/1.0 (small-business website outreach)";
 const OVERPASS_URLS = [
   "https://overpass-api.de/api/interpreter",
+  "https://lz4.overpass-api.de/api/interpreter",
+  "https://z.overpass-api.de/api/interpreter",
   "https://overpass.kumi.systems/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
 ];
 
 // Small, local, service-type businesses that commonly lack a website.
@@ -145,15 +148,24 @@ function buildOverpassQuery(areaId, categories, limit) {
 }
 
 async function overpass(query) {
+  // Public Overpass servers are free and often overloaded, so try every
+  // mirror, then pause and do a second full pass before giving up.
+  const ROUNDS = 2;
   let lastErr;
-  for (const url of OVERPASS_URLS) {
-    try {
-      return await fetchJson(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: "data=" + encodeURIComponent(query),
-      }, 70000);
-    } catch (e) { lastErr = e; }
+  for (let round = 1; round <= ROUNDS; round++) {
+    for (const url of OVERPASS_URLS) {
+      try {
+        return await fetchJson(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: "data=" + encodeURIComponent(query),
+        }, 45000);
+      } catch (e) {
+        lastErr = e;
+        console.warn(`[LEAD-FINDER] Overpass ${new URL(url).hostname} failed (round ${round}/${ROUNDS}): ${e.message}`);
+      }
+    }
+    if (round < ROUNDS) await new Promise(r => setTimeout(r, 15000));
   }
   throw new Error(`Overpass unavailable: ${lastErr && lastErr.message}`);
 }
