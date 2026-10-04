@@ -292,6 +292,22 @@ async function ensureAgentAndNumber(ownerName, index) {
 // giving up. Used by every real API action (placing calls, pushing
 // the inbound prompt) so the failover behavior is in exactly one
 // place instead of duplicated per call-site.
+// Masked, log-safe description of which AgentPhone account is in use:
+// last 4 chars only, plus where the agent/number ids came from.
+function maskTail(v) {
+  const t = String(v || "").trim();
+  return t ? `…${t.slice(-4)}` : "none";
+}
+function describeAccount(account, cfg, idx) {
+  const agentSrc = cfg && cfg.agentIdEnv && cfg.agentIdEnv === account.agentId ? "env" : "cache";
+  const numberSrc = cfg && cfg.numberIdEnv && cfg.numberIdEnv === account.numberId ? "env" : "cache";
+  return `account #${idx + 1} [key ${maskTail(account.apiKey)}, ` +
+    `agent ${maskTail(account.agentId)} (${agentSrc}), ` +
+    `number ${maskTail(account.numberId)} (${numberSrc}), ` +
+    `phone ${account.phoneNumber || "unknown"}]`;
+}
+const _loggedAccounts = new Set();
+
 async function withAccountFailover(ownerName, fn) {
   const cfgs = loadAccountConfigs();
   if (!cfgs.length) throw new Error("AGENTPHONE_API_KEY not set in .env — get one at agentphone.ai/settings after signing up.");
@@ -310,6 +326,14 @@ async function withAccountFailover(ownerName, fn) {
       console.error(`[AGENTPHONE] Account #${idx + 1} could not be set up: ${e.message}`);
       idx = (idx + 1) % cfgs.length;
       continue;
+    }
+
+    {
+      const desc = describeAccount(account, cfgs[idx], idx);
+      if (!_loggedAccounts.has(desc)) {
+        _loggedAccounts.add(desc);
+        console.log(`[AGENTPHONE] Using ${desc} — ${cfgs.length} account(s) configured`);
+      }
     }
 
     // If this account is the destination of a pending, not-yet-
@@ -332,7 +356,7 @@ async function withAccountFailover(ownerName, fn) {
       lastErr = e;
       const hasNext = attempt < cfgs.length - 1;
       const shouldFailover = isAccountExhaustedError(e) && hasNext;
-      console.error(`[AGENTPHONE] Account #${idx + 1} failed: ${e.message}`);
+      console.error(`[AGENTPHONE] Account #${idx + 1} failed (${describeAccount(account, cfgs[idx], idx)}): ${e.message}`);
       if (!shouldFailover) throw e;
 
       const fromIdx = idx;
