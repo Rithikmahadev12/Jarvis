@@ -27,6 +27,7 @@ jobs:
           SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
           BLAND_API_KEY: ${{ secrets.BLAND_API_KEY }}
           BLAND_FROM_NUMBER: ${{ secrets.BLAND_FROM_NUMBER }}
+          JARVIS_PUBLIC_URL: ${{ secrets.JARVIS_PUBLIC_URL }}
           AGENTPHONE_API_KEY: ${{ secrets.AGENTPHONE_API_KEY }}
           AGENTPHONE_API_KEY2: ${{ secrets.AGENTPHONE_API_KEY2 }}
           AGENTPHONE_API_KEY3: ${{ secrets.AGENTPHONE_API_KEY3 }}
