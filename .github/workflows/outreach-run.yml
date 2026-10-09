@@ -25,6 +25,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
+          BLAND_API_KEY: ${{ secrets.BLAND_API_KEY }}
+          BLAND_FROM_NUMBER: ${{ secrets.BLAND_FROM_NUMBER }}
           AGENTPHONE_API_KEY: ${{ secrets.AGENTPHONE_API_KEY }}
           AGENTPHONE_API_KEY2: ${{ secrets.AGENTPHONE_API_KEY2 }}
           AGENTPHONE_API_KEY3: ${{ secrets.AGENTPHONE_API_KEY3 }}
