@@ -23,35 +23,31 @@
 // phone calling instead of the TextNow browser-automation path.
 // ═══════════════════════════════════════════════════════════════
 
-const Retell = require("./retell-call");
 const Bland = require("./bland-call");
 const AgentPhone = require("./agentphone");
 const Twilio = require("./twilio-call");
 
-const RETELL_PREFIX = "rt_";
 const BLAND_PREFIX = "bl_";
 const AGENTPHONE_PREFIX = "ap_";
 const TWILIO_PREFIX = "tw_";
 
 function backendFor(callId) {
   const id = String(callId || "");
-  if (id.startsWith(RETELL_PREFIX)) return Retell;
   if (id.startsWith(BLAND_PREFIX)) return Bland;
   if (id.startsWith(TWILIO_PREFIX)) return Twilio;
   return AgentPhone;
 }
 function stripPrefix(callId) {
-  return String(callId || "").replace(/^(rt_|bl_|ap_|tw_)/, "");
+  return String(callId || "").replace(/^(bl_|ap_|tw_)/, "");
 }
 
 function isConfigured() {
-  return Retell.isConfigured() || Bland.isConfigured() || AgentPhone.isConfigured() || Twilio.isConfigured();
+  return Bland.isConfigured() || AgentPhone.isConfigured() || Twilio.isConfigured();
 }
 
 // Which backend is actually usable right now, for status displays
 // (not used for routing existing calls — see backendFor()).
 function activeBackendName() {
-  if (Retell.isConfigured()) return "retell";
   if (Bland.isConfigured()) return "bland";
   if (AgentPhone.isConfigured()) return "agentphone";
   if (Twilio.isConfigured()) return "twilio";
@@ -63,7 +59,6 @@ async function placeOutboundCall(opts) {
   // gets a try; the first that works wins. If all fail, the LAST
   // real error is thrown (never a vague "unavailable").
   const backends = [
-    { name: "Retell",     mod: Retell,     prefix: RETELL_PREFIX },
     { name: "Bland",      mod: Bland,      prefix: BLAND_PREFIX },
     { name: "AgentPhone", mod: AgentPhone, prefix: AGENTPHONE_PREFIX },
     { name: "Twilio",     mod: Twilio,     prefix: TWILIO_PREFIX },
@@ -71,7 +66,7 @@ async function placeOutboundCall(opts) {
 
   if (!backends.length) {
     throw new Error(
-      "No calling backend configured — set RETELL_API_KEY/RETELL_AGENT_ID/RETELL_FROM_NUMBER (retellai.com), BLAND_API_KEY (bland.ai), " +
+      "No calling backend configured — set BLAND_API_KEY (bland.ai), " +
       "AGENTPHONE_API_KEY (agentphone.ai) or TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_PHONE_NUMBER in the environment."
     );
   }
