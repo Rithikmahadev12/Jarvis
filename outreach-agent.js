@@ -29,7 +29,7 @@
 const fs   = require("fs");
 const path = require("path");
 
-const AgentPhone   = require("./agentphone");
+const AgentPhone   = require("./phone-provider"); // Retell -> Bland -> AgentPhone -> Twilio, first that works
 const AgentMail    = require("./agent-mail");
 const SolanaWallet = require("./solana-wallet");
 const Hermes       = require("./hermes-engine");
@@ -224,6 +224,7 @@ async function pitchBusiness(business, { userKey, price, callerName } = {}) {
     contactedAt: new Date().toISOString(),
   };
 
+  let callFailure = null;
   if (business.phone && AgentPhone.isConfigured()) {
     try {
       const call = await AgentPhone.placeOutboundCall({
@@ -232,6 +233,9 @@ async function pitchBusiness(business, { userKey, price, callerName } = {}) {
         ownerName: callerName,
       });
       const finished = await AgentPhone.waitForCallCompletion(call.id || call.callId);
+      if (finished && finished.status === "failed") {
+        throw new Error(finished.errorMessage || "the call didn't connect");
+      }
       lead.channel = "phone";
       lead.transcript = finished.transcript || finished.summary || null;
       const leads = loadLeads();
@@ -240,14 +244,16 @@ async function pitchBusiness(business, { userKey, price, callerName } = {}) {
       markContacted(business);
       return { lead, notice: AgentPhone.consumeSwitchNotice() };
     } catch (e) {
-      if (!isAllAgentPhoneAccountsExhausted(e)) throw e;
-      notifyOwnerLater(`The calling API (AgentPhone) ran out while trying to reach ${business.name} — needs a new one.`);
-      // fall through to email below
+      // Surface the REAL reason instead of the old misleading
+      // "no phone ... and no email" message, then fall through to email.
+      callFailure = e.message;
+      console.error(`[OUTREACH] Phone call to ${business.name} failed: ${e.message}`);
+      notifyOwnerLater(`The call to ${business.name} failed: ${String(e.message).slice(0, 200)}`);
     }
   }
 
   if (!business.email) {
-    return { lead: null, error: `Couldn't reach ${business.name}: no phone (or AgentPhone unavailable) and no email on file.` };
+    return { lead: null, error: callFailure ? `Couldn't reach ${business.name}: the call failed (${String(callFailure).slice(0, 300)}) and there is no email on file.` : `Couldn't reach ${business.name}: no phone number and no email on file.` };
   }
   if (!AgentMail.isConfigured()) {
     notifyOwnerLater(`Tried to email-pitch ${business.name} after the calling API ran out, but AgentMail isn't configured — needs an API key.`);
