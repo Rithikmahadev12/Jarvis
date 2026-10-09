@@ -258,6 +258,10 @@ VideoAgentRoutes.mount(app);
 const TwilioVoiceRoutes = require("./twilio-voice-routes");
 TwilioVoiceRoutes.mount(app);
 
+// ── BLAND — "Ask Jarvis" tool webhook (Jarvis as the brain on Bland calls).
+//    Plain JSON, so it mounts after express.json(). See bland-brain-routes.js.
+require("./bland-brain-routes").mount(app);
+
 // ═══════════════════════════════════════════════════════════════
 // ── COMMS
 // ═══════════════════════════════════════════════════════════════
