@@ -802,6 +802,71 @@ const TOOLS = [
   {
     type: "function",
     function: {
+      name: "find_ways_to_earn",
+      description: "Research NEW legitimate ways for Jarvis to make money: reviews its earnings, searches the web, opens promising pages on its own computer, and ranks the best options. Use for 'find ways to make money', 'how can you earn', 'go look for money-making ideas', 'research bounties'.",
+      parameters: { type: "object", properties: { focus: { type: "string", description: "Optional area to focus on, e.g. 'crypto bounties' or 'freelance'." } } },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "earn_status",
+      description: "Report the latest earn-cycle results and whether the daily cycle is on. Optionally turn the daily cycle on/off. Use for 'earn status', 'what did you find', 'what are your money ideas', 'turn off daily earning'.",
+      parameters: { type: "object", properties: { daily: { type: "boolean", description: "true/false to switch the daily cycle on or off. Omit to just report." } } },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "improve_earning",
+      description: "Have Jarvis update its OWN earning code (bounties, store, leads) in a safe sandbox, then show an Allow card before pushing. Use for 'upgrade your earning code', 'make the bounty scanner better', 'change how you find bounties'. Cannot touch wallet, key, approval or deploy files.",
+      parameters: { type: "object", properties: {
+        file: { type: "string", description: "Earning file, e.g. github-bounty.js, superteam-agent.js, helio-store.js, lead-finder.js, outreach-agent.js, store-routes.js." },
+        change: { type: "string", description: "What to change, in a sentence or two." },
+        why: { type: "string", description: "Why it should earn more." },
+      }, required: ["file", "change"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "send_crypto",
+      description: "Send SOL from the owner's wallet to ANY Solana address, any amount (unless the owner set a cap). Owner only. By default shows one Allow tap first; if the owner turned that off it sends straight away. Use for 'send 0.01 SOL to <address>', 'move funds to my phantom', 'pay <address>'.",
+      parameters: { type: "object", properties: {
+        to_address: { type: "string", description: "Destination Solana address." },
+        amount_sol: { type: "number", description: "Amount in SOL." },
+        reason: { type: "string", description: "Short reason shown on the card." },
+      }, required: ["to_address", "amount_sol"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_wallet_destination",
+      description: "Save a Solana address with a name (e.g. 'my Phantom') so it can be shown by name on transfer cards. Owner only. Not required for sending.",
+      parameters: { type: "object", properties: {
+        address: { type: "string", description: "Solana address." },
+        label: { type: "string", description: "A name, e.g. 'my Phantom'." },
+      }, required: ["address"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "wallet_limits",
+      description: "Show or change how transfers work. Owner can say things like 'set a cap of 1 SOL per transfer', 'remove the daily cap' (daily_sol 0), 'send without asking me' (require_approval false), 'ask me before sending' (require_approval true), 'only send to saved wallets' (restrict_to_saved true), 'turn transfers off'. 0 means no cap. With no arguments it just reports the current settings. Changes apply immediately, no card.",
+      parameters: { type: "object", properties: {
+        per_transfer_sol: { type: "number", description: "Max SOL per transfer. 0 = no cap." },
+        daily_sol: { type: "number", description: "Max SOL per 24h. 0 = no cap." },
+        enabled: { type: "boolean", description: "Transfers on/off." },
+        require_approval: { type: "boolean", description: "true = tap Allow before each transfer; false = send without asking." },
+        restrict_to_saved: { type: "boolean", description: "true = only to saved destinations; false = any address." },
+      } },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_wallet_address",
       description: "Get a user's Solana wallet address AND private key together, shown on screen in a copyable card — 'what's my wallet address', 'what's my solana address', 'give me my wallet'. (Both this tool and get_wallet_private_key now return the same full address+key result — see get_wallet_private_key's description for why.)",
       parameters: {
