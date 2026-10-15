@@ -220,6 +220,7 @@ function ask({ title, detail, options, ttlMs = QUESTION_TTL_MS }) {
 // ── ROUTES ───────────────────────────────────────────────────────
 // hooks.runDecision(entry, "allow"|"deny") → result object. Provided by
 // server.js for the kinds whose execution logic lives there.
+const SENSITIVE_KINDS = new Set(["transfer", "code-update", "wallet-policy"]);
 function mount(app, hooks = {}) {
   const express = require("express");
   const router = express.Router();
@@ -244,6 +245,12 @@ function mount(app, hooks = {}) {
     let decision = String(req.body?.decision || "");
     if (!["allow", "deny", "always"].includes(decision)) return res.status(400).json({ ok: false, error: "decision must be allow, deny or always" });
     if (e.options) return res.status(400).json({ ok: false, error: "This is a question — use /answer." });
+
+    // Money moves, code pushes and wallet-policy changes need the owner
+    // passcode to APPROVE (denying is always free).
+    if (decision !== "deny" && SENSITIVE_KINDS.has(e.kind) && !(hooks.checkOwner && hooks.checkOwner(req))) {
+      return res.status(403).json({ ok: false, needPasscode: true, error: "Owner passcode required to approve this." });
+    }
 
     const original = decision;
     if (decision === "always") {
