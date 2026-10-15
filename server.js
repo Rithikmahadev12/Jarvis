@@ -219,6 +219,25 @@ const MUTE_OFF = /^\s*(?:jarvis[,]?\s*)?(?:please\s+)?unmute\b|\bstart\s+talking
 app.use(cors());
 app.use(express.json({ limit: "30mb" }));
 
+// ── APPROVALS: Allow / Deny / Always cards + live activity feed ──
+// See approvals.js. The pill UI (public/approval-pill.js) and the Electron
+// overlay talk to these routes. Execution for agent actions and phone calls
+// reuses the exact same code paths as saying "yes" in chat.
+const Approvals = require("./approvals");
+Approvals.mount(app, {
+  runDecision: async (entry, decision) => {
+    if (entry.kind === "phone") {
+      if (decision === "deny") return { reply: PhoneAgent.cancelPendingCall(entry.sessionId).reply };
+      const r = PhoneAgent.confirmPendingCall(entry.sessionId);
+      return { reply: r.reply, callSessionId: r.callSessionId };
+    }
+    const pending = JarvisAgent.getPendingAction(entry.sessionId);
+    if (!pending || pending.kind !== entry.kind) return { reply: "That request already expired." };
+    const out = await resolvePendingAgentAction(decision === "allow" ? "yes" : "no", "Sir", entry.sessionId);
+    return out || { reply: "That request already expired." };
+  },
+});
+
 app.use(express.static(path.join(__dirname, "public"), {
   setHeaders: (res, filePath) => {
     if (filePath.endsWith(".css"))  res.setHeader("Content-Type", "text/css");
@@ -2844,7 +2863,7 @@ async function handleRunComputerCommand(command, T, sessionId) {
     };
   }
 
-  if (tier === "confirm") {
+  if (tier === "confirm" && !Approvals.isAlwaysAllowed("shell", cmd)) {
     JarvisAgent.proposeAction(sessionId, "shell", { command: cmd });
     return {
       reply: `Want me to run \`${cmd}\` on your computer, ${T}? Say yes to confirm.`,
@@ -2854,7 +2873,8 @@ async function handleRunComputerCommand(command, T, sessionId) {
     };
   }
 
-  // tier === "auto" — read-only/informational, safe to run immediately
+  // tier === "auto" (or a confirm-tier command you set to Always) — runs immediately
+  Approvals.step(tier === "auto" ? "Running command" : "Running command (Always allowed)", cmd, "running");
   try {
     const result = await JarvisAgent.runShellCommand(cmd);
     const output = (result.stdout || result.stderr || "(no output)").trim();
@@ -3299,11 +3319,13 @@ async function resolvePendingPhoneCall(message, T, sessionId) {
   if (!pending) return null;
 
   if (isNegative(message)) {
+    Approvals.settleBySession(sessionId, "resolved");
     const result = PhoneAgent.cancelPendingCall(sessionId);
     return { reply: result.reply, action: "PHONE_CALL_CANCELLED", intent: "phone_appointment", meta: { callSessionId: pending.callSessionId } };
   }
   if (!isAffirmative(message)) return null; // not a yes/no reply — let normal routing handle it
 
+  Approvals.settleBySession(sessionId, "resolved");
   const result = PhoneAgent.confirmPendingCall(sessionId);
   return { reply: result.reply, action: "PHONE_CALL_DIALING", intent: "phone_appointment", meta: { callSessionId: result.callSessionId } };
 }
@@ -4345,6 +4367,9 @@ async function executeAssistantTool(name, args, ctx) {
           specialNote: args.special_note ? String(args.special_note).trim() : null,
           commit: !!args.commit,
         });
+        if (result.status === "CONFIRM") {
+          try { Approvals.registerPhoneCall(sessionId, PhoneAgent.getPendingCall(sessionId) || {}); } catch (_) {}
+        }
         return {
           reply: result.reply,
           action: result.status === "NEEDS_NUMBER" ? "PHONE_NEEDS_NUMBER" : "PHONE_CALL_WIDGET",
