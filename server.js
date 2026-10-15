@@ -225,6 +225,10 @@ app.use(express.json({ limit: "30mb" }));
 // reuses the exact same code paths as saying "yes" in chat.
 const Approvals = require("./approvals");
 Approvals.mount(app, {
+  checkOwner: (req) => {
+    const given = req.get("x-owner-passcode") || req.body?.passcode;
+    return !!given && String(given) === String(OWNER_USERNAME_LOCK_CODE);
+  },
   runDecision: async (entry, decision) => {
     if (entry.kind === "phone") {
       if (decision === "deny") return { reply: PhoneAgent.cancelPendingCall(entry.sessionId).reply };
@@ -236,6 +240,35 @@ Approvals.mount(app, {
     const out = await resolvePendingAgentAction(decision === "allow" ? "yes" : "no", "Sir", entry.sessionId);
     return out || { reply: "That request already expired." };
   },
+});
+
+// ── EARNING + MONEY: earn brain, earning lab, wallet ops ─────────
+// See earn-brain.js / earn-lab.js / wallet-ops.js. Every transfer and every
+// code push shows an Allow / Deny card (never "Always").
+const EarnBrain = require("./earn-brain");
+const EarnLab   = require("./earn-lab");
+const WalletOps = require("./wallet-ops");
+// Resolves with the result if it's quick (e.g. a validation error), otherwise
+// tells the user a card is waiting — so chat never hangs on an Allow card.
+function quickOrCard(promise, cardMsg, ms = 1500) {
+  return Promise.race([
+    promise.then(r => ({ done: true, r })),
+    new Promise(res => setTimeout(() => res({ done: false }), ms)),
+  ]).then(x => x.done ? x.r : { cardShown: true, message: cardMsg });
+}
+app.get("/api/earn/status", (req, res) => res.json(EarnBrain.status()));
+app.post("/api/earn/run", (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
+  EarnBrain.runCycle({ trigger: "manual", focus: String(req.body?.focus || "") }).catch(() => {});
+  res.json({ ok: true, message: "Earn cycle started — watch the activity pill." });
+});
+app.post("/api/earn/toggle", (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
+  res.json(EarnBrain.setEnabled(!!req.body?.enabled));
+});
+app.get("/api/wallet/policy", (req, res) => {
+  if (!requireOwnerPasscode(req, res)) return;
+  res.json(WalletOps.status());
 });
 
 app.use(express.static(path.join(__dirname, "public"), {
@@ -3940,6 +3973,59 @@ async function executeAssistantTool(name, args, ctx) {
   const { T, userTimezone, userName, sessionId } = ctx;
 
   switch (name) {
+    // ── earning + money tools (see earn-brain.js, earn-lab.js, wallet-ops.js) ──
+    case "find_ways_to_earn": {
+      EarnBrain.runCycle({ trigger: "voice", focus: String(args.focus || "") }).catch(() => {});
+      return { reply: `On it, ${T}. I'm reviewing my results, searching the web and I'll open the best pages on my computer — each step shows in the activity pill, and I'll ask before opening a page. Ask me "earn status" when it's done.` };
+    }
+    case "earn_status": {
+      const st = EarnBrain.status();
+      if (typeof args.daily === "boolean") EarnBrain.setEnabled(args.daily);
+      const last = st.recent[0];
+      if (st.running) return { reply: `A cycle is running right now, ${T} — check the pill.` };
+      if (!last) return { reply: `No earn cycle has finished yet, ${T}. Say "find ways to make money" and I'll start one.` };
+      return { reply: EarnBrain.speakSummary(last, T) + `
+
+Daily cycle is ${(typeof args.daily === "boolean" ? args.daily : st.enabled) ? "on" : "off"}.` };
+    }
+    case "improve_earning": {
+      EarnLab.run({ file: args.file, change: args.change, why: args.why }).catch(() => {});
+      return { reply: `Okay ${T}, I'm building that in a sandbox first. You'll get an Allow card showing exactly what changes before anything is pushed.` };
+    }
+    case "send_crypto": {
+      const isOwnerRequester = SolanaWallet.isOwner(String(userName || "").toLowerCase().trim());
+      const r = await quickOrCard(
+        WalletOps.send({ toAddress: args.to_address, amountSol: args.amount_sol, reason: args.reason, isOwnerRequester }),
+        `There's an Allow / Deny card on screen for that transfer, ${T}. Nothing moves until you tap Allow.`);
+      if (r.cardShown) return { reply: r.message };
+      if (r.error) return { reply: `I didn't send it, ${T}: ${r.error}` };
+      return { reply: `Sent, ${T}. ${r.status === "confirmed" ? "Confirmed on-chain." : "Submitted — still confirming."} ${r.explorer}` };
+    }
+    case "add_wallet_destination": {
+      if (!SolanaWallet.isOwner(String(userName || "").toLowerCase().trim())) return { reply: `Only the owner can change the wallet settings, ${T}.` };
+      const r = await WalletOps.addDestination(args.address, args.label || "");
+      return { reply: r.error ? r.error : r.note };
+    }
+    case "wallet_limits": {
+      const st = WalletOps.status();
+      const isOwnerReq = SolanaWallet.isOwner(String(userName || "").toLowerCase().trim());
+      const wantsChange = args.per_transfer_sol != null || args.daily_sol != null || typeof args.enabled === "boolean" ||
+        typeof args.require_approval === "boolean" || typeof args.restrict_to_saved === "boolean";
+      const describe = (p, used) =>
+        `Transfers are ${p.enabled ? "on" : "off"}, ${T}. ${p.requireApproval ? "I ask you to tap Allow before each one" : "I send without asking"}. ` +
+        `${p.perTransferSol > 0 ? `Cap ${p.perTransferSol} SOL per transfer` : "No per-transfer cap"}, ` +
+        `${p.dailySol > 0 ? `${p.dailySol} SOL per 24 hours (${used.toFixed(4)} used)` : "no daily cap"}. ` +
+        `${p.restrictToAllowlist ? "Only to saved destinations." : "Any destination."}`;
+      if (!wantsChange) return { reply: describe(st.policy, st.sentLast24hSol) };
+      if (!isOwnerReq) return { reply: `Only the owner can change transfer settings, ${T}.` };
+      const r = await WalletOps.setLimits({
+        perTransferSol: args.per_transfer_sol != null ? Number(args.per_transfer_sol) : undefined,
+        dailySol: args.daily_sol != null ? Number(args.daily_sol) : undefined,
+        enabled: args.enabled, requireApproval: args.require_approval, restrictToAllowlist: args.restrict_to_saved,
+      });
+      return { reply: `Done. ${describe(r.policy, st.sentLast24hSol)}` };
+    }
+
     case "show_pc": {
       // Same handler "show pc" uses via the legacy regex path (see
       // handlePcViewOpen above) — reconstructing a fake message string
@@ -5683,6 +5769,7 @@ async function boot() {
   }
 
   Improve.startImprovementLoop(5 * 60 * 1000);
+  EarnBrain.startScheduler();
   Trainer.startTrainingLoop(15 * 60 * 1000);
   OwnBrainTrainer.startOwnBrainTraining(10 * 60 * 1000);
   Persistence.startAutoSync();
