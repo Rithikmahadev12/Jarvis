@@ -42,6 +42,22 @@ const BACKUP_DIR  = path.join(DATA_DIR, "self-heal-backups");
 const LOG_FILE    = path.join(DATA_DIR, "self-heal-log.json");
 const PROBE_FILE  = "__self_heal_probe.js";
 
+// Files no automated edit may ever touch (self-heal OR the earning lab).
+// These hold money movement, key handling, the approval gate and the
+// deploy pipeline itself — letting generated code rewrite them would
+// defeat every other safeguard.
+const PROTECTED_FILES = new Set([
+  "approvals.js", "wallet-ops.js", "wallet-setup.js", "solana-wallet.js",
+  "make_wallet.py", "make_user_wallet.py", "safe-deploy.js", "github-deploy.js",
+  "earn-lab.js", "persistence.js", ".env", "config.json",
+  "data/wallet-policy.json", "data/approval-rules.json",
+  "public/approval-pill.js", "public/approval-pill.html",
+]);
+function isProtected(relFilePath) {
+  const p = String(relFilePath || "").replace(/\\/g, "/").replace(/^\.?\//, "").toLowerCase();
+  return PROTECTED_FILES.has(p) || p.startsWith("wallet-keys/") || p.includes("..");
+}
+
 const REPO   = process.env.GITHUB_REPO;
 const BRANCH = process.env.GITHUB_BRANCH || "main";
 
@@ -332,9 +348,17 @@ async function shipFix(relFilePath, fixedCode, bugDescription, autoMerge) {
 }
 
 // ── ORCHESTRATOR ───────────────────────────────────────────────
-async function runSafeSelfHeal({ relFilePath, bugDescription, autoMerge = true }) {
+async function runSafeSelfHeal({ relFilePath, bugDescription, autoMerge = true, generate = null, beforeShip = null }) {
   ensureDirs();
   const report = { relFilePath, bugDescription, steps: {} };
+
+  if (isProtected(relFilePath)) {
+    report.success = false;
+    report.failedAt = "protected_file";
+    report.reason = `${relFilePath} is a protected file (money, keys, approvals or deploy) and can't be changed automatically.`;
+    log(report);
+    return report;
+  }
 
   let backup;
   try {
@@ -357,7 +381,7 @@ async function runSafeSelfHeal({ relFilePath, bugDescription, autoMerge = true }
     const originalCode = fs.readFileSync(absPath, "utf8");
     const originalExports = probeExports(TEST_CLONE, relFilePath);
 
-    const fixedCode = await generateFix(relFilePath, bugDescription, originalCode);
+    const fixedCode = generate ? await generate(originalCode) : await generateFix(relFilePath, bugDescription, originalCode);
     report.steps.generateFix = { ok: true };
 
     // Write the fix into the clone (NOT the live repo, NOT GitHub yet).
@@ -389,6 +413,20 @@ async function runSafeSelfHeal({ relFilePath, bugDescription, autoMerge = true }
       cleanupClone();
       log(report);
       return report;
+    }
+
+    // Optional human gate (e.g. the earning lab's Allow card).
+    if (beforeShip) {
+      const gate = await beforeShip({ relFilePath, originalCode, fixedCode });
+      report.steps.beforeShip = gate;
+      if (!gate || !gate.ok) {
+        report.success = false;
+        report.failedAt = "approval";
+        report.reason = (gate && gate.reason) || "Not approved.";
+        cleanupClone();
+        log(report);
+        return report;
+      }
     }
 
     // Every guard passed — safe to ship.
@@ -430,6 +468,8 @@ function getLog(limit = 20) {
 
 module.exports = {
   runSafeSelfHeal,
+  isProtected,
+  PROTECTED_FILES,
   backupCurrentMain,
   rollbackTo,
   listBackups,
