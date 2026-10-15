@@ -167,6 +167,8 @@ async function runCycle({ trigger = "manual", focus = "" } = {}) {
       });
       if (choice === "Try it in the lab") {
         result.lab = await EarnLab.run({ file: cc.file, change: cc.change, why: cc.why });
+        const j = getJournal();
+        if (j.length) { j[j.length - 1].lab = result.lab; writeJson(JOURNAL_PATH, j); }
       }
     }
     return result;
@@ -192,12 +194,19 @@ function speakSummary(r, T = "Sir") {
   const lines = r.ideas.map((i, n) => `${n + 1}. ${i.title} — ${i.firstStep}${i.estUsd30d ? ` (est. $${i.estUsd30d}/month, ${i.effort} effort)` : ""}`);
   let out = `Here's what I found, ${T}:\n${lines.join("\n")}`;
   if (r.read?.length) out += `\n\n(Read ${r.read.length} page${r.read.length > 1 ? "s" : ""} on my computer.)`;
-  if (r.lab) out += r.lab.success ? `\n\nCode upgrade shipped to ${r.lab.file}.` : r.lab.reason ? `\n\nCode upgrade didn't go through: ${r.lab.reason}` : "";
+  if (r.lab) {
+    if (r.lab.success && r.lab.merged) out += `\n\nCode upgrade shipped to ${r.lab.file}.`;
+    else if (r.lab.success) out += `\n\nI opened a pull request upgrading ${r.lab.file} — it's waiting for you to merge: ${r.lab.pr}`;
+    else if (r.lab.reason) out += `\n\nCode upgrade didn't go through: ${r.lab.reason}`;
+  }
   return out;
 }
 
 // ── scheduler: checks every 30 min, runs at most once a day ─────
 function startScheduler() {
+  // Set EARN_SCHEDULER=off on Render if you'd rather let the GitHub Action
+  // (.github/workflows/earn-cycle.yml) be the only thing that runs it.
+  if (process.env.EARN_SCHEDULER === "off") return;
   const tick = () => {
     const s = getState();
     if (!s.enabled || running) return;
