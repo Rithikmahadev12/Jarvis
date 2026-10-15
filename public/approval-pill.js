@@ -86,11 +86,22 @@
   function decide(id, decision, btn) {
     var btns = btn.parentNode.querySelectorAll("button");
     for (var i = 0; i < btns.length; i++) btns[i].disabled = true;
-    post("/api/approvals/" + id + "/decide", { decision: decision }).then(function (r) {
-      if (r && r.ok === false) { addFeed({ at: Date.now(), title: r.error || "That didn't go through", status: "error" }); }
-      pending = pending.filter(function (p) { return p.id !== id; });
-      render();
-    });
+    function send(pass) {
+      post("/api/approvals/" + id + "/decide", { decision: decision, passcode: pass || "" }).then(function (r) {
+        if (r && r.needPasscode) {
+          try { sessionStorage.removeItem("jap_pass"); } catch (e) {}
+          var p = window.prompt(pass ? "Wrong passcode. Owner passcode to approve this:" : "Owner passcode needed to approve this:");
+          if (p) { try { sessionStorage.setItem("jap_pass", p); } catch (e) {} return send(p); }
+          for (var j = 0; j < btns.length; j++) btns[j].disabled = false;
+          return;
+        }
+        if (r && r.ok === false) { addFeed({ at: Date.now(), title: r.error || "That didn't go through", status: "error" }); }
+        pending = pending.filter(function (p) { return p.id !== id; });
+        render();
+      });
+    }
+    var saved = ""; try { saved = sessionStorage.getItem("jap_pass") || ""; } catch (e) {}
+    send(saved);
   }
   function answer(id, choice, btn) {
     var btns = btn.parentNode.querySelectorAll("button");
