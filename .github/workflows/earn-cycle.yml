@@ -1,0 +1,58 @@
+name: Earn Cycle
+
+on:
+  schedule:
+    - cron: "0 14 * * *"     # once a day, 14:00 UTC (~7am Pacific); tune to taste
+  workflow_dispatch:
+    inputs:
+      focus:
+        description: "Optional focus, e.g. 'crypto bounties'"
+        required: false
+        default: ""
+
+# never run two at once
+concurrency:
+  group: earn-cycle
+  cancel-in-progress: false
+
+jobs:
+  earn-cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install --omit=dev
+
+      - name: Run earn cycle
+        env:
+          # Manual runs always go; scheduled runs skip if one already ran today.
+          EARN_FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+          EARN_FOCUS: ${{ github.event.inputs.focus }}
+          # Memory (same as every other scheduled job).
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
+          # Jarvis's own computer (opens pages) + web search.
+          E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          # Models (rotation + fallback works the same as on the server).
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_API_KEY2: ${{ secrets.GROQ_API_KEY2 }}
+          GROQ_MODEL: ${{ secrets.GROQ_MODEL }}
+          OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+          OLLAMA_CLOUD_MODEL: ${{ secrets.OLLAMA_CLOUD_MODEL }}
+          # Only used if the cycle proposes a code upgrade: it opens a PULL
+          # REQUEST and never merges it (same token the self-heal job uses).
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_BRANCH: main
+          SOLANA_RPC_URL: ${{ secrets.SOLANA_RPC_URL }}
+        run: node scripts/scheduled-earn-run.js
