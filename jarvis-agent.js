@@ -28,6 +28,7 @@
 
 const { exec } = require("child_process");
 const os       = require("os");
+const Approvals = require("./approvals");
 const fs       = require("fs");
 const path     = require("path");
 const GroqKeys = require("./groq-keys");
@@ -464,6 +465,8 @@ const PENDING_TTL_MS = 2 * 60 * 1000; // must be confirmed within 2 minutes
 function proposeAction(sessionId, kind, payload) {
   if (!sessionId) return;
   PENDING_ACTIONS.set(sessionId, { kind, payload, expiresAt: Date.now() + PENDING_TTL_MS });
+  // Also show it as an Allow / Deny / Always card (public/approval-pill.js)
+  try { Approvals.registerAgentAction(sessionId, kind, payload); } catch (e) { /* the chat yes/no still works */ }
 }
 function getPendingAction(sessionId) {
   if (!sessionId) return null;
@@ -474,6 +477,7 @@ function getPendingAction(sessionId) {
 }
 function clearPendingAction(sessionId) {
   PENDING_ACTIONS.delete(sessionId);
+  try { Approvals.settleBySession(sessionId, "resolved"); } catch (e) { /* ignore */ }
 }
 
 // ── SECURITY SCAN + NEUTRALIZE ────────────────────────────────────
