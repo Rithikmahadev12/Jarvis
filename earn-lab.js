@@ -144,7 +144,7 @@ async function run({ file, change, why = "" } = {}) {
     const report = await SafeDeploy.runSafeSelfHeal({
       relFilePath: rel,
       bugDescription: String(change).slice(0, 200),
-      autoMerge: true,
+      autoMerge: process.env.JARVIS_HEADLESS !== "1",   // headless = open a PR, never merge
       generate: async (orig) => {
         proposal = await askForPatches(rel, change, orig);
         return applyPatches(orig, proposal.patches);
@@ -183,8 +183,9 @@ async function run({ file, change, why = "" } = {}) {
     });
     if (report.success) {
       const url = report.ship?.pr?.html_url || "";
-      Approvals.step("Earning lab: update shipped", `${rel}${url ? "\n" + url : ""}`, "done");
-      return { success: true, file: rel, summary: proposal?.summary, pr: url };
+      const merged = !!report.ship?.merged;
+      Approvals.step(merged ? "Earning lab: update shipped" : "Earning lab: pull request opened (waiting for you to merge)", `${rel}${url ? "\n" + url : ""}`, "done");
+      return { success: true, file: rel, summary: proposal?.summary, pr: url, merged };
     }
     Approvals.step("Earning lab: stopped", `${report.failedAt || "error"}: ${report.reason || ""}`, "error");
     return { success: false, stage: report.failedAt, reason: report.reason };
