@@ -22,4 +22,8 @@ contextBridge.exposeInMainWorld("jarvisDesktop", {
   getDisplays: () => ipcRenderer.invoke("desktop:get-displays"),
   openExternal: (url) => ipcRenderer.invoke("desktop:open-external", url),
   quit: () => ipcRenderer.send("desktop:quit"),
+
+  // Used only by the approvals overlay (public/approval-pill.html) to
+  // tell the main process when to show/hide and how tall to be.
+  approvalResize: (info) => ipcRenderer.send("desktop:approval-resize", info),
 });
