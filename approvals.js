@@ -197,7 +197,21 @@ function registerPhoneCall(sessionId, pending = {}) {
 //   → "allow" | "always" | "deny"   (denied automatically on timeout)
 // If ruleKey is given and the user has said "Always" for that exact key,
 // it resolves "allow" immediately without showing a card.
+// HEADLESS MODE (JARVIS_HEADLESS=1, set by the GitHub Action runner): there is
+// no screen to tap, so cards are decided by fixed policy instead of timing out.
+//   browse      → allow  (read-only page load inside the e2b sandbox)
+//   code-update → allow  (earn-lab then opens a PULL REQUEST and does NOT merge;
+//                         merging it yourself is the real approval)
+//   everything else (transfers, wallet policy, shell, calls…) → deny
+const HEADLESS_ALLOW = new Set(["browse", "code-update"]);
+function isHeadless() { return process.env.JARVIS_HEADLESS === "1"; }
+
 function request({ kind = "action", title, detail, risk = "medium", ruleKey = null, ttlMs = DEFAULT_TTL_MS }) {
+  if (isHeadless()) {
+    const ok = HEADLESS_ALLOW.has(kind);
+    step(`${ok ? "Auto-approved (headless)" : "Auto-denied (headless)"}: ${title}`, detail, ok ? "info" : "error");
+    return Promise.resolve(ok ? "allow" : "deny");
+  }
   if (ruleKey && isAlwaysAllowed(kind, ruleKey)) {
     step(`Auto-approved: ${title}`, detail, "info");
     return Promise.resolve("allow");
@@ -209,6 +223,11 @@ function request({ kind = "action", title, detail, risk = "medium", ruleKey = nu
 
 // await Approvals.ask({ title, detail, options: ["A", "B"] }) → chosen string | null
 function ask({ title, detail, options, ttlMs = QUESTION_TTL_MS }) {
+  if (isHeadless()) {
+    const first = Array.isArray(options) && options.length ? String(options[0]) : null;
+    step(`Auto-answered (headless): ${title}`, first || "", "info");
+    return Promise.resolve(first);
+  }
   return new Promise(resolve => {
     register({
       kind: "question", title, detail, risk: "low", options, ttlMs,
