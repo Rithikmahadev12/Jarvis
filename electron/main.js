@@ -211,6 +211,49 @@ function openWidgetWindow(widgetName, opts = {}) {
   return id;
 }
 
+// ── APPROVALS OVERLAY ───────────────────────────────────────────
+// A small frameless, always-on-top window at the top-centre of the
+// primary display (like Coucou's notch pill). It stays hidden until
+// Jarvis needs an OK or reports activity; the page inside
+// (approval-pill.html?standalone=1) tells us when and how tall.
+let approvalWindow = null;
+function createApprovalWindow() {
+  if (approvalWindow) return;
+  const d = screen.getPrimaryDisplay();
+  const width = 460;
+  approvalWindow = new BrowserWindow({
+    x: d.bounds.x + Math.round((d.bounds.width - width) / 2),
+    y: d.bounds.y,
+    width, height: 120,
+    show: false,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    focusable: true,
+    backgroundColor: "#00000000",
+    webPreferences: { preload: preloadPath(), contextIsolation: true, sandbox: false },
+  });
+  approvalWindow.setAlwaysOnTop(true, "screen-saver");
+  approvalWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  approvalWindow.loadURL(`${backendUrl}/approval-pill.html?standalone=1`);
+  approvalWindow.on("closed", () => { approvalWindow = null; });
+}
+ipcMain.on("desktop:approval-resize", (_e, info) => {
+  if (!approvalWindow) return;
+  const d = screen.getPrimaryDisplay();
+  if (!info || !info.visible) { approvalWindow.hide(); return; }
+  const width = 460;
+  const height = Math.max(50, Math.min(Number(info.height) || 120, d.bounds.height - 40));
+  approvalWindow.setBounds({
+    x: d.bounds.x + Math.round((d.bounds.width - width) / 2),
+    y: d.bounds.y, width, height,
+  });
+  approvalWindow.showInactive();   // never steals focus from what you're doing
+});
+
 function closeWidgetWindow(id) {
   const win = widgetWindows.get(id);
   if (win) { try { win.close(); } catch {} widgetWindows.delete(id); }
@@ -297,6 +340,7 @@ app.whenReady().then(async () => {
   }
 
   createMainWindow();
+  createApprovalWindow();
   buildTray();
 
   app.on("activate", () => {
