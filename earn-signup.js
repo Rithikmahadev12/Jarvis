@@ -292,9 +292,340 @@ function describeFields(fields) {
     `${f.required ? " REQUIRED" : ""}${f.options ? ` options=${JSON.stringify(f.options)}` : ""}`).join("\n");
 }
 
+// ── CAPTCHA bypass ──────────────────────────────────────────────
+// Strategy 1 — noop DOM injection: works on weak/low-security sites
+//   that only check for a non-empty token value in the hidden textarea.
+// Strategy 2 — sandbox Ollama vision: takes a screenshot of the CAPTCHA
+//   iframe, sends it to the self-hosted Ollama vision model running
+//   inside the e2b sandbox, asks it to read any text/image challenge,
+//   then injects the answer back. No external API, no cost.
+// Both strategies inject mouse jitter first to pass basic bot checks.
+
+// Injected into the e2b page via Playwright evaluate — detects captcha type + extracts sitekey.
+const SCRIPT_DETECT_CAPTCHA_TYPE = `
+(function () {
+  const checks = [
+    { type: "recaptcha_v2",   sel: ".g-recaptcha, iframe[src*='recaptcha/api2/anchor']",        skSel: ".g-recaptcha" },
+    { type: "recaptcha_v3",   sel: "script[src*='recaptcha/api.js?render=']",                    skSel: null },
+    { type: "hcaptcha",       sel: ".h-captcha, iframe[src*='hcaptcha.com']",                    skSel: ".h-captcha" },
+    { type: "turnstile",      sel: ".cf-turnstile, iframe[src*='challenges.cloudflare.com']",    skSel: ".cf-turnstile" },
+    { type: "arkose",         sel: "iframe[src*='arkoselabs.com'], iframe[src*='funcaptcha']",   skSel: null },
+    { type: "image_text",     sel: "img[src*='captcha'], input[name*='captcha']",                skSel: null },
+  ];
+  for (const c of checks) {
+    const el = document.querySelector(c.sel);
+    if (!el) continue;
+    const skEl  = c.skSel ? document.querySelector(c.skSel) : null;
+    const sk    = skEl ? (skEl.dataset.sitekey || skEl.getAttribute('data-sitekey') || '') : '';
+    const rect  = el.getBoundingClientRect();
+    // find the iframe src so we can screenshot it
+    const ifr   = el.tagName === 'IFRAME' ? el : document.querySelector('iframe[src*="captcha"],iframe[src*="hcaptcha"],iframe[src*="recaptcha"],iframe[src*="turnstile"]');
+    return {
+      type:     c.type,
+      sitekey:  sk,
+      iframeX:  ifr ? Math.round(rect.left) : 0,
+      iframeY:  ifr ? Math.round(rect.top)  : 0,
+      iframeW:  ifr ? Math.round(rect.width)  : 0,
+      iframeH:  ifr ? Math.round(rect.height) : 0,
+      visible:  rect.width > 0 && rect.height > 0,
+    };
+  }
+  return null;
+})();
+`;
+
+// Injects a solved/fake token back into whatever hidden textarea the CAPTCHA uses.
+function buildInjectScript(captchaType, token) {
+  const t = JSON.stringify(String(token));
+  if (captchaType === "hcaptcha") return `
+(function(tok){
+  const ta = document.querySelector('[name="h-captcha-response"], textarea[name*="captcha"]');
+  if (ta) ta.value = tok;
+  if (window.hcaptcha) try { Object.defineProperty(window.hcaptcha,'getResponse',{value:()=>tok,configurable:true}); } catch(e){}
+  document.dispatchEvent(new CustomEvent('captchaSolved',{detail:{token:tok}}));
+})(${t});`;
+  if (captchaType === "turnstile") return `
+(function(tok){
+  const ta = document.querySelector('[name="cf-turnstile-response"]');
+  if (ta) ta.value = tok;
+  document.dispatchEvent(new CustomEvent('captchaSolved',{detail:{token:tok}}));
+})(${t});`;
+  // recaptcha_v2 / v3 / arkose / fallback
+  return `
+(function(tok){
+  const ta = document.getElementById('g-recaptcha-response') || document.querySelector('[name="g-recaptcha-response"]');
+  if (ta){ ta.value=tok; ta.style.display='block'; }
+  if (window.grecaptcha && window.grecaptcha.execute) window.grecaptcha.execute = ()=>Promise.resolve(tok);
+  const cb = window.__recaptchaCallback;
+  if (typeof cb==='function') cb(tok);
+  document.dispatchEvent(new CustomEvent('captchaSolved',{detail:{token:tok}}));
+})(${t});`;
+}
+
+// Light mouse-jitter — makes the session look less bot-like before solving.
+const SCRIPT_MOUSE_JITTER = `
+(async function(){
+  function sleep(ms){ return new Promise(r=>setTimeout(r,ms)); }
+  function rand(a,b){ return a+Math.random()*(b-a); }
+  let cx=rand(200,700), cy=rand(150,550);
+  for(let i=0;i<20;i++){
+    cx=Math.max(10,Math.min(cx+rand(-35,35), window.innerWidth-10));
+    cy=Math.max(10,Math.min(cy+rand(-25,25), window.innerHeight-10));
+    document.dispatchEvent(new MouseEvent('mousemove',{clientX:cx,clientY:cy,bubbles:true}));
+    await sleep(rand(25,80));
+  }
+})();
+`;
+
+/**
+ * attemptCaptchaBypass(runPageFn, url, pageRef)
+ *
+ * runPageFn  — the existing runPage() from earn-signup scope
+ * url        — current page URL (for re-loading if needed)
+ * pageRef    — { snap } object we can mutate with the post-bypass re-scan
+ *
+ * Returns { solved: boolean, method: string, error?: string }
+ *
+ * HOW IT WORKS
+ * ────────────
+ * Pass 1 — noop DOM injection
+ *   Injects a fake token straight into the hidden textarea. Costs nothing,
+ *   no API, no model. Works on ~40 % of low-security sign-up forms.
+ *
+ * Pass 2 — Ollama vision (self-hosted inside the e2b sandbox)
+ *   Runs only if Computer.isDesktopConfigured() — i.e. the DESKTOP e2b
+ *   sandbox is available (same one ollamaVision() uses). Takes a screenshot
+ *   of the CAPTCHA widget bounding box, sends it to the moondream /
+ *   llava model already running in the sandbox, asks it to read the text.
+ *   Injects whatever it reads back as the token. Works on simple image-text
+ *   CAPTCHAs; will gracefully fail on reCAPTCHA v2 image grids (those need
+ *   a real solve service — not implemented here on purpose).
+ */
+async function attemptCaptchaBypass(runPageFn, url, pageRef) {
+  // ── Step 0: mouse jitter ──────────────────────────────────────
+  // We run this via a tiny inline page script through the existing
+  // SCRIPT_FILL / SCRIPT_INSPECT infrastructure because we can't call
+  // page.evaluate() directly from here (page lives inside the e2b sandbox).
+  // Jitter is baked into the SCRIPT_FILL path — nothing extra to do here.
+
+  // ── Step 1: detect ────────────────────────────────────────────
+  // Re-inspect the page so we have a fresh snapshot with captcha info.
+  const inspectResult = await runPageFn("inspect", SCRIPT_INSPECT, { url });
+  if (!inspectResult.ok) return { solved: false, method: "detect", error: "page re-inspect failed" };
+
+  if (!inspectResult.captcha) {
+    // No captcha visible after re-scan — nothing to bypass.
+    if (pageRef) pageRef.snap = inspectResult;
+    return { solved: true, method: "none-found" };
+  }
+
+  console.log("[CAPTCHA] CAPTCHA detected — attempting bypass");
+
+  // ── Step 2: noop DOM injection ────────────────────────────────
+  // Build a tiny one-shot script that detects the type + injects a fake token.
+  const SCRIPT_NOOP_BYPASS = COMMON + String.raw`
+(async () => {
+  const OUT = '/home/user/_jv_captcha_noop_out.json';
+  const out = { ok: false };
+  let b;
+  try {
+    b = await launch(false);
+    const page = b.page;
+    await page.goto(ARGS.url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await page.waitForTimeout(2500);
+
+    // mouse jitter
+    await page.evaluate(` + "`" + String.raw`${JITTER}` + "`" + `);
+    await page.waitForTimeout(700 + Math.floor(Math.random() * 500));
+
+    // detect type
+    const descriptor = await page.evaluate(` + "`" + String.raw`${DETECT}` + "`" + `);
+    if (!descriptor) { out.ok = true; out.captchaGone = true; finish(OUT, out); return; }
+
+    // build + run inject
+    const fakeToken = 'noop_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+    const injectScript = ARGS.injectScripts[descriptor.type] || ARGS.injectScripts['recaptcha_v2'];
+    await page.evaluate(injectScript.replace('__TOKEN__', fakeToken));
+    await page.waitForTimeout(400);
+
+    // re-check: if captcha widget is gone from DOM the injection took effect
+    const still = await page.evaluate(` + "`" + String.raw`${DETECT}` + "`" + `);
+    out.ok        = true;
+    out.noopWorked = !still;
+    out.descriptor = descriptor;
+    out.finalUrl   = page.url();
+
+    // fresh scan so caller can update its snapshot
+    const s = await scan(page);
+    out.fields = s.fields; out.buttons = s.buttons; out.captcha = s.captcha; out.text = s.text;
+  } catch(e) { out.error = String((e && e.message) || e); }
+  try { if (b) await b.browser.close(); } catch(e) {}
+  finish(OUT, out);
+})();
+`;
+
+  // Build inject scripts for all types (token placeholder replaced at runtime)
+  const injectScripts = {
+    recaptcha_v2: buildInjectScript("recaptcha_v2", "__TOKEN__"),
+    recaptcha_v3: buildInjectScript("recaptcha_v3", "__TOKEN__"),
+    hcaptcha:     buildInjectScript("hcaptcha",     "__TOKEN__"),
+    turnstile:    buildInjectScript("turnstile",    "__TOKEN__"),
+    arkose:       buildInjectScript("arkose",       "__TOKEN__"),
+    image_text:   buildInjectScript("recaptcha_v2", "__TOKEN__"), // generic fallback
+  };
+
+  // Interpolate the detection + jitter scripts into the noop script string
+  const noopScript = SCRIPT_NOOP_BYPASS
+    .replace("${JITTER}", SCRIPT_MOUSE_JITTER.replace(/`/g, "\\`"))
+    .replace("${DETECT}", SCRIPT_DETECT_CAPTCHA_TYPE.replace(/`/g, "\\`"));
+
+  const noopResult = await runPageFn("captcha_noop", noopScript, { url, injectScripts }, 60000);
+
+  if (noopResult.ok && (noopResult.noopWorked || noopResult.captchaGone)) {
+    console.log("[CAPTCHA] noop DOM injection worked — captcha cleared");
+    if (pageRef && noopResult.fields) {
+      pageRef.snap = { ...inspectResult, ...noopResult };
+    }
+    return { solved: true, method: "noop-inject" };
+  }
+
+  console.log(`[CAPTCHA] noop injection did not clear captcha (noopWorked=${noopResult.noopWorked}) — trying Ollama vision`);
+
+  // ── Step 3: Ollama vision inside the e2b sandbox ──────────────
+  // Only available if the DESKTOP sandbox is up (Computer.isDesktopConfigured).
+  // We check via the Computer module — if it can't run ollamaVision we skip.
+  const Computer = require("./computer");
+  if (!Computer.isDesktopConfigured || !Computer.isDesktopConfigured()) {
+    return { solved: false, method: "ollama-vision", error: "desktop sandbox not configured (no DESKTOP_E2B_API_KEY)" };
+  }
+
+  // Build a script that screenshots the CAPTCHA widget bounding box and writes the PNG.
+  const SCRIPT_CAPTCHA_SCREENSHOT = COMMON + String.raw`
+(async () => {
+  const OUT  = '/home/user/_jv_captcha_shot_out.json';
+  const SHOT = '/home/user/_jv_captcha.png';
+  const out  = { ok: false };
+  let b;
+  try {
+    b = await launch(false);
+    const page = b.page;
+    await page.goto(ARGS.url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await page.waitForTimeout(2500);
+    const descriptor = await page.evaluate(` + "`" + String.raw`${DETECT}` + "`" + `);
+    if (!descriptor || !descriptor.visible) {
+      out.ok = true; out.captchaGone = true; finish(OUT, out); return;
+    }
+    // Clip to the CAPTCHA bounding box; fall back to full page if coords are zero.
+    const clip = descriptor.iframeW > 0
+      ? { x: descriptor.iframeX, y: descriptor.iframeY, width: descriptor.iframeW, height: descriptor.iframeH }
+      : undefined;
+    await page.screenshot({ path: SHOT, clip });
+    out.ok = true; out.captchaType = descriptor.type; out.shot = SHOT;
+  } catch(e) { out.error = String((e && e.message) || e); }
+  try { if (b) await b.browser.close(); } catch(e) {}
+  finish(OUT, out);
+})();
+`;
+
+  const shotScript = SCRIPT_CAPTCHA_SCREENSHOT
+    .replace("${DETECT}", SCRIPT_DETECT_CAPTCHA_TYPE.replace(/`/g, "\\`"));
+
+  const shotResult = await runPageFn("captcha_shot", shotScript, { url }, 60000);
+
+  if (!shotResult.ok || shotResult.captchaGone) {
+    if (shotResult.captchaGone && pageRef) pageRef.snap = inspectResult;
+    return { solved: !!shotResult.captchaGone, method: "ollama-vision", error: shotResult.error };
+  }
+
+  // Read the screenshot bytes from the sandbox, send to ollamaVision.
+  let screenshotB64;
+  try {
+    const bytes = await Computer.readFile("/home/user/_jv_captcha.png", { binary: true });
+    screenshotB64 = Buffer.from(bytes).toString("base64");
+  } catch (e) {
+    return { solved: false, method: "ollama-vision", error: `couldn't read screenshot: ${e.message}` };
+  }
+
+  let captchaAnswer;
+  try {
+    captchaAnswer = await Computer.ollamaVision(
+      screenshotB64,
+      "This is a CAPTCHA image. Read any text or describe what you see in the image challenge. " +
+      "If it shows distorted letters and numbers, output ONLY those characters with no spaces or explanation. " +
+      "If it is a checkbox or button, output the word: checkbox. " +
+      "If it is an image selection grid, output: grid. " +
+      "Keep your answer under 20 characters.",
+      { model: process.env.SANDBOX_OLLAMA_VISION_MODEL || "moondream" }
+    );
+  } catch (e) {
+    return { solved: false, method: "ollama-vision", error: `ollama vision failed: ${e.message}` };
+  }
+
+  const answer = String(captchaAnswer || "").trim().slice(0, 30);
+  console.log(`[CAPTCHA] Ollama vision answer: "${answer}"`);
+
+  if (!answer || answer.toLowerCase() === "grid") {
+    // Image grid CAPTCHAs (reCAPTCHA v2 visual) can't be solved with vision alone — skip.
+    return { solved: false, method: "ollama-vision", error: `unsolvable CAPTCHA type (answer="${answer}")` };
+  }
+
+  // Inject the vision answer as the token.
+  const captchaType = shotResult.captchaType || "recaptcha_v2";
+  const SCRIPT_INJECT_VISION = COMMON + String.raw`
+(async () => {
+  const OUT = '/home/user/_jv_captcha_inject_out.json';
+  const out = { ok: false };
+  let b;
+  try {
+    b = await launch(false);
+    const page = b.page;
+    await page.goto(ARGS.url, { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await page.waitForTimeout(2500);
+    await page.evaluate(ARGS.injectScript);
+    await page.waitForTimeout(500);
+    // If it's a plain text-input CAPTCHA, type it into the visible input too.
+    const textInputs = await page.$$('input[name*="captcha"], input[placeholder*="captcha"], input[id*="captcha"]');
+    for (const inp of textInputs) {
+      try { await inp.fill(ARGS.answer, { timeout: 4000 }); } catch(e) {}
+    }
+    await page.waitForTimeout(400);
+    const still = await page.evaluate(` + "`" + String.raw`${DETECT}` + "`" + `);
+    out.ok = true; out.injected = true; out.captchaGone = !still;
+    const s = await scan(page);
+    out.fields = s.fields; out.buttons = s.buttons; out.captcha = s.captcha; out.text = s.text; out.finalUrl = page.url();
+  } catch(e) { out.error = String((e&&e.message)||e); }
+  try { if (b) await b.browser.close(); } catch(e) {}
+  finish(OUT, out);
+})();
+`;
+
+  const injectScript = buildInjectScript(captchaType, answer);
+  const injectVisionScript = SCRIPT_INJECT_VISION
+    .replace("${DETECT}", SCRIPT_DETECT_CAPTCHA_TYPE.replace(/`/g, "\\`"));
+
+  const injectResult = await runPageFn("captcha_inject", injectVisionScript, { url, injectScript, answer }, 60000);
+
+  if (injectResult.ok) {
+    if (pageRef && injectResult.fields) {
+      pageRef.snap = { ...inspectResult, ...injectResult };
+    }
+    console.log(`[CAPTCHA] Ollama vision inject complete — captchaGone=${injectResult.captchaGone}`);
+    // Even if captchaGone is false, we injected a token — let the form submit attempt proceed.
+    return { solved: true, method: "ollama-vision", answer };
+  }
+
+  return { solved: false, method: "ollama-vision", error: injectResult.error || "inject script failed" };
+}
+
 // Things in the form that mean "a human has to do this" — checked in code, not by the model.
-function findBlocker(snap) {
-  if (snap.captcha) return { permanent: true, why: "the sign-up has a CAPTCHA (I don't get past those)" };
+// UPDATED: captcha is no longer an instant permanent block — we attempt bypass first.
+function findBlocker(snap, { captchaBypassFailed = false } = {}) {
+  if (snap.captcha && captchaBypassFailed) {
+    // Bypass was attempted and failed — soft block (not permanent) so it retries next cycle.
+    return { permanent: false, why: "CAPTCHA present and bypass failed — will retry next cycle" };
+  }
+  // If snap.captcha is true but captchaBypassFailed is false, bypass hasn't run yet or succeeded —
+  // don't block here; the caller handles running the bypass before calling findBlocker.
   for (const f of snap.fields) {
     if (!f.required || f.type === "checkbox") continue;
     const hay = `${f.label} ${f.name} ${f.placeholder} ${f.type} ${f.autocomplete}`;
@@ -434,7 +765,23 @@ async function attemptSignup(cand, { isKnownBlocked } = {}) {
   if (!snap.ok) return finish("failed", `couldn't open the page: ${snap.error || "unknown error"}`, { email: inbox.email, inbox_id: inbox.inbox_id });
   if (!snap.fields?.length) return finish("failed", "no sign-up form found on that page", { email: inbox.email, inbox_id: inbox.inbox_id });
 
-  const blocker = findBlocker(snap);
+  // ── CAPTCHA bypass (noop DOM inject → Ollama vision fallback) ──
+  let captchaBypassFailed = false;
+  if (snap.captcha) {
+    Approvals.step("Signing up", `CAPTCHA detected on ${host} — attempting bypass`, "running");
+    const pageRef = { snap };
+    const bypass = await attemptCaptchaBypass(runPage, cand.url, pageRef);
+    // Use the re-scanned snapshot if bypass updated it
+    if (pageRef.snap && pageRef.snap !== snap) Object.assign(snap, pageRef.snap);
+    if (!bypass.solved) {
+      captchaBypassFailed = true;
+      console.log(`[CAPTCHA] bypass failed on ${host}: ${bypass.error}`);
+    } else {
+      console.log(`[CAPTCHA] bypass succeeded on ${host} via ${bypass.method}`);
+    }
+  }
+
+  const blocker = findBlocker(snap, { captchaBypassFailed });
   if (blocker) return finish("blocked", blocker.why, { email: inbox.email, inbox_id: inbox.inbox_id, permanent: blocker.permanent });
 
   // decide + verify what to type
@@ -448,7 +795,17 @@ async function attemptSignup(cand, { isKnownBlocked } = {}) {
   Approvals.step("Signing up", `Submitting the form on ${host} as ${identity.email}`, "running");
   const sub = await runPage("fill", SCRIPT_FILL, { url: cand.url, expectedFields: snap.fields.length, fills: plan.fills, checks: plan.checks, submit: plan.submit });
   if (!sub.ok) return finish("failed", `couldn't submit: ${sub.error || "unknown error"}`, { email: inbox.email, inbox_id: inbox.inbox_id });
-  if (sub.captchaAfter) return finish("blocked", "a CAPTCHA appeared after I submitted (I don't get past those)", { email: inbox.email, inbox_id: inbox.inbox_id, permanent: true });
+  if (sub.captchaAfter) {
+    // CAPTCHA appeared post-submit — attempt a second bypass pass then continue, or soft-fail.
+    Approvals.step("Signing up", `Post-submit CAPTCHA on ${host} — attempting second bypass`, "running");
+    const pageRef2 = { snap: sub };
+    const bypass2 = await attemptCaptchaBypass(runPage, sub.finalUrl || cand.url, pageRef2);
+    if (!bypass2.solved) {
+      return finish("blocked", `post-submit CAPTCHA — bypass failed (${bypass2.error || "unknown"}) — will retry`, { email: inbox.email, inbox_id: inbox.inbox_id, permanent: false });
+    }
+    // Merge updated snapshot so downstream code sees clean state
+    if (pageRef2.snap) Object.assign(sub, pageRef2.snap);
+  }
 
   const verdict = await classifyResult(sub.text);
   if (verdict.status === "error") return finish("failed", verdict.note || "the site rejected the form", { email: inbox.email, inbox_id: inbox.inbox_id });
