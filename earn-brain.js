@@ -11,13 +11,23 @@
 //               (with "Always" per site once you trust it).
 //   4. DECIDE   ranks legitimate ways to earn, with a concrete first
 //               step, and writes them to data/earn-journal.json.
-//   5. UPGRADE  if it spots a code change that would help one of its
+//   5. SIGN UP  for the ideas that need a free account, it creates one
+//               itself with its OWN email (AgentMail) and its own browser
+//               (earn-signup.js) — one account per service, never past a
+//               CAPTCHA, never with payment/phone/ID details.
+//   6. UPGRADE  if it spots a code change that would help one of its
 //               earning files, it ASKS you, and only then hands it
 //               to earn-lab.js (sandbox → guards → Allow card → push).
 //
+// BRAIN-FIRST: before every plan it consults its OWN brain (own-brain.js —
+// its persistent memory + from-scratch network) for what it already knows:
+// lessons from past cycles, sites that blocked it, accounts it already has.
+// After every cycle it teaches the brain what happened. The language model is
+// still the tutor for fresh reasoning, same as local-brain.js does for chat.
+//
 // It never moves money (that's wallet-ops.js, behind its own cards)
-// and only proposes things that are legit: no spam, fake accounts,
-// scams, or getting around any service's limits or terms.
+// and only proposes things that are legit: no spam, scams, duplicate
+// accounts, or getting around any service's limits or terms.
 // Every step shows up in the live activity feed.
 // ═══════════════════════════════════════════════════════════════
 const fs   = require("fs");
@@ -28,6 +38,8 @@ const Groq         = require("./hermes-engine");
 const Research     = require("./research");
 const Computer     = require("./computer");
 const EarnLab      = require("./earn-lab");
+const OwnBrain     = require("./own-brain");
+const Signup       = require("./earn-signup");
 
 const DATA_DIR     = path.join(__dirname, "data");
 const JOURNAL_PATH = path.join(DATA_DIR, "earn-journal.json");
@@ -59,17 +71,99 @@ async function llmJson(system, user, maxTokens = 1200) {
 }
 function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } }
 
+// ── own brain (brain-first) ─────────────────────────────────────
+// Stable question keys so the same memory slot is updated every cycle.
+const Q_LESSONS  = "What have I learned from my past earn cycles?";
+const Q_BLOCKED  = "Which sites have blocked me from signing up?";
+const Q_ACCOUNTS = "Which accounts have I created for earning?";
+const qCanSignup = host => `Can I sign up on ${host}?`;
+
+function brainRecall(q) {
+  try { const r = OwnBrain.recallAnswer(q); return r ? String(r.answer || "") : null; } catch { return null; }
+}
+function brainLearn(q, a, src = "earn-cycle") {
+  try { if (q && a) OwnBrain.learnFromExchange(q, String(a).slice(0, 1400), src); } catch (e) { console.warn("[EARN] brain couldn't learn:", e.message); }
+}
+// Everything the brain already knows that is relevant to planning.
+function brainBriefing() {
+  const bits = [
+    brainRecall(Q_LESSONS) && `Lessons: ${brainRecall(Q_LESSONS)}`,
+    brainRecall(Q_BLOCKED) && `Blocked sites: ${brainRecall(Q_BLOCKED)}`,
+    brainRecall(Q_ACCOUNTS) && `My accounts: ${brainRecall(Q_ACCOUNTS)}`,
+  ].filter(Boolean);
+  return bits.join("\n").slice(0, 1800);
+}
+// Brain answers "can I sign up here?" by itself, no model call. Only a PERMANENT no counts.
+function brainSaysNo(host) {
+  const a = brainRecall(qCanSignup(host));
+  return a && /^no\b/i.test(a) ? a.replace(/^no\s*[—-]?\s*/i, "").slice(0, 160) : null;
+}
+function teachSignups(signups) {
+  for (const s of signups) {
+    if (!s.host || s.status === "skipped") continue;
+    const ok = s.status === "verified" || s.status === "created" || s.status === "pending-verification";
+    const permanent = s.status === "blocked" && /captcha|requires|only the owner|own/i.test(s.note || "");
+    if (ok) brainLearn(qCanSignup(s.host), `Yes — made an account with my own email (${s.status}).`, "earn-signup");
+    else if (permanent) brainLearn(qCanSignup(s.host), `No — ${s.note}`, "earn-signup");
+    else brainLearn(qCanSignup(s.host), `Unsure — last try failed: ${s.note || s.status}. Retry later.`, "earn-signup");
+  }
+  const accts = Signup.listAccounts();
+  const good = accts.filter(a => ["verified", "created", "pending-verification"].includes(a.status)).map(a => `${a.host} (${a.status})`);
+  const blocked = accts.filter(a => a.status === "blocked").map(a => `${a.host}: ${a.note}`);
+  if (good.length) brainLearn(Q_ACCOUNTS, good.join("; "), "earn-signup");
+  if (blocked.length) brainLearn(Q_BLOCKED, blocked.join("; "), "earn-signup");
+}
+function teachCycle(result) {
+  const top = (result.ideas || []).map(i => `${i.title} (est $${i.estUsd30d || 0}/mo, ${i.effort})`).join("; ");
+  const outcomes = getJournal().slice(-6).filter(j => j.outcome).map(j => `${(j.ideas || [])[0]?.title || "idea"} → ${j.outcome}`).join("; ");
+  brainLearn(Q_LESSONS, `Latest ideas: ${top}.${outcomes ? ` Outcomes so far: ${outcomes}.` : ""}`, "earn-cycle");
+  try { OwnBrain.flushIfDirty(); } catch {}
+}
+
 const GROUND_RULES =
   "Only suggest LEGITIMATE ways to earn: open bounties, selling digital products, freelance/lead-gen for real businesses, " +
   "grants and hackathons, content, data/automation services. Never suggest spam, fake or duplicate accounts, scams, " +
   "evading a service's limits or terms, or anything that needs the owner's money up front beyond a trivial amount.";
+
+
+// Which of today's ideas need a free account, and where is the sign-up page?
+// URLs must come from pages I actually saw (or the root of a site I saw), never invented.
+async function pickSignupCandidates(result, hits, pageNotes) {
+  const seen = [...hits.map(h => h.url), ...pageNotes.map(p => p.url)].filter(Boolean);
+  const seenSet = new Set(seen);
+  const seenHosts = new Set(seen.map(hostOf).filter(Boolean));
+  let picked;
+  try {
+    picked = await llmJson(
+      "Reply with JSON only. " + GROUND_RULES,
+      `IDEAS:\n${result.ideas.map((i, n) => `${n + 1}. ${i.title} — ${i.firstStep} (${i.source || "no source"})`).join("\n")}\n\n` +
+      `ACCOUNTS I ALREADY HAVE: ${Signup.listAccounts().filter(a => a.status !== "blocked" && a.status !== "failed").map(a => a.host).join(", ") || "none"}\n\n` +
+      `KNOWN URLS:\n${seen.slice(0, 25).join("\n")}\n\n` +
+      `Which ideas need me to create a FREE account (just email + password) on a website before I can act? ` +
+      `Skip anything that needs payment, ID/KYC, a phone number, a wallet connection, or only offers social login. At most 2.\n` +
+      `For each, give the sign-up or home page URL, copied exactly from KNOWN URLS.\n` +
+      `Return {"signups":[{"url":"","why":"","idea":1}]}`, 500);
+  } catch { return []; }
+  const out = [], hostsDone = new Set();
+  for (const c of (picked.signups || [])) {
+    let url = String(c.url || "");
+    const host = hostOf(url);
+    if (!host || hostsDone.has(host)) continue;
+    if (seenSet.has(url)) { /* exact page I saw */ }
+    else if (seenHosts.has(host)) url = `https://${host}/`;      // a site I saw — start from its front page
+    else continue;                                                // not seen anywhere: don't trust it
+    hostsDone.add(host);
+    out.push({ url, why: String(c.why || "").slice(0, 160), idea: c.idea });
+  }
+  return out.slice(0, 3);
+}
 
 // ── the cycle ───────────────────────────────────────────────────
 async function runCycle({ trigger = "manual", focus = "" } = {}) {
   if (running) return { error: "An earn cycle is already running — watch the activity pill." };
   if (!Groq.isConfigured()) return { error: "No LLM key configured, so I can't plan." };
   running = true;
-  const result = { startedAt: new Date().toISOString(), trigger, focus, queries: [], read: [], ideas: [] };
+  const result = { startedAt: new Date().toISOString(), trigger, focus, queries: [], read: [], ideas: [], signups: [] };
   try {
     Approvals.step("Earn cycle", `Started (${trigger})${focus ? ` — focus: ${focus}` : ""}`, "running");
 
@@ -81,13 +175,14 @@ async function runCycle({ trigger = "manual", focus = "" } = {}) {
       at: j.startedAt, top: (j.ideas || []).slice(0, 2).map(i => i.title), outcome: j.outcome || "unknown",
     }));
     const snapshot = JSON.stringify({ totalEarnedUsd: total, recentEarnings: entries, balances, pastCycles: past }).slice(0, 3500);
-    Approvals.step("Reviewed my results", `Total earned so far: $${Number(total).toFixed(2)} (${entries.length} recent entries)`, "done");
+    const known = brainBriefing();   // what my OWN brain already knows, before I ask any model
+    Approvals.step("Reviewed my results", `Total earned so far: $${Number(total).toFixed(2)} (${entries.length} recent entries)${known ? " — and checked my own memory first" : ""}`, "done");
 
     // 2. SEARCH
     let queries;
     try {
       const q = await llmJson("Reply with JSON only. " + GROUND_RULES,
-        `Here is my earnings history and past cycles:\n${snapshot}\n${focus ? `Focus area: ${focus}\n` : ""}` +
+        `Here is my earnings history and past cycles:\n${snapshot}\n${known ? `WHAT MY OWN BRAIN ALREADY KNOWS (don't repeat it):\n${known}\n` : ""}${focus ? `Focus area: ${focus}\n` : ""}` +
         `What should I search the web for today to find NEW, concrete, legitimate ways to earn money with an AI agent that can code, browse, make calls and run a store? Avoid repeating past ideas.\nReturn {"queries":["3 short search queries"]}`, 300);
       queries = (q.queries || []).map(String).filter(Boolean).slice(0, 3);
     } catch { queries = []; }
@@ -140,7 +235,7 @@ async function runCycle({ trigger = "manual", focus = "" } = {}) {
     Approvals.step("Working out the best options", "", "running");
     const decided = await llmJson(
       "You are the strategist for an autonomous earning agent. Reply with JSON only. " + GROUND_RULES,
-      `MY RESULTS:\n${snapshot}\n\nSEARCH RESULTS:\n` +
+      `MY RESULTS:\n${snapshot}\n\n${known ? `WHAT MY OWN BRAIN ALREADY KNOWS:\n${known}\n\n` : ""}SEARCH RESULTS:\n` +
       hits.slice(0, 18).map(h => `- ${h.title} (${h.url}): ${h.snippet}`).join("\n") +
       (pageNotes.length ? `\n\nPAGES I READ:\n` + pageNotes.map(p => `[${p.url}]\n${p.text}`).join("\n\n") : "") +
       `\n\nRank the 3 best concrete opportunities I can act on soon. For each: title, why, firstStep (one actionable thing), ` +
@@ -156,6 +251,21 @@ async function runCycle({ trigger = "manual", focus = "" } = {}) {
     writeJson(JOURNAL_PATH, journal.slice(-60));
     const s = getState(); s.lastRunAt = Date.now(); writeJson(STATE_PATH, s);
     Approvals.step("Earn cycle done", result.ideas.map((i, n) => `${n + 1}. ${i.title}`).join("\n"), "done");
+
+    // 5b. SIGN UP — make the free accounts the ideas need, with my own email + browser
+    try {
+      const candidates = await pickSignupCandidates(result, hits, pageNotes);
+      if (candidates.length) {
+        Approvals.step("Signing up", `${candidates.length} service${candidates.length > 1 ? "s" : ""} need an account — doing it with my own email`, "running");
+        result.signups = await Signup.runSignups({ candidates, isKnownBlocked: brainSaysNo });
+        teachSignups(result.signups);
+        const j = getJournal();
+        if (j.length) { j[j.length - 1].signups = result.signups; writeJson(JOURNAL_PATH, j); }
+      }
+    } catch (e) {
+      Approvals.step("Sign-ups stopped", e.message, "error");
+    }
+    teachCycle(result);   // the brain learns from this whole cycle
 
     // 6. UPGRADE (asks first)
     const cc = decided.codeChange;
@@ -194,10 +304,20 @@ function speakSummary(r, T = "Sir") {
   const lines = r.ideas.map((i, n) => `${n + 1}. ${i.title} — ${i.firstStep}${i.estUsd30d ? ` (est. $${i.estUsd30d}/month, ${i.effort} effort)` : ""}`);
   let out = `Here's what I found, ${T}:\n${lines.join("\n")}`;
   if (r.read?.length) out += `\n\n(Read ${r.read.length} page${r.read.length > 1 ? "s" : ""} on my computer.)`;
+  const done = (r.signups || []).filter(x => x.status !== "skipped");
+  if (done.length) {
+    const word = { verified: "signed up and confirmed", created: "signed up", "pending-verification": "signed up, still needs the email confirmed", blocked: "couldn't (needs a human)", failed: "didn't work" };
+    out += `\n\nAccounts with my own email:\n` + done.map(x => `- ${x.host}: ${word[x.status] || x.status}${x.note ? ` — ${x.note}` : ""}${x.email ? ` (${x.email})` : ""}`).join("\n");
+  }
   if (r.lab) {
     if (r.lab.success && r.lab.merged) out += `\n\nCode upgrade shipped to ${r.lab.file}.`;
     else if (r.lab.success) out += `\n\nI opened a pull request upgrading ${r.lab.file} — it's waiting for you to merge: ${r.lab.pr}`;
-    else if (r.lab.reason) out += `\n\nCode upgrade didn't go through: ${r.lab.reason}`;
+    else if (r.lab.reason) {
+      out += `\n\nCode upgrade didn't go through: ${r.lab.reason}`;
+      if (/403|not accessible by personal access token/i.test(r.lab.reason)) {
+        out += `\n(Fix: the GH_PAT secret needs "Contents: Read and write" and "Pull requests: Read and write" on this repo — a fine-grained token with only read access gets this 403.)`;
+      }
+    }
   }
   return out;
 }
@@ -219,7 +339,7 @@ function startScheduler() {
 
 function status() {
   const s = getState();
-  return { enabled: s.enabled, running, lastRunAt: s.lastRunAt || null, nextRunAt: s.enabled && s.lastRunAt ? s.lastRunAt + DAY_MS : null, recent: getJournal().slice(-3).reverse() };
+  return { enabled: s.enabled, running, lastRunAt: s.lastRunAt || null, nextRunAt: s.enabled && s.lastRunAt ? s.lastRunAt + DAY_MS : null, recent: getJournal().slice(-3).reverse(), accounts: Signup.listAccounts().map(a => ({ host: a.host, status: a.status, email: a.email })) };
 }
 
 module.exports = { runCycle, recordOutcome, speakSummary, startScheduler, setEnabled, status, getJournal };
