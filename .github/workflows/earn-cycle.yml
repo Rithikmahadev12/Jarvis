@@ -43,6 +43,15 @@ jobs:
           # Jarvis's own computer (opens pages) + web search.
           E2B_API_KEY: ${{ secrets.E2B_API_KEY }}
           FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          # Jarvis's own email, used to sign up for the services its ideas need.
+          AGENTMAIL_API_KEY: ${{ secrets.AGENTMAIL_API_KEY }}
+          AGENTMAIL_DOMAIN: ${{ secrets.AGENTMAIL_DOMAIN }}
+          # Secret the sign-up passwords are derived from (never stored anywhere).
+          # Add any long random string as the EARN_VAULT_KEY repo secret, and keep it
+          # in a password manager: lose it and Jarvis can't re-derive those passwords.
+          EARN_VAULT_KEY: ${{ secrets.EARN_VAULT_KEY }}
+          EARN_MAX_SIGNUPS: "2"
+          JARVIS_SIGNUP_NAME: "Jarvis"
           # Models (rotation + fallback works the same as on the server).
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GROQ_API_KEY2: ${{ secrets.GROQ_API_KEY2 }}
