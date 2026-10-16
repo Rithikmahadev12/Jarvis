@@ -54,6 +54,7 @@ const STT = require("./stt");
 const Persistence = require("./persistence");
 const Settings    = require("./settings");
 const Comms       = require("./comms-router");
+const FaceLookup  = require("./face-lookup-routes");
 
 const app        = express();
 
@@ -71,6 +72,7 @@ const app        = express();
 // ═══════════════════════════════════════════════════════════════
 const AgentPhoneVoiceRoutes = require("./agentphone-voice-routes");
 AgentPhoneVoiceRoutes.mount(app);
+FaceLookup.mount(app);
 
 // ── CRASH GUARD ───────────────────────────────────────────────────
 // A bug once surfaced where a third-party client library rejected a
