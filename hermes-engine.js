@@ -284,8 +284,14 @@ function callOllamaCloud(messages, options) {
 // E2B sandbox computer (see computer.js's ensureOllama/ollamaChat) —
 // no external API, no key, nothing that can run out of credits. Only
 // usable if the sandbox is configured at all (E2B_API_KEY set).
+//
+// IMPORTANT: strip `model` from options before forwarding — callers
+// pass Groq-style model names (e.g. "openai/gpt-oss-120b") that don't
+// exist on Ollama's registry. Let computer.js use its own
+// SANDBOX_OLLAMA_TEXT_MODEL default (llama3.2:3b) instead.
 function callSandboxOllama(messages, options) {
-  return Computer.ollamaChat(messages, options);
+  const { model: _ignored, ...sandboxOpts } = options || {};
+  return Computer.ollamaChat(messages, sandboxOpts);
 }
 
 // ── GEMINI (self-contained here, same key-rotation shape used by
