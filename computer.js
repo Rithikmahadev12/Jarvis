@@ -840,17 +840,22 @@ async function ensureOllama(model = SANDBOX_OLLAMA_VISION_MODEL) {
     { timeoutMs: 10000 }
   );
   if (!check.stdout.trim()) {
-    // install.sh writes progress to stderr even on success — ignore stderr, just run it
-    await desktopRunCommand("curl -fsSL https://ollama.com/install.sh | sh 2>&1 || true", { timeoutMs: 180000 });
-    // find wherever it landed — ollama install can put binary in several places
-    const verify = await desktopRunCommand(
-      "command -v ollama 2>/dev/null || ls /usr/local/bin/ollama /usr/bin/ollama /bin/ollama /root/.local/bin/ollama 2>/dev/null | head -1",
-      { timeoutMs: 10000 }
+    console.log("[COMPUTER] Ollama not found — attempting install via install.sh...");
+    const install = await desktopRunCommand(
+      "curl -fsSL https://ollama.com/install.sh | sh 2>&1; echo EXIT_CODE:$?",
+      { timeoutMs: 180000 }
     );
+    console.log(`[COMPUTER] Install output:\n${(install.stdout || "").slice(0, 800)}`);
+
+    // find wherever it landed
+    const verify = await desktopRunCommand(
+      "find /usr /root /home -name ollama -type f 2>/dev/null | head -3; command -v ollama 2>/dev/null || true",
+      { timeoutMs: 15000 }
+    );
+    console.log(`[COMPUTER] Ollama binary search result: "${verify.stdout.trim()}"`);
     if (!verify.stdout.trim()) {
-      throw new Error("Ollama install ran but binary not found in any known path");
+      throw new Error(`Ollama install failed — install output: ${(install.stdout || "").slice(0, 300)}`);
     }
-    console.log(`[COMPUTER] Ollama installed at: ${verify.stdout.trim()}`);
   }
 
   const running = await desktopRunCommand("curl -s -m 2 http://127.0.0.1:11434/api/tags", { timeoutMs: 5000 });
