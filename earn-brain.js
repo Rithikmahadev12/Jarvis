@@ -73,17 +73,112 @@ function getRecentBounties() {
   return readJson(BOUNTY_CACHE, []);
 }
 
+// ── Robust JSON extraction ───────────────────────────────────────
+// Handles: markdown fences, preamble text, Ollama progress-bar garbage,
+// partial model-pull responses, nested objects, and escaped characters.
+// Uses depth-aware brace matching instead of naive first/last indexOf.
 function extractJson(text) {
-  const t = String(text || "").replace(/```json|```/g, "");
-  const a = t.indexOf("{"), b = t.lastIndexOf("}");
-  if (a < 0 || b <= a) throw new Error("Model didn't return JSON");
-  return JSON.parse(t.slice(a, b + 1));
+  let t = String(text || "");
+
+  // 1. Strip markdown code fences (```json ... ``` or ``` ... ```)
+  t = t.replace(/```(?:json)?\s*([\s\S]*?)```/g, "$1").trim();
+
+  // 2. Strip Ollama progress-bar lines (lines starting with # or % chars or pure whitespace control lines)
+  //    These show up when model pull is still in progress or partially cached.
+  t = t.replace(/^[#\s]*[\d.]+%[^\n]*/gm, "")
+       .replace(/^[#O=\-\s]+$/gm, "")
+       .trim();
+
+  // 3. Find the first valid top-level JSON object or array using depth tracking
+  const findJson = (str, openChar, closeChar) => {
+    let depth = 0, start = -1;
+    for (let i = 0; i < str.length; i++) {
+      const ch = str[i];
+      // Skip escaped chars inside strings
+      if (ch === '"') {
+        i++;
+        while (i < str.length && str[i] !== '"') {
+          if (str[i] === '\\') i++; // skip escape
+          i++;
+        }
+        continue;
+      }
+      if (ch === openChar) {
+        if (depth === 0) start = i;
+        depth++;
+      } else if (ch === closeChar) {
+        depth--;
+        if (depth === 0 && start >= 0) {
+          return str.slice(start, i + 1);
+        }
+      }
+    }
+    return null;
+  };
+
+  // Try object first, then array
+  const objSlice = findJson(t, "{", "}");
+  const arrSlice = findJson(t, "[", "]");
+
+  // Pick whichever appears first in the text
+  let candidate = null;
+  if (objSlice && arrSlice) {
+    candidate = t.indexOf(objSlice) <= t.indexOf(arrSlice) ? objSlice : arrSlice;
+  } else {
+    candidate = objSlice || arrSlice;
+  }
+
+  if (!candidate) throw new Error("Model didn't return JSON — raw output: " + t.slice(0, 200));
+
+  try {
+    return JSON.parse(candidate);
+  } catch (e) {
+    // Last-ditch: try to repair common model quirks (trailing commas, single quotes)
+    const repaired = candidate
+      .replace(/,\s*([}\]])/g, "$1")          // trailing commas
+      .replace(/(['"])?([a-zA-Z_]\w*)(['"])?:/g, '"$2":')  // unquoted keys
+      .replace(/:\s*'([^']*)'/g, ': "$1"');   // single-quoted values
+    try {
+      return JSON.parse(repaired);
+    } catch {
+      throw new Error(`JSON parse failed even after repair. Pos: ${e.message}. Raw: ${candidate.slice(0, 200)}`);
+    }
+  }
 }
+
+// ── llmJson with retry + backoff ────────────────────────────────
+// Retries up to 3 times with exponential backoff. On each retry it
+// explicitly reminds the model to return ONLY JSON to pressure it
+// back on track after a partial/garbage Ollama response.
 async function llmJson(system, user, maxTokens = 1200) {
-  return extractJson(await Groq.groqFetch([
-    { role: "system", content: system },
-    { role: "user", content: user },
-  ], undefined, 0.4, maxTokens));
+  const MAX_ATTEMPTS = 3;
+  const BACKOFF_MS   = [0, 1500, 4000];
+  let lastErr;
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (BACKOFF_MS[attempt]) await new Promise(r => setTimeout(r, BACKOFF_MS[attempt]));
+
+    // On retries, prepend an explicit JSON-only reminder so the model
+    // doesn't continue spewing prose after a partial failure.
+    const retryPrefix = attempt > 0
+      ? `[Retry ${attempt}/${MAX_ATTEMPTS - 1}] Your previous response could not be parsed as JSON. ` +
+        `Return ONLY a valid JSON object — no prose, no markdown, no preamble.\n\n`
+      : "";
+
+    try {
+      const raw = await Groq.groqFetch([
+        { role: "system", content: system },
+        { role: "user",   content: retryPrefix + user },
+      ], undefined, 0.4, maxTokens);
+
+      return extractJson(raw);
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[EARN] llmJson attempt ${attempt + 1}/${MAX_ATTEMPTS} failed: ${e.message}`);
+    }
+  }
+
+  throw new Error(`llmJson failed after ${MAX_ATTEMPTS} attempts: ${lastErr?.message}`);
 }
 function hostOf(u) { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } }
 
