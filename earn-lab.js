@@ -39,10 +39,23 @@ const FORBIDDEN_NEW = [
 let running = false;
 
 function extractJson(text) {
-  const t = String(text || "").replace(/```json|```/g, "");
-  const a = t.indexOf("{"), b = t.lastIndexOf("}");
-  if (a < 0 || b <= a) throw new Error("Model didn't return JSON");
-  return JSON.parse(t.slice(a, b + 1));
+  let t = String(text || "").replace(/```(?:json)?\s*([\s\S]*?)```/g, "$1").trim();
+  // depth-aware brace extraction
+  const findJson = (str, open, close) => {
+    let depth = 0, start = -1;
+    for (let i = 0; i < str.length; i++) {
+      if (str[i] === '"') { i++; while (i < str.length && str[i] !== '"') { if (str[i] === '\\') i++; i++; } continue; }
+      if (str[i] === open)  { if (!depth) start = i; depth++; }
+      else if (str[i] === close) { if (!--depth && start >= 0) return str.slice(start, i + 1); }
+    }
+    return null;
+  };
+  const candidate = findJson(t, '{', '}') || findJson(t, '[', ']');
+  if (!candidate) throw new Error("Model didn't return JSON — raw: " + t.slice(0, 200));
+  try { return JSON.parse(candidate); } catch {
+    const repaired = candidate.replace(/,\s*([}\]])/g, "$1").replace(/(['"])?([a-zA-Z_]\w*)(['"])?:/g, '"$2":');
+    return JSON.parse(repaired);
+  }
 }
 
 // ── outline of top-level declarations, used for big files ───────
@@ -68,14 +81,78 @@ function routesOf(code) {
   return set;
 }
 
+// Normalize whitespace for fuzzy matching: collapse runs of spaces/tabs to one space,
+// strip trailing whitespace per line, normalize line endings.
+function normalizeWS(s) {
+  return s.replace(/\r\n/g, "\n").split("\n").map(l => l.replace(/[ \t]+/g, " ").trimEnd()).join("\n");
+}
+
+// Find the region in `haystack` that matches `needle` after whitespace normalization.
+// Returns { start, end } in the ORIGINAL (unnormalized) string, or null.
+function fuzzyFind(haystack, needle) {
+  // Fast path: exact match
+  const exact = haystack.indexOf(needle);
+  if (exact >= 0 && haystack.indexOf(needle, exact + 1) < 0) return { start: exact, end: exact + needle.length };
+
+  // Slow path: normalize both sides, then map back to original offsets.
+  const normHay = normalizeWS(haystack);
+  const normNeedle = normalizeWS(needle);
+  const ni = normHay.indexOf(normNeedle);
+  if (ni < 0) return null;
+  if (normHay.indexOf(normNeedle, ni + 1) >= 0) return null; // still ambiguous after normalization
+
+  // Map normalized offset back to original by counting characters
+  // Build a mapping: normHay[i] → original index
+  let origIdx = 0, normIdx = 0;
+  const origLines = haystack.split("\n");
+  const normLines = normHay.split("\n");
+  const lineMap = []; // lineMap[normLineNo] = origLineNo (same length after split)
+  for (let l = 0; l < normLines.length; l++) lineMap[l] = l; // 1:1 line mapping after normalizeWS
+
+  // Recompute start/end in original by finding the same line+col
+  let normPos = 0, origPos = 0;
+  let origStart = -1, origEnd = -1;
+  for (let l = 0; l < normLines.length; l++) {
+    const oLine = origLines[l] || "";
+    const nLine = normLines[l] || "";
+    if (origStart < 0 && normPos + nLine.length >= ni) {
+      // start is on this line
+      const colInNorm = ni - normPos;
+      // map col in normalized line → col in original line using a char-by-char walk
+      let oc = 0, nc = 0;
+      while (nc < colInNorm && oc < oLine.length) {
+        if (oLine[oc] === "\t" || oLine[oc] === " ") { while (oc < oLine.length && (oLine[oc] === "\t" || oLine[oc] === " ")) oc++; nc++; }
+        else { oc++; nc++; }
+      }
+      origStart = origPos + oc;
+    }
+    if (origStart >= 0 && origEnd < 0 && normPos + nLine.length >= ni + normNeedle.length) {
+      const colInNorm = (ni + normNeedle.length) - normPos;
+      let oc = 0, nc = 0;
+      while (nc < colInNorm && oc < oLine.length) {
+        if (oLine[oc] === "\t" || oLine[oc] === " ") { while (oc < oLine.length && (oLine[oc] === "\t" || oLine[oc] === " ")) oc++; nc++; }
+        else { oc++; nc++; }
+      }
+      origEnd = origPos + oc;
+      break;
+    }
+    normPos += nLine.length + 1; // +1 for \n
+    origPos += oLine.length + 1;
+  }
+
+  if (origStart < 0 || origEnd < 0) return null;
+  return { start: origStart, end: origEnd };
+}
+
 function applyPatches(code, patches) {
   let out = code;
   for (const p of patches) {
-    if (typeof p.find !== "string" || typeof p.replace !== "string" || !p.find) throw new Error("A patch was malformed");
-    const first = out.indexOf(p.find);
-    if (first < 0) throw new Error("A patch's 'find' text wasn't in the file");
-    if (out.indexOf(p.find, first + 1) >= 0) throw new Error("A patch's 'find' text matched more than once");
-    out = out.slice(0, first) + p.replace + out.slice(first + p.find.length);
+    if (typeof p.find !== "string" || typeof p.replace !== "string" || !p.find.trim()) {
+      throw new Error("A patch was malformed — find/replace must be non-empty strings");
+    }
+    const match = fuzzyFind(out, p.find);
+    if (!match) throw new Error(`A patch's 'find' text wasn't in the file (even after whitespace normalization): ${p.find.slice(0, 120)}`);
+    out = out.slice(0, match.start) + p.replace + out.slice(match.end);
   }
   return out;
 }
@@ -128,6 +205,45 @@ RULES:
   return { patches: parsed.patches.slice(0, 4), summary: String(parsed.summary || change).slice(0, 300) };
 }
 
+// ── patch generation with retry ─────────────────────────────────
+// If applyPatches throws (find text not in file), we re-ask the model
+// with a corrective prompt that includes the actual surrounding code,
+// so it can produce an accurate find string on the second attempt.
+async function askForPatchesWithRetry(file, change, code, maxAttempts = 3) {
+  let lastErr;
+  let priorBadPatches = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    let proposal;
+    try {
+      // On retries, inject info about what went wrong so the model self-corrects
+      const retryHint = priorBadPatches
+        ? `\n\nPREVIOUS ATTEMPT FAILED: The following "find" strings were NOT found in the file (even after whitespace normalization). ` +
+          `You must copy the text EXACTLY as it appears in the file shown above — no paraphrasing, no adding/removing whitespace beyond what's shown:\n` +
+          priorBadPatches.map((p, i) => `Bad find #${i + 1}: ${JSON.stringify(p.find.slice(0, 200))}`).join("\n")
+        : "";
+
+      proposal = await askForPatches(file, change + retryHint, code);
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[EARN-LAB] askForPatches attempt ${attempt + 1} model error: ${e.message}`);
+      continue;
+    }
+
+    try {
+      const fixed = applyPatches(code, proposal.patches);
+      return { patches: proposal.patches, summary: proposal.summary, fixed };
+    } catch (e) {
+      lastErr = e;
+      priorBadPatches = proposal.patches.filter(p => {
+        try { return !fuzzyFind(code, p.find); } catch { return true; }
+      });
+      console.warn(`[EARN-LAB] applyPatches attempt ${attempt + 1} failed: ${e.message} — retrying with corrective context`);
+    }
+  }
+  throw new Error(`Patch failed after ${maxAttempts} attempts: ${lastErr?.message}`);
+}
+
 // ── the public entry point ──────────────────────────────────────
 async function run({ file, change, why = "" } = {}) {
   if (running) return { error: "The lab is already working on a change." };
@@ -146,8 +262,9 @@ async function run({ file, change, why = "" } = {}) {
       bugDescription: String(change).slice(0, 200),
       autoMerge: process.env.JARVIS_HEADLESS !== "1",   // headless = open a PR, never merge
       generate: async (orig) => {
-        proposal = await askForPatches(rel, change, orig);
-        return applyPatches(orig, proposal.patches);
+        const result = await askForPatchesWithRetry(rel, change, orig);
+        proposal = { patches: result.patches, summary: result.summary };
+        return result.fixed;
       },
       beforeShip: async ({ originalCode, fixedCode }) => {
         // routes must survive
