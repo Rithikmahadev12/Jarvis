@@ -841,12 +841,47 @@ async function ensureOllama(model = SANDBOX_OLLAMA_VISION_MODEL) {
   );
   if (!check.stdout.trim()) {
     console.log("[COMPUTER] Ollama not found — installing zstd then ollama...");
-    await desktopRunCommand("apt-get install -y zstd 2>&1 || true", { timeoutMs: 60000 });
+
+    // ── Step 1: install zstd (required by ollama's install.sh extractor) ──
+    // Try both sudo and plain apt-get; always run update first so the
+    // package index exists.  DEBIAN_FRONTEND=noninteractive prevents
+    // interactive prompts that would hang the sandbox.
+    const zstdInstall = await desktopRunCommand(
+      "DEBIAN_FRONTEND=noninteractive sudo -n apt-get update -qq 2>&1 && " +
+      "DEBIAN_FRONTEND=noninteractive sudo -n apt-get install -y -qq zstd 2>&1; echo ZSTD_EXIT:$?",
+      { timeoutMs: 120000 }
+    );
+    // If sudo wasn't available try without it
+    const zstdExitLine = (zstdInstall.stdout || "").split("\n").find(l => l.startsWith("ZSTD_EXIT:"));
+    const zstdOk = zstdExitLine && zstdExitLine.trim() === "ZSTD_EXIT:0";
+    if (!zstdOk) {
+      console.log("[COMPUTER] sudo apt-get failed — retrying without sudo...");
+      const zstdRetry = await desktopRunCommand(
+        "DEBIAN_FRONTEND=noninteractive apt-get update -qq 2>&1 && " +
+        "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq zstd 2>&1; echo ZSTD_EXIT:$?",
+        { timeoutMs: 120000 }
+      );
+      const retryLine = (zstdRetry.stdout || "").split("\n").find(l => l.startsWith("ZSTD_EXIT:"));
+      if (!retryLine || retryLine.trim() !== "ZSTD_EXIT:0") {
+        console.log("[COMPUTER] WARN: zstd install may have failed — proceeding anyway...");
+        console.log("[COMPUTER] zstd install output:", (zstdRetry.stdout || "").slice(0, 400));
+      } else {
+        console.log("[COMPUTER] zstd installed (without sudo) ✓");
+      }
+    } else {
+      console.log("[COMPUTER] zstd installed ✓");
+    }
+
+    // Verify zstd is actually present before running ollama's extractor
+    const zstdCheck = await desktopRunCommand("command -v zstd 2>/dev/null || which zstd 2>/dev/null || echo MISSING", { timeoutMs: 5000 });
+    console.log("[COMPUTER] zstd binary:", zstdCheck.stdout.trim());
+
+    // ── Step 2: install ollama ─────────────────────────────────────────────
     const install = await desktopRunCommand(
       "curl -fsSL https://ollama.com/install.sh | sh 2>&1; echo EXIT_CODE:$?",
-      { timeoutMs: 180000 }
+      { timeoutMs: 240000 }
     );
-    console.log(`[COMPUTER] Install output:\n${(install.stdout || "").slice(0, 800)}`);
+    console.log(`[COMPUTER] Install output:\n${(install.stdout || "").slice(0, 1200)}`);
 
     // find wherever it landed
     const verify = await desktopRunCommand(
