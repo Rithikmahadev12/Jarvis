@@ -902,8 +902,42 @@ async function ensureOllama(model = SANDBOX_OLLAMA_VISION_MODEL) {
   const pulled = await desktopRunCommand(`ollama list | grep -qi "${model}"`, { timeoutMs: 10000 });
   if (!pulled.ok) {
     console.log(`[COMPUTER] Pulling self-hosted vision model "${model}" on the sandbox (first time only, can take a few minutes)...`);
-    const pull = await desktopRunCommand(`ollama pull ${model}`, { timeoutMs: 10 * 60 * 1000 });
-    if (!pull.ok) throw new Error(`Couldn't pull "${model}" on the sandbox: ${pull.stderr || "unknown error"}`);
+    const pull = await desktopRunCommand(`ollama pull ${model} 2>&1; echo PULL_EXIT:$?`, { timeoutMs: 10 * 60 * 1000 });
+    const pullExitLine = (pull.stdout || "").split("\n").find(l => l.startsWith("PULL_EXIT:"));
+    const pullOk = pullExitLine && pullExitLine.trim() === "PULL_EXIT:0";
+    if (!pullOk) throw new Error(`Couldn't pull "${model}" on the sandbox: ${(pull.stderr || pull.stdout || "unknown error").slice(0, 300)}`);
+
+    // ── Post-pull verification ────────────────────────────────────────────────
+    // Wait up to 10s for the model to appear in `ollama list` — the pull
+    // command can exit 0 while Ollama is still writing its final manifest,
+    // causing the first ollamaChat() call to get a "model not found" or
+    // partial-response error that blows up JSON parsing downstream.
+    let verified = false;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await new Promise(r => setTimeout(r, 2000));
+      const verify = await desktopRunCommand(`ollama list | grep -qi "${model}"`, { timeoutMs: 8000 });
+      if (verify.ok) { verified = true; break; }
+      console.log(`[COMPUTER] Waiting for model "${model}" to register in ollama list (attempt ${attempt + 1}/5)...`);
+    }
+    if (!verified) throw new Error(`Model "${model}" pulled but didn't appear in ollama list after 10s — sandbox may be out of disk.`);
+
+    // ── Warm-up ping ─────────────────────────────────────────────────────────
+    // Send a trivial prompt so the model weights are loaded into memory NOW,
+    // before any real request. Without this the first earn-brain llmJson call
+    // hits Ollama while it's still loading and gets a truncated/garbage JSON.
+    console.log(`[COMPUTER] Warming up "${model}" — loading weights into sandbox memory...`);
+    const warmBody = JSON.stringify({ model, stream: false, messages: [{ role: "user", content: "ping" }] });
+    const warmPath = `/tmp/jarvis_ollama_warmup_${Date.now()}.json`;
+    await desktopWriteFile(warmPath, warmBody);
+    const warmup = await desktopRunCommand(
+      `curl -s -X POST http://127.0.0.1:11434/api/chat -H "Content-Type: application/json" -d @${warmPath}`,
+      { timeoutMs: 3 * 60 * 1000 }
+    );
+    if (!warmup.ok || !warmup.stdout.trim()) {
+      console.warn(`[COMPUTER] WARN: warm-up ping failed — model may be slow on first real request: ${(warmup.stderr || "").slice(0, 200)}`);
+    } else {
+      console.log(`[COMPUTER] Model "${model}" warm and ready ✓`);
+    }
   }
 
   ollamaReady = true;
