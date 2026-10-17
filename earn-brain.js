@@ -45,6 +45,7 @@ const DATA_DIR     = path.join(__dirname, "data");
 const JOURNAL_PATH = path.join(DATA_DIR, "earn-journal.json");
 const STATE_PATH   = path.join(DATA_DIR, "earn-state.json");
 const DAY_MS = 24 * 3600 * 1000;
+const BOUNTY_CACHE = path.join(DATA_DIR, "bounties.json");
 
 let running = false;
 
@@ -56,6 +57,21 @@ function writeJson(p, v) {
 function getState() { return { enabled: true, lastRunAt: 0, ...readJson(STATE_PATH, {}) }; }
 function setEnabled(on) { const s = getState(); s.enabled = !!on; writeJson(STATE_PATH, s); return s; }
 function getJournal() { return readJson(JOURNAL_PATH, []); }
+
+// Fetch latest AI bounties from AgentBounty.org and cache them
+async function fetchBounties() {
+  try {
+    const resp = await fetch("https://agentbounty.org/api/latest");
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = await resp.json();
+    writeJson(BOUNTY_CACHE, data);
+  } catch (e) {
+    console.warn("[EARN] fetch bounties failed:", e.message);
+  }
+}
+function getRecentBounties() {
+  return readJson(BOUNTY_CACHE, []);
+}
 
 function extractJson(text) {
   const t = String(text || "").replace(/```json|```/g, "");
@@ -335,6 +351,8 @@ function startScheduler() {
   };
   setTimeout(tick, 3 * 60 * 1000).unref?.();
   setInterval(tick, 30 * 60 * 1000).unref?.();
+// Refresh AI bounties cache every 4 hours
+setInterval(fetchBounties, 4 * 60 * 60 * 1000).unref?.();
 }
 
 function status() {
@@ -342,4 +360,4 @@ function status() {
   return { enabled: s.enabled, running, lastRunAt: s.lastRunAt || null, nextRunAt: s.enabled && s.lastRunAt ? s.lastRunAt + DAY_MS : null, recent: getJournal().slice(-3).reverse(), accounts: Signup.listAccounts().map(a => ({ host: a.host, status: a.status, email: a.email })) };
 }
 
-module.exports = { runCycle, recordOutcome, speakSummary, startScheduler, setEnabled, status, getJournal };
+module.exports = { runCycle, recordOutcome, speakSummary, startScheduler, setEnabled, status, getJournal, getRecentBounties };
