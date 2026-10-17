@@ -837,8 +837,13 @@ async function ensureOllama(model = SANDBOX_OLLAMA_VISION_MODEL) {
 
   const check = await desktopRunCommand("which ollama", { timeoutMs: 10000 });
   if (!check.ok || !check.stdout.trim()) {
-    const install = await desktopRunCommand("curl -fsSL https://ollama.com/install.sh | sh", { timeoutMs: 180000 });
-    if (!install.ok) throw new Error(`Couldn't install Ollama on the sandbox: ${install.stderr || "unknown error"}`);
+    // install.sh writes progress to stderr even on success — don't trust exit code alone
+    await desktopRunCommand("curl -fsSL https://ollama.com/install.sh | sh", { timeoutMs: 180000 });
+    // verify the binary actually landed instead
+    const verify = await desktopRunCommand("which ollama || ls /usr/local/bin/ollama 2>/dev/null", { timeoutMs: 10000 });
+    if (!verify.ok || !verify.stdout.trim()) {
+      throw new Error("Ollama install ran but binary not found — sandbox may have insufficient permissions");
+    }
   }
 
   const running = await desktopRunCommand("curl -s -m 2 http://127.0.0.1:11434/api/tags", { timeoutMs: 5000 });
