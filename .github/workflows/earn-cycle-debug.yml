@@ -53,7 +53,7 @@ jobs:
           async function main() {
             const REQUIRED = [
               "SUPABASE_URL","SUPABASE_SERVICE_ROLE_KEY","GROQ_API_KEY",
-              "EARN_VAULT_KEY","AGENTMAIL_API_KEY","E2B_API_KEY",
+              "AGENTMAIL_API_KEY","E2B_API_KEY",
             ];
             const missing = REQUIRED.filter(k => !process.env[k]);
             if (missing.length) missing.forEach(k => warn(`Missing secret: ${k}`));
@@ -62,23 +62,42 @@ jobs:
             process.env.JARVIS_HEADLESS = "1";
             process.env.EARN_FORCE      = "1";
 
-            // ── Patch Groq ──────────────────────────────────────
+            // ── Force sandbox Ollama FIRST, Groq as last resort ─
             try {
-              const Groq = require(jPath("hermes-engine"));
-              const orig = Groq.groqFetch.bind(Groq);
-              Groq.groqFetch = async function(msgs, ...rest) {
+              const Hermes  = require(jPath("hermes-engine"));
+              const Computer = require(jPath("computer"));
+
+              // Intercept groqFetch — the single entry point earn-brain uses
+              const origGroqFetch = Hermes.groqFetch.bind(Hermes);
+              Hermes.groqFetch = async function(msgs, ...rest) {
                 const last = [...msgs].reverse().find(m => m.role === "user");
                 const isPick = String(last?.content || "").includes("signups");
                 if (isPick) {
                   step("LLM → pickSignupCandidates fired");
-                  log("Prompt snippet:", String(last.content).slice(0, 200).replace(/\n/g, " "));
+                  log("Prompt snippet:", String(last.content).slice(0,200).replace(/\n/g," "));
                 }
-                const resp = await orig(msgs, ...rest);
-                if (isPick) log("LLM raw response:", String(resp).slice(0, 500));
+
+                // Try sandbox Ollama first
+                if (Computer.isDesktopConfigured()) {
+                  try {
+                    log("[HERMES-PATCH] Trying sandbox Ollama first...");
+                    const resp = await Computer.ollamaText(msgs);
+                    if (isPick) log("Sandbox Ollama response:", String(resp).slice(0,500));
+                    ok("[HERMES-PATCH] Sandbox Ollama succeeded ✓");
+                    return resp;
+                  } catch(e) {
+                    warn("[HERMES-PATCH] Sandbox Ollama failed:", e.message, "— falling back to Groq");
+                  }
+                } else {
+                  warn("[HERMES-PATCH] E2B not configured — sandbox Ollama unavailable, using Groq");
+                }
+
+                const resp = await origGroqFetch(msgs, ...rest);
+                if (isPick) log("Groq fallback response:", String(resp).slice(0,500));
                 return resp;
               };
-              ok("Groq patched ✓");
-            } catch(e) { warn("Groq patch failed:", e.message); }
+              ok("Hermes patched — sandbox Ollama first ✓");
+            } catch(e) { warn("Hermes patch failed:", e.message); }
 
             // ── Patch Signup ────────────────────────────────────
             let Signup;
