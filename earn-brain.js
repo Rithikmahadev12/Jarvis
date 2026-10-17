@@ -259,7 +259,16 @@ async function runCycle({ trigger = "manual", focus = "" } = {}) {
       `Optionally, if ONE small code change to an earning file would help, include codeChange.\n` +
       `Return {"ideas":[{"title":"","why":"","firstStep":"","estUsd30d":0,"effort":"","source":""}],` +
       `"codeChange":{"file":"one of: ${[...EarnLab.ALLOWED_TARGETS].join(", ")}","change":"what to change","why":""} or null}`, 1600);
-    result.ideas = (decided.ideas || []).slice(0, 3);
+    // Prioritize bounty ideas: add priority flag and boost ranking
+    const rawIdeas = decided.ideas || [];
+    const scored = rawIdeas.map(i => {
+      const isBounty = i.source && i.source.toLowerCase().includes('bounty');
+      const base = i.estUsd30d || 0;
+      const score = base * (isBounty ? 1.3 : 1);
+      return { ...i, priority: isBounty, _score: score };
+    });
+    scored.sort((a, b) => b._score - a._score);
+    result.ideas = scored.slice(0, 3).map(({ _score, ...rest }) => rest);
     if (!result.ideas.length) throw new Error("No usable ideas came back.");
 
     // 5. SAVE + report
