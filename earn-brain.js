@@ -678,7 +678,7 @@ function startScheduler() {
   setTimeout(tick, 3 * 60 * 1000).unref?.();
   setInterval(tick, 30 * 60 * 1000).unref?.();
 // Refresh AI bounties cache every 4 hours
-setInterval(fetchBounties, 4 * 60 * 60 * 1000).unref?.();
+  setInterval(fetchBounties, 4 * 60 * 60 * 1000).unref?.();
 }
 
 function status() {
