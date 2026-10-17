@@ -247,3 +247,24 @@ module.exports = {
   // exported for tests
   _internal: { isChain, hasWebsite, buildOverpassQuery, normName },
 };
+
+// Fetch open bounties and add high‑value leads
+(async () => {
+  try {
+    const bounties = await fetchJson('https://agentbounty.org/api/open-bounties');
+    if (Array.isArray(bounties)) {
+      for (const b of bounties) {
+        if (b.rewardUsd >= 500) {
+          leadList.push({
+            name: b.title || b.name || 'Untitled',
+            url: b.url,
+            rewardUsd: b.rewardUsd,
+            source: 'bounty:agentbounty',
+          });
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[LEAD-FINDER] Bounty fetch error:', e.message);
+  }
+})();
