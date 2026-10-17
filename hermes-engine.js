@@ -484,22 +484,7 @@ async function groqFetchRawWithFallback(messages, options = {}) {
   const now = Date.now();
   const tiers = [];
 
-  if (LocalLLM.isCloudConfigured() && now >= ollamaCooldownUntil) {
-    tiers.push({
-      name: "Ollama Cloud",
-      run: () => callOllamaCloud(messages, options),
-      onFail: () => { ollamaCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
-      onOk: () => { ollamaCooldownUntil = 0; },
-    });
-  }
-  if (isGeminiConfigured() && now >= geminiCooldownUntil) {
-    tiers.push({
-      name: "Gemini",
-      run: () => geminiChatWithTools(messages, options),
-      onFail: () => { geminiCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
-      onOk: () => { geminiCooldownUntil = 0; },
-    });
-  }
+  // TIER 1: sandbox Ollama first — free, no API key, runs on E2B
   if (Computer.isDesktopConfigured() && now >= sandboxCooldownUntil) {
     tiers.push({
       name: "self-hosted sandbox Ollama",
@@ -508,6 +493,25 @@ async function groqFetchRawWithFallback(messages, options = {}) {
       onOk: () => { sandboxCooldownUntil = 0; },
     });
   }
+  // TIER 2: Ollama Cloud
+  if (LocalLLM.isCloudConfigured() && now >= ollamaCooldownUntil) {
+    tiers.push({
+      name: "Ollama Cloud",
+      run: () => callOllamaCloud(messages, options),
+      onFail: () => { ollamaCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
+      onOk: () => { ollamaCooldownUntil = 0; },
+    });
+  }
+  // TIER 3: Gemini
+  if (isGeminiConfigured() && now >= geminiCooldownUntil) {
+    tiers.push({
+      name: "Gemini",
+      run: () => geminiChatWithTools(messages, options),
+      onFail: () => { geminiCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
+      onOk: () => { geminiCooldownUntil = 0; },
+    });
+  }
+  // TIER 4 (last resort): Groq — handled below the loop
 
   let lastErr;
   for (const tier of tiers) {
