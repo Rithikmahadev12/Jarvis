@@ -996,7 +996,7 @@ async function ollamaChat(messages, opts = {}) {
   await desktopWriteFile(reqPath, JSON.stringify(body));
   const res = await desktopRunCommand(
     `curl -s -X POST http://127.0.0.1:11434/api/chat -H "Content-Type: application/json" -d @${reqPath}`,
-    { timeoutMs: opts.timeoutMs || 90000 }
+    { timeoutMs: opts.timeoutMs || 5 * 60 * 1000 }   // 5 min — 3b on sandbox CPU needs room for big prompts
   );
   if (!res.ok || !res.stdout) throw new Error("Self-hosted Ollama chat request failed inside the sandbox.");
 
