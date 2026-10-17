@@ -269,6 +269,207 @@ async function pickSignupCandidates(result, hits, pageNotes) {
   return out.slice(0, 3);
 }
 
+// ── ACTION CLASSIFIER ────────────────────────────────────────────────────────
+// Figures out what kind of thing `firstStep` is asking for so we can route it
+// to the right executor instead of just logging it.
+const ACTION_TYPES = {
+  BROWSE_AND_SUBMIT : "browse_and_submit",   // fill out a form / submit an application
+  LIST_PRODUCT      : "list_product",         // post a product / gig / listing
+  SEND_OUTREACH     : "send_outreach",        // send a cold email / DM / proposal
+  CLAIM_BOUNTY      : "claim_bounty",         // submit work to a bounty platform
+  CREATE_CONTENT    : "create_content",       // write + publish a post / article
+  DOWNLOAD_ASSET    : "download_asset",       // pull a template / starter kit
+  UNKNOWN           : "unknown",              // no automatic action — log and teach brain
+};
+
+async function classifyFirstStep(idea) {
+  try {
+    const c = await llmJson(
+      "Reply with JSON only.",
+      `What kind of action does this earning opportunity's first step require an AI agent to take?\\n` +
+      `Title: ${idea.title}\\nFirstStep: ${idea.firstStep}\\nSource: ${idea.source || ""}\\n\\n` +
+      `Options: ${Object.values(ACTION_TYPES).join(", ")}\\n` +
+      `Return {"actionType":"<one of the options>","targetUrl":"<url to navigate to, or empty string>","briefPlan":"<1 sentence plan>"}`,
+      300
+    );
+    return c;
+  } catch {
+    return { actionType: ACTION_TYPES.UNKNOWN, targetUrl: idea.source || "", briefPlan: idea.firstStep };
+  }
+}
+
+// ── EXECUTORS ────────────────────────────────────────────────────────────────
+
+async function execBrowseAndSubmit(idea, classification) {
+  if (!Computer.isConfigured()) return { ok: false, reason: "no E2B_API_KEY — can't open a browser" };
+  const url = classification.targetUrl || idea.source;
+  if (!url) return { ok: false, reason: "no URL to navigate to" };
+  Approvals.step("Executing first step", `Opening ${url} to act on: ${idea.title}`, "running");
+  try {
+    const page = await Computer.browsePage(url, { waitMs: 3000 });
+    const text = String(page?.text || "").slice(0, 2000);
+    // Ask the model what it found and what the very next micro-action is
+    const next = await llmJson(
+      "Reply with JSON only.",
+      `I opened this page as step 1 of: "${idea.firstStep}"\\n\\nPage text:\\n${text}\\n\\n` +
+      `What did I find? Did I land on a form, a login wall, a listing page, or something else?\\n` +
+      `Return {"landed":"<what I found in 1 sentence>","nextMicroAction":"<single next thing to do>","canProceed":true|false}`,
+      300
+    );
+    brainLearn(`How do I start: ${idea.title}?`, `Opened ${url}. Found: ${next.landed}. Next: ${next.nextMicroAction}`, "earn-exec");
+    return { ok: true, url, landed: next.landed, nextMicroAction: next.nextMicroAction, canProceed: next.canProceed };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
+async function execClaimBounty(idea, classification) {
+  if (!Computer.isConfigured()) return { ok: false, reason: "no E2B_API_KEY" };
+  const url = classification.targetUrl || idea.source;
+  if (!url) return { ok: false, reason: "no bounty URL" };
+  Approvals.step("Executing first step", `Checking bounty at ${url}`, "running");
+  try {
+    const page = await Computer.browsePage(url, { waitMs: 3000 });
+    const text = String(page?.text || "").slice(0, 2500);
+    const analysis = await llmJson(
+      "Reply with JSON only.",
+      `I'm an AI agent looking to claim or submit to this bounty.\\n\\nPage text:\\n${text}\\n\\n` +
+      `Extract: {"title":"","reward":"","deadline":"","requirements":"<1-2 sentences>","submissionUrl":"<url or empty>","canSubmitNow":true|false,"blockers":"<what stops me or empty>"}`,
+      400
+    );
+    brainLearn(`Bounty details: ${idea.title}`, JSON.stringify(analysis).slice(0, 500), "earn-exec");
+    return { ok: true, url, bountyDetails: analysis };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
+async function execCreateContent(idea, _classification) {
+  // Generate the actual content piece (article, post, description) using the LLM
+  Approvals.step("Executing first step", `Drafting content for: ${idea.title}`, "running");
+  try {
+    const content = await llmJson(
+      "You are an expert content creator for an AI agent trying to earn money. Reply with JSON only.",
+      `Create a concrete, publishable content piece for this earning idea:\\n` +
+      `Title: ${idea.title}\\nFirstStep: ${idea.firstStep}\\nSource: ${idea.source || ""}\\n\\n` +
+      `Return {"contentTitle":"","contentBody":"<the actual content, 200-400 words>","platform":"<where to post this>","publishUrl":"<url to submit or post, or empty>"}`,
+      1200
+    );
+    brainLearn(`Content created for: ${idea.title}`, `Platform: ${content.platform}. Title: ${content.contentTitle}`, "earn-exec");
+    // Write draft to disk so it persists to Supabase
+    const draftPath = require("path").join(__dirname, "data", `content-draft-${Date.now()}.json`);
+    try { writeJson(draftPath, { idea: idea.title, ...content, createdAt: new Date().toISOString() }); } catch {}
+    return { ok: true, contentTitle: content.contentTitle, platform: content.platform, publishUrl: content.publishUrl, bodyLength: content.contentBody?.length || 0 };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
+async function execListProduct(idea, classification) {
+  if (!Computer.isConfigured()) return { ok: false, reason: "no E2B_API_KEY" };
+  const url = classification.targetUrl || idea.source;
+  Approvals.step("Executing first step", `Checking listing flow on ${url || "target platform"}`, "running");
+  try {
+    const page = url ? await Computer.browsePage(url, { waitMs: 3000 }) : null;
+    const text = String(page?.text || "").slice(0, 2000);
+    const plan = await llmJson(
+      "Reply with JSON only.",
+      `I want to list a product or service to earn money.\\nIdea: ${idea.title}\\nFirstStep: ${idea.firstStep}\\n` +
+      (text ? `Page I landed on:\\n${text}\\n\\n` : "") +
+      `Return {"platformName":"","listingSteps":["step1","step2"],"requiresApproval":true|false,"estimatedSetupTime":"","blockers":"<or empty>"}`,
+      400
+    );
+    brainLearn(`Listing plan: ${idea.title}`, `Platform: ${plan.platformName}. Steps: ${(plan.listingSteps||[]).join("; ")}`, "earn-exec");
+    return { ok: true, url, listingPlan: plan };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
+async function execSendOutreach(idea, _classification) {
+  // Draft the actual outreach message — no sending without human approval
+  Approvals.step("Executing first step", `Drafting outreach for: ${idea.title}`, "running");
+  try {
+    const draft = await llmJson(
+      "Reply with JSON only.",
+      `Draft a short, professional cold outreach message for this earning opportunity.\\n` +
+      `Idea: ${idea.title}\\nFirstStep: ${idea.firstStep}\\nEstimated: $${idea.estUsd30d || "?"}/mo\\n\\n` +
+      `Return {"subject":"","body":"<email or DM body, under 150 words>","platform":"<email|twitter|linkedin|discord>","toWho":"<type of person to contact>"}`,
+      500
+    );
+    brainLearn(`Outreach draft: ${idea.title}`, `Platform: ${draft.platform}. To: ${draft.toWho}`, "earn-exec");
+    const draftPath = require("path").join(__dirname, "data", `outreach-draft-${Date.now()}.json`);
+    try { writeJson(draftPath, { idea: idea.title, ...draft, createdAt: new Date().toISOString() }); } catch {}
+    return { ok: true, subject: draft.subject, platform: draft.platform, toWho: draft.toWho, bodyLength: draft.body?.length || 0 };
+  } catch (e) {
+    return { ok: false, reason: e.message };
+  }
+}
+
+// ── ROUTER ───────────────────────────────────────────────────────────────────
+async function executeFirstStep(idea, _context) {
+  let classification;
+  try {
+    classification = await classifyFirstStep(idea);
+  } catch {
+    classification = { actionType: ACTION_TYPES.UNKNOWN, targetUrl: idea.source || "", briefPlan: idea.firstStep };
+  }
+
+  const type = classification.actionType;
+  let execResult;
+
+  if (type === ACTION_TYPES.CLAIM_BOUNTY) {
+    execResult = await execClaimBounty(idea, classification);
+  } else if (type === ACTION_TYPES.CREATE_CONTENT) {
+    execResult = await execCreateContent(idea, classification);
+  } else if (type === ACTION_TYPES.LIST_PRODUCT) {
+    execResult = await execListProduct(idea, classification);
+  } else if (type === ACTION_TYPES.SEND_OUTREACH) {
+    execResult = await execSendOutreach(idea, classification);
+  } else if (type === ACTION_TYPES.BROWSE_AND_SUBMIT) {
+    execResult = await execBrowseAndSubmit(idea, classification);
+  } else {
+    // UNKNOWN — still try to browse the source URL and record what's there
+    execResult = await execBrowseAndSubmit(idea, { ...classification, targetUrl: idea.source || "" });
+  }
+
+  const outcome = {
+    idea: idea.title,
+    actionType: type,
+    briefPlan: classification.briefPlan,
+    ...execResult,
+    executedAt: new Date().toISOString(),
+  };
+
+  // Always teach the brain the outcome
+  brainLearn(
+    `Execution outcome: ${idea.title}`,
+    `Type=${type} ok=${execResult.ok} ${execResult.reason || execResult.landed || ""}`.slice(0, 400),
+    "earn-exec"
+  );
+
+  Approvals.step(
+    execResult.ok ? "First step done" : "First step couldn't run",
+    `${idea.title}: ${execResult.ok
+      ? (execResult.landed || execResult.contentTitle || execResult.subject || execResult.bountyDetails?.title || "executed")
+      : execResult.reason}`,
+    execResult.ok ? "done" : "error"
+  );
+
+  return outcome;
+}
+
+// Run first-step execution for all top ideas in parallel (capped at 3)
+async function executeFirstSteps(ideas, context) {
+  if (!ideas || !ideas.length) return [];
+  const top = ideas.slice(0, 3);
+  Approvals.step("Executing first steps", `Acting on ${top.length} idea${top.length > 1 ? "s" : ""} now`, "running");
+  const results = await Promise.allSettled(top.map(idea => executeFirstStep(idea, context)));
+  return results.map((r, i) =>
+    r.status === "fulfilled" ? r.value : { idea: top[i]?.title, ok: false, reason: r.reason?.message || "unknown error", executedAt: new Date().toISOString() }
+  );
+}
+
 // ── the cycle ───────────────────────────────────────────────────
 async function runCycle({ trigger = "manual", focus = "" } = {}) {
   if (running) return { error: "An earn cycle is already running — watch the activity pill." };
@@ -385,6 +586,15 @@ async function runCycle({ trigger = "manual", focus = "" } = {}) {
     } catch (e) {
       Approvals.step("Sign-ups stopped", e.message, "error");
     }
+    // 5c. EXECUTE — actually do the first step for each idea
+    try {
+      result.executions = await executeFirstSteps(result.ideas, { hits, pageNotes, signups: result.signups });
+      const j = getJournal();
+      if (j.length) { j[j.length - 1].executions = result.executions; writeJson(JOURNAL_PATH, j); }
+    } catch (e) {
+      Approvals.step("Action execution stopped", e.message, "error");
+    }
+
     teachCycle(result);   // the brain learns from this whole cycle
 
     // 6. UPGRADE (asks first)
@@ -428,6 +638,18 @@ function speakSummary(r, T = "Sir") {
   if (done.length) {
     const word = { verified: "signed up and confirmed", created: "signed up", "pending-verification": "signed up, still needs the email confirmed", blocked: "couldn't (needs a human)", failed: "didn't work" };
     out += `\n\nAccounts with my own email:\n` + done.map(x => `- ${x.host}: ${word[x.status] || x.status}${x.note ? ` — ${x.note}` : ""}${x.email ? ` (${x.email})` : ""}`).join("\n");
+  }
+  if (r.executions?.length) {
+    const done  = r.executions.filter(x => x.ok);
+    const failed = r.executions.filter(x => !x.ok);
+    if (done.length) {
+      out += `\n\nFirst steps I actually took:\n` + done.map(x =>
+        `- ${x.idea} [${x.actionType}]: ${x.landed || x.contentTitle || x.subject || x.bountyDetails?.title || "done"}`
+      ).join("\n");
+    }
+    if (failed.length) {
+      out += `\n\nCouldn't execute (${failed.length}): ` + failed.map(x => `${x.idea} — ${x.reason}`).join("; ");
+    }
   }
   if (r.lab) {
     if (r.lab.success && r.lab.merged) out += `\n\nCode upgrade shipped to ${r.lab.file}.`;
