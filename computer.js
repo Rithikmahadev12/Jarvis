@@ -840,7 +840,8 @@ async function ensureOllama(model = SANDBOX_OLLAMA_VISION_MODEL) {
     { timeoutMs: 10000 }
   );
   if (!check.stdout.trim()) {
-    console.log("[COMPUTER] Ollama not found — attempting install via install.sh...");
+    console.log("[COMPUTER] Ollama not found — installing zstd then ollama...");
+    await desktopRunCommand("apt-get install -y zstd 2>&1 || true", { timeoutMs: 60000 });
     const install = await desktopRunCommand(
       "curl -fsSL https://ollama.com/install.sh | sh 2>&1; echo EXIT_CODE:$?",
       { timeoutMs: 180000 }
