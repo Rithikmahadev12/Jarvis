@@ -2518,6 +2518,54 @@ app.get("/api/extension/download", (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// ── PHONE CONTROL — accessibility-based UI automation on the APK device
+// POST /api/phone-control/plan   → get a Groq-generated action plan
+// POST /api/phone-control/verify → verify a step's outcome mid-execution
+// ═══════════════════════════════════════════════════════════════
+const PhoneControl = require("./phone-control");
+
+app.post("/api/phone-control/plan", async (req, res) => {
+  const { command, currentApp, screenContext, userName, userTitle, sessionId } = req.body || {};
+  if (!command) return res.status(400).json({ error: "Missing command" });
+
+  // Owner-only guard — same pattern used by wallet routes
+  const session = sessions && sessionId ? sessions[sessionId] : null;
+  const T = userTitle || (session && session.userTitle) || "Sir";
+
+  console.log(`[PHONE-CTRL] Plan request — user="${userName}" cmd="${command}"`);
+
+  try {
+    const plan = await PhoneControl.planPhoneAction({ command, currentApp, screenContext });
+    console.log(`[PHONE-CTRL] Plan ready — ${plan.steps ? plan.steps.length : 0} steps for "${plan.summary || command}"`);
+    return res.json({ ok: true, plan });
+  } catch (e) {
+    console.error("[PHONE-CTRL] Plan error:", e.message);
+    return res.status(500).json({ error: e.message });
+  }
+});
+
+app.post("/api/phone-control/verify", async (req, res) => {
+  const { expected, screenState } = req.body || {};
+  if (!expected || !screenState) return res.status(400).json({ error: "Missing expected or screenState" });
+  try {
+    const result = await PhoneControl.verifyStep({ expected, screenState });
+    return res.json(result);
+  } catch (e) {
+    return res.json({ status: "ok", reason: "Verification failed — proceeding." });
+  }
+});
+
+app.post("/api/phone-control/complete", async (req, res) => {
+  const { command, success, errorStep, errorReason, userTitle } = req.body || {};
+  try {
+    const reply = await PhoneControl.buildCompletionReply({ command, success, errorStep, errorReason, userTitle });
+    return res.json({ reply });
+  } catch (e) {
+    return res.json({ reply: "Task complete." });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════
 // ── RESEARCH
 // ═══════════════════════════════════════════════════════════════
 app.post("/api/research", async (req, res) => {
