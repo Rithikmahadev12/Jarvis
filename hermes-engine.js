@@ -490,8 +490,12 @@ async function groqFetchRawWithFallback(messages, options = {}) {
   const now = Date.now();
   const tiers = [];
 
-  // TIER 1: sandbox Ollama first — free, no API key, runs on E2B
-  if (Computer.isDesktopConfigured() && now >= sandboxCooldownUntil) {
+  // TIER 1: sandbox Ollama first — free, no API key, runs on E2B.
+  // Skipped while prewarmSandbox() is still in flight (Computer.isSandboxBooting()),
+  // which means cold-start requests fall through to tier 2/3/4 immediately
+  // instead of blocking for minutes. Once the prewarm resolves the flag drops
+  // and the next request can use tier 1 at full speed.
+  if (Computer.isDesktopConfigured() && now >= sandboxCooldownUntil && !Computer.isSandboxBooting()) {
     tiers.push({
       name: "self-hosted sandbox Ollama",
       run: () => callSandboxOllama(messages, options),
