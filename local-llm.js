@@ -162,10 +162,46 @@ function isRenderEnv() {
     process.env.RENDER_INSTANCE_ID
   );
 }
-// "Local mode" = running on the user's own machine, where Ollama is
-// reachable. This is the ONLY switch that decides Ollama vs
-// Groq/Gemini anywhere in the app.
+// "Local mode" = Ollama is reachable.
+//
+// FIX 3 — OLLAMA_FORCE_LOCAL / remote tunnel support:
+//
+//   Problem: isLocalMode() returned false on Render because isRenderEnv()
+//   is true there, so Jarvis always fell back to Groq even if you had
+//   Ollama running at home and exposed it via a tunnel (ngrok, cloudflared,
+//   tailscale, etc.) with OLLAMA_URL set in Render's env vars.
+//
+//   Fix:  Two new escape hatches:
+//   1. Set  OLLAMA_FORCE_LOCAL=true  in Render's environment variables to
+//      unconditionally activate local mode regardless of whether we're on
+//      Render.  Use this when you want Ollama to be the primary brain even
+//      when hosted in the cloud.
+//   2. Set  OLLAMA_URL  to your tunnel URL (e.g. https://abc123.ngrok-free.app)
+//      and leave OLLAMA_FORCE_LOCAL unset — Jarvis will detect that the URL
+//      is NOT localhost/127.0.0.1 and treat it as "remote Ollama is configured,
+//      use it" automatically.
+//
+//   Either way: if Ollama doesn't actually respond at that URL, the normal
+//   Groq fallback kicks in inside hermes-engine.js's tier waterfall, so
+//   nothing breaks if your tunnel goes down.
+//
+//   To use on Render:
+//     1. Start Ollama on your local machine:  ollama serve
+//     2. Expose it:  ngrok http 11434  (or cloudflared / tailscale funnel)
+//     3. In Render → Environment → add:
+//          OLLAMA_URL=https://your-tunnel-url.ngrok-free.app
+//          OLLAMA_FORCE_LOCAL=true
+//          OLLAMA_MODEL=qwen2.5:1.5b   (or whatever model you have pulled)
 function isLocalMode() {
+  // Explicit override always wins.
+  if (process.env.OLLAMA_FORCE_LOCAL === "true") return true;
+  // If OLLAMA_URL is set to a non-localhost address, the user has a tunnel —
+  // treat Ollama as reachable regardless of where Jarvis is deployed.
+  if (process.env.OLLAMA_URL) {
+    const u = process.env.OLLAMA_URL.trim().toLowerCase();
+    const isLocalhost = u.includes("127.0.0.1") || u.includes("localhost") || u.includes("::1");
+    if (!isLocalhost) return true; // remote tunnel configured → use it
+  }
   return !isRenderEnv();
 }
 
