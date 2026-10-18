@@ -5977,6 +5977,20 @@ function startServer() {
     console.log(`  Learned:       /data/learned/`);
     console.log(`  Memory sync:   ${Persistence.isConfigured() ? "✓ Supabase — memory survives restarts" : "✗ local-only — memory LOST on restart (set SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY/SUPABASE_BUCKET)"}\n`);
 
+    // ── SANDBOX PRE-WARM: boot E2B desktop + Ollama in background ─
+    // Fire-and-forget. The first request that needs tier-1 (sandbox
+    // Ollama) would otherwise block for several minutes while Ollama
+    // installs + pulls the model. By kicking this off immediately at
+    // server start, the sandbox is hot by the time any real user
+    // request arrives. hermes-engine's groqFetchRawWithFallback watches
+    // Computer.isSandboxBooting() and skips tier 1 until the flag drops,
+    // so in-flight requests during prewarm go straight to tier 2+.
+    if (Computer.isDesktopConfigured()) {
+      Computer.prewarmSandbox().catch(e =>
+        console.error("[server] sandbox prewarm error:", e.message)
+      );
+    }
+
     // ── PROACTIVE INBOX TRIAGE: background sweep ──────────────────
     // Runs while the server is up. Each pass is a no-op for any user
     // already triaged today, so it's cheap to run often — this just
