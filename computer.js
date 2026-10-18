@@ -1099,4 +1099,44 @@ module.exports = {
   ollamaText,
   SANDBOX_OLLAMA_VISION_MODEL,
   SANDBOX_OLLAMA_TEXT_MODEL,
+  // pre-warm
+  prewarmSandbox,
+  isSandboxBooting,
+  isSandboxPrewarmed,
 };
+
+// ── SANDBOX PRE-WARM ───────────────────────────────────────────
+// Called once at server startup (fire-and-forget). Spins up the
+// desktop sandbox and installs/serves/pulls Ollama so the FIRST
+// real user request that needs tier-1 (sandbox Ollama) doesn't pay
+// the full install cost. sandboxBooting is true while this is in
+// flight — hermes-engine's groqFetchRawWithFallback checks it and
+// skips tier 1 until the flag drops.
+let sandboxBooting = false;
+let sandboxPrewarmed = false;
+
+async function prewarmSandbox() {
+  if (!isDesktopConfigured()) return; // E2B not set up — nothing to prewarm
+  if (sandboxPrewarmed || sandboxBooting) return; // already done or in progress
+
+  sandboxBooting = true;
+  sandboxPrewarmed = false;
+  console.log("[COMPUTER] Pre-warming sandbox Ollama in background...");
+
+  try {
+    // Step 1: boot the desktop sandbox itself
+    await getDesktop();
+    // Step 2: install Ollama + pull model + warmup ping (all idempotent)
+    await ensureOllama();
+    sandboxPrewarmed = true;
+    console.log("[COMPUTER] Sandbox pre-warm complete ✓ — tier-1 Ollama is hot and ready.");
+  } catch (e) {
+    console.warn("[COMPUTER] Sandbox pre-warm failed (will retry on first real request):", e.message);
+    sandboxPrewarmed = false;
+  } finally {
+    sandboxBooting = false;
+  }
+}
+
+function isSandboxBooting() { return sandboxBooting; }
+function isSandboxPrewarmed() { return sandboxPrewarmed; }
