@@ -4020,7 +4020,7 @@ async function handleFeatureShip(T) {
 // to maintain.
 // ═══════════════════════════════════════════════════════════════
 async function executeAssistantTool(name, args, ctx) {
-  const { T, userTimezone, userName, sessionId } = ctx;
+  const { T, userTimezone, userName, sessionId, fromPhone } = ctx;
 
   switch (name) {
     // ── earning + money tools (see earn-brain.js, earn-lab.js, wallet-ops.js) ──
@@ -5212,6 +5212,22 @@ Daily cycle is ${(typeof args.daily === "boolean" ? args.daily : st.enabled) ? "
 
     case "open_on_computer": {
       if (!JarvisAgent.isEnabled()) {
+        // ── Phone path: if the request came from the Android APK,
+        //    generate an accessibility plan and ship it back so the
+        //    phone executes it locally instead of us blocking here.
+        if (fromPhone) {
+          try {
+            const plan = await PhoneControl.planPhoneAction({ command: args.target || args.app || "" });
+            return {
+              reply: `On it, ${T}.`,
+              action: "PHONE_CONTROL_PLAN",
+              intent: "phone_control",
+              meta: { plan },
+            };
+          } catch (e) {
+            return { reply: `Couldn't plan that on your phone, ${T} — ${e.message}`, action: "OPEN_ON_PC", intent: "open_on_pc" };
+          }
+        }
         return { reply: `Can't do that from here, ${T} — this instance is running in the cloud, not on your computer.`, action: "OPEN_ON_PC", intent: "open_on_pc" };
       }
       const target = (args.target || "").trim();
@@ -5232,6 +5248,25 @@ Daily cycle is ${(typeof args.daily === "boolean" ? args.daily : st.enabled) ? "
     // covers "then actually do something in it."
     case "control_app": {
       if (!JarvisAgent.isEnabled()) {
+        // ── Phone path: if request is from Android APK, build an
+        //    accessibility plan from the app+goal and return it so
+        //    PhoneControlService executes it on the device directly.
+        if (fromPhone) {
+          const appName = (args.app || "").trim();
+          const goal    = (args.goal || args.target || "").trim();
+          const command = goal ? `${goal} on ${appName}`.trim() : appName;
+          try {
+            const plan = await PhoneControl.planPhoneAction({ command, currentApp: appName || null });
+            return {
+              reply: `On it, ${T}.`,
+              action: "PHONE_CONTROL_PLAN",
+              intent: "phone_control",
+              meta: { plan },
+            };
+          } catch (e) {
+            return { reply: `Couldn't plan that on your phone, ${T} — ${e.message}`, action: "CONTROL_APP", intent: "control_app" };
+          }
+        }
         return { reply: `Can't do that from here, ${T} — this instance is running in the cloud, not on your computer.`, action: "CONTROL_APP", intent: "control_app" };
       }
       const appName = (args.app || "").trim();
@@ -5311,7 +5346,8 @@ Daily cycle is ${(typeof args.daily === "boolean" ? args.daily : st.enabled) ? "
 }
 
 app.post("/api/chat", async (req, res) => {
-  let { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, cameraViewOpen, screenActive, userTimezone, attachments } = req.body;
+  let { message, sessionId, userName, userTitle, memories, moodContext, cameraActive, cameraViewOpen, screenActive, userTimezone, attachments, source } = req.body;
+  const fromPhone = source === "android";
   if (!message || !sessionId) return res.status(400).json({ error: "Missing fields" });
 
   // Fix likely speech-to-text mishearings (e.g. "tired" heard as "tarot")
@@ -5575,7 +5611,7 @@ app.post("/api/chat", async (req, res) => {
         context:             moodContext,
         conversationHistory: getSessionHistory(sessionId),
         tz:                  userTimezone,
-        executeTool: (name, args) => executeAssistantTool(name, args, { T, userTimezone, userName, moodContext, sessionId }),
+        executeTool: (name, args) => executeAssistantTool(name, args, { T, userTimezone, userName, moodContext, sessionId, fromPhone }),
       });
 
       if (toolResult.reply) {
