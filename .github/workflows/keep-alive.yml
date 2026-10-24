@@ -1,0 +1,25 @@
+name: Render Keep-Alive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Ping Jarvis
+        run: |
+          echo "Pinging Jarvis…"
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 25 --retry 2 --retry-delay 3 \
+            "${{ secrets.JARVIS_MAIN_URL }}/api/profiles" || echo "timeout")
+          echo "  → status: $STATUS"
+          if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ]; then
+            echo "  ✓ Jarvis is awake"
+          else
+            echo "  ⚠ Returned $STATUS — may still be waking up"
+          fi
