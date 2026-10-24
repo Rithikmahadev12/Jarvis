@@ -254,6 +254,87 @@ ipcMain.on("desktop:approval-resize", (_e, info) => {
   approvalWindow.showInactive();   // never steals focus from what you're doing
 });
 
+// ── NOTCH BAR (OS-level voice assistant bar) ───────────────────
+// Sits at the very top-centre of the primary display like macOS notch.
+// Collapses to a tiny pill; expands on click/hotkey to full chat panel.
+// Has screen capture, voice, wallet data, memory — full Jarvis context.
+let notchWindow = null;
+const NOTCH_COLLAPSED_H = 44;
+const NOTCH_WIDTH = 500;
+
+function createNotchWindow() {
+  if (notchWindow) return;
+  const d = screen.getPrimaryDisplay();
+  notchWindow = new BrowserWindow({
+    x: d.bounds.x + Math.round((d.bounds.width - NOTCH_WIDTH) / 2),
+    y: d.bounds.y,
+    width: NOTCH_WIDTH,
+    height: NOTCH_COLLAPSED_H,
+    show: false,
+    frame: false,
+    transparent: true,
+    hasShadow: false,
+    resizable: false,
+    movable: true,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    focusable: true,
+    backgroundColor: "#00000000",
+    webPreferences: {
+      preload: preloadPath(),
+      contextIsolation: true,
+      sandbox: false,
+      // desktopCapturer must be enabled for screen capture in notch
+      nodeIntegration: false,
+    },
+  });
+  notchWindow.setAlwaysOnTop(true, "screen-saver", 1);
+  notchWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  notchWindow.loadURL(`${backendUrl}/notch-bar.html`);
+  notchWindow.once("ready-to-show", () => notchWindow.showInactive());
+  notchWindow.on("closed", () => { notchWindow = null; });
+
+  // Register global Cmd+Shift+J / Ctrl+Shift+J shortcut to toggle notch
+  const { globalShortcut } = require("electron");
+  const shortcut = process.platform === "darwin" ? "Command+Shift+J" : "Control+Shift+J";
+  globalShortcut.register(shortcut, () => {
+    if (!notchWindow) return;
+    notchWindow.webContents.executeJavaScript("typeof toggleExpand === 'function' && toggleExpand()").catch(() => {});
+    notchWindow.focus();
+  });
+}
+
+// Dynamic resize: notch page calls this when collapsed/expanded
+ipcMain.on("desktop:notch-resize", (_e, info) => {
+  if (!notchWindow) return;
+  const d = screen.getPrimaryDisplay();
+  const height = Math.max(NOTCH_COLLAPSED_H, Math.min(Number(info?.height) || NOTCH_COLLAPSED_H, 560));
+  notchWindow.setBounds({
+    x: d.bounds.x + Math.round((d.bounds.width - NOTCH_WIDTH) / 2),
+    y: d.bounds.y,
+    width: NOTCH_WIDTH,
+    height,
+  });
+  notchWindow.showInactive();
+});
+
+// Screen capture: main process grabs a screenshot and sends back to notch
+ipcMain.handle("desktop:capture-screen", async () => {
+  const { desktopCapturer } = require("electron");
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ["screen"],
+      thumbnailSize: { width: 1920, height: 1080 },
+    });
+    if (sources.length === 0) return null;
+    const thumb = sources[0].thumbnail;
+    return "data:image/jpeg;base64," + thumb.toJPEG(70).toString("base64");
+  } catch (e) {
+    console.error("[NOTCH] Screen capture failed:", e.message);
+    return null;
+  }
+});
+
 function closeWidgetWindow(id) {
   const win = widgetWindows.get(id);
   if (win) { try { win.close(); } catch {} widgetWindows.delete(id); }
@@ -279,6 +360,7 @@ function buildTray() {
       { label: "Open widget: News", click: () => openWidgetWindow("news") },
       { type: "separator" },
       { label: "Show main window", click: () => { if (mainWindow) mainWindow.show(); else createMainWindow(); } },
+      { label: notchWindow ? "Hide notch bar" : "Show notch bar", click: () => { if (notchWindow) { notchWindow.close(); } else { createNotchWindow(); } rebuildMenu(); } },
       { label: "Quit", click: () => app.quit() },
     ]);
     tray.setContextMenu(menu);
@@ -341,6 +423,7 @@ app.whenReady().then(async () => {
 
   createMainWindow();
   createApprovalWindow();
+  createNotchWindow();
   buildTray();
 
   app.on("activate", () => {
