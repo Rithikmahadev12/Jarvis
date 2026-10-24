@@ -26,4 +26,14 @@ contextBridge.exposeInMainWorld("jarvisDesktop", {
   // Used only by the approvals overlay (public/approval-pill.html) to
   // tell the main process when to show/hide and how tall to be.
   approvalResize: (info) => ipcRenderer.send("desktop:approval-resize", info),
+
+  // ── NOTCH BAR ──────────────────────────────────────────────────
+  // Tells main process the notch window's current rendered height so
+  // it can resize the BrowserWindow to match (collapsed pill vs expanded panel).
+  notchResize: (info) => ipcRenderer.send("desktop:notch-resize", info),
+
+  // Captures a screenshot of the primary display via Electron's
+  // desktopCapturer (not available in the renderer directly due to
+  // contextIsolation). Returns a base64 data URL or null.
+  captureScreen: () => ipcRenderer.invoke("desktop:capture-screen"),
 });
