@@ -1,34 +1,24 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Phone Control v1.0
+// J.A.R.V.I.S — Phone Control v1.2
 //
-// "Jarvis, go on Instagram and search for chicken recipes"
-// → Groq plans a sequence of accessibility actions
-// → APK's PhoneControlService executes them step by step on the real phone UI
+// CHANGE: planner now uses local Ollama (your computer's model)
+//         instead of Groq. Falls back to Groq if Ollama is
+//         unreachable (cloud deploy / Ollama not running).
 //
-// FLOW:
-//   1. APK sends POST /api/phone-control with { command, currentApp, screenContext }
-//   2. Groq translates the NL command into a JSON action plan
-//      (open_app, tap_element, type_text, scroll, back, wait, screenshot_check)
-//   3. Backend returns the plan as JSON; APK executes each step via
-//      Android Accessibility APIs (no root needed)
-//   4. After each step the APK can POST /api/phone-control/verify with a
-//      screenshot description; Groq decides whether to continue, retry, or abort.
+// Uses LocalLLM.ollamaText() → hits http://127.0.0.1:11434
+// Model: OLLAMA_MODEL env var (default: llama3.2:3b)
+//        For best phone-control accuracy use llama3.1:8b or qwen2.5:7b
 //
-// APPS SUPPORTED (Groq picks the right package name automatically):
-//   Instagram, YouTube, TikTok, Spotify, Google Maps, Chrome, Settings,
-//   Contacts, Messages, WhatsApp, Telegram, Gmail, Calculator, Camera,
-//   Files, Clock, Notes, Twitter/X, Reddit, Snapchat, Netflix, Amazon,
-//   DoorDash, Uber, Lyft, Google Photos, Play Store — plus any app the
-//   user names by its real name (Groq resolves the package name).
-//
-// SECURITY: only the owner's authenticated sessions can trigger phone control.
-//   All actions are logged to data/phone-control-log.json.
+// FIX v1.1: plan returned at root, APK unwraps wrapper { ok, plan }
+// FIX v1.1: open_app wait_ms raised to 2500 for heavy apps
+// FIX v1.2: planner switched to Ollama, Groq kept as fallback
 // ═══════════════════════════════════════════════════════════════
 
-const fs   = require("fs");
-const path = require("path");
-const Groq = require("./hermes-engine");
+const fs       = require("fs");
+const path     = require("path");
+const Groq     = require("./hermes-engine");
+const LocalLLM = require("./local-llm");
 
 // ── LOG ───────────────────────────────────────────────────────
 const LOG_FILE = path.join(__dirname, "data", "phone-control-log.json");
@@ -47,40 +37,60 @@ function logAction(entry) {
   } catch { /* non-fatal */ }
 }
 
-// ── KNOWN APP PACKAGE MAP ─────────────────────────────────────
-// Groq can resolve unknowns but we seed it with the most common ones
-// so it doesn't have to guess.
+// ── PACKAGE MAP ───────────────────────────────────────────────
 const APP_PACKAGES = {
-  instagram:     "com.instagram.android",
-  youtube:       "com.google.android.youtube",
-  tiktok:        "com.zhiliaoapp.musically",
-  spotify:       "com.spotify.music",
-  maps:          "com.google.android.apps.maps",
-  "google maps": "com.google.android.apps.maps",
-  chrome:        "com.android.chrome",
-  settings:      "com.android.settings",
-  contacts:      "com.android.contacts",
-  messages:      "com.google.android.apps.messaging",
-  whatsapp:      "com.whatsapp",
-  telegram:      "org.telegram.messenger",
-  gmail:         "com.google.android.gm",
-  calculator:    "com.google.android.calculator",
-  camera:        "com.android.camera2",
-  files:         "com.google.android.apps.nbu.files",
-  clock:         "com.google.android.deskclock",
-  twitter:       "com.twitter.android",
-  x:             "com.twitter.android",
-  reddit:        "com.reddit.frontpage",
-  snapchat:      "com.snapchat.android",
-  netflix:       "com.netflix.mediaclient",
-  amazon:        "com.amazon.mShop.android.shopping",
-  doordash:      "com.dd.doordash",
-  uber:          "com.ubercab",
-  lyft:          "com.lyft.android",
-  "google photos": "com.google.android.apps.photos",
-  "play store":  "com.android.vending",
-  "phone":       "com.google.android.dialer",
-  "dialer":      "com.google.android.dialer",
+  instagram:          "com.instagram.android",
+  youtube:            "com.google.android.youtube",
+  tiktok:             "com.zhiliaoapp.musically",
+  spotify:            "com.spotify.music",
+  maps:               "com.google.android.apps.maps",
+  "google maps":      "com.google.android.apps.maps",
+  chrome:             "com.android.chrome",
+  settings:           "com.android.settings",
+  contacts:           "com.android.contacts",
+  messages:           "com.google.android.apps.messaging",
+  whatsapp:           "com.whatsapp",
+  telegram:           "org.telegram.messenger",
+  gmail:              "com.google.android.gm",
+  calculator:         "com.google.android.calculator",
+  camera:             "com.android.camera2",
+  files:              "com.google.android.apps.nbu.files",
+  clock:              "com.google.android.deskclock",
+  twitter:            "com.twitter.android",
+  x:                  "com.twitter.android",
+  reddit:             "com.reddit.frontpage",
+  snapchat:           "com.snapchat.android",
+  netflix:            "com.netflix.mediaclient",
+  amazon:             "com.amazon.mShop.android.shopping",
+  doordash:           "com.dd.doordash",
+  uber:               "com.ubercab",
+  lyft:               "com.lyft.android",
+  "google photos":    "com.google.android.apps.photos",
+  "play store":       "com.android.vending",
+  phone:              "com.google.android.dialer",
+  dialer:             "com.google.android.dialer",
+  "samsung messages": "com.samsung.android.messaging",
+  "samsung contacts": "com.samsung.android.contacts",
+  "samsung camera":   "com.samsung.android.camera",
+  "samsung clock":    "com.samsung.android.clock",
+  "samsung gallery":  "com.samsung.android.gallery3d",
+  "samsung dialer":   "com.samsung.android.dialer",
+  discord:            "com.discord",
+  facebook:           "com.facebook.katana",
+  fb:                 "com.facebook.katana",
+  pinterest:          "com.pinterest",
+  linkedin:           "com.linkedin.android",
+  twitch:             "tv.twitch.android.app",
+  "prime video":      "com.amazon.avod.thirdpartyclient",
+  "disney plus":      "com.disney.disneyplus",
+  hulu:               "com.hulu.plus",
+  paypal:             "com.paypal.android.p2pmobile",
+  venmo:              "com.venmo",
+  cashapp:            "com.squareup.cash",
+  "cash app":         "com.squareup.cash",
+  coinbase:           "com.coinbase.android",
+  brave:              "com.brave.browser",
+  firefox:            "org.mozilla.firefox",
 };
 
 function resolvePackage(appName) {
@@ -88,52 +98,41 @@ function resolvePackage(appName) {
   return APP_PACKAGES[appName.toLowerCase().trim()] || null;
 }
 
-// ── ACTION PLAN SCHEMA (what Groq returns) ────────────────────
-// Each step is one of:
-//   { action: "open_app",     package: "com.instagram.android", app_name: "Instagram" }
-//   { action: "tap_element",  description: "Search icon",  fallback_text: "Search" }
-//   { action: "type_text",    text: "chicken recipe" }
-//   { action: "scroll",       direction: "down", amount: "medium" }
-//   { action: "back" }
-//   { action: "wait",         ms: 1500 }
-//   { action: "screenshot_check", expect: "search results visible" }
-//   { action: "home" }
-//   { action: "swipe",        from: "bottom", to: "center" }
-//   { action: "tap_coords",   x_pct: 0.5, y_pct: 0.15 }   // last resort
+// ── PLANNER SYSTEM PROMPT ─────────────────────────────────────
+// Kept identical whether Ollama or Groq handles it — both see the
+// same instructions. Ollama's local model is more literal and less
+// creative, so the prompt is deliberately explicit and example-heavy.
+const PLANNER_SYSTEM = `You are JARVIS, an AI assistant controlling an Android phone via Android Accessibility APIs.
 
-const PLANNER_SYSTEM = `You are JARVIS, an AI assistant controlling an Android phone on behalf of the user via Android Accessibility APIs.
+Given a natural-language command, produce a JSON action plan to complete the task step by step.
 
-Given a natural-language command and optional context about the current app and screen, produce a JSON action plan that will complete the task step by step.
-
-Return ONLY a valid JSON object, no markdown, no preamble:
+Return ONLY a valid JSON object — no markdown, no explanation, no preamble, nothing before or after the JSON:
 {
-  "app": "Instagram",
-  "package": "com.instagram.android",
-  "summary": "Open Instagram and search for chicken recipe",
+  "app": "YouTube",
+  "package": "com.google.android.youtube",
+  "summary": "Open YouTube and search for hi",
   "steps": [
-    { "action": "open_app", "package": "com.instagram.android", "app_name": "Instagram" },
-    { "action": "wait", "ms": 1500 },
-    { "action": "tap_element", "description": "Search/magnifying glass icon in bottom nav bar", "fallback_text": "Search" },
-    { "action": "type_text", "text": "chicken recipe" },
-    { "action": "tap_element", "description": "Search button or Go key on keyboard", "fallback_text": "Search" }
+    { "action": "open_app", "package": "com.google.android.youtube", "app_name": "YouTube", "wait_ms": 2500 },
+    { "action": "wait", "ms": 1000 },
+    { "action": "tap_element", "description": "Search magnifying glass icon at top of screen", "fallback_text": "Search" },
+    { "action": "wait", "ms": 600 },
+    { "action": "type_text", "text": "hi" },
+    { "action": "wait", "ms": 400 },
+    { "action": "tap_element", "description": "Search or Go button on keyboard", "fallback_text": "Search" }
   ]
 }
 
-ACTION TYPES AND RULES:
-- open_app: always first if the app isn't already open. Include both package and app_name.
-- tap_element: describe the UI element clearly. fallback_text is the exact visible text/label if description-based matching fails.
-- type_text: text to type into the focused field. Do NOT include the Enter key here — use a separate tap_element for the search/go button.
-- scroll: direction is "up"/"down"/"left"/"right", amount is "small"/"medium"/"large".
-- back: press the Android back button.
-- home: press the Android home button.
-- wait: pause in milliseconds. Use after open_app (1500ms) and after type_text (300ms) to let UI settle.
-- screenshot_check: add this after major transitions to verify the screen looks right before continuing. expect describes what should be visible.
-- swipe: gesture swipe. from/to are "top"/"bottom"/"left"/"right"/"center".
-- tap_coords: ONLY as absolute last resort when there's truly no element to describe. x_pct/y_pct are 0.0-1.0 fractions of screen width/height.
+CRITICAL RULES:
+1. Return ONLY the JSON object. Nothing else. No "Here is the plan:" no markdown code blocks.
+2. open_app MUST include both "package" and "app_name".
+3. For YouTube, Instagram, TikTok, Netflix, Spotify — set wait_ms: 2500 (they are slow to open).
+4. For all other apps — set wait_ms: 1800.
+5. Always add a { "action": "wait", "ms": 1000 } step immediately after open_app.
+6. Use tap_element before type_text to focus the search field.
 
-PACKAGE NAMES (use these exactly):
-Instagram: com.instagram.android
+PACKAGE NAMES — use EXACTLY these strings:
 YouTube: com.google.android.youtube
+Instagram: com.instagram.android
 TikTok: com.zhiliaoapp.musically
 Spotify: com.spotify.music
 Chrome: com.android.chrome
@@ -142,27 +141,121 @@ WhatsApp: com.whatsapp
 Gmail: com.google.android.gm
 Maps: com.google.android.apps.maps
 Messages: com.google.android.apps.messaging
-Twitter/X: com.twitter.android
+Twitter: com.twitter.android
 Reddit: com.reddit.frontpage
 Netflix: com.netflix.mediaclient
 Snapchat: com.snapchat.android
 Uber: com.ubercab
 DoorDash: com.dd.doordash
+Phone/Dialer: com.google.android.dialer
+Contacts: com.android.contacts
+Calculator: com.google.android.calculator
+Clock: com.google.android.deskclock
+Camera: com.android.camera2
+Files: com.google.android.apps.nbu.files
+Play Store: com.android.vending
 
-COMMON TASK PATTERNS:
-- "search for X on Instagram": open_app → wait → tap Search tab → type text → wait → tap search result/go
-- "play X on YouTube": open_app → wait → tap search icon → type query → tap search → tap first video result  
-- "search for X on TikTok": open_app → wait → tap Search icon → type text → wait
-- "open [app]": just open_app + wait
-- "go back": back
-- "go home": home
-- "scroll down": scroll down
-- "DM [person] on Instagram": open_app → wait → tap DMs icon → tap search in DMs → type person's name → tap their name → tap message field → type message → send
-- "set alarm for X": open clock app → tap Alarm tab → tap Add → set time → save
+COMMON PATTERNS — copy these exactly:
+Open YouTube and search X:
+  open_app(youtube, wait_ms:2500) → wait(1000) → tap_element("Search icon top","Search") → wait(600) → type_text(X) → wait(400) → tap_element("Search button keyboard","Search")
 
-Keep steps minimal and precise. Prefer tap_element with clear descriptions over tap_coords.`;
+Open Instagram and search X:
+  open_app(instagram, wait_ms:2500) → wait(1000) → tap_element("Search magnifying glass bottom nav","Search") → type_text(X) → wait(400)
 
-// ── PLAN A PHONE ACTION ───────────────────────────────────────
+Open any app (no further action):
+  open_app(pkg, wait_ms:2500 or 1800) → wait(1000)
+
+Go back:
+  { "action": "back" }
+
+Go home:
+  { "action": "home" }
+
+Scroll down:
+  { "action": "scroll", "direction": "down", "amount": "medium" }`;
+
+// ── OLLAMA PLANNER ────────────────────────────────────────────
+// Calls local-llm.js's ollamaText() which hits 127.0.0.1:11434.
+// Raises after OLLAMA_PLAN_TIMEOUT_MS if the model is too slow;
+// caller falls through to Groq in that case.
+const OLLAMA_PLAN_TIMEOUT_MS = parseInt(process.env.OLLAMA_PLAN_TIMEOUT_MS || "", 10) || 60000;
+
+async function planWithOllama(userMsg) {
+  const messages = [
+    { role: "system", content: PLANNER_SYSTEM },
+    { role: "user",   content: userMsg },
+  ];
+
+  // ollamaText uses the queue in local-llm.js so concurrent calls
+  // don't race. We wrap in a timeout so a hung Ollama doesn't stall
+  // the phone-control path indefinitely.
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error(`Ollama plan timed out after ${OLLAMA_PLAN_TIMEOUT_MS}ms`)),
+      OLLAMA_PLAN_TIMEOUT_MS)
+  );
+
+  const raw = await Promise.race([
+    LocalLLM.ollamaText(messages, undefined, 0.05, 1024),
+    timeoutPromise,
+  ]);
+
+  return raw;
+}
+
+// ── GROQ PLANNER (fallback) ───────────────────────────────────
+async function planWithGroq(userMsg) {
+  const messages = [
+    { role: "system", content: PLANNER_SYSTEM },
+    { role: "user",   content: userMsg },
+  ];
+  return await Groq.groqFetch(messages, Groq.MODELS.fast, 0.1, 1024);
+}
+
+// ── PARSE + PATCH PLAN ────────────────────────────────────────
+function parsePlan(raw) {
+  // Strip any markdown fences a model sneaks in despite instructions
+  const cleaned = raw
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  // Some models prepend "Here is the plan:" or similar — find the
+  // first { to start parsing from there.
+  const jsonStart = cleaned.indexOf("{");
+  if (jsonStart === -1) throw new Error("No JSON object found in model output");
+  const jsonStr = cleaned.slice(jsonStart);
+
+  let plan;
+  try {
+    plan = JSON.parse(jsonStr);
+  } catch {
+    throw new Error(`Unparseable plan JSON: ${jsonStr.slice(0, 200)}`);
+  }
+
+  // Resolve missing package names
+  if (plan.app && !plan.package) {
+    plan.package = resolvePackage(plan.app) || plan.package;
+  }
+  for (const step of (plan.steps || [])) {
+    if (step.action === "open_app") {
+      if (step.app_name && !step.package) {
+        step.package = resolvePackage(step.app_name) || step.package;
+      }
+      // Enforce minimum wait for heavy apps regardless of what model said
+      const heavy = ["youtube", "instagram", "netflix", "tiktok", "spotify"];
+      const isHeavy = heavy.some(h => (step.package || "").includes(h));
+      if (isHeavy && (!step.wait_ms || step.wait_ms < 2500)) {
+        step.wait_ms = 2500;
+      } else if (!isHeavy && (!step.wait_ms || step.wait_ms < 1800)) {
+        step.wait_ms = 1800;
+      }
+    }
+  }
+
+  return plan;
+}
+
+// ── MAIN PLAN FUNCTION ────────────────────────────────────────
 async function planPhoneAction({ command, currentApp = null, screenContext = null }) {
   const userMsg = [
     `Command: "${command}"`,
@@ -170,68 +263,90 @@ async function planPhoneAction({ command, currentApp = null, screenContext = nul
     screenContext ? `Current screen state: ${screenContext}` : "",
   ].filter(Boolean).join("\n");
 
-  const messages = [
-    { role: "system", content: PLANNER_SYSTEM },
-    { role: "user",   content: userMsg },
-  ];
-
+  // ── 1. Try local Ollama first ─────────────────────────────
   let raw;
+  let usedModel = "ollama";
   try {
-    raw = await Groq.groqFetch(messages, Groq.MODELS.fast, 0.1, 1024);
-  } catch (e) {
-    throw new Error(`Groq planning failed: ${e.message}`);
-  }
+    console.log("[PHONE-CTRL] Asking local Ollama to plan:", command);
+    raw = await planWithOllama(userMsg);
+    console.log("[PHONE-CTRL] Ollama responded OK");
+  } catch (ollamaErr) {
+    // Ollama unreachable, timed out, or model not pulled
+    console.warn(`[PHONE-CTRL] Ollama plan failed (${ollamaErr.message}) — falling back to Groq`);
 
-  const cleaned = raw.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
-  let plan;
-  try {
-    plan = JSON.parse(cleaned);
-  } catch {
-    throw new Error(`Groq returned unparseable plan: ${cleaned.slice(0, 200)}`);
-  }
+    if (!Groq.isConfigured()) {
+      throw new Error("Local Ollama is unavailable and no Groq key is set — cannot plan phone action.");
+    }
 
-  // Resolve package name if Groq left it generic
-  if (plan.app && !plan.package) {
-    plan.package = resolvePackage(plan.app) || plan.package;
-  }
-  for (const step of (plan.steps || [])) {
-    if (step.action === "open_app" && step.app_name && !step.package) {
-      step.package = resolvePackage(step.app_name) || step.package;
+    try {
+      raw = await planWithGroq(userMsg);
+      usedModel = "groq";
+    } catch (groqErr) {
+      throw new Error(`Both Ollama and Groq failed. Ollama: ${ollamaErr.message}. Groq: ${groqErr.message}`);
     }
   }
 
-  logAction({ type: "plan", command, plan });
+  // ── 2. Parse + patch ──────────────────────────────────────
+  let plan;
+  try {
+    plan = parsePlan(raw);
+  } catch (parseErr) {
+    // If Ollama produced garbage JSON, try Groq before giving up
+    if (usedModel === "ollama" && Groq.isConfigured()) {
+      console.warn(`[PHONE-CTRL] Ollama plan unparseable — retrying with Groq: ${parseErr.message}`);
+      try {
+        const groqRaw = await planWithGroq(userMsg);
+        plan = parsePlan(groqRaw);
+        usedModel = "groq-fallback";
+      } catch (groqParseErr) {
+        throw new Error(`Plan parse failed on both models. Last error: ${groqParseErr.message}`);
+      }
+    } else {
+      throw parseErr;
+    }
+  }
+
+  console.log(`[PHONE-CTRL] Plan ready via ${usedModel} — ${plan.steps ? plan.steps.length : 0} steps for "${plan.summary || command}"`);
+  logAction({ type: "plan", usedModel, command, plan });
   return plan;
 }
 
-// ── VERIFY A STEP (screenshot description → continue/retry/abort) ─
-const VERIFY_SYSTEM = `You are JARVIS verifying that a phone automation step succeeded.
-Given what was expected after a step and a description of the current screen state, decide what to do next.
+// ── VERIFY A STEP ─────────────────────────────────────────────
+// Verification is lightweight (small JSON output) — Ollama handles
+// it fine; Groq stays as fallback.
+const VERIFY_SYSTEM = `You are JARVIS verifying a phone automation step.
 Return ONLY valid JSON: { "status": "ok" | "retry" | "abort", "reason": "one short sentence" }
-- "ok": the expected state matches — continue with the next step
-- "retry": close but not quite right — tap the same target again or wait a bit more  
-- "abort": completely wrong screen, something went badly — stop and report to user`;
+- ok: expected state visible, continue
+- retry: close but not quite — try again
+- abort: completely wrong screen, stop`;
 
 async function verifyStep({ expected, screenState }) {
   const messages = [
     { role: "system", content: VERIFY_SYSTEM },
-    {
-      role: "user",
-      content: `Expected: "${expected}"\nActual screen: "${screenState}"`,
-    },
+    { role: "user",   content: `Expected: "${expected}"\nActual screen: "${screenState}"` },
   ];
+
+  let raw;
   try {
-    const raw = await Groq.groqFetch(messages, Groq.MODELS.fast, 0.1, 128);
+    raw = await LocalLLM.ollamaText(messages, undefined, 0.05, 128);
+  } catch {
+    try {
+      raw = await Groq.groqFetch(messages, Groq.MODELS.fast, 0.1, 128);
+    } catch {
+      return { status: "ok", reason: "Verification skipped — proceeding." };
+    }
+  }
+
+  try {
     const cleaned = raw.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
-    return JSON.parse(cleaned);
+    const jsonStart = cleaned.indexOf("{");
+    return JSON.parse(jsonStart > -1 ? cleaned.slice(jsonStart) : cleaned);
   } catch {
     return { status: "ok", reason: "Verification skipped — proceeding." };
   }
 }
 
-// ── TRANSLATE NATURAL LANGUAGE CORRECTIONS ────────────────────
-// When user says "no, tap the heart not the search" mid-execution,
-// Groq figures out the correction as a new mini-plan.
+// ── CORRECTION ────────────────────────────────────────────────
 async function planCorrection({ original, correction, currentStep, currentApp }) {
   const messages = [
     { role: "system", content: PLANNER_SYSTEM },
@@ -245,37 +360,39 @@ async function planCorrection({ original, correction, currentStep, currentApp })
       ].join("\n"),
     },
   ];
+
+  let raw;
   try {
-    const raw = await Groq.groqFetch(messages, Groq.MODELS.fast, 0.1, 1024);
-    const cleaned = raw.replace(/```json?\n?/g, "").replace(/```/g, "").trim();
-    return JSON.parse(cleaned);
-  } catch (e) {
-    throw new Error(`Correction planning failed: ${e.message}`);
+    raw = await LocalLLM.ollamaText(messages, undefined, 0.05, 1024);
+  } catch {
+    raw = await Groq.groqFetch(messages, Groq.MODELS.fast, 0.1, 1024);
   }
+
+  return parsePlan(raw);
 }
 
-// ── REPORT RESULT ─────────────────────────────────────────────
-// After the APK finishes executing all steps, it calls back with the
-// result. We generate a natural Jarvis voice reply.
+// ── COMPLETION REPLY ──────────────────────────────────────────
 async function buildCompletionReply({ command, success, errorStep, errorReason, userTitle = "Sir" }) {
   if (success) {
     return `Done, ${userTitle}. ${command} — completed successfully.`;
   }
-  // Let Groq craft a natural failure reply
   const messages = [
     {
       role: "system",
-      content: `You are JARVIS. The phone automation task failed. Report this briefly in 1-2 sentences in JARVIS's voice — dry, composed, direct. Address the user as "${userTitle}".`,
+      content: `You are JARVIS. A phone task failed. Report it in 1-2 sentences, JARVIS-style — dry, composed. Address user as "${userTitle}".`,
     },
     {
       role: "user",
-      content: `Task: "${command}"\nFailed at step: ${errorStep || "unknown"}\nReason: ${errorReason || "unknown"}`,
+      content: `Task: "${command}"\nFailed at: ${errorStep || "unknown"}\nReason: ${errorReason || "unknown"}`,
     },
   ];
   try {
-    return (await Groq.groqFetch(messages, Groq.MODELS.fast, 0.5, 120)).trim();
+    let raw;
+    try { raw = await LocalLLM.ollamaText(messages, undefined, 0.4, 120); }
+    catch { raw = await Groq.groqFetch(messages, Groq.MODELS.fast, 0.5, 120); }
+    return raw.trim();
   } catch {
-    return `That didn't go through, ${userTitle}. The automation stopped at ${errorStep || "an unknown step"}.`;
+    return `That didn't go through, ${userTitle}. Stopped at ${errorStep || "an unknown step"}.`;
   }
 }
 
