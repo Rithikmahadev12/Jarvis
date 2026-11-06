@@ -11,18 +11,19 @@
     "desktop:dist": "electron-builder"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1163.0",
     "@e2b/code-interpreter": "^1.2.1",
     "@e2b/desktop": "^1.1.0",
     "@supabase/supabase-js": "^2.45.4",
-    "express": "^4.18.2",
+    "adm-zip": "^0.5.10",
+    "archiver": "^6.0.1",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "archiver": "^6.0.1",
-    "adm-zip": "^0.5.10",
-    "socket.io": "^4.7.5",
-    "ws": "^8.18.0",
+    "express": "^4.18.2",
     "screenshot-desktop": "^1.15.0",
-    "tesseract.js": "^7.0.0"
+    "socket.io": "^4.7.5",
+    "tesseract.js": "^7.0.0",
+    "ws": "^8.22.1"
   },
   "optionalDependencies": {
     "node-winautomation": "^1.0.3"
@@ -46,9 +47,20 @@
       "node_modules/**/*",
       "package.json"
     ],
-    "directories": { "output": "dist" },
-    "mac": { "target": "dmg", "icon": "public/icons/icon-512.png" },
-    "win": { "target": "nsis", "icon": "public/icons/icon-512.png" },
-    "linux": { "target": "AppImage", "icon": "public/icons/icon-512.png" }
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "public/icons/icon-512.png"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "public/icons/icon-512.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "public/icons/icon-512.png"
+    }
   }
 }
