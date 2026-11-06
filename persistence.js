@@ -1,105 +1,66 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — Persistent Memory Sync (Supabase Storage)
+// J.A.R.V.I.S — Persistent Memory Sync (Backblaze B2 / S3)
 //
-// Render's free tier gives the app an EPHEMERAL filesystem: every
-// redeploy, and every spin-down after ~15 minutes of inactivity,
-// wipes the container and rebuilds it fresh. Everything JARVIS keeps
-// in data/ — memories, profiles, reminders, schedule, training data,
-// learned intents, self-improvement knowledge, and (eventually) any
-// research cache — would vanish with it.
+// Drop-in replacement for the Supabase-backed persistence.js.
+// Same public API, same boot sequence, same data/ mirror logic —
+// only the storage backend changed. Backblaze B2 exposes an
+// S3-compatible endpoint so we use @aws-sdk/client-s3 directly;
+// no Backblaze-specific SDK needed.
 //
-// This module mirrors the ENTIRE data/ directory to a Supabase
-// Storage bucket. Supabase's free tier gives 1GB of file storage,
-// needs NO credit card to sign up, and never auto-deletes your data
-// (only fully-inactive free *database* projects pause after 7 days —
-// Storage isn't affected the same way, and our periodic sync/boot
-// pull keeps the project active anyway).
+// Free tier: 10 GB storage, never pauses, no inactivity policy.
 //
-//   - on boot:      pull anything already saved in Supabase down
-//                    into data/ BEFORE the rest of the app touches
-//                    those files (see server.js boot sequence)
-//   - while running: every FLUSH_INTERVAL_MS, push any data/ files
-//                    that changed since the last push up to Supabase
-//   - on shutdown:  SIGTERM/SIGINT (what Render sends before killing
-//                    the process, whether from a redeploy or an idle
-//                    spin-down) triggers one last flush so nothing
-//                    written in the final seconds is lost
+// ── ENV VARS (replace the three SUPABASE_* vars in Render) ────
+//   B2_ENDPOINT          e.g. https://s3.us-east-005.backblazeb2.com
+//   B2_BUCKET            e.g. jarvis-data
+//   B2_KEY_ID            your applicationKeyId
+//   B2_APP_KEY           your applicationKey
+//   WALLET_ENCRYPTION_SECRET  (unchanged — same as before)
 //
-// Every other module (trainer.js, reminders.js, schedule.js,
-// briefing.js, hermes-engine.js, self-improve.js, server.js's own
-// profiles/memories helpers, ...) is UNTOUCHED — they keep reading
-// and writing plain files under data/ exactly as they did before.
-// This module is just a mirror running underneath them. Files are
-// read/written as raw buffers, so this works for text (JSON, .js
-// handlers) AND binary content (images, PDFs, etc.) alike — handy
-// if a future research/caching feature starts saving non-text files.
-//
-// ── SETUP (no credit card needed) ─────────────────────────────
-// 1. https://supabase.com → sign up (email or GitHub) → New project.
-// 2. In that project: Storage (left sidebar) → Create a new bucket.
-//    Name it anything (e.g. "jarvis-memory"); Private is fine.
-// 3. Project Settings → API. Copy:
-//      Project URL              → SUPABASE_URL
-//      service_role secret key  → SUPABASE_SERVICE_ROLE_KEY
-//    (Use the service_role key, NOT the anon/public key — this runs
-//    on the server and needs full read/write access to the bucket.)
-// 4. Set these three in Render (Environment tab):
-//      SUPABASE_URL
-//      SUPABASE_SERVICE_ROLE_KEY
-//      SUPABASE_BUCKET   (the bucket name from step 2)
-// 5. Redeploy. Look for "[MEMORY-SYNC]" lines in the Render logs to
-//    confirm it's pulling/pushing. Without those env vars set, JARVIS
-//    runs exactly as before — local-only, lost on restart — so this
-//    is safe to add without breaking anything.
+// ── INSTALL ───────────────────────────────────────────────────
+//   npm install @aws-sdk/client-s3
+//   (then remove @supabase/supabase-js from package.json if desired)
 // ═══════════════════════════════════════════════════════════════
 
 const fs     = require("fs");
 const path   = require("path");
 const crypto = require("crypto");
-const { createClient } = require("@supabase/supabase-js");
 
-const DATA_DIR    = path.join(__dirname, "data");
-const SUPABASE_URL = process.env.SUPABASE_URL              || "";
-const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-const BUCKET        = process.env.SUPABASE_BUCKET           || "";
-const FLUSH_INTERVAL_MS = 20 * 1000; // push changed files every 20s
+const {
+  S3Client,
+  ListObjectsV2Command,
+  GetObjectCommand,
+  PutObjectCommand,
+  DeleteObjectCommand,
+} = require("@aws-sdk/client-s3");
+
+// ── CONFIG ────────────────────────────────────────────────────
+const DATA_DIR   = path.join(__dirname, "data");
+const ENDPOINT   = process.env.B2_ENDPOINT   || "";
+const BUCKET     = process.env.B2_BUCKET     || "";
+const KEY_ID     = process.env.B2_KEY_ID     || "";
+const APP_KEY    = process.env.B2_APP_KEY    || "";
+const FLUSH_INTERVAL_MS = 20 * 1000;
+const KEYS_PREFIX = "wallet-keys";
 
 function isConfigured() {
-  return !!(SUPABASE_URL && SERVICE_KEY && BUCKET);
+  return !!(ENDPOINT && BUCKET && KEY_ID && APP_KEY);
 }
 
+// ── S3 CLIENT (lazy) ──────────────────────────────────────────
 let _client = null;
 function client() {
   if (_client) return _client;
-
-  // Supabase's client sets up a Realtime/WebSocket layer internally even
-  // though this module only ever uses Storage (upload/download/list) —
-  // and on Node < 22 (no native global WebSocket) that setup throws,
-  // which was silently killing every push/pull ("Failed to push X:
-  // Node.js 20 detected without native WebSocket support"). Node 22+
-  // (what Render runs) has native WebSocket so it never hit this.
-  // Fix: hand it the "ws" package as its transport when the native
-  // global isn't there, exactly as Supabase's own error suggests.
-  let wsTransport;
-  if (typeof WebSocket === "undefined") {
-    try { wsTransport = require("ws"); }
-    catch {
-      console.warn(
-        '[MEMORY-SYNC] Node < 22 detected and the "ws" package isn\'t installed — ' +
-        'Supabase sync will fail. Run `npm install ws` (already in package.json) or ' +
-        "upgrade to Node 22+."
-      );
-    }
-  }
-
-  _client = createClient(SUPABASE_URL, SERVICE_KEY, {
-    auth: { persistSession: false },
-    ...(wsTransport ? { realtime: { transport: wsTransport } } : {}),
+  _client = new S3Client({
+    endpoint: ENDPOINT,
+    region: "us-east-005",           // B2 ignores region but SDK requires one
+    credentials: { accessKeyId: KEY_ID, secretAccessKey: APP_KEY },
+    forcePathStyle: true,            // required for B2
   });
   return _client;
 }
 
+// ── HELPERS ───────────────────────────────────────────────────
 function hashOf(buffer) {
   return crypto.createHash("sha256").update(buffer).digest("hex");
 }
@@ -121,114 +82,124 @@ function guessContentType(relPath) {
   return "application/octet-stream";
 }
 
-// Supabase Storage's list() isn't recursive — folders come back as
-// entries with id === null, so this walks down into them by hand.
-async function listRemoteFiles(prefix = "") {
-  const { data, error } = await client().storage.from(BUCKET).list(prefix, {
-    limit: 1000,
-    sortBy: { column: "name", order: "asc" },
+// Collect a readable stream into a Buffer
+async function streamToBuffer(stream) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    stream.on("data", (c) => chunks.push(c));
+    stream.on("end",  () => resolve(Buffer.concat(chunks)));
+    stream.on("error", reject);
   });
-  if (error) throw error;
+}
 
+// List ALL keys in the bucket (handles B2's 1000-item pagination)
+async function listRemoteFiles(prefix = "") {
   let out = [];
-  for (const item of data || []) {
-    const itemPath = prefix ? `${prefix}/${item.name}` : item.name;
-    if (item.id === null) {
-      if (itemPath === KEYS_PREFIX) continue; // handled separately, encrypted
-      out = out.concat(await listRemoteFiles(itemPath)); // it's a folder — recurse
-    } else {
-      out.push(itemPath);
+  let continuationToken;
+  do {
+    const cmd = new ListObjectsV2Command({
+      Bucket: BUCKET,
+      Prefix: prefix || undefined,
+      ContinuationToken: continuationToken,
+    });
+    const res = await client().send(cmd);
+    for (const obj of res.Contents || []) {
+      // skip the wallet-keys folder during the normal data mirror
+      if (!prefix && obj.Key.startsWith(KEYS_PREFIX + "/")) continue;
+      out.push(obj.Key);
     }
-  }
+    continuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (continuationToken);
   return out;
 }
 
-// Tracks a hash of the last content we successfully pushed/pulled for
-// each file (not the content itself — keeps this cheap even if a
-// future research cache puts bigger files through here), so flush()
-// only spends calls on files that actually changed.
+// ── SYNC STATE ────────────────────────────────────────────────
 const _lastSynced = new Map();
-
-// SAFETY GATE: flush() must never run until a pull has succeeded.
-// Otherwise a fresh container whose restore failed (network blip, bad
-// key) would write a brand-new, near-empty profiles.json and push it
-// over the real one in Supabase — wiping the owner account. That is
-// how an owner ends up signed in as "a random user that doesn't exist".
 let _pullOk = false;
-const KEYS_PREFIX = "wallet-keys"; // encrypted key backups live here, never mirrored into data/
 
-// ── PULL: Supabase → local disk (call once, at boot, before
-// anything else reads data/) ───────────────────────────────────────
+// ── PULL: B2 → local disk ─────────────────────────────────────
 async function pullAll() {
   if (!isConfigured()) {
     console.log(
-      "[MEMORY-SYNC] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / SUPABASE_BUCKET " +
-      "not set — running LOCAL-ONLY. Memory will be lost on restart/redeploy. " +
-      "See persistence.js header for setup."
+      "[MEMORY-SYNC] B2_ENDPOINT / B2_BUCKET / B2_KEY_ID / B2_APP_KEY " +
+      "not set — running LOCAL-ONLY. Memory will be lost on restart/redeploy."
     );
     return;
   }
+
   const MAX_ATTEMPTS = 4;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      console.log(`[MEMORY-SYNC] Connecting to Supabase — restoring saved memory (try ${attempt}/${MAX_ATTEMPTS})...`);
-      const relPaths = await listRemoteFiles();
+      console.log(`[MEMORY-SYNC] Connecting to Backblaze B2 — restoring saved memory (try ${attempt}/${MAX_ATTEMPTS})...`);
+      const keys = await listRemoteFiles();
       let restored = 0, failed = 0;
-      for (const relPath of relPaths) {
-        const { data, error } = await client().storage.from(BUCKET).download(relPath);
-        if (error || !data) { failed++; continue; }
-        const buffer = Buffer.from(await data.arrayBuffer());
-        const fullPath = path.join(DATA_DIR, relPath);
-        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-        fs.writeFileSync(fullPath, buffer);
-        _lastSynced.set(relPath, hashOf(buffer));
-        restored++;
+
+      for (const key of keys) {
+        try {
+          const res = await client().send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+          const buffer = await streamToBuffer(res.Body);
+          const fullPath = path.join(DATA_DIR, key);
+          fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+          fs.writeFileSync(fullPath, buffer);
+          _lastSynced.set(key, hashOf(buffer));
+          restored++;
+        } catch (e) {
+          console.warn(`[MEMORY-SYNC] Failed to restore ${key}: ${e.message}`);
+          failed++;
+        }
       }
+
       if (failed) throw new Error(`${failed} file(s) failed to download`);
       _pullOk = true;
-      console.log(`[MEMORY-SYNC] Restored ${restored} file(s) from Supabase. Memory intact.`);
+      console.log(`[MEMORY-SYNC] Restored ${restored} file(s) from B2. Memory intact.`);
       return;
     } catch (e) {
       console.warn(`[MEMORY-SYNC] Pull failed (try ${attempt}/${MAX_ATTEMPTS}): ${e.message}`);
       if (attempt < MAX_ATTEMPTS) await new Promise(r => setTimeout(r, 2000 * attempt));
     }
   }
+
   console.error(
-    "[MEMORY-SYNC] Could NOT restore from Supabase. Pushing is DISABLED this run so your saved " +
-    "profiles/wallet data in Supabase can't be overwritten by an empty local copy. Check the " +
-    "SUPABASE_* env vars and redeploy."
+    "[MEMORY-SYNC] Could NOT restore from B2. Pushing is DISABLED this run so your saved " +
+    "data in B2 can't be overwritten by an empty local copy. Check B2_* env vars and redeploy."
   );
 }
 
-// ── PUSH: local disk → Supabase (whatever changed since the last call) ──
+// ── PUSH: local disk → B2 ────────────────────────────────────
 async function flush() {
   if (!isConfigured()) return 0;
-  if (!_pullOk) return 0; // never push before a successful restore — see _pullOk above
+  if (!_pullOk) return 0;
+
   const files = listLocalFiles(DATA_DIR);
   let pushed = 0;
+
   for (const fullPath of files) {
     const relPath = path.relative(DATA_DIR, fullPath).split(path.sep).join("/");
     let buffer;
     try { buffer = fs.readFileSync(fullPath); } catch { continue; }
+
     const hash = hashOf(buffer);
-    if (_lastSynced.get(relPath) === hash) continue; // unchanged since last sync
+    if (_lastSynced.get(relPath) === hash) continue;
+
     try {
-      const { error } = await client().storage.from(BUCKET).upload(relPath, buffer, {
-        contentType: guessContentType(relPath),
-        upsert: true,
-      });
-      if (error) throw error;
+      await client().send(new PutObjectCommand({
+        Bucket: BUCKET,
+        Key: relPath,
+        Body: buffer,
+        ContentType: guessContentType(relPath),
+      }));
       _lastSynced.set(relPath, hash);
       pushed++;
     } catch (e) {
-      console.warn(`[MEMORY-SYNC] Failed to push ${relPath}:`, e.message);
+      console.warn(`[MEMORY-SYNC] Failed to push ${relPath}: ${e.message}`);
     }
   }
-  if (pushed) console.log(`[MEMORY-SYNC] Pushed ${pushed} changed file(s) to Supabase.`);
+
+  if (pushed) console.log(`[MEMORY-SYNC] Pushed ${pushed} changed file(s) to B2.`);
   return pushed;
 }
 
-// ── BACKGROUND LOOP + GRACEFUL SHUTDOWN FLUSH ─────────────────────
+// ── BACKGROUND LOOP + GRACEFUL SHUTDOWN ──────────────────────
 let _interval = null;
 let _shutdownHooked = false;
 
@@ -236,12 +207,12 @@ function startAutoSync() {
   if (!isConfigured() || _interval) return;
 
   _interval = setInterval(() => { flush().catch(() => {}); }, FLUSH_INTERVAL_MS);
-  if (_interval.unref) _interval.unref(); // don't keep the process alive just for this
+  if (_interval.unref) _interval.unref();
 
   if (!_shutdownHooked) {
     _shutdownHooked = true;
     const shutdown = (signal) => {
-      console.log(`[MEMORY-SYNC] ${signal} received — flushing memory to Supabase before exit...`);
+      console.log(`[MEMORY-SYNC] ${signal} received — flushing memory to B2 before exit...`);
       flush()
         .catch((e) => console.warn("[MEMORY-SYNC] Final flush failed:", e.message))
         .finally(() => process.exit(0));
@@ -250,27 +221,15 @@ function startAutoSync() {
     process.on("SIGINT",  () => shutdown("SIGINT"));
   }
 
-  console.log(`[MEMORY-SYNC] Auto-sync running — pushing changes to Supabase every ${FLUSH_INTERVAL_MS / 1000}s.`);
+  console.log(`[MEMORY-SYNC] Auto-sync running — pushing changes to B2 every ${FLUSH_INTERVAL_MS / 1000}s.`);
 }
 
-// ── DIRECT READ/WRITE (no local disk, no periodic mirror) ─────────
-// For data where correctness depends on EVERY reader/writer seeing
-// the same live state immediately, no matter which process instance
-// handles the request — e.g. a webhook-mode phone call registered
-// by whichever instance placed it, then looked up moments later by
-// whichever instance Render happens to route the webhook delivery
-// to. Those can be different processes/disks during a rolling
-// deploy, and the regular pullAll()-once-at-boot + flush()-every-20s
-// mirror can't guarantee they ever converge in time — an instance
-// that booted before a write happened elsewhere simply never sees
-// it until its next restart. These three go straight to Supabase on
-// every call instead, so there's no local cache to go stale.
+// ── DIRECT READ/WRITE (live state, no local cache) ────────────
 async function getJSON(relPath) {
   if (!isConfigured()) return null;
   try {
-    const { data, error } = await client().storage.from(BUCKET).download(relPath);
-    if (error || !data) return null;
-    const buffer = Buffer.from(await data.arrayBuffer());
+    const res = await client().send(new GetObjectCommand({ Bucket: BUCKET, Key: relPath }));
+    const buffer = await streamToBuffer(res.Body);
     return JSON.parse(buffer.toString("utf8"));
   } catch {
     return null;
@@ -280,12 +239,12 @@ async function getJSON(relPath) {
 async function putJSON(relPath, obj) {
   if (!isConfigured()) return false;
   try {
-    const buffer = Buffer.from(JSON.stringify(obj, null, 2));
-    const { error } = await client().storage.from(BUCKET).upload(relPath, buffer, {
-      contentType: "application/json",
-      upsert: true,
-    });
-    if (error) throw error;
+    await client().send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: relPath,
+      Body: Buffer.from(JSON.stringify(obj, null, 2)),
+      ContentType: "application/json",
+    }));
     return true;
   } catch (e) {
     console.warn(`[MEMORY-SYNC] Direct write of ${relPath} failed: ${e.message}`);
@@ -296,8 +255,7 @@ async function putJSON(relPath, obj) {
 async function deleteRemote(relPath) {
   if (!isConfigured()) return false;
   try {
-    const { error } = await client().storage.from(BUCKET).remove([relPath]);
-    if (error) throw error;
+    await client().send(new DeleteObjectCommand({ Bucket: BUCKET, Key: relPath }));
     return true;
   } catch (e) {
     console.warn(`[MEMORY-SYNC] Direct delete of ${relPath} failed: ${e.message}`);
@@ -305,13 +263,7 @@ async function deleteRemote(relPath) {
   }
 }
 
-// ── ENCRYPTED SECRET BACKUP (wallet private keys) ─────────────────
-// Private keys are stored in the same Supabase bucket under
-// "wallet-keys/", but ONLY ever encrypted (AES-256-GCM) with a key
-// derived from WALLET_ENCRYPTION_SECRET, which lives in your Render
-// env vars and never in Supabase. Someone with only Supabase access
-// sees ciphertext. Lose WALLET_ENCRYPTION_SECRET and the backups are
-// unrecoverable — store it in a password manager too.
+// ── ENCRYPTED SECRET BACKUP (wallet private keys) ─────────────
 function encryptionReady() {
   return isConfigured() && !!process.env.WALLET_ENCRYPTION_SECRET;
 }
@@ -332,13 +284,15 @@ function _decrypt(buf) {
   return Buffer.concat([d.update(ct), d.final()]);
 }
 
-// name e.g. "rithik.json", "owner-wallet.json"
 async function putSecret(name, plainBuffer) {
   if (!encryptionReady()) return false;
   try {
-    const { error } = await client().storage.from(BUCKET)
-      .upload(`${KEYS_PREFIX}/${name}.enc`, _encrypt(plainBuffer), { contentType: "application/octet-stream", upsert: true });
-    if (error) throw error;
+    await client().send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: `${KEYS_PREFIX}/${name}.enc`,
+      Body: _encrypt(plainBuffer),
+      ContentType: "application/octet-stream",
+    }));
     return true;
   } catch (e) {
     console.warn(`[KEY-BACKUP] Failed to back up ${name}: ${e.message}`);
@@ -346,26 +300,25 @@ async function putSecret(name, plainBuffer) {
   }
 }
 
-// Restores every encrypted key into destDir (skips files that already exist locally).
 async function restoreSecrets(destDir) {
   if (!encryptionReady()) return 0;
   let n = 0;
   try {
-    const { data, error } = await client().storage.from(BUCKET).list(KEYS_PREFIX, { limit: 1000 });
-    if (error) throw error;
-    for (const item of data || []) {
-      if (!item.name.endsWith(".enc")) continue;
-      const out = path.join(destDir, item.name.slice(0, -4));
+    const keys = await listRemoteFiles(KEYS_PREFIX + "/");
+    for (const key of keys) {
+      if (!key.endsWith(".enc")) continue;
+      const name = path.basename(key, ".enc");
+      const out  = path.join(destDir, name);
       if (fs.existsSync(out)) continue;
-      const dl = await client().storage.from(BUCKET).download(`${KEYS_PREFIX}/${item.name}`);
-      if (dl.error || !dl.data) continue;
       try {
-        const plain = _decrypt(Buffer.from(await dl.data.arrayBuffer()));
+        const res    = await client().send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+        const buf    = await streamToBuffer(res.Body);
+        const plain  = _decrypt(buf);
         fs.mkdirSync(destDir, { recursive: true });
         fs.writeFileSync(out, plain, { mode: 0o600 });
         n++;
       } catch (e) {
-        console.warn(`[KEY-BACKUP] Could not decrypt ${item.name} (wrong WALLET_ENCRYPTION_SECRET?): ${e.message}`);
+        console.warn(`[KEY-BACKUP] Could not decrypt ${key}: ${e.message}`);
       }
     }
   } catch (e) {
@@ -374,4 +327,8 @@ async function restoreSecrets(destDir) {
   return n;
 }
 
-module.exports = { putSecret, restoreSecrets, encryptionReady, pullAll, flush, startAutoSync, isConfigured, getJSON, putJSON, deleteRemote };
+module.exports = {
+  pullAll, flush, startAutoSync, isConfigured,
+  getJSON, putJSON, deleteRemote,
+  putSecret, restoreSecrets, encryptionReady,
+};
