@@ -47,9 +47,10 @@ jobs:
       - name: Run bounty scan
         if: steps.gate.outputs.run == 'true'
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_BUCKET: ${{ secrets.SUPABASE_BUCKET }}
+          B2_ENDPOINT:               ${{ secrets.B2_ENDPOINT }}
+          B2_BUCKET:                 ${{ secrets.B2_BUCKET }}
+          B2_KEY_ID:                 ${{ secrets.B2_KEY_ID }}
+          B2_APP_KEY:                ${{ secrets.B2_APP_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           GROQ_API_KEY2: ${{ secrets.GROQ_API_KEY2 }}
           GITHUB_BOUNTY_TOKEN: ${{ secrets.BOUNTY_GH_TOKEN }}
