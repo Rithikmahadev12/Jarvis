@@ -1,0 +1,7 @@
+{
+  "rithik": {
+    "status": "failed",
+    "updatedAt": "2026-08-20T22:14:03.439Z",
+    "reason": "{\"note\": \"Worker started (clone) for 'rithik'.\"}\n{\"note\": \"Downloading/verifying model weights (first time only, can take a while)\\u2026\"}\n{\"note\": \"Configured HF_TOKEN looks invalid/expired \\u2014 dropping it and retrying anonymously.\"}\n\rFetching 18 files:   0%|          | 0/18 [00:00<?, ?it/s]"
+  }
+}

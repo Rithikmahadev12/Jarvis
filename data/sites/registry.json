@@ -1,0 +1,57 @@
+[
+  {
+    "slug": "ember-msfkgi5i",
+    "name": "Ember",
+    "businessType": "coffee shop",
+    "createdAt": 1785902870506,
+    "url": "/sites/ember-msfkgi5i/index.html",
+    "hasBackend": true
+  },
+  {
+    "slug": "ember-msfk8tp4",
+    "name": "Ember",
+    "businessType": "coffee shop",
+    "createdAt": 1785902512232,
+    "url": "/sites/ember-msfk8tp4/index.html",
+    "hasBackend": true
+  },
+  {
+    "slug": "ember-msfjrv53",
+    "name": "Ember",
+    "businessType": "coffee shop",
+    "createdAt": 1785901720946,
+    "url": "/sites/ember-msfjrv53/index.html",
+    "hasBackend": true
+  },
+  {
+    "slug": "ember-msfjhybq",
+    "name": "Ember",
+    "businessType": "coffee shop",
+    "createdAt": 1785901258514,
+    "url": "/sites/ember-msfjhybq/index.html",
+    "hasBackend": true
+  },
+  {
+    "slug": "ember-msfjeek9",
+    "name": "Ember",
+    "businessType": "coffee shop",
+    "createdAt": 1785901092939,
+    "url": "/sites/ember-msfjeek9/index.html",
+    "hasBackend": true
+  },
+  {
+    "slug": "ember-msfi22ki",
+    "name": "Ember",
+    "businessType": "coffee shop",
+    "createdAt": 1785898837899,
+    "url": "/sites/ember-msfi22ki/index.html",
+    "hasBackend": true
+  },
+  {
+    "slug": "ember-msfh9y23",
+    "name": "Ember",
+    "businessType": "coffee shop",
+    "createdAt": 1785897525677,
+    "url": "/sites/ember-msfh9y23/index.html"
+  }
+]

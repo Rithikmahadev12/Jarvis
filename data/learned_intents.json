@@ -1,0 +1,100 @@
+{
+  "intents": [
+    {
+      "id": "li-1782688874361",
+      "exampleInput": "how should i make my mom aprreicate me",
+      "exampleOutput": "Sir, to make your mom appreciate you, consider showing your gratitude towards her first, and then express your own needs and feelings in a respectful manner. Small gestures, like helping with chores or writing a heartfelt note, can go a long way in making her feel valued, and in turn, appreciate you more.",
+      "action": "TAUGHT",
+      "topic": "how should i make my mom aprreicate me",
+      "keywords": [
+        "mom",
+        "aprreicate"
+      ],
+      "hitCount": 2,
+      "learnedAt": "2026-06-28T23:21:14.361Z",
+      "lastSeen": "2026-06-29T00:49:08.416Z",
+      "source": "groq_auto_learn"
+    },
+    {
+      "id": "li-1782688900656",
+      "exampleInput": "do resarch on the person thats on the camerea rn",
+      "exampleOutput": "Sir, without direct access to the camera feed, it's not possible to identify the person on the camera. However, if you'd like to provide more context or details about the person, such as their name or any other relevant information, research can be conducted to provide more insight about them.",
+      "action": "TAUGHT",
+      "topic": "do resarch on the person thats on the camerea rn",
+      "keywords": [
+        "resarch",
+        "person",
+        "thats",
+        "camerea"
+      ],
+      "hitCount": 1,
+      "learnedAt": "2026-06-28T23:21:40.656Z",
+      "lastSeen": "2026-06-28T23:21:40.656Z",
+      "source": "groq_auto_learn"
+    },
+    {
+      "id": "li-1782688922043",
+      "exampleInput": "Marvel Studios action.",
+      "exampleOutput": "Sir, it seems you're looking for a rundown of Marvel Studios' recent and upcoming projects, including movies and TV shows. The studio has been busy with the likes of the Marvel Cinematic Universe (MCU) Phase 4, which includes films like Black Widow, Shang-Chi, and Spider-Man: No Way Home, as well as Disney+ series such as Loki, Hawkeye, and Moon Knight.",
+      "action": "TAUGHT",
+      "topic": "Marvel Studios action.",
+      "keywords": [
+        "marvel",
+        "studios",
+        "action"
+      ],
+      "hitCount": 1,
+      "learnedAt": "2026-06-28T23:22:02.044Z",
+      "lastSeen": "2026-06-28T23:22:02.044Z",
+      "source": "groq_auto_learn"
+    },
+    {
+      "id": "li-1782688972819",
+      "exampleInput": "Robert Downey said Assault. Assault is that, Yeah, some papers they name after their, I mean, father, like yeah, we heard Ronal Knowledge junior.",
+      "exampleOutput": "Sir, it appears there's been a misunderstanding. Robert Downey Jr., the actor who plays Tony Stark in the Marvel Cinematic Universe, did not say \"assault\" in the context you're referring to. It's possible you may be thinking of a different quote or interview. If you could provide more context or clarify what you're trying to understand, a more accurate explanation can be provided.",
+      "action": "TAUGHT",
+      "topic": "Robert Downey said Assault. Assault is that, Yeah, some pape",
+      "keywords": [
+        "robert",
+        "downey",
+        "said",
+        "assault",
+        "assault",
+        "papers",
+        "name",
+        "mean",
+        "father",
+        "heard",
+        "ronal",
+        "knowledge"
+      ],
+      "hitCount": 1,
+      "learnedAt": "2026-06-28T23:22:52.819Z",
+      "lastSeen": "2026-06-28T23:22:52.819Z",
+      "source": "groq_auto_learn"
+    },
+    {
+      "id": "li-1782689009164",
+      "exampleInput": "Urinary infection. Marina. The pan friction market.",
+      "exampleOutput": "Sir, it appears we have a mix of unrelated topics: urinary infections, which are medical conditions requiring attention; Marina, which could refer to a person, place, or body of water; and the pan friction market, which seems to be a non-standard term, possibly related to cookware or automotive industries. If you're looking for information on urinary infections, Marina's relevance to the topic, or details about a specific market, please provide more context for a more accurate and helpful response.",
+      "action": "TAUGHT",
+      "topic": "Urinary infection. Marina. The pan friction market.",
+      "keywords": [
+        "urinary",
+        "infection",
+        "marina",
+        "pan",
+        "friction",
+        "market"
+      ],
+      "hitCount": 1,
+      "learnedAt": "2026-06-28T23:23:29.164Z",
+      "lastSeen": "2026-06-28T23:23:29.164Z",
+      "source": "groq_auto_learn"
+    }
+  ],
+  "stats": {
+    "total": 5,
+    "hits": 1
+  }
+}

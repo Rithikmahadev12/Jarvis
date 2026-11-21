@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ember</title>
+<style>
+  :root{--ink:#f3ece1;--bg:#120d0a;--ember:#e0783c;}
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);}
+  header{min-height:80vh;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:2rem;
+    background:radial-gradient(circle at 50% 20%,rgba(224,120,60,.25),transparent 60%),var(--bg);}
+  h1{font-family:Georgia,"Times New Roman",serif;font-weight:400;font-size:clamp(3rem,10vw,7rem);margin:0;letter-spacing:-.02em;}
+  header p{margin-top:1rem;text-transform:uppercase;letter-spacing:.25em;font-size:.75rem;opacity:.7;}
+  section{padding:6rem 2rem;max-width:760px;margin:0 auto;border-top:1px solid rgba(243,236,225,.1);}
+  section h2{font-size:.75rem;text-transform:uppercase;letter-spacing:.25em;color:var(--ember);margin-bottom:1.5rem;}
+  section p{font-size:1.25rem;line-height:1.6;font-weight:300;}
+  form{display:grid;gap:1rem;margin-top:2rem;}
+  input,textarea{background:transparent;border:none;border-bottom:1px solid rgba(243,236,225,.3);color:var(--ink);
+    font:inherit;padding:.75rem 0;font-size:1rem;}
+  input:focus,textarea:focus{outline:none;border-color:var(--ember);}
+  button{justify-self:start;margin-top:.5rem;background:var(--ember);color:#1a0f08;border:none;padding:.9rem 2rem;
+    font-size:.85rem;text-transform:uppercase;letter-spacing:.15em;cursor:pointer;}
+  #confirm{display:none;color:var(--ember);margin-top:1rem;}
+</style></head>
+<body>
+  <header><h1>Ember</h1><p>coffee shop</p></header>
+  <section><h2>About</h2><p>Ember is being reworked with a sharper concept — check back shortly for the full story.</p></section>
+  <section>
+    <h2>Get in touch</h2>
+    <form id="contact-form">
+      <input name="name" placeholder="Name" required>
+      <input name="email" type="email" placeholder="Email" required>
+      <textarea name="message" placeholder="Message" rows="3"></textarea>
+      <button type="submit">Send</button>
+    </form>
+    <p id="confirm">Thanks — we'll be in touch.</p>
+  </section>
+  <script>
+    document.getElementById("contact-form").addEventListener("submit", function(e){
+      e.preventDefault();
+      var data = Object.fromEntries(new FormData(e.target));
+      fetch("/api/contact", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(data) }).catch(function(){});
+      e.target.style.display = "none";
+      document.getElementById("confirm").style.display = "block";
+    });
+  </script>
+</body></html>

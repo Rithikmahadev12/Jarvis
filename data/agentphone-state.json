@@ -1,0 +1,20 @@
+{
+  "accounts": {
+    "0": {
+      "agentId": "cmshzqo9c015zmbqw43wfzfie",
+      "numberId": "cmshzqpuq0161mbqwn4a91yce",
+      "phoneNumber": null
+    }
+  },
+  "activeIndex": 0,
+  "lastSwitch": null,
+  "webhooks": {
+    "0": {
+      "url": "https://jarvis-6tig.onrender.com/agentphone/webhook",
+      "agentId": "cmshzqo9c015zmbqw43wfzfie",
+      "secret": "whsec_EKcDrFWyuswfG8kWN4kL3x1LZSXDnkpaH6E3riVNSJ8",
+      "registeredAt": 1786993220190,
+      "voiceModeSet": true
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "lastCheckedCallId": "cmswrax9l104juh6lsjq8jtgh",
+  "entries": [
+    {
+      "callId": "cmswr5xx01017uh6lb8c0iwi6",
+      "fromNumber": "+19714626355",
+      "at": "2026-08-17T04:47:40.021000Z",
+      "statedName": "Jay",
+      "matchedUser": "Jay",
+      "wasRouted": true,
+      "summary": "Caller asked a math question and a vague question about \"highest as in reactive\".",
+      "_groqConfigured": true
+    },
+    {
+      "callId": "cmswrak3x103uuh6lt3d4yvoa",
+      "fromNumber": "+19714626355",
+      "at": "2026-08-17T04:51:15.406000Z",
+      "statedName": null,
+      "matchedUser": null,
+      "wasRouted": false,
+      "summary": "Caller called the wrong number.",
+      "_groqConfigured": true
+    },
+    {
+      "callId": "cmswra9na103guh6la7vgmesy",
+      "fromNumber": "+19714626355",
+      "at": "2026-08-17T04:51:01.846000Z",
+      "statedName": null,
+      "matchedUser": null,
+      "wasRouted": false,
+      "summary": "Caller was trying to reach someone but got a wrong number.",
+      "_groqConfigured": true
+    },
+    {
+      "callId": "cmswrax9l104juh6lsjq8jtgh",
+      "fromNumber": "+19714626355",
+      "at": "2026-08-17T04:51:32.457000Z",
+      "statedName": "Jay",
+      "matchedUser": "Jay",
+      "wasRouted": true,
+      "summary": "Caller requested a song and the current time.",
+      "_groqConfigured": true
+    }
+  ]
+}

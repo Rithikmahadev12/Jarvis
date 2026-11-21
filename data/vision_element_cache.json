@@ -1,0 +1,47 @@
+{
+  "1920x1080::the Contacts/People icon in the left sidebar of Teams — a small person/ID-card icon, part of a vertical stack of icons that also includes Chat, Video meetings, an app icon, Teams/community, and Calendar": {
+    "x": 26,
+    "y": 218,
+    "ts": 1785877566847
+  },
+  "1920x1080::In this Microsoft Teams \"All contacts\" list, find the row for the contact named \"rudran saravana\" (or the single closest visible match to that name if there's no exact hit), then click the phone/call icon that appears on THAT SPECIFIC row — the icons sit to the right of the name. Don't click the name/avatar itself, and don't click an icon belonging to a different row.": {
+    "x": 588,
+    "y": 255,
+    "ts": 1784842118661
+  },
+  "1920x1080::the \"All contacts\" tab/button near the top of the Teams People panel — NOT the \"Active now\" tab, even though \"Active now\" may currently be the selected/highlighted one": {
+    "x": 201,
+    "y": 185,
+    "ts": 1785877578689
+  },
+  "1920x1080::In this Microsoft Teams \"All contacts\" list (this must be the \"All contacts\" tab, NOT the \"Active now\" tab — if what's on screen is actually \"Active now\", do not click anything, this is the wrong list), find the row for the contact named \"Rudran Saravana\" (or the single closest visible match to that name if there's no exact hit), then click the phone/call icon that appears on THAT SPECIFIC row — the icons sit to the right of the name. Don't click the name/avatar itself, and don't click an icon belonging to a different row.": {
+    "x": 588,
+    "y": 255,
+    "ts": 1784843207732
+  },
+  "1920x1080::the contact name \"Rudran Saravana\" (or the single closest visible match) as it appears in this Teams \"All contacts\" list — the name text itself, not any icon": {
+    "x": 441,
+    "y": 253,
+    "ts": 1784844553916
+  },
+  "1920x1080::the contact name \"Rudran Saravana\" (or the single closest visible match) as it appears in the row/list of actual contacts in this Teams People page — the name text itself, not any icon, and NOT the \"All contacts\" or \"Active now\" navigation items in the left sidebar.": {
+    "x": 441,
+    "y": 255,
+    "ts": 1784846983911
+  },
+  "1920x1080::The goal right now is: Get to the point where a phone call has been opened/started for the Teams contact named \"Rudran Saravana\" (or the closest visible match), starting from Teams' Contacts/People page. If \"Active now\" is currently showing instead of \"All contacts\", switch to \"All contacts\" first — the target contact may not be in \"Active now\" at all. — figure out the SINGLE most important thing to click next on the current screen to make progress toward that goal. This might mean recovering from a wrong screen or tab, dismissing something in the way, or clicking the actual target itself — use whatever is genuinely visible right now, don't assume the screen matches any particular expected layout. Be precise about WHERE on the element to click: if it's a small icon next to a name or label, click squarely on the icon's own pixels, not the edge of the row or a neighboring, similar-looking element.": {
+    "x": 509,
+    "y": 965,
+    "ts": 1784847141629
+  },
+  "1920x1080::the contact name \"rudran saravana\" (or the single closest visible match) as it appears in the row/list of actual contacts in this Teams People page — the name text itself, not any icon, and NOT the \"All contacts\" or \"Active now\" navigation items in the left sidebar.": {
+    "x": 441,
+    "y": 254,
+    "ts": 1785877605909
+  },
+  "1920x1080::The goal right now is: Get to the point where a phone call has been opened/started for the Teams contact named \"rudran saravana\" (or the closest visible match), starting from Teams' Contacts/People page. If \"Active now\" is currently showing instead of \"All contacts\", switch to \"All contacts\" first — the target contact may not be in \"Active now\" at all. — figure out the SINGLE most important thing to click next on the current screen to make progress toward that goal. This might mean recovering from a wrong screen or tab, dismissing something in the way, or clicking the actual target itself — use whatever is genuinely visible right now, don't assume the screen matches any particular expected layout. Be precise about WHERE on the element to click: if it's a small icon next to a name or label, click squarely on the icon's own pixels, not the edge of the row or a neighboring, similar-looking element.": {
+    "x": 517,
+    "y": 965,
+    "ts": 1785877874626
+  }
+}

@@ -1,0 +1,1003 @@
+{
+  "intents": [
+    {
+      "id": "mrfvcwfcd6km",
+      "exampleInput": "Uh, if I move the.",
+      "exampleOutput": "If you could clarify the intended action concerning your hand, Sir, I will respond accordingly.",
+      "action": "TAUGHT",
+      "topic": "Uh, if I move the.",
+      "keywords": [
+        "move",
+        "the"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-11T04:33:15.816Z"
+    },
+    {
+      "id": "mrm9uble17e4",
+      "exampleInput": "[Camera is already active and online] Open camera.",
+      "exampleOutput": "Opening the camera feed now, Sir. If the view does not appear, ensure the camera app is permitted to display on this device and try a manual launch.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Open camera.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "open"
+      ],
+      "hitCount": 7,
+      "createdAt": "2026-07-15T16:05:20.306Z"
+    },
+    {
+      "id": "mrp8jou1jwvb",
+      "exampleInput": "[Camera is already active and online] Open camera mode.",
+      "exampleOutput": "Opening the camera feed now, Sir. If the view does not appear, verify the camera app has display permission and relaunch if necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Open camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "open",
+        "mode"
+      ],
+      "hitCount": 12,
+      "createdAt": "2026-07-17T17:52:23.161Z"
+    },
+    {
+      "id": "mrp8nhu3b2m8",
+      "exampleInput": "[Camera is already active and online] Disable camera mode.",
+      "exampleOutput": "Disabling the camera feed now, Sir.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Disable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "disable",
+        "mode"
+      ],
+      "hitCount": 5,
+      "createdAt": "2026-07-17T17:55:20.715Z"
+    },
+    {
+      "id": "mrp8ntszgg2d",
+      "exampleInput": "[Camera is already active and online] Disable camera mode.",
+      "exampleOutput": "Disabling the camera feed now, Sir.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Disable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "disable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-17T17:55:36.227Z"
+    },
+    {
+      "id": "mrpk4cikwfuv",
+      "exampleInput": "[Camera is already active and online] Open camera mode.",
+      "exampleOutput": "Opening the camera feed now, Sir. If the view does not appear, verify the camera app has display permission and relaunch if necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Open camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "open",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-17T23:16:22.748Z"
+    },
+    {
+      "id": "mrr6hpk5ne8o",
+      "exampleInput": "make me as safe.",
+      "exampleOutput": "Certainly, Sir. Secure your digital presence by employing unique, strong passwords, enabling two‑factor authentication on all accounts, and keeping software promptly updated; maintain a physical safety routine—be aware of your surroundings, limit exposure to hazardous environments, and keep emergency contacts readily accessible; and safeguard your health through regular exercise, balanced nutrition, sufficient sleep, and routine medical check‑ups.",
+      "action": "TAUGHT",
+      "topic": "make me as safe.",
+      "keywords": [
+        "make",
+        "safe"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-19T02:30:23.909Z"
+    },
+    {
+      "id": "mrr7cmdwi4ii",
+      "exampleInput": "nvm on the essay",
+      "exampleOutput": "Understood, Sir; the essay request has been cancelled.",
+      "action": "TAUGHT",
+      "topic": "nvm on the essay",
+      "keywords": [
+        "nvm",
+        "the",
+        "essay"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-19T02:54:26.132Z"
+    },
+    {
+      "id": "mrr7r2yga1kt",
+      "exampleInput": "who made you",
+      "exampleOutput": "I am a large language model developed by OpenAI, instantiated on Groq’s hardware platform, Sir.",
+      "action": "TAUGHT",
+      "topic": "who made you",
+      "keywords": [
+        "who",
+        "made",
+        "you"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-19T03:05:40.792Z"
+    },
+    {
+      "id": "mrs1lsxcybxe",
+      "exampleInput": "Start recording.",
+      "exampleOutput": "Recording is already in progress, Sir. Say “stop recording” when you wish to end it.",
+      "action": "TAUGHT",
+      "topic": "Start recording.",
+      "keywords": [
+        "start",
+        "recording"
+      ],
+      "hitCount": 4,
+      "createdAt": "2026-07-19T17:01:22.992Z"
+    },
+    {
+      "id": "mrs1mol24e5d",
+      "exampleInput": "Start recording.",
+      "exampleOutput": "Recording is already in progress, Sir. Say “stop recording” when you wish to end it.",
+      "action": "TAUGHT",
+      "topic": "Start recording.",
+      "keywords": [
+        "start",
+        "recording"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-19T17:02:04.022Z"
+    },
+    {
+      "id": "mrs1mqs9onhx",
+      "exampleInput": "Start recording.",
+      "exampleOutput": "Recording is already in progress, Sir. Say “stop recording” when you wish to end it.",
+      "action": "TAUGHT",
+      "topic": "Start recording.",
+      "keywords": [
+        "start",
+        "recording"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-19T17:02:06.873Z"
+    },
+    {
+      "id": "mrs1mtfko0s6",
+      "exampleInput": "Start recording.",
+      "exampleOutput": "Recording is already in progress, Sir. Say “stop recording” when you wish to end it.",
+      "action": "TAUGHT",
+      "topic": "Start recording.",
+      "keywords": [
+        "start",
+        "recording"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-19T17:02:10.304Z"
+    },
+    {
+      "id": "mrs1nkugiu6z",
+      "exampleInput": "Back in black.",
+      "exampleOutput": "Playing “Back in Black,” Sir.",
+      "action": "TAUGHT",
+      "topic": "Back in black.",
+      "keywords": [
+        "back",
+        "black"
+      ],
+      "hitCount": 14,
+      "createdAt": "2026-07-19T17:02:45.832Z"
+    },
+    {
+      "id": "mrtkj05fbgq5",
+      "exampleInput": "I updated the API key so.",
+      "exampleOutput": "Understood, Sir; the new API key has been noted. If you require a verification test or further assistance, please advise.",
+      "action": "TAUGHT",
+      "topic": "I updated the API key so.",
+      "keywords": [
+        "updated",
+        "the",
+        "api",
+        "key"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T18:38:51.267Z"
+    },
+    {
+      "id": "mrtkkjkmql8s",
+      "exampleInput": "The voice system's not looking at.",
+      "exampleOutput": "Sir, if the narration fails when you select the news icon, verify that the text‑to‑speech service is enabled in your device’s accessibility settings, ensure the audio output is not muted, and restart the application to re‑initialise the voice engine. Should the issue persist, a system reboot will often resolve residual service conflicts.",
+      "action": "TAUGHT",
+      "topic": "The voice system's not looking at.",
+      "keywords": [
+        "the",
+        "voice",
+        "system",
+        "not",
+        "looking"
+      ],
+      "hitCount": 3,
+      "createdAt": "2026-07-20T18:40:03.094Z"
+    },
+    {
+      "id": "mrtkkn0393no",
+      "exampleInput": "[Camera is already active and online] Yeah, look, it's supposed to narrate this. It's supposed to talk. Like if I tap, I tap the news icon, it's supposed to narrate what's happening.",
+      "exampleOutput": "As you wish, Sir, though I note the feature you describe is not enabled by default. Activate your device’s accessibility narration—on Android, open Settings → Accessibility → TalkBack and toggle it on; on iOS, open Settings → Accessibility → VoiceOver and enable it—then tapping the news icon will prompt the system to read the content aloud.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Yeah, look, it's suppo",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "yeah",
+        "look",
+        "supposed"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T18:40:07.539Z"
+    },
+    {
+      "id": "mrtkzf98pgbq",
+      "exampleInput": "I didn't quite get that, Sir.",
+      "exampleOutput": "Apologies for the brevity, Sir. The Cognitive Engine is the component that analyses your queries, retains the conversation thread, and produces responses by weighing countless language patterns against the data it has been trained on. In essence, it is the reasoning engine that transforms input into the concise, accurate replies you receive.",
+      "action": "TAUGHT",
+      "topic": "I didn't quite get that, Sir.",
+      "keywords": [
+        "didn",
+        "quite",
+        "get",
+        "that",
+        "sir"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T18:51:37.340Z"
+    },
+    {
+      "id": "mrtl6wudq7k4",
+      "exampleInput": "Hey, Jonas.",
+      "exampleOutput": "Good day, Sir. How may I be of assistance?",
+      "action": "TAUGHT",
+      "topic": ", Jonas.",
+      "keywords": [
+        "hey",
+        "jonas"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T18:57:26.725Z"
+    },
+    {
+      "id": "mrtl6xre15ht",
+      "exampleInput": "Thing I messed it up. Hey playback in black.",
+      "exampleOutput": "As you wish, Sir, though I note the earlier typo. Playing “Back in Black.”",
+      "action": "TAUGHT",
+      "topic": "Thing I messed it up. Hey playback in black.",
+      "keywords": [
+        "thing",
+        "messed",
+        "hey",
+        "playback",
+        "black"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T18:57:27.914Z"
+    },
+    {
+      "id": "mrtl7clsf73n",
+      "exampleInput": "As you wish, Sir, though I.",
+      "exampleOutput": "I’m afraid I require the remainder of your request, Sir. Could you please clarify?",
+      "action": "TAUGHT",
+      "topic": "As you wish, Sir, though I.",
+      "keywords": [
+        "you",
+        "wish",
+        "sir",
+        "though"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T18:57:47.152Z"
+    },
+    {
+      "id": "mrtl7dcmu6eq",
+      "exampleInput": "It keeps stopping. Mid thing you know is that.",
+      "exampleOutput": "The playback is terminating prematurely, Sir; please confirm which service you are using (e.g., Spotify, Apple Music) and whether the issue occurs with all tracks or a single file. In the meantime, ensure a stable internet connection, close and relaunch the app, and verify that any power‑saving settings are disabled. If the problem persists, I can guide you through clearing the cache or reinstalling the application.",
+      "action": "TAUGHT",
+      "topic": "It keeps stopping. Mid thing you know is that.",
+      "keywords": [
+        "keeps",
+        "stopping",
+        "mid",
+        "thing",
+        "you",
+        "know",
+        "that"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T18:57:48.118Z"
+    },
+    {
+      "id": "mrtl7snmzhor",
+      "exampleInput": "We have to try to find out the error, yeah.",
+      "exampleOutput": "Sir, could you specify the platform (Spotify, Apple Music, local player, etc.) and whether the interruption occurs at a consistent timestamp or randomly? Additionally, verify that the device’s network remains stable and that no power‑saving or background‑task restrictions are active. With that information I can narrow the cause and advise the appropriate remedy.",
+      "action": "TAUGHT",
+      "topic": "We have to try to find out the error, yeah.",
+      "keywords": [
+        "have",
+        "try",
+        "find",
+        "out",
+        "the",
+        "error",
+        "yeah"
+      ],
+      "hitCount": 2,
+      "createdAt": "2026-07-20T18:58:07.954Z"
+    },
+    {
+      "id": "mrtl7yehequj",
+      "exampleInput": "The voice is going so fast, you hear that? Yeah, I need to slow down the voice and could not lead to Glock API.",
+      "exampleOutput": "Sir, to reduce the speech rate, adjust the “speed” or “rate” parameter in your text‑to‑speech settings—most platforms accept a value between 0.5 (half speed) and 1.0 (normal); set it to 0.6–0.7 and test. If the issue concerns the Google Cloud Text‑to‑Speech API, ensure your request JSON includes `\"audioConfig\": { \"speakingRate\": 0.6 }` and that your API key is valid. Should the problem persist, verify that the client library is up to date and that no network throttling interferes with the call.",
+      "action": "TAUGHT",
+      "topic": "The voice is going so fast, you hear that? Yeah, I need to s",
+      "keywords": [
+        "the",
+        "voice",
+        "going",
+        "fast",
+        "you",
+        "hear",
+        "that",
+        "yeah"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T18:58:15.401Z"
+    },
+    {
+      "id": "mrtl8a8ugbmi",
+      "exampleInput": "It's getting you know else yes. So you have to find what the issue is.",
+      "exampleOutput": "Sir, could you indicate the exact platform (e.g., Android TTS, iOS VoiceOver, Google Cloud TTS) and any error messages or logs that appear when the speech runs at excessive speed? Additionally, confirm whether the problem occurs with all utterances or only specific texts, and whether you have recently altered the “speakingRate” parameter. With those particulars I can isolate the misconfiguration and propose a precise remedy.",
+      "action": "TAUGHT",
+      "topic": "It's getting you know else yes. So you have to find what the",
+      "keywords": [
+        "getting",
+        "you",
+        "know",
+        "else",
+        "yes",
+        "have",
+        "find",
+        "what"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T18:58:30.750Z"
+    },
+    {
+      "id": "mrtl8n49w7bn",
+      "exampleInput": "Wait some seconds.",
+      "exampleOutput": "As you wish, Sir; pausing for a few seconds now.",
+      "action": "TAUGHT",
+      "topic": "Wait some seconds.",
+      "keywords": [
+        "wait",
+        "some",
+        "seconds"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T18:58:47.433Z"
+    },
+    {
+      "id": "mrtl8ubzpqe4",
+      "exampleInput": "Suck Sir, please complete.",
+      "exampleOutput": "Sir, the fragment “If I …” lacks sufficient context for completion; kindly provide the intended clause or objective so I may fulfill your request precisely.",
+      "action": "TAUGHT",
+      "topic": "Suck Sir, please complete.",
+      "keywords": [
+        "suck",
+        "sir",
+        "please",
+        "complete"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T18:58:56.783Z"
+    },
+    {
+      "id": "mrtl8z9wbfe7",
+      "exampleInput": "It's automatically opening something. I need to figure out why.",
+      "exampleOutput": "Sir, to isolate the cause, identify the program that launches—note its name, the moment it appears (e.g., system boot, login, after a specific app opens), and any recent installations or updates; then examine the relevant autostart locations:  \n\n- **Windows**: Task Manager → Startup tab, and `shell:startup` plus `shell:common startup` folders; also `msconfig` → Services.  \n- **macOS**: System Settings → General → Login Items, and `~/Library/LaunchAgents` / `/Library/LaunchDaemons`.  \n\nIf the behaviour persists, provide the program’s name and trigger timing, and I will advise the next diagnostic step.",
+      "action": "TAUGHT",
+      "topic": "It's automatically opening something. I need to figure out w",
+      "keywords": [
+        "automatically",
+        "opening",
+        "something",
+        "need",
+        "figure",
+        "out",
+        "why"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T18:59:03.188Z"
+    },
+    {
+      "id": "mrtlk7ja4u0u",
+      "exampleInput": "played back in black.",
+      "exampleOutput": "Playing “Back in Black.”",
+      "action": "TAUGHT",
+      "topic": "played back in black.",
+      "keywords": [
+        "played",
+        "back",
+        "black"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T19:07:47.111Z"
+    },
+    {
+      "id": "mrtqqyy8bbko",
+      "exampleInput": "So I was disabled, cannot feed.",
+      "exampleOutput": "The camera feed is currently active, Sir. If you need a different configuration or wish to disable it, please specify.",
+      "action": "TAUGHT",
+      "topic": "So I was disabled, cannot feed.",
+      "keywords": [
+        "was",
+        "disabled",
+        "cannot",
+        "feed"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T21:33:00.656Z"
+    },
+    {
+      "id": "mrtqr2znm5os",
+      "exampleInput": "[Camera is already active and online] enable camera feed.",
+      "exampleOutput": "The camera feed is already enabled, Sir.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] enable camera feed.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "enable",
+        "feed"
+      ],
+      "hitCount": 3,
+      "createdAt": "2026-07-20T21:33:05.891Z"
+    },
+    {
+      "id": "mrtqr303fwcq",
+      "exampleInput": "[Camera is already active and online] turn on camera mode.",
+      "exampleOutput": "The camera feed is already active, Sir. No further action is required.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] turn on camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "turn",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T21:33:05.907Z"
+    },
+    {
+      "id": "mrtqri7l89go",
+      "exampleInput": "[Camera is already active and online] disable camera mode.",
+      "exampleOutput": "Camera mode has been disabled, Sir.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] disable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "disable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T21:33:25.617Z"
+    },
+    {
+      "id": "mrtqrqsvdwm2",
+      "exampleInput": "[Camera is already active and online] enable camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] enable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "enable",
+        "mode"
+      ],
+      "hitCount": 16,
+      "createdAt": "2026-07-20T21:33:36.752Z"
+    },
+    {
+      "id": "mrtqs1hrqr5d",
+      "exampleInput": "[Camera is already active and online] Enable camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Enable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "enable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T21:33:50.607Z"
+    },
+    {
+      "id": "mrttc9urxkx7",
+      "exampleInput": "Enable Kindle mode.",
+      "exampleOutput": "Sir, to enable Kindle mode, open the Settings app, navigate to the “Display & Brightness” section, and toggle the “Kindle” option to on. If the option is absent, ensure your device’s firmware is current; download the latest update from the official website and install it before retrying. Should you require further assistance, do let me know.",
+      "action": "TAUGHT",
+      "topic": "Enable Kindle mode.",
+      "keywords": [
+        "enable",
+        "kindle",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T22:45:33.795Z"
+    },
+    {
+      "id": "mrtuvarwqn1r",
+      "exampleInput": "[Camera is already active and online] Enable camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Enable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "enable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T23:28:21.068Z"
+    },
+    {
+      "id": "mrtuvpukyq19",
+      "exampleInput": "[Camera is already active and online] Enable camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Enable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "enable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-20T23:28:40.604Z"
+    },
+    {
+      "id": "mru19yxdfx3o",
+      "exampleInput": "[Camera is already active and online] Enable camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Enable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "enable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T02:27:43.249Z"
+    },
+    {
+      "id": "mru1a91euuxw",
+      "exampleInput": "[Camera is already active and online] Enable camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Enable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "enable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T02:27:56.355Z"
+    },
+    {
+      "id": "mru1ak3cfwdw",
+      "exampleInput": "[Camera is already active and online] Gamma feed is not active. Enabled camera mode.",
+      "exampleOutput": "Gamma feed remains inactive, Sir. To enable it, navigate to the camera settings and toggle the gamma option; ensure the application has the necessary permissions. The camera feed will continue to operate as before.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Gamma feed is not acti",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "gamma",
+        "feed",
+        "not"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T02:28:10.680Z"
+    },
+    {
+      "id": "mru1bz41n6gy",
+      "exampleInput": "[Camera is already active and online] Enable camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Enable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "enable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T02:29:16.801Z"
+    },
+    {
+      "id": "mru4htm88lxi",
+      "exampleInput": "Enable cameras.",
+      "exampleOutput": "The camera feed is already active; no further action is required, Sir.",
+      "action": "TAUGHT",
+      "topic": "Enable cameras.",
+      "keywords": [
+        "enable",
+        "cameras"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T03:57:48.464Z"
+    },
+    {
+      "id": "mru4igx1f1w0",
+      "exampleInput": "[Camera is already active and online] Enable camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Enable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "enable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T03:58:18.661Z"
+    },
+    {
+      "id": "mru4ihzjhlhc",
+      "exampleInput": "[Camera is already active and online] Enable camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Enable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "enable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T03:58:20.047Z"
+    },
+    {
+      "id": "mru4jbq46auc",
+      "exampleInput": "[Camera is already active and online] Camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T03:58:58.588Z"
+    },
+    {
+      "id": "mru4je805o5k",
+      "exampleInput": "[Camera is already active and online] Mobile camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Mobile camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "mobile",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T03:59:01.824Z"
+    },
+    {
+      "id": "mru4jlpy0o1i",
+      "exampleInput": "[Camera is already active and online] Disable camera mode.",
+      "exampleOutput": "The camera feed has been disabled, Sir. No further action is required.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Disable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "disable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T03:59:11.542Z"
+    },
+    {
+      "id": "mru4jsy7jlkv",
+      "exampleInput": "[Camera is already active and online] Enable camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Enable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "enable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T03:59:20.911Z"
+    },
+    {
+      "id": "mru4kan7e048",
+      "exampleInput": "[Camera is already active and online] Enable camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Enable camera mode.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online",
+        "enable",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T03:59:43.843Z"
+    },
+    {
+      "id": "mru4klwc0815",
+      "exampleInput": "Chat mode.",
+      "exampleOutput": "Chat mode engaged. Sir.",
+      "action": "TAUGHT",
+      "topic": "Chat mode.",
+      "keywords": [
+        "chat",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T03:59:58.428Z"
+    },
+    {
+      "id": "mru4mdig5jly",
+      "exampleInput": "[Camera is already active and online] Camera.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "[Camera is already active and online] Camera.",
+      "keywords": [
+        "camera",
+        "already",
+        "active",
+        "and",
+        "online"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T04:01:20.872Z"
+    },
+    {
+      "id": "mru4sjxe1399",
+      "exampleInput": "Enable camera mode.",
+      "exampleOutput": "The camera feed remains active, Sir. No further action is necessary.",
+      "action": "TAUGHT",
+      "topic": "Enable camera mode.",
+      "keywords": [
+        "enable",
+        "camera",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T04:06:09.122Z"
+    },
+    {
+      "id": "mrv2a2geveai",
+      "exampleInput": "Open the camera feed.",
+      "exampleOutput": "Opening the camera feed now, Sir. If the view does not appear, verify that the camera application is authorised to display on this device and attempt a manual launch.",
+      "action": "TAUGHT",
+      "topic": "Open the camera feed.",
+      "keywords": [
+        "open",
+        "the",
+        "camera",
+        "feed"
+      ],
+      "hitCount": 4,
+      "createdAt": "2026-07-21T19:43:33.614Z"
+    },
+    {
+      "id": "mrv2a8zpr4io",
+      "exampleInput": "Open the camera feed.",
+      "exampleOutput": "Opening the camera feed now, Sir. If the view does not appear, verify that the camera application is authorised to display on this device and attempt a manual launch.",
+      "action": "TAUGHT",
+      "topic": "Open the camera feed.",
+      "keywords": [
+        "open",
+        "the",
+        "camera",
+        "feed"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T19:43:42.085Z"
+    },
+    {
+      "id": "mrv2ag0vgeas",
+      "exampleInput": "Open the camera feed.",
+      "exampleOutput": "Opening the camera feed now, Sir. If the view does not appear, verify that the camera application is authorised to display on this device and attempt a manual launch.",
+      "action": "TAUGHT",
+      "topic": "Open the camera feed.",
+      "keywords": [
+        "open",
+        "the",
+        "camera",
+        "feed"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T19:43:51.199Z"
+    },
+    {
+      "id": "mrv2aob6tp2t",
+      "exampleInput": "Open the camera feed.",
+      "exampleOutput": "Opening the camera feed now, Sir. If the view does not appear, verify that the camera application is authorised to display on this device and attempt a manual launch.",
+      "action": "TAUGHT",
+      "topic": "Open the camera feed.",
+      "keywords": [
+        "open",
+        "the",
+        "camera",
+        "feed"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T19:44:01.938Z"
+    },
+    {
+      "id": "mrv8titfu2ox",
+      "exampleInput": "Enable camera mode.",
+      "exampleOutput": "Opening the camera feed now, Sir. If the view does not appear, ensure the camera app is permitted to display on this device and try a manual launch.",
+      "action": "TAUGHT",
+      "topic": "Enable camera mode.",
+      "keywords": [
+        "enable",
+        "camera",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T22:46:38.979Z"
+    },
+    {
+      "id": "mrv8tnwig3d4",
+      "exampleInput": "Enable camera mode.",
+      "exampleOutput": "Opening the camera feed now, Sir. If the view does not appear, ensure the camera app is permitted to display on this device and try a manual launch.",
+      "action": "TAUGHT",
+      "topic": "Enable camera mode.",
+      "keywords": [
+        "enable",
+        "camera",
+        "mode"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-21T22:46:45.570Z"
+    },
+    {
+      "id": "mrzifnw6flt0",
+      "exampleInput": "A birthday party.",
+      "exampleOutput": "Could you specify the date, time, location and any attendees for the birthday party so I may add it to your calendar, Sir?",
+      "action": "TAUGHT",
+      "topic": "A birthday party.",
+      "keywords": [
+        "birthday",
+        "party"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-24T22:26:53.238Z"
+    },
+    {
+      "id": "ms0ildhhi9h7",
+      "exampleInput": "So like this is Jarvis, a personal AI system does launch your day and not just census questions?",
+      "exampleOutput": "Indeed, Sir. I can schedule appointments, manage your calendar, adjust environmental settings, and coordinate devices, among other tasks, rather than merely collecting data.",
+      "action": "TAUGHT",
+      "topic": "So like this is Jarvis, a personal AI system does launch you",
+      "keywords": [
+        "like",
+        "this",
+        "jarvis",
+        "personal",
+        "system",
+        "does",
+        "launch",
+        "your"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-25T15:19:05.861Z"
+    },
+    {
+      "id": "ms6pom1uykci",
+      "exampleInput": "it down, it's internet.",
+      "exampleOutput": "Sir, could you clarify what you mean by “it down, it’s internet”? If you require instructions for adding flour to a recipe, please specify the dish. I will comply accordingly.",
+      "action": "TAUGHT",
+      "topic": "it down, it's internet.",
+      "keywords": [
+        "down",
+        "internet"
+      ],
+      "hitCount": 1,
+      "createdAt": "2026-07-29T23:24:11.298Z"
+    }
+  ],
+  "stats": {
+    "total": 62,
+    "hits": 0
+  }
+}

@@ -1,0 +1,128 @@
+{
+  "jay": {
+    "date": "2026-08-19",
+    "headline": "Morning, Sir. Here's where things stand: London, GB is 22°C and overcast clouds, high of 22° / low of 21°. Top story right now: \"U.S.-Iran Updates: Trump says no talks with Iran taking place as standoff over Strait of Hormuz continues - CBS News\" (CBS News).",
+    "parts": [
+      "London, GB is 22°C and overcast clouds, high of 22° / low of 21°.",
+      "Top story right now: \"U.S.-Iran Updates: Trump says no talks with Iran taking place as standoff over Strait of Hormuz continues - CBS News\" (CBS News)."
+    ],
+    "meta": {
+      "weather": {
+        "city": "London, GB",
+        "temp": 22,
+        "feels_like": 21,
+        "description": "overcast clouds",
+        "humidity": 48,
+        "wind_speed": 5,
+        "high": 22,
+        "low": 21,
+        "icon": "04d",
+        "conditions": "Clouds",
+        "visibility": "10 km",
+        "sunrise": "09:52 pm",
+        "sunset": "00:16 pm"
+      },
+      "news": [
+        {
+          "title": "U.S.-Iran Updates: Trump says no talks with Iran taking place as standoff over Strait of Hormuz continues - CBS News",
+          "source": "CBS News",
+          "url": "https://www.cbsnews.com/live-updates/us-iran-war-deal-strait-of-hormuz/",
+          "publishedAt": "2026-08-18T18:14:00Z",
+          "image": "https://assets2.cbsnewsstatic.com/hub/i/r/2026/08/18/a83f3a4c-07f2-4216-b5dd-c1a421b83f56/thumbnail/1200x630/c4bcf8b3be26e0bbb15759a470f32c01/gettyimages-2290478058.jpg"
+        },
+        {
+          "title": "'Ready to deal with any threats': UAE vows response after Iran fires two missiles - The Times of India",
+          "source": "The Times of India",
+          "url": "https://timesofindia.indiatimes.com/world/middle-east/ready-to-deal-with-any-threats-uae-vows-response-after-iran-fires-two-missiles/articleshow/133328252.cms",
+          "publishedAt": "2026-08-18T17:11:00Z",
+          "image": "https://static.toiimg.com/thumb/msid-133328286,width-1280,height-720,resizemode-6,overlay-toi_sw,pt-32,y_pad-600/photo.jpg"
+        },
+        {
+          "title": "Barcelona sign Rodri from Man City in £65m deal - BBC",
+          "source": "BBC News",
+          "url": "https://www.bbc.com/sport/football/articles/c2k7w3vwv5yo",
+          "publishedAt": "2026-08-18T16:57:18Z",
+          "image": "https://ichef.bbci.co.uk/ace/branded_sport/1200/cpsprodpb/8159/live/543b3a30-9b2c-11f1-9a2c-6d6ac3827d20.jpg"
+        },
+        {
+          "title": "Minnesota attorney general sues Texas governor to compel extradition of ICE agent for trial - NBC News",
+          "source": "NBC News",
+          "url": "https://www.nbcnews.com/news/us-news/minnesota-attorney-general-sues-texas-governor-compel-extradition-ice-rcna593154",
+          "publishedAt": "2026-08-18T16:57:14Z",
+          "image": "https://media-cldnry.s-nbcnews.com/image/upload/t_nbcnews-fp-1200-630,f_auto,q_auto:best/rockcms/2026-08/260818-Keith-Ellison-ch-1247-99787f.jpg"
+        },
+        {
+          "title": "Anthropic Pre-IPO Credit Facility Set to Climb Past $10 Billion - Bloomberg",
+          "source": "Bloomberg",
+          "url": "https://www.bloomberg.com/news/articles/2026-08-18/anthropic-pre-ipo-credit-facility-set-to-climb-past-10-billion",
+          "publishedAt": "2026-08-18T16:42:15Z",
+          "image": "https://assets.bwbx.io/images/users/iqjWHBFdfxIU/i4smsac0mCIg/v1/1200x809.jpg"
+        }
+      ]
+    },
+    "generatedAt": "2026-08-19T19:07:23.564Z"
+  },
+  "rithik": {
+    "date": "2026-08-20",
+    "headline": "Morning, Sir. Here's where things stand: London, GB is 20°C and overcast clouds, high of 21° / low of 19°. Top story right now: \"Merck and Moderna say cancer vaccine shows promise in preventing recurrence of melanoma - NBC News\" (NBC News).",
+    "parts": [
+      "London, GB is 20°C and overcast clouds, high of 21° / low of 19°.",
+      "Top story right now: \"Merck and Moderna say cancer vaccine shows promise in preventing recurrence of melanoma - NBC News\" (NBC News)."
+    ],
+    "meta": {
+      "weather": {
+        "city": "London, GB",
+        "temp": 20,
+        "feels_like": 20,
+        "description": "overcast clouds",
+        "humidity": 58,
+        "wind_speed": 6,
+        "high": 21,
+        "low": 19,
+        "icon": "04d",
+        "conditions": "Clouds",
+        "visibility": "10 km",
+        "sunrise": "09:53 pm",
+        "sunset": "00:14 pm"
+      },
+      "news": [
+        {
+          "title": "Merck and Moderna say cancer vaccine shows promise in preventing recurrence of melanoma - NBC News",
+          "source": "NBC News",
+          "url": "https://www.nbcnews.com/health/health-news/merck-moderna-say-melanoma-vaccine-promise-prevent-recurrence-cancer-rcna593316",
+          "publishedAt": "2026-08-19T16:10:33Z",
+          "image": "https://media-cldnry.s-nbcnews.com/image/upload/t_nbcnews-fp-1200-630,f_auto,q_auto:best/rockcms/2026-08/260819-moderna-cancer-vaccine-mn-0845-2c4c43.jpg"
+        },
+        {
+          "title": "Defense minister dismissed by Zelensky demands elections in Ukraine - The Washington Post",
+          "source": "The Washington Post",
+          "url": "https://www.washingtonpost.com/world/2026/08/19/mykhailo-fedorov-dismissed-by-zelensky-demands-elections-ukraine/",
+          "publishedAt": "2026-08-19T16:07:01Z",
+          "image": "https://www.washingtonpost.com/wp-apps/imrs.php?src=https://cloudfront-us-east-1.images.arcpublishing.com/wapo/ZP7MYVWDEPNDGRHWRAWHIUEJGQ.JPG&w=1440"
+        },
+        {
+          "title": "Report: Tyler Biadasz out indefinitely with ACL damage, more injuries to left knee - NBC Sports",
+          "source": "NBCSports.com",
+          "url": "https://www.nbcsports.com/nfl/profootballtalk/rumor-mill/news/report-tyler-biadasz-out-indefinitely-with-acl-damage-more-injuries-to-left-knee",
+          "publishedAt": "2026-08-19T15:46:09Z",
+          "image": "https://nbcsports.brightspotcdn.com/dims4/default/74311f8/2147483647/strip/true/crop/7088x3987+0+0/resize/1440x810!/quality/90/?url=https%3A%2F%2Fnbc-sports-production-nbc-sports.s3.us-east-1.amazonaws.com%2Fbrightspot%2Ff5%2F6c%2F5e42d26d43e8b57df5ad451b1b09%2Fhttps-api-imagn.com%2Frest%2Fdownload%2FimageID%3D29254852"
+        },
+        {
+          "title": "Stock Market Today: Dow Opens Higher, Bond Yields Dive After Treasury Steps Up Buybacks — Live Updates - WSJ",
+          "source": "The Wall Street Journal",
+          "url": "https://www.wsj.com/livecoverage/stock-market-today-dow-sp-500-nasdaq-08-19-2026",
+          "publishedAt": "2026-08-19T15:42:00Z",
+          "image": null
+        },
+        {
+          "title": "Apple iPhone 18 event — all the new products expected to launch in September - tomsguide.com",
+          "source": "Tom's Guide",
+          "url": "https://www.tomsguide.com/phones/iphones/apple-iphone-18-event-all-the-new-products-expected-to-launch-in-september",
+          "publishedAt": "2026-08-19T15:16:08Z",
+          "image": "https://cdn.mos.cms.futurecdn.net/XK7W9gHWEgHPdh5kir8n9-2000-80.jpg"
+        }
+      ]
+    },
+    "generatedAt": "2026-08-20T17:19:08.670Z"
+  }
+}

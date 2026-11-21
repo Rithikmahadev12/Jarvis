@@ -1,0 +1,9 @@
+{
+  "faceDetection": false,
+  "proactiveNudges": true,
+  "quietHoursStart": 22,
+  "quietHoursEnd": 7,
+  "activityTracking": true,
+  "numberCode": null,
+  "sleepMode": true
+}

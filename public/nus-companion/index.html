@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>J.A.R.V.I.S — Companion</title>
+  <!-- NUS companion styles — verbatim from nus-desktop -->
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="knot-look.css" />
+  <style>
+    /* ── Web-host overrides: transparent BG looks dark-grey in a browser tab.
+       Give it a real background so it looks intentional when not fullscreen. ── */
+    html, body {
+      background: #0d0f18 !important;
+      height: 100%; width: 100%;
+      overflow: hidden;
+    }
+    /* Fill the viewport so the knot corner logic works */
+    #app { height: 100vh; }
+
+    /* Jarvis branding badge — top-left, doesn't interfere with knot */
+    #jarvis-badge {
+      position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+      z-index: 50; pointer-events: none;
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(10,14,22,0.82);
+      border: 1px solid rgba(0,200,255,0.18);
+      border-radius: 999px;
+      padding: 5px 14px 5px 10px;
+      backdrop-filter: blur(8px);
+    }
+    #jarvis-badge .badge-dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #00c8ff;
+      box-shadow: 0 0 8px rgba(0,200,255,0.8);
+      animation: badgePulse 2s infinite;
+    }
+    @keyframes badgePulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.5;transform:scale(0.85)} }
+    #jarvis-badge span {
+      font-family: 'Orbitron', 'Share Tech Mono', monospace;
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 0.28em; color: rgba(0,200,255,0.75);
+      text-transform: uppercase;
+    }
+
+    /* Back-link to main Jarvis UI */
+    #back-to-jarvis {
+      position: fixed; top: 14px; left: 14px; z-index: 51;
+      background: rgba(10,14,22,0.75);
+      border: 1px solid rgba(0,200,255,0.2);
+      border-radius: 8px; padding: 7px 12px;
+      color: rgba(0,200,255,0.65);
+      font-family: monospace; font-size: 11px; letter-spacing: 0.1em;
+      text-decoration: none; cursor: pointer;
+      transition: all 0.2s;
+    }
+    #back-to-jarvis:hover { border-color: rgba(0,200,255,0.5); color: #00c8ff; }
+
+    /* When nus-link status says "connected to Jarvis" make it teal */
+    #nus-link-status { color: rgba(105,226,207,0.9); font-size: 12px; padding: 6px 0; }
+  </style>
+  <!-- Load Orbitron for the badge only -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- Jarvis brand badge -->
+  <div id="jarvis-badge">
+    <div class="badge-dot"></div>
+    <span>Jarvis Companion</span>
+  </div>
+  <a id="back-to-jarvis" href="/">← Jarvis</a>
+
+  <!-- ═══════════════════════════════════════════════════════════════════
+       Everything below this line is the unmodified NUS companion HTML.
+       The bridge (jarvis-bridge.js) makes window.nus point at Jarvis
+       so the renderer never knows it's not in Electron.
+       ═══════════════════════════════════════════════════════════════════ -->
+
+  <!-- The strand: the Knot's thread across the screen -->
+  <canvas id="strand-layer" data-task="" aria-hidden="true"></canvas>
+
+  <!-- Guide bubble -->
+  <div id="guide-bubble" class="glass no-drag hidden" role="status" aria-live="polite">
+    <div class="gb-kicker" id="gb-kicker"></div>
+    <div class="gb-text" id="gb-text"></div>
+    <div class="gb-hint" id="gb-hint"></div>
+    <div class="gb-actions" id="gb-actions"></div>
+  </div>
+
+  <!-- Quick ask -->
+  <div id="quick-ask" class="glass no-drag hidden" role="dialog" aria-label="Ask Jarvis">
+    <input id="quick-input" type="text" placeholder="What do you need help with?" spellcheck="false" autocomplete="off" />
+    <button id="quick-more" type="button" title="Open the full sheet" aria-label="Open the full sheet">&#8943;</button>
+  </div>
+
+  <!-- App hint -->
+  <button id="knot-hint" class="glass no-drag hidden" type="button" aria-live="polite"></button>
+
+  <!-- Keep chip -->
+  <div id="keep-chip" class="glass no-drag hidden" role="dialog" aria-label="Remember this for next time?">
+    <span id="keep-text">Remember this for next time?</span>
+    <button id="keep-yes" type="button">Keep</button>
+    <button id="keep-no" type="button">Skip</button>
+  </div>
+
+  <div id="app" data-corner="br">
+    <div id="stack">
+
+      <div id="panel-wrap">
+        <div id="panel" class="no-drag collapsed">
+          <div id="tile-response" class="glass tile">
+            <div id="messages"></div>
+          </div>
+
+          <div id="tile-controls" class="glass tile">
+            <div id="primary-row">
+              <button class="act primary" data-mode="guide" data-icon="compass">
+                <span class="ic"></span><span>What should I do?</span>
+              </button>
+            </div>
+
+            <div class="mode-cluster hidden" id="live-cluster">
+              <div class="cluster-kicker">Live call</div>
+              <div id="action-row">
+                <button class="act" data-mode="assist" data-icon="sparkles"><span class="ic"></span><span>Assist</span></button>
+                <button class="act" data-mode="say" data-icon="wand-sparkles"><span class="ic"></span><span>Say next</span></button>
+                <button class="act" data-mode="objection" data-icon="shield-alert"><span class="ic"></span><span>Objection</span></button>
+                <button class="act" data-mode="numbers" data-icon="hash"><span class="ic"></span><span>Numbers</span></button>
+                <button class="act" data-mode="followup" data-icon="message-circle"><span class="ic"></span><span>Follow-ups</span></button>
+                <button class="act" data-mode="recap" data-icon="refresh-cw"><span class="ic"></span><span>Recap</span></button>
+              </div>
+            </div>
+
+            <div class="mode-cluster hidden" id="rehearsal-cluster">
+              <div class="cluster-kicker">Rehearsal</div>
+              <div id="action-row-2">
+                <button class="act" data-mode="brief" data-icon="file-text"><span class="ic"></span><span>Pre-call brief</span></button>
+                <button class="act" id="spar-btn" data-mode="spar" data-icon="swords"><span class="ic"></span><span>Start rehearsal</span></button>
+                <button class="act" data-mode="score" data-icon="clipboard-check"><span class="ic"></span><span>Score me</span></button>
+              </div>
+            </div>
+
+            <div id="composer">
+              <div id="input-area">
+                <div id="placeholder">Ask Jarvis anything</div>
+                <textarea id="input" rows="1" spellcheck="false"></textarea>
+              </div>
+              <div id="composer-bottom">
+                <button id="more-btn" class="more-btn" title="Settings"></button>
+                <div class="spacer"></div>
+                <button id="send-btn" title="Send"></button>
+              </div>
+            </div>
+          </div><!-- /tile-controls -->
+        </div>
+      </div>
+
+      <button id="daily-line" class="glass no-drag hidden" type="button"></button>
+
+      <!-- The Knot -->
+      <div id="toolbar">
+        <div id="knot-shell">
+          <div id="knot-bloom" class="no-drag" aria-label="Jarvis controls">
+            <div class="knot-bloom-head">
+              <div class="knot-copy">
+                <strong id="knot-status-title">Jarvis idle</strong>
+                <span id="knot-status-subtitle">Quietly available</span>
+              </div>
+              <span id="desktop-link" class="off" title="Connected to Jarvis">◈ jarvis</span>
+              <div id="capture-chip" class="off" aria-live="polite">
+                <span class="capture-dot"></span>
+                <div id="voice-wave" class="voice-wave" aria-hidden="true"></div>
+                <span id="capture-clock">00:00</span>
+              </div>
+            </div>
+            <div class="knot-bloom-foot">
+              <div class="spacer"></div>
+              <div id="orb-controls">
+                <button id="stop-btn" title="Start / stop listening" aria-label="Start or stop listening"></button>
+                <button id="logo-btn" title="Help / tutorial" aria-label="Open tutorial"></button>
+                <span id="corner-pick" title="Move the Knot to a corner" aria-label="Knot corner">
+                  <button type="button" data-corner="tl" aria-label="Top left"></button>
+                  <button type="button" data-corner="tr" aria-label="Top right"></button>
+                  <button type="button" data-corner="bl" aria-label="Bottom left"></button>
+                  <button type="button" data-corner="br" aria-label="Bottom right"></button>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <button id="orb" class="no-drag" type="button" title="Open Jarvis" aria-label="Open Jarvis command sheet" aria-expanded="false">
+            <span class="knot-halo" aria-hidden="true"></span>
+            <canvas id="knot-canvas" aria-hidden="true"></canvas>
+            <svg class="nus-knot" viewBox="0 0 88 88" aria-hidden="true">
+              <circle class="knot-orbit orbit-a" cx="44" cy="44" r="34"></circle>
+              <circle class="knot-orbit orbit-b" cx="44" cy="44" r="27"></circle>
+              <g class="knot-threads">
+                <path class="knot-thread knot-shadow" d="M18 39C20 19 39 12 55 20C72 29 72 50 58 61C44 73 22 65 20 49C18 36 28 26 40 27C53 27 62 38 58 49C54 61 38 64 29 55"></path>
+                <path class="knot-thread knot-cream" d="M17 47C13 29 28 15 45 17C63 19 72 37 64 52C57 66 38 70 26 60C15 51 16 35 26 27C37 18 54 23 59 36C64 48 54 60 42 60"></path>
+                <path class="knot-thread knot-blue" d="M27 68C42 75 62 68 68 52C74 36 64 18 47 15C31 12 17 23 16 38C15 52 27 63 40 62C53 61 61 50 58 39C55 29 44 24 35 28"></path>
+                <path class="knot-thread knot-glint" d="M24 27C34 16 51 15 62 25C74 36 71 54 59 63"></path>
+              </g>
+              <circle class="knot-core" cx="44" cy="44" r="4.2"></circle>
+            </svg>
+            <span id="live-dot" class="off"></span>
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /stack -->
+  </div>
+
+  <!-- Settings panel -->
+  <div id="settings-scrim" class="hidden">
+    <div id="settings" class="glass">
+      <div class="s-head">
+        <div class="s-title">Settings</div>
+        <button id="s-close" class="s-close">Done</button>
+      </div>
+      <div class="s-body">
+        <div id="nus-link-status" class="nus-link-status">Checking Jarvis connection…</div>
+
+        <label class="s-label">Jarvis API Keys <span class="s-hint">keys stored locally in your browser</span></label>
+        <p class="s-note">Jarvis uses your running backend by default. Add keys below only as a fallback when the backend is unreachable. <b>The knot and chat work with no key when Jarvis is running.</b></p>
+
+        <label class="s-label">Provider <span class="s-hint">fast = Smart off · smart = Smart on</span></label>
+        <div class="s-field"><span>Anthropic</span><input id="key-anthropic" type="password" placeholder="sk-ant-..." autocomplete="off" /></div>
+        <div class="s-field"><span>OpenAI</span><input id="key-openai" type="password" placeholder="sk-..." autocomplete="off" /></div>
+        <div class="s-field"><span>Gemini</span><input id="key-gemini" type="password" placeholder="AIza..." autocomplete="off" /></div>
+        <div class="s-field nus-share-field"><span>Smart answers <small>On: every reply uses the slower, smarter path.</small></span><input id="smart-mode" type="checkbox" /></div>
+
+        <label class="s-label">Ask shortcut <span class="s-hint">keyboard shortcut hint (browser only — no global registration)</span></label>
+        <div class="s-shortcut">
+          <span>Ask</span>
+          <button id="shortcut-assist" class="shortcut-record" type="button" aria-label="Change Ask shortcut"></button>
+          <button id="shortcut-reset" class="shortcut-reset" type="button">Reset</button>
+        </div>
+        <div class="shortcut-hint" id="shortcut-hint">Click the shortcut, then press a new key combination.</div>
+
+        <details class="s-more">
+          <summary>Provider settings</summary>
+          <div class="s-seg" id="provider-seg">
+            <button data-provider="jarvis">Jarvis</button>
+            <button data-provider="anthropic">Anthropic</button>
+            <button data-provider="openai">OpenAI</button>
+            <button data-provider="gemini">Gemini</button>
+            <button data-provider="nvidia">Nvidia</button>
+          </div>
+          <div class="s-field"><span>Nvidia</span><input id="key-nvidia" type="password" placeholder="nvapi-..." autocomplete="off" /></div>
+          <div class="s-field"><span>Fast model</span><input id="model-fast" type="text" autocomplete="off" /></div>
+          <div class="s-field"><span>Smart model</span><input id="model-smart" type="text" autocomplete="off" /></div>
+        </details>
+
+        <details class="s-more">
+          <summary>Privacy and sessions</summary>
+          <div class="s-field nus-share-field"><span>Share context with AI <small>Off by default. On: your context rides with each request to the AI provider.</small></span><input id="share-nus-context" type="checkbox" /></div>
+          <div class="s-field nus-share-field"><span>Report to Jarvis backend <small>Off by default. Sends finished answers back to the Jarvis server.</small></span><input id="report-to-nus" type="checkbox" /></div>
+          <div class="s-field nus-share-field"><span>Save transcripts <small>On by default. Capture sessions land in Jarvis history.</small></span><input id="persist-transcripts" type="checkbox" /></div>
+        </details>
+
+        <details class="s-more">
+          <summary>Résumé / background</summary>
+          <label class="s-label" for="resume-context">Your background <span class="s-hint">stored locally; sent with each request</span></label>
+          <textarea id="resume-context" class="s-textarea" maxlength="12000" placeholder="Paste your résumé or professional background here. Jarvis will use it as context for answers."></textarea>
+          <div class="s-resume-actions">
+            <span class="s-hint">Maximum 12,000 characters</span>
+            <button id="clear-resume" type="button">Clear</button>
+          </div>
+        </details>
+
+        <div class="s-status" id="s-status"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- First-run tutorial -->
+  <div id="onboard-scrim" class="hidden">
+    <div id="onboard" class="glass">
+      <div class="ob-dots" id="ob-dots"></div>
+      <div class="ob-icon" id="ob-icon"></div>
+      <div class="ob-title" id="ob-title"></div>
+      <div class="ob-body" id="ob-body"></div>
+      <div class="ob-buttons" id="ob-buttons"></div>
+      <div class="ob-actions">
+        <button id="ob-skip" class="ob-ghost">Skip</button>
+        <div class="spacer"></div>
+        <button id="ob-back" class="ob-ghost">Back</button>
+        <button id="ob-next" class="ob-primary">Next</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts: bridge first (sets window.nus), then the NUS renderer files -->
+  <script>window.JARVIS_BASE = '';</script>
+  <script src="jarvis-bridge.js"></script>
+  <script src="knot3d.js"></script>
+  <script src="strand.js"></script>
+  <script src="icons.js"></script>
+  <script src="renderer.js"></script>
+
+</body>
+</html>

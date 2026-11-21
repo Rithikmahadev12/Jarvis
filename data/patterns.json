@@ -1,0 +1,32 @@
+{
+  "patterns": {
+    "command": [
+      {
+        "id": "p1784587555617",
+        "intent": "Enable camera mode",
+        "keywords": [
+          "enable",
+          "camera",
+          "mode"
+        ],
+        "suggestedHandler": "camera_mode_handler",
+        "exampleMessage": "Enable camera mode.",
+        "learnedAt": "2026-07-20T22:45:55.617Z",
+        "useCount": 0
+      },
+      {
+        "id": "p1784606801535",
+        "intent": "Disable camera mode",
+        "keywords": [
+          "disable",
+          "camera",
+          "mode"
+        ],
+        "suggestedHandler": "system_command_handler",
+        "exampleMessage": "Disable camera mode.",
+        "learnedAt": "2026-07-21T04:06:41.535Z",
+        "useCount": 0
+      }
+    ]
+  }
+}

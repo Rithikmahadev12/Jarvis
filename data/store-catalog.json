@@ -1,0 +1,180 @@
+{
+  "products": [
+    {
+      "id": "prod_1787247370286_y266kd",
+      "name": "Photoshop Power Shortcuts: The Ultimate One-Page Cheat Sheet",
+      "description": "Instant digital download: Photoshop Power Shortcuts: The Ultimate One-Page Cheat Sheet",
+      "priceUsd": 5,
+      "deliverable": {
+        "type": "file",
+        "path": "/home/runner/work/Jarvis/Jarvis/data/store/products/1787247370285-photoshop-power-shortcuts-the-ultimate-one-page-ch.md",
+        "contentType": "text/markdown"
+      },
+      "ownerKey": "owner",
+      "status": "published",
+      "createdAt": "2026-08-20T17:36:10.286Z",
+      "sold": 0
+    },
+    {
+      "id": "prod_1787160744233_92xb9n",
+      "name": "Figma Turbo Cheat Sheet – 250+ Shortcuts & Pro Workflow Hacks",
+      "description": "Instant digital download: Figma Turbo Cheat Sheet – 250+ Shortcuts & Pro Workflow Hacks",
+      "priceUsd": 5,
+      "deliverable": {
+        "type": "file",
+        "path": "/home/runner/work/Jarvis/Jarvis/data/store/products/1787160744232-figma-turbo-cheat-sheet-250-shortcuts-pro-workflow.md",
+        "contentType": "text/markdown"
+      },
+      "ownerKey": "owner",
+      "status": "published",
+      "createdAt": "2026-08-19T17:32:24.233Z",
+      "sold": 0
+    },
+    {
+      "id": "prod_1787074415408_ga749g",
+      "name": "Figma FlowMaster Cheat Sheet – Keyboard Shortcuts & Pro Workflow Hacks",
+      "description": "Instant digital download: Figma FlowMaster Cheat Sheet – Keyboard Shortcuts & Pro Workflow Hacks",
+      "priceUsd": 5,
+      "deliverable": {
+        "type": "file",
+        "path": "/home/runner/work/Jarvis/Jarvis/data/store/products/1787074415408-figma-flowmaster-cheat-sheet-keyboard-shortcuts-pr.md",
+        "contentType": "text/markdown"
+      },
+      "ownerKey": "owner",
+      "status": "published",
+      "createdAt": "2026-08-18T17:33:35.408Z",
+      "sold": 0
+    },
+    {
+      "id": "prod_1786987982664_8iuzvz",
+      "name": "Photoshop PowerPlay: The Ultimate Shortcut & Workflow Cheat Sheet",
+      "description": "Instant digital download: Photoshop PowerPlay: The Ultimate Shortcut & Workflow Cheat Sheet",
+      "priceUsd": 5,
+      "deliverable": {
+        "type": "file",
+        "path": "/home/runner/work/Jarvis/Jarvis/data/store/products/1786987982664-photoshop-powerplay-the-ultimate-shortcut-workflow.md",
+        "contentType": "text/markdown"
+      },
+      "ownerKey": "owner",
+      "status": "published",
+      "createdAt": "2026-08-17T17:33:02.664Z",
+      "sold": 0
+    },
+    {
+      "id": "prod_1786901121774_emlwv1",
+      "name": "Figma FastTrack: 1‑Page Shortcut & Workflow Cheat Sheet",
+      "description": "Instant digital download: Figma FastTrack: 1‑Page Shortcut & Workflow Cheat Sheet",
+      "priceUsd": 5,
+      "deliverable": {
+        "type": "file",
+        "path": "/home/runner/work/Jarvis/Jarvis/data/store/products/1786901121774-figma-fasttrack-1-page-shortcut-workflow-cheat-she.md",
+        "contentType": "text/markdown"
+      },
+      "ownerKey": "owner",
+      "status": "published",
+      "createdAt": "2026-08-16T17:25:21.774Z",
+      "sold": 0
+    },
+    {
+      "id": "prod_1786814788038_sroen2",
+      "name": "Photoshop PowerPlay: One‑Page Shortcut & Workflow Cheat Sheet",
+      "description": "Instant digital download: Photoshop PowerPlay: One‑Page Shortcut & Workflow Cheat Sheet",
+      "priceUsd": 5,
+      "deliverable": {
+        "type": "file",
+        "path": "/home/runner/work/Jarvis/Jarvis/data/store/products/1786814788037-photoshop-powerplay-one-page-shortcut-workflow-che.md",
+        "contentType": "text/markdown"
+      },
+      "ownerKey": "owner",
+      "status": "published",
+      "createdAt": "2026-08-15T17:26:28.038Z",
+      "sold": 0
+    },
+    {
+      "id": "prod_1786730208784_n3ufnv",
+      "name": "Figma FlowMaster Cheat Sheet – 2026 Edition",
+      "description": "Instant digital download: Figma FlowMaster Cheat Sheet – 2026 Edition",
+      "priceUsd": 5,
+      "deliverable": {
+        "type": "file",
+        "path": "/home/runner/work/Jarvis/Jarvis/data/store/products/1786730208783-figma-flowmaster-cheat-sheet-2026-edition.md",
+        "contentType": "text/markdown"
+      },
+      "ownerKey": "owner",
+      "status": "published",
+      "createdAt": "2026-08-14T17:56:48.784Z",
+      "sold": 0
+    },
+    {
+      "id": "prod_1786644057308_sfei96",
+      "name": "Photoshop Power Shortcuts: 1‑Page Pro Cheat Sheet",
+      "description": "Instant digital download: Photoshop Power Shortcuts: 1‑Page Pro Cheat Sheet",
+      "priceUsd": 5,
+      "deliverable": {
+        "type": "file",
+        "path": "/home/runner/work/Jarvis/Jarvis/data/store/products/1786644057308-photoshop-power-shortcuts-1-page-pro-cheat-sheet.md",
+        "contentType": "text/markdown"
+      },
+      "ownerKey": "owner",
+      "status": "published",
+      "createdAt": "2026-08-13T18:00:57.308Z",
+      "sold": 0
+    },
+    {
+      "id": "prod_1786557634058_f974ms",
+      "name": "Figma FlowMaster: The Ultimate One‑Page Shortcut & Workflow Cheat Sheet",
+      "description": "Instant digital download: Figma FlowMaster: The Ultimate One‑Page Shortcut & Workflow Cheat Sheet",
+      "priceUsd": 5,
+      "deliverable": {
+        "type": "file",
+        "path": "/home/runner/work/Jarvis/Jarvis/data/store/products/1786557634058-figma-flowmaster-the-ultimate-one-page-shortcut-wo.md",
+        "contentType": "text/markdown"
+      },
+      "status": "published",
+      "createdAt": "2026-08-12T18:00:34.058Z",
+      "sold": 0
+    },
+    {
+      "id": "prod_1786471251364_b8wa0k",
+      "name": "Figma FlowMaster Cheat Sheet",
+      "description": "Instant digital download: Figma FlowMaster Cheat Sheet",
+      "priceUsd": 5,
+      "deliverable": {
+        "type": "file",
+        "path": "/home/runner/work/Jarvis/Jarvis/data/store/products/1786471251364-figma-flowmaster-cheat-sheet.md",
+        "contentType": "text/markdown"
+      },
+      "status": "published",
+      "createdAt": "2026-08-11T18:00:51.364Z",
+      "sold": 0
+    },
+    {
+      "id": "prod_1786384490379_bp1qcr",
+      "name": "Photoshop PowerPlay: The Ultimate Shortcut & Workflow Cheat Sheet",
+      "description": "Instant digital download: Photoshop PowerPlay: The Ultimate Shortcut & Workflow Cheat Sheet",
+      "priceUsd": 5,
+      "deliverable": {
+        "type": "file",
+        "path": "/home/runner/work/Jarvis/Jarvis/data/store/products/1786384490379-photoshop-powerplay-the-ultimate-shortcut-workflow.md",
+        "contentType": "text/markdown"
+      },
+      "status": "published",
+      "createdAt": "2026-08-10T17:54:50.379Z",
+      "sold": 0
+    },
+    {
+      "id": "prod_1786320950094_hqjix0",
+      "name": "Figma FlowMaster Cheat Sheet – 2026 Edition",
+      "description": "Instant digital download: Figma FlowMaster Cheat Sheet – 2026 Edition",
+      "priceUsd": 5,
+      "deliverable": {
+        "type": "file",
+        "path": "/home/runner/work/Jarvis/Jarvis/data/store/products/1786320950094-figma-flowmaster-cheat-sheet-2026-edition.md",
+        "contentType": "text/markdown"
+      },
+      "status": "published",
+      "createdAt": "2026-08-10T00:15:50.094Z",
+      "sold": 0
+    }
+  ]
+}
