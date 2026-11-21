@@ -102,7 +102,12 @@ app.use(express.json({ limit: '8mb' }));
 
 /* ── serve NUS companion static files ───────────────────────────────────── */
 const NUS_PUBLIC = path.join(__dirname, 'public', 'nus-companion');
+// Serve under BOTH paths:
+//   /nus-companion/...  (legacy path)
+//   /nus/...            (so relative paths in index.html like "styles.css"
+//                        resolve to /nus/styles.css correctly)
 app.use('/nus-companion', express.static(NUS_PUBLIC));
+app.use('/nus', express.static(NUS_PUBLIC));
 
 /* ── routes ──────────────────────────────────────────────────────────────── */
 app.get('/', (req, res) => res.redirect('/nus'));
