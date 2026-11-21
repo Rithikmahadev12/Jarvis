@@ -1,11 +1,11 @@
 {
   "name": "jarvis",
   "version": "2.0.0",
-  "description": "Jarvis AI Voice Assistant — Custom AI Engine",
+  "description": "Jarvis AI Voice Assistant \u2014 Custom AI Engine",
   "main": "electron/main.js",
   "scripts": {
     "start": "bash startup.sh & node server.js",
-    "nus": "node nus-server.js",
+    "nus": "electron nus-electron.js",
     "voice:setup": "pip install fastapi uvicorn TTS soundfile --break-system-packages",
     "voice:start": "uvicorn voice-server.server:app --host 0.0.0.0 --port 5050",
     "desktop": "electron .",
