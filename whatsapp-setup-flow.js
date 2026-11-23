@@ -21,7 +21,7 @@ const fs      = require("fs");
 const path    = require("path");
 const Manager = require("./whatsapp-manager");
 
-const CONFIG_PATH = path.join(__dirname, "..", "config.json");
+const CONFIG_PATH = path.join(__dirname, "config.json");
 
 function loadConfig() {
   try { return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")); }
