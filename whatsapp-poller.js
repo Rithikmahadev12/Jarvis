@@ -26,6 +26,7 @@ const Manager    = require("./whatsapp-manager");
 const Sender     = require("./whatsapp-send");
 const SetupFlow  = require("./whatsapp-setup-flow");
 const EarnReport = require("./whatsapp-earn-reporter");
+const Tools      = require("./whatsapp-tools");
 
 // ── lazy-load heavy modules ───────────────────────────────────────
 let _Groq = null;
@@ -204,11 +205,8 @@ async function processMessage(apiKey, account, text, photoBase64 = null, incomin
       memories:            [],
       context:             role === "owner" ? "(Owner account — full access)" : "",
       conversationHistory: sess.history.slice(0, -1),
-      executeTool:         async (n, args) => {
-        if (args && typeof args === "object") args._userKey = userKey;
-        return null;
-      },
-      tz: "America/New_York",
+      executeTool:         (n, args) => Tools.executeTool(n, args, { account }),
+      tz: Tools.TIMEZONE,
     });
     reply = result?.reply || "…";
   } catch (e) {
@@ -401,6 +399,7 @@ function stopPollingForAccount(userKey) {
 }
 
 function startAll() {
+  Tools.startScheduler(); // deliver WhatsApp timers/reminders
   const accounts = Manager.getAllAccounts();
   if (!accounts.length) {
     console.log("[WA-POLLER] No WhatsApp accounts registered yet. Waiting for owner first-message setup.");
