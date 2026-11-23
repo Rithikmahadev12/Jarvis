@@ -157,6 +157,33 @@ async function sendAudio(apiKey, audioBase64, mimeType = "audio/ogg; codecs=opus
  * @returns {Promise<{ messages: object[], nextOffset: number }>}
  */
 let _shapeLogs = 0;
+
+// The Agent API returns webhook-style payloads:
+//   { object, entry: [ { changes: [ { field:"messages",
+//       value: { messages:[ {from,id,type,text:{body}} ], statuses:[] } } ] } ],
+//     next_offset }
+// (confirmed from real logs). Older/simpler shapes are still accepted.
+function extractMessages(data) {
+  if (!data || typeof data !== "object") return [];
+  const out = [];
+
+  for (const entry of (Array.isArray(data.entry) ? data.entry : [])) {
+    for (const change of (Array.isArray(entry?.changes) ? entry.changes : [])) {
+      const msgs = change?.value?.messages;
+      if (Array.isArray(msgs)) out.push(...msgs);
+    }
+  }
+  if (out.length) return out;
+
+  // fallbacks: first key that actually has items (an empty [] is truthy in JS)
+  for (const k of ["messages", "updates", "events", "data", "results"]) {
+    if (Array.isArray(data[k]) && data[k].length) {
+      return data[k].map(m => (m && m.message && typeof m.message === "object") ? { ...m, ...m.message } : m);
+    }
+  }
+  return [];
+}
+
 async function pollMessages(apiKey, offset = 0, limit = 50, timeout = 25) {
   // Offset 0 on first call means "omit offset" to get only NEW messages per the manual.
   const params = { limit, timeout };
@@ -178,13 +205,7 @@ async function pollMessages(apiKey, offset = 0, limit = 50, timeout = 25) {
   // `a || b` treats an EMPTY array as a value, so a response like
   // { messages: [], updates: [ ...real data... ] } used to yield zero
   // messages. Take the first key that actually has items.
-  const pick = (k) => (Array.isArray(data?.[k]) && data[k].length ? data[k] : null);
-  let messages = pick("messages") || pick("updates") || pick("events") || pick("data") || pick("results") || [];
-
-  // Some payloads wrap the message: { update_id, message: { text: { body } } }
-  messages = messages.map(m =>
-    (m && m.message && typeof m.message === "object") ? { ...m, ...m.message } : m
-  );
+  const messages = extractMessages(data);
 
   // Diagnostics: if the server advanced the offset but we parsed nothing,
   // or the first few payloads we ever see, log the raw shape (truncated).
@@ -200,4 +221,4 @@ async function pollMessages(apiKey, offset = 0, limit = 50, timeout = 25) {
   return { messages, nextOffset };
 }
 
-module.exports = { sendText, sendAudio, pollMessages, sendTypingIndicator };
+module.exports = { sendText, sendAudio, pollMessages, sendTypingIndicator, extractMessages };
