@@ -205,6 +205,9 @@ async function processMessage(apiKey, account, text, photoBase64 = null, incomin
       memories:            [],
       context:             role === "owner" ? "(Owner account — full access)" : "",
       conversationHistory: sess.history.slice(0, -1),
+      // Only the tools this message could plausibly need. [] = plain chat
+      // (hosted Ollama); non-empty = tool use (cloud AI).
+      tools:               Tools.selectTools(account, text || "", Groq.TOOLS),
       executeTool:         (n, args) => Tools.executeTool(n, args, { account, replyTo }),
       tz: Tools.TIMEZONE,
     });
