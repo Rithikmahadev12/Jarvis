@@ -55,6 +55,7 @@ const Persistence = require("./persistence");
 const Settings    = require("./settings");
 const Comms       = require("./comms-router");
 const FaceLookup  = require("./face-lookup-routes");
+const WhatsAppRoutes = require("./whatsapp-routes");
 
 const app        = express();
 
@@ -315,6 +316,17 @@ TwilioVoiceRoutes.mount(app);
 // ── BLAND — "Ask Jarvis" tool webhook (Jarvis as the brain on Bland calls).
 //    Plain JSON, so it mounts after express.json(). See bland-brain-routes.js.
 require("./bland-brain-routes").mount(app);
+
+// ═══════════════════════════════════════════════════════════════
+// ── WHATSAPP MULTI-USER SYSTEM
+//    Each user creates a WhatsApp Agent (Settings → Agents → Create)
+//    and hands the owner their API key. Owner texts Jarvis on WhatsApp
+//    to register users. Every user gets full Jarvis — same AI + tools
+//    as the site — plus their own Solana wallet and earn cycle.
+//    Weekly earn reports + idea pipeline run automatically.
+//    Set WHATSAPP_OWNER_API_KEY in .env to enable.
+// ═══════════════════════════════════════════════════════════════
+WhatsAppRoutes.mount(app);
 
 // ═══════════════════════════════════════════════════════════════
 // ── COMMS
