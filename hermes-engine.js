@@ -490,7 +490,18 @@ async function groqFetchRawWithFallback(messages, options = {}) {
   const now = Date.now();
   const tiers = [];
 
-  // TIER 1: sandbox Ollama first — free, no API key, runs on E2B.
+  // TIER 1: Ollama Cloud — hosted by ollama.com, fast, no sandbox to boot.
+  // Needs OLLAMA_API_KEY. Preferred over the sandbox because the sandbox is
+  // CPU-only (slow on a 3b model) and E2B rate-limits repeated boots.
+  if (LocalLLM.isCloudConfigured() && now >= ollamaCooldownUntil) {
+    tiers.push({
+      name: "Ollama Cloud",
+      run: () => callOllamaCloud(messages, options),
+      onFail: () => { ollamaCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
+      onOk: () => { ollamaCooldownUntil = 0; },
+    });
+  }
+  // TIER 2: self-hosted sandbox Ollama — free, no API key, runs on E2B.
   // Skipped while prewarmSandbox() is still in flight (Computer.isSandboxBooting()),
   // which means cold-start requests fall through to tier 2/3/4 immediately
   // instead of blocking for minutes. Once the prewarm resolves the flag drops
@@ -501,15 +512,6 @@ async function groqFetchRawWithFallback(messages, options = {}) {
       run: () => callSandboxOllama(messages, options),
       onFail: () => { sandboxCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
       onOk: () => { sandboxCooldownUntil = 0; },
-    });
-  }
-  // TIER 2: Ollama Cloud
-  if (LocalLLM.isCloudConfigured() && now >= ollamaCooldownUntil) {
-    tiers.push({
-      name: "Ollama Cloud",
-      run: () => callOllamaCloud(messages, options),
-      onFail: () => { ollamaCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
-      onOk: () => { ollamaCooldownUntil = 0; },
     });
   }
   // TIER 3: Gemini
@@ -2189,6 +2191,16 @@ If there is, respond with ONE short spoken sentence, in character as JARVIS — 
 
 function isConfigured() { return GroqKeys.hasGroqKey(); }
 
+// True if ANY brain tier can answer (Ollama Cloud, sandbox Ollama, Gemini,
+// or Groq). Use this to gate chat replies instead of isConfigured(), which
+// only knows about Groq and would block Ollama-only setups.
+function isBrainConfigured() {
+  return GroqKeys.hasGroqKey()
+    || LocalLLM.isCloudConfigured()
+    || isGeminiConfigured()
+    || Computer.isDesktopConfigured();
+}
+
 module.exports = {
   chat,
   chatWithTools,
@@ -2206,6 +2218,7 @@ module.exports = {
   hermesFetch: groqFetch, // alias kept so any code calling .hermesFetch() by name still works
   MODELS,
   isConfigured,
+  isBrainConfigured,
   learnIntent,
   matchLearnedIntent,
   extractKeywords,
