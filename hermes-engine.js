@@ -488,42 +488,44 @@ function normalizeMessage(msg) {
 
 async function groqFetchRawWithFallback(messages, options = {}) {
   const now = Date.now();
-  const tiers = [];
 
-  // TIER 1: Ollama Cloud — hosted by ollama.com, fast, no sandbox to boot.
-  // Needs OLLAMA_API_KEY. Preferred over the sandbox because the sandbox is
-  // CPU-only (slow on a 3b model) and E2B rate-limits repeated boots.
-  if (LocalLLM.isCloudConfigured() && now >= ollamaCooldownUntil) {
-    tiers.push({
-      name: "Ollama Cloud",
-      run: () => callOllamaCloud(messages, options),
-      onFail: () => { ollamaCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
-      onOk: () => { ollamaCooldownUntil = 0; },
-    });
-  }
-  // TIER 2: self-hosted sandbox Ollama — free, no API key, runs on E2B.
-  // Skipped while prewarmSandbox() is still in flight (Computer.isSandboxBooting()),
-  // which means cold-start requests fall through to tier 2/3/4 immediately
-  // instead of blocking for minutes. Once the prewarm resolves the flag drops
-  // and the next request can use tier 1 at full speed.
-  if (Computer.isDesktopConfigured() && now >= sandboxCooldownUntil && !Computer.isSandboxBooting()) {
-    tiers.push({
-      name: "self-hosted sandbox Ollama",
-      run: () => callSandboxOllama(messages, options),
-      onFail: () => { sandboxCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
-      onOk: () => { sandboxCooldownUntil = 0; },
-    });
-  }
-  // TIER 3: Gemini
-  if (isGeminiConfigured() && now >= geminiCooldownUntil) {
-    tiers.push({
-      name: "Gemini",
-      run: () => geminiChatWithTools(messages, options),
-      onFail: () => { geminiCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
-      onOk: () => { geminiCooldownUntil = 0; },
-    });
-  }
-  // TIER 4 (last resort): Groq — handled below the loop
+  // ROUTING:
+  //   • plain chat (no tools)  -> hosted sandbox Ollama first (free, runs on
+  //     E2B), then the cloud tiers as a fallback if the sandbox is booting
+  //     or down, so a reply is never blocked on it.
+  //   • tool use (tools given) -> cloud AI only (Ollama Cloud, Gemini, then
+  //     Groq). A 1-3B local model is unreliable at picking/formatting tool
+  //     calls, so it isn't used for them.
+  const wantsTools = !!(options.tools && options.tools.length);
+
+  // Skipped while prewarmSandbox() is still in flight (Computer.isSandboxBooting()).
+  const sandboxTier = (Computer.isDesktopConfigured() && now >= sandboxCooldownUntil && !Computer.isSandboxBooting())
+    ? {
+        name: "self-hosted sandbox Ollama",
+        run: () => callSandboxOllama(messages, options),
+        onFail: () => { sandboxCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
+        onOk: () => { sandboxCooldownUntil = 0; },
+      } : null;
+
+  // Hosted by ollama.com — needs OLLAMA_API_KEY and credits.
+  const cloudTier = (LocalLLM.isCloudConfigured() && now >= ollamaCooldownUntil)
+    ? {
+        name: "Ollama Cloud",
+        run: () => callOllamaCloud(messages, options),
+        onFail: () => { ollamaCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
+        onOk: () => { ollamaCooldownUntil = 0; },
+      } : null;
+
+  const geminiTier = (isGeminiConfigured() && now >= geminiCooldownUntil)
+    ? {
+        name: "Gemini",
+        run: () => geminiChatWithTools(messages, options),
+        onFail: () => { geminiCooldownUntil = Date.now() + TIER_COOLDOWN_MS; },
+        onOk: () => { geminiCooldownUntil = 0; },
+      } : null;
+
+  // Groq is the true last resort for both paths — handled below the loop.
+  const tiers = (wantsTools ? [cloudTier, geminiTier] : [sandboxTier, cloudTier, geminiTier]).filter(Boolean);
 
   let lastErr;
   for (const tier of tiers) {
@@ -1666,8 +1668,13 @@ const TOOLS = [
 // decides for itself whether an action is needed and which one, and
 // the caller supplies `executeTool` to actually perform it. If no
 // tool fits, it just answers normally — same call either way.
-async function chatWithTools({ message, userTitle = "Sir", memories = [], context = "", conversationHistory = [], executeTool, tz }) {
+async function chatWithTools({ message, userTitle = "Sir", memories = [], context = "", conversationHistory = [], executeTool, tz, tools: toolsOverride = null }) {
   const T = userTitle || "Sir";
+  // Callers may pass a SMALL subset of tools (the full set is ~80 tools /
+  // ~12k tokens, more than Groq's 8k-per-minute cap allows in one request).
+  // An empty array means "plain chat, no tools" — routed to the hosted
+  // sandbox Ollama; a non-empty list means tool use — routed to cloud AI.
+  const toolList = Array.isArray(toolsOverride) ? toolsOverride : TOOLS;
 
   const nowStr = (() => {
     try {
@@ -1685,11 +1692,17 @@ async function chatWithTools({ message, userTitle = "Sir", memories = [], contex
   // getSystemPrompt() already had a `compact` variant (same voice/rules,
   // ~1/3 the tokens) that just wasn't being used here — switching to it
   // is a free, behavior-preserving token cut.
-  const systemPrompt = getSystemPrompt(T, memories, context, [], true) + `
+  const fullSystemPrompt = getSystemPrompt(T, memories, context, [], true) + `
 
 You have real tools for real actions — timers, reminders, weather, playing music on YouTube, pulling up research, smart home control, checking the user's real Gmail inbox, reading a specific email in full once they pick one, checking their real Google Calendar, showing/hiding the live camera feed fullscreen, starting/stopping a downloadable screen/tab/webcam recording, instantly clipping the last N seconds of screen or webcam activity, noticing when the user needs a break, and (when Jarvis is running on the user's own computer) opening apps/files/URLs, checking disk space, running shell commands, typing text into the active window, scanning for/neutralizing security threats, and (when AgentMail is configured) creating a real email inbox to sign the user up for something and checking it for verification codes/links. Call the appropriate tool whenever the user is actually asking you to DO one of these things, no matter how casually or unusually they phrase it — infer intent, don't wait for exact wording. COMPOUND REQUESTS matter here: if the user asks for more than one thing in the same message (e.g. "open VS Code and type a flappy bird script"), call ALL the relevant tools in that SAME response — do not stop after the first one. If the user asks about their email or calendar, ALWAYS call check_email / get_calendar — these are real, already-connected accounts, never claim you lack access. After check_email lists unread emails and the user replies with something like "read the first one" or "the one from Sarah", call read_email with the right index or sender. If nothing calls for a tool, just answer normally in plain text.
 
 Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use this to compute datetime_iso for reminders.`;
+
+  // Plain chat: skip the long tool-instructions paragraph (saves tokens and
+  // keeps a small local model from talking about tools it doesn't have).
+  const systemPrompt = toolList.length
+    ? fullSystemPrompt
+    : getSystemPrompt(T, memories, context, [], true) + `\n\nCurrent date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}.`;
 
   // Trimmed from -8 to -4: still enough turns for follow-ups ("read the
   // first one", "yes do that") to resolve correctly, at roughly half the
@@ -1727,8 +1740,7 @@ Current date/time for the user: ${nowStr}${tz ? ` (timezone: ${tz})` : ""}. Use 
   // it no longer matters which one the model picks for a wallet
   // request, both return address+key. tool_choice stays "auto".
   const assistantMsg = await groqFetchRawWithFallback(messages, {
-    tools: TOOLS,
-    tool_choice: "auto",
+    ...(toolList.length ? { tools: toolList, tool_choice: "auto" } : {}),
     maxTokens: looksCompoundGenerate ? 2048 : 900,
     reasoning_effort: "low",
   });
