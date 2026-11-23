@@ -95,11 +95,11 @@ function formatWhen(dueAt) {
   } catch { return new Date(dueAt).toString(); }
 }
 
-function addItem({ userKey, type, label, dueAt }) {
+function addItem({ userKey, type, label, dueAt, replyTo = null }) {
   const items = loadStore();
   const item = {
     id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    userKey, type,
+    userKey, type, replyTo,
     label: label || (type === "timer" ? "Timer" : "Reminder"),
     createdAt: Date.now(), dueAt, fired: false, attempts: 0,
   };
@@ -109,14 +109,14 @@ function addItem({ userKey, type, label, dueAt }) {
 }
 
 // ── WhatsApp-native tools ────────────────────────────────────────
-function handleNative(name, args, { account, T }) {
+function handleNative(name, args, { account, T, replyTo }) {
   const { userKey } = account;
 
   if (name === "set_timer") {
     const secs = Number(args.duration_seconds) || 0;
     if (secs <= 0) return { reply: `How long should the timer be, ${T}?` };
     const dueAt = Date.now() + secs * 1000;
-    const item = addItem({ userKey, type: "timer", label: args.label || `${formatDuration(secs * 1000)} timer`, dueAt });
+    const item = addItem({ userKey, type: "timer", label: args.label || `${formatDuration(secs * 1000)} timer`, dueAt, replyTo });
     return { reply: `Timer set for ${formatDuration(secs * 1000)}, ${T}. I'll text you when it's up.`, action: "TIMER_SET", intent: "timer", meta: { id: item.id, dueAt } };
   }
 
@@ -129,7 +129,7 @@ function handleNative(name, args, { account, T }) {
     if (dueAt == null && args.duration_seconds) dueAt = Date.now() + Number(args.duration_seconds) * 1000;
     if (dueAt == null) return { reply: `When should I remind you, ${T}?` };
     if (dueAt <= Date.now()) return { reply: `That time has already passed, ${T}. When should I remind you?` };
-    const item = addItem({ userKey, type: "reminder", label: args.label || "your reminder", dueAt });
+    const item = addItem({ userKey, type: "reminder", label: args.label || "your reminder", dueAt, replyTo });
     return { reply: `Got it, ${T}. I'll text you about "${item.label}" on ${formatWhen(dueAt)}.`, action: "REMINDER_SET", intent: "reminder", meta: { id: item.id, dueAt } };
   }
 
@@ -159,7 +159,7 @@ function handleNative(name, args, { account, T }) {
 }
 
 // ── public: run one tool for a WhatsApp user ─────────────────────
-async function executeTool(name, args, { account }) {
+async function executeTool(name, args, { account, replyTo = null }) {
   const T = account.name || "Sir";
   const isOwner = account.role === "owner";
   args = args && typeof args === "object" ? args : {};
@@ -172,7 +172,7 @@ async function executeTool(name, args, { account }) {
     return { reply: `That one's owner-only over WhatsApp, ${T}.` };
   }
 
-  const native = handleNative(name, args, { account, T });
+  const native = handleNative(name, args, { account, T, replyTo });
   if (native) return native;
 
   if (WEB_ONLY.has(name)) {
@@ -220,7 +220,7 @@ async function deliverDue() {
         : `🔔 Reminder, ${account.name}: ${it.label}.${lateNote}`;
 
       try {
-        await Sender.sendText(account.whatsappApiKey, text);
+        await Sender.sendText(account.whatsappApiKey, text, it.replyTo || null);
         it.fired = true;
       } catch (e) {
         it.attempts = (it.attempts || 0) + 1;
