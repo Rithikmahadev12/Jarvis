@@ -806,7 +806,7 @@ async function desktopReadFile(filePath) {
 // COST/LATENCY NOTE: the very first call in a given sandbox session
 // pays for installing Ollama (~seconds) and pulling the model
 // (~minutes, one-time) — ensureOllama() below is idempotent per
-// sandbox instance (tracked by ollamaReady) so every call after that
+// sandbox instance (tracked per model in readyModels) so every call after that
 // is just a local HTTP round trip inside the sandbox. Callers that
 // want this tried FIRST, ahead of paid/quota'd cloud vision APIs,
 // should account for that first-call cost; callers that want it as a
@@ -823,15 +823,18 @@ const SANDBOX_OLLAMA_VISION_MODEL =
   process.env.TEXTNOW_SELFHOST_VISION_MODEL || // back-compat with the old textnow-only env var
   "moondream";
 
-let ollamaReady = false;
+// Per-model readiness. A single boolean meant that prewarming the vision
+// model (moondream) marked Ollama "ready" for EVERY model, so the text
+// model (llama3.2:3b) was never pulled and chat returned no content.
+const readyModels = new Set();
 
 // Installs Ollama in the desktop sandbox if it's not there yet, starts
 // `ollama serve` if it's not already running, and pulls the requested
 // model if it's not already pulled. Safe to call before every request
 // — after the first successful run this is a single no-op check.
 async function ensureOllama(model = SANDBOX_OLLAMA_VISION_MODEL) {
-  if (!isDesktopRunning()) ollamaReady = false; // sandbox was reaped/killed since last time — re-verify everything
-  if (ollamaReady) return;
+  if (!isDesktopRunning()) readyModels.clear(); // sandbox was reaped/killed since last time — re-verify everything
+  if (readyModels.has(model)) return;
 
   console.log(`[COMPUTER] Setting up self-hosted Ollama ("${model}") on the sandbox computer...`);
 
@@ -940,11 +943,11 @@ async function ensureOllama(model = SANDBOX_OLLAMA_VISION_MODEL) {
     }
   }
 
-  ollamaReady = true;
+  readyModels.add(model);
 }
 
-function isOllamaReady() {
-  return ollamaReady;
+function isOllamaReady(model) {
+  return model ? readyModels.has(model) : readyModels.size > 0;
 }
 
 // Text-only sibling of SANDBOX_OLLAMA_VISION_MODEL — a small, fast
@@ -1040,6 +1043,11 @@ async function ollamaChat(messages, opts = {}) {
   } catch {
     throw new Error("Self-hosted Ollama returned unparseable output.");
   }
+  if (parsed?.error) {
+    // e.g. "model 'llama3.2:3b' not found" — force a re-check/pull next call
+    readyModels.delete(model);
+    throw new Error(`Self-hosted Ollama error: ${String(parsed.error).slice(0, 200)}`);
+  }
   const msg = parsed?.message || {};
   const hasToolCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length;
   if (!msg.content && !hasToolCalls) throw new Error("Self-hosted Ollama returned no content.");
@@ -1117,6 +1125,7 @@ let sandboxPrewarmed = false;
 
 async function prewarmSandbox() {
   if (!isDesktopConfigured()) return; // E2B not set up — nothing to prewarm
+  if (process.env.SANDBOX_PREWARM === "0") return; // opt out (avoids E2B rate limits on frequent redeploys)
   if (sandboxPrewarmed || sandboxBooting) return; // already done or in progress
 
   sandboxBooting = true;
@@ -1127,7 +1136,7 @@ async function prewarmSandbox() {
     // Step 1: boot the desktop sandbox itself
     await getDesktop();
     // Step 2: install Ollama + pull model + warmup ping (all idempotent)
-    await ensureOllama();
+    await ensureOllama(SANDBOX_OLLAMA_TEXT_MODEL);
     sandboxPrewarmed = true;
     console.log("[COMPUTER] Sandbox pre-warm complete ✓ — tier-1 Ollama is hot and ready.");
   } catch (e) {
