@@ -250,8 +250,9 @@ const pollLocks   = new Map(); // userKey -> true (request in-flight)
 async function pollLoop(account) {
   const { userKey, whatsappApiKey } = account;
   // null = "new only" on first call (omits offset per the manual)
-  let offset     = null;
-  let errorCount = 0;
+  let offset        = null;
+  let errorCount    = 0;
+  let dupCount      = 0;  // separate counter for 409s — exponential backoff independent of other errors
 
   while (activeLoops.get(userKey)) {
 
@@ -269,8 +270,9 @@ async function pollLoop(account) {
     try {
       const result = await Sender.pollMessages(whatsappApiKey, offset ?? 0, 50, 25);
 
-      // ✅ Success — reset error state
+      // ✅ Success — reset all error/backoff state
       errorCount = 0;
+      dupCount   = 0;
 
       if (result && result.nextOffset !== undefined && result.nextOffset !== null) {
         offset = result.nextOffset;
@@ -326,11 +328,13 @@ async function pollLoop(account) {
       const is429 = msg.includes("429") || msg.includes("130429")  || msg.toLowerCase().includes("exceeded");
 
       if (is409) {
-        // Another instance (old Render deploy) is polling this key.
-        // Wait 30s — Render guarantees the old process is gone by then.
-        waitAfter  = 30_000;
-        errorCount = 0; // don't double-penalise
-        console.warn(`[WA-POLLER] 409 on ${userKey} — waiting 30s for old session to die`);
+        // Another session is active on this key (old Render deploy lingering).
+        // WhatsApp holds sessions open well past 30s — use exponential backoff:
+        // 30s → 60s → 120s → 240s → 300s cap.
+        // Once we successfully poll, dupCount resets to 0.
+        dupCount++;
+        waitAfter = Math.min(30_000 * Math.pow(2, dupCount - 1), 300_000);
+        console.warn(`[WA-POLLER] 409 on ${userKey} (attempt ${dupCount}) — waiting ${waitAfter / 1000}s for old session to die`);
       } else if (is429) {
         // Rate limited — back off a full 60s to let the window reset.
         waitAfter  = 60_000;
