@@ -291,6 +291,7 @@ async function pollLoop(account) {
 
     try {
       const result = await Sender.pollMessages(whatsappApiKey, offset ?? 0, 50, 25);
+      if (result?.messages?.length) console.log(`[WA-POLLER] ${userKey}: ${result.messages.length} update(s)`);
 
       errorCount = 0;
       dupCount   = 0;
@@ -308,17 +309,26 @@ async function pollLoop(account) {
 
         if (!text && !photoBase64) continue;
 
-        const freshAccount = Manager.getAccount(userKey);
-        if (!freshAccount) break;
+        console.log(`[WA-POLLER] Message for ${userKey}: "${String(text).slice(0, 40)}"`);
 
+        // Setup flow must run BEFORE the account lookup: the bootstrap
+        // listener has no registered account yet, so the old early-break
+        // silently dropped every message.
         const setup = await SetupFlow.handleSetupFlow(whatsappApiKey, text);
         if (setup.handled) {
           if (setup.reply) {
             await Sender.sendText(whatsappApiKey, setup.reply).catch(() => {});
-            if (setup.account) activeLoops.set(setup.account.userKey, true);
+          }
+          if (setup.account && userKey === "__bootstrap_owner__") {
+            // Owner is registered now; a real loop was started for them.
+            // Stop the bootstrap loop so two pollers don't fight (409).
+            stopPollingForAccount(userKey);
           }
           continue;
         }
+
+        const freshAccount = Manager.getAccount(userKey);
+        if (!freshAccount) continue;
 
         const welcome = SetupFlow.getWelcomeIfNew(freshAccount);
         if (welcome) {
