@@ -1,23 +1,25 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — WhatsApp Poller  (v4 — boot delay + 409 proof)
+// J.A.R.V.I.S — WhatsApp Poller  (v5 — session probe + passive wait)
 //
-// Root cause of the persistent 409 on first poll:
-//   Render deploys by spawning the NEW process BEFORE killing the OLD one.
-//   The gap between new process start and old process death is typically
-//   15-45 seconds. The previous version had a 30s 409 backoff but it only
-//   kicked in AFTER the first failed poll — meaning we still hammered the
-//   endpoint immediately on boot while the old session was live.
+// Why 409 persisted across v3/v4:
+//   The old session WhatsApp holds isn't just "30 seconds" — on Render
+//   it can persist for 3-5 MINUTES after the old process dies, because
+//   WhatsApp's server keeps the long-poll connection open server-side
+//   until its own 25s timeout fires, then needs another cycle to fully
+//   release the session. Meanwhile our new process hammers it every
+//   30s, resetting the "attempt 1" counter on each restart.
 //
-// Fix:
-//   BOOT_DELAY_MS (35s) — poller waits before firing its very first
-//   GET /updates request. By then the old Render process is dead and
-//   its session released. No 409 storm, clean first poll.
+// Fix — session probe + passive wait:
+//   On boot, instead of jumping straight into the poll loop, we fire
+//   ONE short probe (timeout=1s). If it comes back clean → start the
+//   normal loop immediately. If it's 409 → enter PASSIVE WAIT:
+//   sleep 5 minutes, probe again. Keep probing every 5 minutes until
+//   the session clears. No hammering, no log spam, one line per probe.
 //
-//   409 backoff is kept as a safety net: 30s → 60s → 120s → 240s → 300s
-//   cap in case WhatsApp's server holds the session longer than expected.
-//
-//   dupCount resets on first successful poll.
+//   Normal poll loop is completely unchanged — this is only the
+//   startup gate. If a 409 appears mid-run (network blip, re-deploy
+//   during active session) it still uses the exponential backoff.
 // ═══════════════════════════════════════════════════════════════
 
 const Manager    = require("./whatsapp-manager");
@@ -48,18 +50,10 @@ function getEarnBrain() {
 }
 
 // ── config ────────────────────────────────────────────────────────
-// How long to wait after boot before firing the FIRST poll request.
-// Render's old process is guaranteed dead within 30s of a new deploy —
-// we give 35s to be safe. Applies per-account, once per process lifetime.
-const BOOT_DELAY_MS  = 35_000;
-
-// When was this process born?
-const PROCESS_START  = Date.now();
-
-// Has this process already waited out its boot delay?
-// We track it globally — if multiple accounts boot at the same time,
-// they all share the same 35s window, not 35s each.
-let _bootDelayDone   = false;
+const BOOT_DELAY_MS    = 35_000;   // wait after process start before first probe
+const PASSIVE_WAIT_MS  = 5 * 60_000; // 5 min between probes when session is stuck
+const PROCESS_START    = Date.now();
+let   _bootDelayDone   = false;    // shared across all accounts — wait once
 
 // ── sleep ─────────────────────────────────────────────────────────
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -225,34 +219,68 @@ async function processMessage(apiKey, account, text, photoBase64 = null, incomin
   return reply;
 }
 
-// ── poll loop ─────────────────────────────────────────────────────
-const activeLoops = new Map(); // userKey → true
-const pollLocks   = new Map(); // userKey → true (request in-flight)
+// ── session probe — fires ONE short poll to check if session is free ──
+// Returns true if session is clean (200 or 204), false if 409 still active.
+async function probeSession(apiKey, userKey) {
+  try {
+    // Short timeout probe — we don't want to hold open a 25s long poll
+    // just to check if we're 409. Use timeout=1 so the server responds
+    // almost immediately with either 200/204 (clean) or 409 (blocked).
+    await Sender.pollMessages(apiKey, 0, 1, 1);
+    return true; // 200 or 204 — session is ours
+  } catch (err) {
+    const msg   = String(err?.message || "");
+    const is409 = msg.includes("409") || msg.includes("1752041") || msg.toLowerCase().includes("duplicate");
+    if (is409) return false; // session still held by old process
+    // Any other error (network, 429) — treat as "not 409", proceed normally
+    // The main loop has its own backoff for those cases
+    return true;
+  }
+}
+
+// ── poll loop — the actual message receive loop ───────────────────
+const activeLoops = new Map();
+const pollLocks   = new Map();
 
 async function pollLoop(account) {
   const { userKey, whatsappApiKey } = account;
-  let offset     = null; // null = omit offset on first call → "new only"
+  let offset     = null;
   let errorCount = 0;
-  let dupCount   = 0;    // separate 409 backoff counter
+  let dupCount   = 0;
 
-  // ── BOOT DELAY ──────────────────────────────────────────────────
-  // Wait until BOOT_DELAY_MS has elapsed since process start, but only
-  // once globally — if multiple accounts start simultaneously they share
-  // the same countdown window.
+  // ── BOOT DELAY (global, shared) ──────────────────────────────
   if (!_bootDelayDone) {
-    const elapsed = Date.now() - PROCESS_START;
-    const remaining = BOOT_DELAY_MS - elapsed;
+    const remaining = BOOT_DELAY_MS - (Date.now() - PROCESS_START);
     if (remaining > 0) {
-      console.log(`[WA-POLLER] Boot delay: waiting ${Math.ceil(remaining / 1000)}s before first poll (letting old Render session die)...`);
+      console.log(`[WA-POLLER] Boot delay: waiting ${Math.ceil(remaining / 1000)}s before probing...`);
       await sleep(remaining);
     }
     _bootDelayDone = true;
-    console.log("[WA-POLLER] Boot delay done — starting polls.");
   }
 
+  // ── SESSION PROBE GATE ────────────────────────────────────────
+  // Before entering the main loop, confirm the session is ours.
+  // If 409, wait PASSIVE_WAIT_MS (5 min) and probe again.
+  // This runs ONCE at startup — after that the main loop handles 409s.
+  let probeAttempt = 0;
+  while (activeLoops.get(userKey)) {
+    probeAttempt++;
+    const clean = await probeSession(whatsappApiKey, userKey);
+    if (clean) {
+      if (probeAttempt > 1) {
+        console.log(`[WA-POLLER] ✅ Session cleared for ${userKey} after ${probeAttempt} probe(s) — starting poll loop.`);
+      } else {
+        console.log(`[WA-POLLER] ✅ Session clean for ${userKey} — starting poll loop.`);
+      }
+      break; // session is ours — enter main loop
+    }
+    console.warn(`[WA-POLLER] 🔒 Session still held by old process for ${userKey} (probe ${probeAttempt}) — waiting ${PASSIVE_WAIT_MS / 60000} min before retry.`);
+    await sleep(PASSIVE_WAIT_MS);
+  }
+
+  // ── MAIN POLL LOOP ────────────────────────────────────────────
   while (activeLoops.get(userKey)) {
 
-    // ── LOCK GUARD ───────────────────────────────────────────────
     if (pollLocks.get(userKey)) {
       await sleep(500);
       continue;
@@ -264,7 +292,6 @@ async function pollLoop(account) {
     try {
       const result = await Sender.pollMessages(whatsappApiKey, offset ?? 0, 50, 25);
 
-      // ✅ Success
       errorCount = 0;
       dupCount   = 0;
 
@@ -308,7 +335,7 @@ async function pollLoop(account) {
         }
       }
 
-      waitAfter = 0; // 204 or empty → re-poll immediately
+      waitAfter = 0;
 
     } catch (err) {
       errorCount++;
@@ -317,16 +344,17 @@ async function pollLoop(account) {
       const is429 = msg.includes("429") || msg.includes("130429")  || msg.toLowerCase().includes("exceeded");
 
       if (is409) {
+        // Mid-run 409 — another deploy happened, go passive again
         dupCount++;
-        waitAfter = Math.min(30_000 * Math.pow(2, dupCount - 1), 300_000);
-        console.warn(`[WA-POLLER] 409 on ${userKey} (attempt ${dupCount}) — old session still alive, waiting ${waitAfter / 1000}s`);
+        waitAfter = Math.min(PASSIVE_WAIT_MS * dupCount, 15 * 60_000); // 5m → 10m → 15m cap
+        console.warn(`[WA-POLLER] 🔒 Mid-run 409 for ${userKey} (${dupCount}) — another deploy? Waiting ${waitAfter / 60000} min.`);
       } else if (is429) {
         waitAfter  = 60_000;
         errorCount = 0;
-        console.warn(`[WA-POLLER] 429 on ${userKey} — rate limited, waiting 60s`);
+        console.warn(`[WA-POLLER] 429 for ${userKey} — rate limited, waiting 60s.`);
       } else {
         waitAfter = Math.min(5_000 * Math.pow(2, errorCount - 1), 60_000);
-        console.warn(`[WA-POLLER] Error #${errorCount} for ${userKey}: ${msg} — waiting ${waitAfter / 1000}s`);
+        console.warn(`[WA-POLLER] Error #${errorCount} for ${userKey}: ${msg} — waiting ${waitAfter / 1000}s.`);
       }
     } finally {
       pollLocks.delete(userKey);
@@ -347,11 +375,10 @@ function startPollingForAccount(account) {
     return;
   }
   activeLoops.set(userKey, true);
-  console.log(`[WA-POLLER] ▶ Queued polling for ${account.name} (${userKey}) — boot delay active`);
+  console.log(`[WA-POLLER] ▶ Queued ${account.name} (${userKey}) — will probe after boot delay.`);
   pollLoop(account).catch(e => {
     activeLoops.delete(userKey);
     console.error(`[WA-POLLER] Loop crashed for ${userKey}:`, e.message);
-    // 30s before restart — gives Render time to drain old connections
     setTimeout(() => {
       const refreshed = Manager.getAccount(userKey);
       if (refreshed) startPollingForAccount(refreshed);
