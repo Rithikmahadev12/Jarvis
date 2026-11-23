@@ -156,6 +156,7 @@ async function sendAudio(apiKey, audioBase64, mimeType = "audio/ogg; codecs=opus
  * @param {number}      [timeout] - server hold-time, max 25s per manual
  * @returns {Promise<{ messages: object[], nextOffset: number }>}
  */
+let _shapeLogs = 0;
 async function pollMessages(apiKey, offset = 0, limit = 50, timeout = 25) {
   // Offset 0 on first call means "omit offset" to get only NEW messages per the manual.
   const params = { limit, timeout };
@@ -172,8 +173,29 @@ async function pollMessages(apiKey, offset = 0, limit = 50, timeout = 25) {
   }
 
   const data       = res.body;
-  const messages   = data.messages || data.updates || [];
-  const nextOffset = data.next_offset ?? data.nextOffset ?? offset;
+  const nextOffset = data?.next_offset ?? data?.nextOffset ?? offset;
+
+  // `a || b` treats an EMPTY array as a value, so a response like
+  // { messages: [], updates: [ ...real data... ] } used to yield zero
+  // messages. Take the first key that actually has items.
+  const pick = (k) => (Array.isArray(data?.[k]) && data[k].length ? data[k] : null);
+  let messages = pick("messages") || pick("updates") || pick("events") || pick("data") || pick("results") || [];
+
+  // Some payloads wrap the message: { update_id, message: { text: { body } } }
+  messages = messages.map(m =>
+    (m && m.message && typeof m.message === "object") ? { ...m, ...m.message } : m
+  );
+
+  // Diagnostics: if the server advanced the offset but we parsed nothing,
+  // or the first few payloads we ever see, log the raw shape (truncated).
+  if ((nextOffset !== offset && !messages.length) || _shapeLogs < 3) {
+    if (_shapeLogs < 8) {
+      _shapeLogs++;
+      let preview = "";
+      try { preview = JSON.stringify(data).slice(0, 700); } catch { preview = String(data).slice(0, 700); }
+      console.log(`[WA-SEND] /updates payload (status ${res.status}, offset ${offset} -> ${nextOffset}, parsed ${messages.length}): ${preview}`);
+    }
+  }
 
   return { messages, nextOffset };
 }
