@@ -164,7 +164,7 @@ async function handleOwnerCommand(text, account, photoBase64 = null) {
 }
 
 // ── process one incoming message ─────────────────────────────────
-async function processMessage(apiKey, account, text, photoBase64 = null, incomingMsgId = null) {
+async function processMessage(apiKey, account, text, photoBase64 = null, incomingMsgId = null, replyTo = null) {
   const { userKey, name, role } = account;
   Manager.touchActive(userKey);
 
@@ -205,7 +205,7 @@ async function processMessage(apiKey, account, text, photoBase64 = null, incomin
       memories:            [],
       context:             role === "owner" ? "(Owner account — full access)" : "",
       conversationHistory: sess.history.slice(0, -1),
-      executeTool:         (n, args) => Tools.executeTool(n, args, { account }),
+      executeTool:         (n, args) => Tools.executeTool(n, args, { account, replyTo }),
       tz: Tools.TIMEZONE,
     });
     reply = result?.reply || "…";
@@ -314,6 +314,7 @@ async function pollLoop(account) {
         const text        = msg.text?.body || msg.message || msg.content || msg.text || "";
         const photoBase64 = msg.image?.data || msg.media?.data || msg.photo?.data || null;
         const msgId       = msg.id || msg.message_id || null;
+        const replyTo     = typeof msg.from === "string" ? msg.from : null; // e.g. "user:2678..." — answer the sender
 
         if (!text && !photoBase64) continue;
 
@@ -325,7 +326,7 @@ async function pollLoop(account) {
         const setup = await SetupFlow.handleSetupFlow(whatsappApiKey, text);
         if (setup.handled) {
           if (setup.reply) {
-            await Sender.sendText(whatsappApiKey, setup.reply).catch(e => console.error(`[WA-POLLER] SEND FAILED (setup reply) for ${userKey}: ${e.message}`));
+            await Sender.sendText(whatsappApiKey, setup.reply, replyTo).catch(e => console.error(`[WA-POLLER] SEND FAILED (setup reply) for ${userKey}: ${e.message}`));
           }
           if (setup.account && userKey === "__bootstrap_owner__") {
             // Owner is registered now; a real loop was started for them.
@@ -340,16 +341,16 @@ async function pollLoop(account) {
 
         const welcome = SetupFlow.getWelcomeIfNew(freshAccount);
         if (welcome) {
-          await Sender.sendText(whatsappApiKey, welcome).catch(e => console.error(`[WA-POLLER] SEND FAILED (welcome) for ${userKey}: ${e.message}`));
+          await Sender.sendText(whatsappApiKey, welcome, replyTo).catch(e => console.error(`[WA-POLLER] SEND FAILED (welcome) for ${userKey}: ${e.message}`));
           Manager.touchActive(userKey);
         }
 
         try {
-          const reply = await processMessage(whatsappApiKey, freshAccount, text || null, photoBase64, msgId);
-          if (reply) await Sender.sendText(whatsappApiKey, reply);
+          const reply = await processMessage(whatsappApiKey, freshAccount, text || null, photoBase64, msgId, replyTo);
+          if (reply) await Sender.sendText(whatsappApiKey, reply, replyTo);
         } catch (e) {
           console.error(`[WA-POLLER] Message error for ${userKey}:`, e.message);
-          await Sender.sendText(whatsappApiKey, "I hit an error — give me a moment and try again.").catch(() => {});
+          await Sender.sendText(whatsappApiKey, "I hit an error — give me a moment and try again.", replyTo).catch(() => {});
         }
       }
 
