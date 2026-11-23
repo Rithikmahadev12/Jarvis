@@ -81,7 +81,7 @@ function mount(app) {
       // Provision wallet if needed
       let walletResult = null;
       try {
-        const WalletSetup = require("../wallet-setup");
+        const WalletSetup = require("./wallet-setup");
         walletResult = await WalletSetup.ensureUserWallet(Manager.toKey(name));
         if (walletResult?.address) {
           Manager.setWalletAddress(Manager.toKey(name), walletResult.address);
