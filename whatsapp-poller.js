@@ -224,8 +224,8 @@ async function probeSession(apiKey, userKey) {
     // Short timeout probe — we don't want to hold open a 25s long poll
     // just to check if we're 409. Use timeout=1 so the server responds
     // almost immediately with either 200/204 (clean) or 409 (blocked).
-    await Sender.pollMessages(apiKey, 0, 1, 1);
-    return true; // 200 or 204 — session is ours
+    const r = await Sender.pollMessages(apiKey, 0, 50, 1);
+    return r || true; // 200 or 204 — session is ours (keep any messages it returned)
   } catch (err) {
     const msg   = String(err?.message || "");
     const is409 = msg.includes("409") || msg.includes("1752041") || msg.toLowerCase().includes("duplicate");
@@ -243,6 +243,8 @@ const pollLocks   = new Map();
 async function pollLoop(account) {
   const { userKey, whatsappApiKey } = account;
   let offset     = null;
+  let pollCount  = 0;
+  let lastBeat   = 0;
   let errorCount = 0;
   let dupCount   = 0;
 
@@ -261,10 +263,12 @@ async function pollLoop(account) {
   // If 409, wait PASSIVE_WAIT_MS (5 min) and probe again.
   // This runs ONCE at startup — after that the main loop handles 409s.
   let probeAttempt = 0;
+  let firstResult  = null; // messages the probe already received — handled by the main loop, not dropped
   while (activeLoops.get(userKey)) {
     probeAttempt++;
     const clean = await probeSession(whatsappApiKey, userKey);
     if (clean) {
+      if (clean !== true) firstResult = clean;
       if (probeAttempt > 1) {
         console.log(`[WA-POLLER] ✅ Session cleared for ${userKey} after ${probeAttempt} probe(s) — starting poll loop.`);
       } else {
@@ -288,7 +292,13 @@ async function pollLoop(account) {
     let waitAfter = 0;
 
     try {
-      const result = await Sender.pollMessages(whatsappApiKey, offset ?? 0, 50, 25);
+      const result = firstResult || await Sender.pollMessages(whatsappApiKey, offset ?? 0, 50, 25);
+      firstResult = null;
+      pollCount++;
+      if (!result?.messages?.length && Date.now() - lastBeat > 60_000) {
+        lastBeat = Date.now();
+        console.log(`[WA-POLLER] ${userKey}: listening (${pollCount} polls, offset ${offset ?? "none"}) — no new messages`);
+      }
       if (result?.messages?.length) console.log(`[WA-POLLER] ${userKey}: ${result.messages.length} update(s)`);
 
       errorCount = 0;
@@ -315,7 +325,7 @@ async function pollLoop(account) {
         const setup = await SetupFlow.handleSetupFlow(whatsappApiKey, text);
         if (setup.handled) {
           if (setup.reply) {
-            await Sender.sendText(whatsappApiKey, setup.reply).catch(() => {});
+            await Sender.sendText(whatsappApiKey, setup.reply).catch(e => console.error(`[WA-POLLER] SEND FAILED (setup reply) for ${userKey}: ${e.message}`));
           }
           if (setup.account && userKey === "__bootstrap_owner__") {
             // Owner is registered now; a real loop was started for them.
@@ -330,7 +340,7 @@ async function pollLoop(account) {
 
         const welcome = SetupFlow.getWelcomeIfNew(freshAccount);
         if (welcome) {
-          await Sender.sendText(whatsappApiKey, welcome).catch(() => {});
+          await Sender.sendText(whatsappApiKey, welcome).catch(e => console.error(`[WA-POLLER] SEND FAILED (welcome) for ${userKey}: ${e.message}`));
           Manager.touchActive(userKey);
         }
 
