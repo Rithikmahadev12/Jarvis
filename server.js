@@ -327,6 +327,8 @@ require("./bland-brain-routes").mount(app);
 //    Set WHATSAPP_OWNER_API_KEY in .env to enable.
 // ═══════════════════════════════════════════════════════════════
 WhatsAppRoutes.mount(app);
+// Let WhatsApp use the exact same tool executor as the web app (timers, weather, email, earn, ...).
+require("./whatsapp-tools").setExecutor(executeAssistantTool);
 
 // ═══════════════════════════════════════════════════════════════
 // ── COMMS
@@ -5614,7 +5616,7 @@ app.post("/api/chat", async (req, res) => {
   // No keyword list to maintain — new phrasings work automatically.
   // The legacy pipeline below only runs if this throws (e.g. Groq
   // unreachable), so nothing regresses if the API call fails.
-  if (Groq.isConfigured()) {
+  if (Groq.isBrainConfigured()) {
     try {
       const toolResult = await Groq.chatWithTools({
         message:             enrichedMessage,
