@@ -2,24 +2,55 @@ name: Render Keep-Alive
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
-  workflow_dispatch: {}
+    # Three overlapping cron schedules — GitHub's scheduler is unreliable
+    # and can skip or delay a run by 10-30 min when runners are busy.
+    # Running three offset schedules means even if GitHub drops one or two,
+    # the third fires within the window and Render never cold-starts.
+    # Combined they fire at: :00, :10, :20, :30, :40, :50 — every 10 min.
+    - cron: "0,30 * * * *"    # fires at :00 and :30
+    - cron: "10,40 * * * *"   # fires at :10 and :40
+    - cron: "20,50 * * * *"   # fires at :20 and :50
+  workflow_dispatch: {}       # manual trigger from GitHub UI
 
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 3
 
     steps:
-      - name: Ping Jarvis
+      - name: Ping Jarvis (primary)
+        id: ping_primary
+        continue-on-error: true
         run: |
           echo "Pinging Jarvis…"
+          for attempt in 1 2 3; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+              --max-time 30 \
+              "${{ secrets.JARVIS_MAIN_URL }}/health" 2>/dev/null || echo "000")
+            echo "  attempt $attempt → status: $STATUS"
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ] || [ "$STATUS" = "404" ]; then
+              echo "  ✓ Jarvis is awake (status $STATUS)"
+              echo "awake=true" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            echo "  ⚠ Got $STATUS — waiting 10s before retry…"
+            sleep 10
+          done
+          echo "  ✗ All attempts failed"
+          echo "awake=false" >> $GITHUB_OUTPUT
+          exit 0   # don't fail the workflow — a cold start is not a CI failure
+
+      - name: Warm-up wait (if Render was cold)
+        if: steps.ping_primary.outputs.awake == 'false'
+        run: |
+          echo "Render appears cold — waiting 30s for it to boot then re-pinging…"
+          sleep 30
           STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-            --max-time 25 --retry 2 --retry-delay 3 \
-            "${{ secrets.JARVIS_MAIN_URL }}/api/profiles" || echo "timeout")
-          echo "  → status: $STATUS"
+            --max-time 45 \
+            "${{ secrets.JARVIS_MAIN_URL }}/health" 2>/dev/null || echo "000")
+          echo "  warm-up ping → status: $STATUS"
           if [ "$STATUS" = "200" ] || [ "$STATUS" = "401" ]; then
-            echo "  ✓ Jarvis is awake"
+            echo "  ✓ Jarvis woke up after cold start"
           else
-            echo "  ⚠ Returned $STATUS — may still be waking up"
+            echo "  ⚠ Still not responding ($STATUS) — Render may be redeploying"
           fi
