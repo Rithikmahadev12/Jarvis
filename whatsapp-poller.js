@@ -1,6 +1,6 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — WhatsApp Poller
+// J.A.R.V.I.S — WhatsApp Poller  (updated for real API)
 //
 // Runs one polling loop per registered WhatsApp account.
 // Every account has their own API key — we poll each one separately,
@@ -14,7 +14,7 @@
 //   "Jarvis list users"
 //   "Jarvis add face for [name]"  (send photo in next message)
 //
-// Every user gets full Jarvis — the same tools the site has.
+// Every user gets full Jarvis — same tools the site has.
 // Memory, reminders, earn, calls, research — all scoped per user.
 // ═══════════════════════════════════════════════════════════════
 
@@ -26,30 +26,29 @@ const EarnReport = require("./whatsapp-earn-reporter");
 // ── lazy-load heavy modules (avoid circular requires at boot) ─────
 let _Groq = null;
 function getGroq() {
-  if (!_Groq) _Groq = require("../hermes-engine");
+  if (!_Groq) _Groq = require("./hermes-engine");
   return _Groq;
 }
 
 let _WalletSetup = null;
 function getWalletSetup() {
-  if (!_WalletSetup) _WalletSetup = require("../wallet-setup");
+  if (!_WalletSetup) _WalletSetup = require("./wallet-setup");
   return _WalletSetup;
 }
 
 let _SolanaWallet = null;
 function getSolanaWallet() {
-  if (!_SolanaWallet) _SolanaWallet = require("../solana-wallet");
+  if (!_SolanaWallet) _SolanaWallet = require("./solana-wallet");
   return _SolanaWallet;
 }
 
 let _EarnBrain = null;
 function getEarnBrain() {
-  if (!_EarnBrain) _EarnBrain = require("../earn-brain");
+  if (!_EarnBrain) _EarnBrain = require("./earn-brain");
   return _EarnBrain;
 }
 
 // ── per-user conversation sessions ───────────────────────────────
-// sessionHistory: rolling array of {role, content} for chatWithTools
 const sessions = new Map(); // userKey -> { history: [], pendingFaceFor: null }
 
 function getSession(userKey) {
@@ -62,7 +61,6 @@ function getSession(userKey) {
 function pushHistory(userKey, role, content) {
   const sess = getSession(userKey);
   sess.history.push({ role, content });
-  // Keep rolling window of 20 turns
   if (sess.history.length > 20) sess.history.splice(0, sess.history.length - 20);
 }
 
@@ -88,8 +86,8 @@ async function handleOwnerCommand(text, account, photoBase64 = null) {
   // ── add user ──────────────────────────────────────────────────
   const addMatch = text && text.match(ADD_USER_RE);
   if (addMatch) {
-    const name   = addMatch[1].trim();
-    const apiKey = addMatch[2].trim();
+    const name    = addMatch[1].trim();
+    const apiKey  = addMatch[2].trim();
     const faceImg = photoBase64 || null;
 
     const { created } = Manager.registerAccount({
@@ -169,24 +167,19 @@ async function handleOwnerCommand(text, account, photoBase64 = null) {
 
 // ── build Jarvis tool executor for WhatsApp context ───────────────
 function buildExecuteTool(account) {
-  // We re-use the full executeAssistantTool from server.js if we can require it
-  // but it's tightly coupled — instead we let chatWithTools handle its own
-  // internal tool execution (it has its own executeTool pipeline). We pass a
-  // passthrough that logs and returns null for unknown tools.
   return async (name, args) => {
     console.log(`[WA-TOOL] ${account.userKey} → ${name}`, args);
-    // For tools that need a userName context, inject it
     if (args && typeof args === "object") args._userKey = account.userKey;
-    return null; // chatWithTools handles most tools internally
+    return null;
   };
 }
 
 // ── process one incoming message ─────────────────────────────────
-async function processMessage(apiKey, account, text, photoBase64 = null) {
+async function processMessage(apiKey, account, text, photoBase64 = null, incomingMsgId = null) {
   const { userKey, name, role } = account;
   Manager.touchActive(userKey);
 
-  // ── earn reply intercept (yes/no to weekly proposal) ─────────
+  // ── earn reply intercept ──────────────────────────────────────
   if (text) {
     const earnReply = await EarnReport.processEarnReply(account, text);
     if (earnReply) return earnReply;
@@ -203,13 +196,13 @@ async function processMessage(apiKey, account, text, photoBase64 = null) {
     if (cmd) return cmd;
   }
 
-  // ── full AI brain (chatWithTools) ─────────────────────────────
+  // ── full AI brain ─────────────────────────────────────────────
   const Groq = getGroq();
   if (!Groq.isConfigured()) {
     return "Groq isn't configured — check GROQ_API_KEY in .env.";
   }
 
-  const sess = getSession(userKey);
+  const sess        = getSession(userKey);
   const userContent = photoBase64
     ? [
         { type: "image", source: { type: "base64", media_type: "image/jpeg", data: photoBase64 } },
@@ -219,6 +212,11 @@ async function processMessage(apiKey, account, text, photoBase64 = null) {
 
   pushHistory(userKey, "user", userContent);
 
+  // Show typing indicator while thinking
+  if (incomingMsgId) {
+    await Sender.sendTypingIndicator(apiKey, incomingMsgId).catch(() => {});
+  }
+
   let reply;
   try {
     const result = await Groq.chatWithTools({
@@ -226,7 +224,7 @@ async function processMessage(apiKey, account, text, photoBase64 = null) {
       userTitle:           name,
       memories:            [],
       context:             role === "owner" ? "(Owner account — full access)" : "",
-      conversationHistory: sess.history.slice(0, -1), // exclude the message we just pushed
+      conversationHistory: sess.history.slice(0, -1),
       executeTool:         buildExecuteTool(account),
       tz:                  "America/New_York",
     });
@@ -240,28 +238,31 @@ async function processMessage(apiKey, account, text, photoBase64 = null) {
 }
 
 // ── poll loop for one account ─────────────────────────────────────
-const POLL_INTERVAL_MS = 3000;
+// Uses real GET /updates long-poll (25s server hold) instead of
+// repeated GET /messages every 3s — matches the actual API spec.
 const activeLoops = new Map(); // userKey -> true
 
 async function pollLoop(account) {
   const { userKey, whatsappApiKey } = account;
-  // Track offset per-loop via closure
+  // Start from 0 — first call omits offset to get only new messages
   let offset = 0;
 
   while (activeLoops.get(userKey)) {
     try {
-      const messages = await Sender.pollMessages(whatsappApiKey, offset);
+      const { messages, nextOffset } = await Sender.pollMessages(
+        whatsappApiKey, offset, 50, 25
+      );
+
+      // Always advance offset even on empty polls (nextOffset === offset on 204)
+      if (nextOffset !== undefined) offset = nextOffset;
 
       for (const msg of messages) {
-        // Advance offset
-        const msgId = msg.id || msg.message_id || 0;
-        if (typeof msgId === "number") offset = Math.max(offset, msgId + 1);
-
-        // Skip own replies
+        // Skip own replies / status updates
         if (msg.fromAgent || msg.from_me || msg.isBot) continue;
 
         const text        = msg.text?.body || msg.message || msg.content || msg.text || "";
         const photoBase64 = msg.image?.data || msg.media?.data || msg.photo?.data || null;
+        const msgId       = msg.id || msg.message_id || null;
 
         if (!text && !photoBase64) continue;
 
@@ -274,24 +275,20 @@ async function pollLoop(account) {
         if (setup.handled) {
           if (setup.reply) {
             await Sender.sendText(whatsappApiKey, setup.reply).catch(() => {});
-            // If setup completed, restart the loop with the now-registered account
-            if (setup.account) {
-              activeLoops.set(setup.account.userKey, true);
-            }
+            if (setup.account) activeLoops.set(setup.account.userKey, true);
           }
           continue;
         }
 
-        // ── welcome message on first contact ────────────────────
+        // ── welcome message on first contact ─────────────────────
         const welcome = SetupFlow.getWelcomeIfNew(freshAccount);
         if (welcome) {
           await Sender.sendText(whatsappApiKey, welcome).catch(() => {});
-          // touchActive so welcome only fires once
           Manager.touchActive(userKey);
         }
 
         try {
-          const reply = await processMessage(whatsappApiKey, freshAccount, text || null, photoBase64);
+          const reply = await processMessage(whatsappApiKey, freshAccount, text || null, photoBase64, msgId);
           if (reply) await Sender.sendText(whatsappApiKey, reply);
         } catch (e) {
           console.error(`[WA-POLLER] Error for ${userKey}:`, e.message);
@@ -300,9 +297,10 @@ async function pollLoop(account) {
       }
     } catch (e) {
       console.warn(`[WA-POLLER] Poll error for ${userKey}:`, e.message);
+      // Back off on error — don't hammer
+      await new Promise(r => setTimeout(r, 5000));
     }
-
-    await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+    // No sleep here — pollMessages already holds the connection 25s server-side
   }
 
   console.log(`[WA-POLLER] Loop ended for ${userKey}`);
@@ -325,7 +323,7 @@ function startPollingForAccount(account) {
     setTimeout(() => {
       const refreshed = Manager.getAccount(userKey);
       if (refreshed) startPollingForAccount(refreshed);
-    }, 15000);
+    }, 15_000);
   });
 }
 
