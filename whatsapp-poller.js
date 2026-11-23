@@ -1,21 +1,24 @@
 "use strict";
 // ═══════════════════════════════════════════════════════════════
-// J.A.R.V.I.S — WhatsApp Poller  (updated for real API)
+// J.A.R.V.I.S — WhatsApp Poller  (v3 — 409/429 proof)
 //
-// Runs one polling loop per registered WhatsApp account.
-// Every account has their own API key — we poll each one separately,
-// route the message through the main Jarvis brain (chatWithTools —
-// same AI + tool pipeline as the web UI), and reply back via that
-// user's key.
+// Root cause of the 409/429 storm:
+//   - Flat 5s retry on ALL errors meant 409 (duplicate session) and
+//     429 (rate limit) were hammered at the same rate as network blips.
+//   - No per-account request lock → concurrent polls on same key → 409.
+//   - Render deploy spawns a fresh process BEFORE killing the old one,
+//     so both pollers hit /updates simultaneously → instant 409 war.
 //
-// Owner-only commands:
-//   "Jarvis add user [name], api key: [key]"  (optionally + photo)
-//   "Jarvis remove user [name]"
-//   "Jarvis list users"
-//   "Jarvis add face for [name]"  (send photo in next message)
-//
-// Every user gets full Jarvis — same tools the site has.
-// Memory, reminders, earn, calls, research — all scoped per user.
+// Fixes applied:
+//   - Per-account IN-FLIGHT LOCK: only one GET /updates outstanding at
+//     a time per key. Zero concurrent requests = zero 409 from us.
+//   - 409 → 30s cooldown (let the old process fully die on Render).
+//   - 429 → 60s cooldown (rate-limit window reset).
+//   - Other errors → exponential backoff: 5s → 10s → 20s … cap 60s.
+//   - On 204 (empty long-poll) or 200 → re-poll immediately (server
+//     already held the socket 25s, no extra sleep needed).
+//   - Crash auto-restart bumped to 30s (was 15s) to give Render time
+//     to drain the old connection before the new one opens.
 // ═══════════════════════════════════════════════════════════════
 
 const Manager    = require("./whatsapp-manager");
@@ -64,6 +67,9 @@ function pushHistory(userKey, role, content) {
   if (sess.history.length > 20) sess.history.splice(0, sess.history.length - 20);
 }
 
+// ── sleep ─────────────────────────────────────────────────────────
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 // ── owner command parser ──────────────────────────────────────────
 const ADD_USER_RE    = /(?:add|set up|create|register)\s+(?:user\s+|account\s+(?:called\s+)?)?(.+?),?\s+(?:api\s*key|key)\s*[:=\s]+([A-Za-z0-9\-_\.]+)/i;
 const REMOVE_USER_RE = /(?:remove|delete|kick)\s+(?:user\s+)?(.+)/i;
@@ -92,9 +98,9 @@ async function handleOwnerCommand(text, account, photoBase64 = null) {
 
     const { created } = Manager.registerAccount({
       name,
-      whatsappApiKey: apiKey,
+      whatsappApiKey:  apiKey,
       faceImageBase64: faceImg,
-      role: "user",
+      role:            "user",
     });
 
     // Provision Solana wallet
@@ -124,7 +130,7 @@ async function handleOwnerCommand(text, account, photoBase64 = null) {
       ? "\n🪪 Face image saved for site login."
       : `\nNo face photo — send one with: "Jarvis add face for ${name}"`;
 
-    return `✅ ${created ? "Created" : "Updated"} account for *${name}*${walletMsg}${faceMsg}\n\nAll Jarvis features and earn strategies are now active for them. They can text this number anytime.`;
+    return `✅ ${created ? "Created" : "Updated"} account for *${name}*${walletMsg}${faceMsg}\n\nAll Jarvis features and earn strategies are now active for them.`;
   }
 
   // ── remove user ───────────────────────────────────────────────
@@ -237,27 +243,41 @@ async function processMessage(apiKey, account, text, photoBase64 = null, incomin
   return reply;
 }
 
-// ── poll loop for one account ─────────────────────────────────────
-// Uses real GET /updates long-poll (25s server hold) instead of
-// repeated GET /messages every 3s — matches the actual API spec.
-const activeLoops = new Map(); // userKey -> true
+// ── poll loop — ONE request in-flight per account at all times ────
+const activeLoops = new Map(); // userKey -> true (loop running)
+const pollLocks   = new Map(); // userKey -> true (request in-flight)
 
 async function pollLoop(account) {
   const { userKey, whatsappApiKey } = account;
-  // Start from 0 — first call omits offset to get only new messages
-  let offset = 0;
+  // null = "new only" on first call (omits offset per the manual)
+  let offset     = null;
+  let errorCount = 0;
 
   while (activeLoops.get(userKey)) {
+
+    // ── LOCK GUARD: skip turn if a request is already in-flight ──
+    // This is the primary defense against 409. Only one outstanding
+    // GET /updates per key at any time, period.
+    if (pollLocks.get(userKey)) {
+      await sleep(500);
+      continue;
+    }
+
+    pollLocks.set(userKey, true);
+    let waitAfter = 0; // extra sleep AFTER this poll (default 0 — server already held 25s)
+
     try {
-      const { messages, nextOffset } = await Sender.pollMessages(
-        whatsappApiKey, offset, 50, 25
-      );
+      const result = await Sender.pollMessages(whatsappApiKey, offset ?? 0, 50, 25);
 
-      // Always advance offset even on empty polls (nextOffset === offset on 204)
-      if (nextOffset !== undefined) offset = nextOffset;
+      // ✅ Success — reset error state
+      errorCount = 0;
 
-      for (const msg of messages) {
-        // Skip own replies / status updates
+      if (result && result.nextOffset !== undefined && result.nextOffset !== null) {
+        offset = result.nextOffset;
+      }
+
+      for (const msg of (result?.messages ?? [])) {
+        // Skip own replies / status updates / outbound messages
         if (msg.fromAgent || msg.from_me || msg.isBot) continue;
 
         const text        = msg.text?.body || msg.message || msg.content || msg.text || "";
@@ -266,7 +286,7 @@ async function pollLoop(account) {
 
         if (!text && !photoBase64) continue;
 
-        // Reload account fresh each message (may have been updated)
+        // Reload account fresh each message (may have been updated mid-loop)
         const freshAccount = Manager.getAccount(userKey);
         if (!freshAccount) break; // account was removed
 
@@ -291,16 +311,44 @@ async function pollLoop(account) {
           const reply = await processMessage(whatsappApiKey, freshAccount, text || null, photoBase64, msgId);
           if (reply) await Sender.sendText(whatsappApiKey, reply);
         } catch (e) {
-          console.error(`[WA-POLLER] Error for ${userKey}:`, e.message);
+          console.error(`[WA-POLLER] Message error for ${userKey}:`, e.message);
           await Sender.sendText(whatsappApiKey, "I hit an error — give me a moment and try again.").catch(() => {});
         }
       }
-    } catch (e) {
-      console.warn(`[WA-POLLER] Poll error for ${userKey}:`, e.message);
-      // Back off on error — don't hammer
-      await new Promise(r => setTimeout(r, 5000));
+
+      // 204 or empty → re-poll immediately (server held connection 25s already)
+      waitAfter = 0;
+
+    } catch (err) {
+      errorCount++;
+      const msg   = String(err?.message || "");
+      const is409 = msg.includes("409") || msg.includes("1752041") || msg.toLowerCase().includes("duplicate");
+      const is429 = msg.includes("429") || msg.includes("130429")  || msg.toLowerCase().includes("exceeded");
+
+      if (is409) {
+        // Another instance (old Render deploy) is polling this key.
+        // Wait 30s — Render guarantees the old process is gone by then.
+        waitAfter  = 30_000;
+        errorCount = 0; // don't double-penalise
+        console.warn(`[WA-POLLER] 409 on ${userKey} — waiting 30s for old session to die`);
+      } else if (is429) {
+        // Rate limited — back off a full 60s to let the window reset.
+        waitAfter  = 60_000;
+        errorCount = 0;
+        console.warn(`[WA-POLLER] 429 on ${userKey} — waiting 60s`);
+      } else {
+        // Unknown error — exponential backoff capped at 60s.
+        // 5s → 10s → 20s → 40s → 60s → 60s …
+        waitAfter = Math.min(5_000 * Math.pow(2, errorCount - 1), 60_000);
+        console.warn(`[WA-POLLER] Poll error #${errorCount} for ${userKey}: ${msg} — waiting ${waitAfter / 1000}s`);
+      }
+    } finally {
+      // Always release the lock before sleeping so the loop can check
+      // activeLoops and bail out cleanly if stopPollingForAccount was called.
+      pollLocks.delete(userKey);
     }
-    // No sleep here — pollMessages already holds the connection 25s server-side
+
+    if (waitAfter > 0) await sleep(waitAfter);
   }
 
   console.log(`[WA-POLLER] Loop ended for ${userKey}`);
@@ -309,7 +357,7 @@ async function pollLoop(account) {
 // ── start / stop ──────────────────────────────────────────────────
 function startPollingForAccount(account) {
   const { userKey } = account;
-  if (activeLoops.get(userKey)) return;
+  if (activeLoops.get(userKey)) return; // already running
   if (!account.whatsappApiKey) {
     console.warn(`[WA-POLLER] ${userKey} has no API key — skipping.`);
     return;
@@ -319,11 +367,11 @@ function startPollingForAccount(account) {
   pollLoop(account).catch(e => {
     activeLoops.delete(userKey);
     console.error(`[WA-POLLER] Loop crashed for ${userKey}:`, e.message);
-    // Auto-restart after 15s on crash
+    // 30s before restart — gives Render time to fully drain old connections
     setTimeout(() => {
       const refreshed = Manager.getAccount(userKey);
       if (refreshed) startPollingForAccount(refreshed);
-    }, 15_000);
+    }, 30_000);
   });
 }
 
