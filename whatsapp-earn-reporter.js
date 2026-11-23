@@ -33,19 +33,19 @@ const pendingOwnerApprovals = new Map();
 // ── lazy-load heavy modules ───────────────────────────────────────
 let _earnBrain = null;
 function getEarnBrain() {
-  if (!_earnBrain) _earnBrain = require("../earn-brain");
+  if (!_earnBrain) _earnBrain = require("./earn-brain");
   return _earnBrain;
 }
 
 let _brain = null;
 function getBrain() {
-  if (!_brain) _brain = require("../hermes-engine");
+  if (!_brain) _brain = require("./hermes-engine");
   return _brain;
 }
 
 let _solanaWallet = null;
 function getSolanaWallet() {
-  if (!_solanaWallet) _solanaWallet = require("../solana-wallet");
+  if (!_solanaWallet) _solanaWallet = require("./solana-wallet");
   return _solanaWallet;
 }
 
