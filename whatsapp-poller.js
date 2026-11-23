@@ -182,7 +182,7 @@ async function processMessage(apiKey, account, text, photoBase64 = null, incomin
   }
 
   const Groq = getGroq();
-  if (!Groq.isConfigured()) return "Groq isn't configured — check GROQ_API_KEY in .env.";
+  if (!Groq.isBrainConfigured()) return "No AI brain configured — set OLLAMA_API_KEY (or GROQ_API_KEY) in the environment.";
 
   const sess        = getSession(userKey);
   const userContent = photoBase64
