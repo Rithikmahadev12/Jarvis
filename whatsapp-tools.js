@@ -60,6 +60,73 @@ const NON_OWNER_TOOLS = new Set([
   "earn_status", "find_ways_to_earn", "check_wallet_balance",
 ]);
 
+// ── tool selection: does this message need tools at all? ─────────
+// Sending all ~80 tool definitions with every message is ~12k tokens
+// (over Groq's 8k/min cap) and confuses small models. Instead we pick the
+// few tools that match what the user wrote. No match => plain chat with no
+// tools, which the engine answers on the hosted sandbox Ollama; any match
+// => the few tools go to the cloud AI.
+const STOP = new Set(["the","and","for","you","your","can","could","would","please","what","whats","how","are","this","that","with","about","have","does","just","me","my","get","set","check","show","tell","make","let","hey","hello","hi","thanks","thank","ok","okay"]);
+
+// everyday words -> the tool-name words they point at
+const SYNONYMS = {
+  alarm: ["timer"], countdown: ["timer"], stopwatch: ["timer"],
+  remind: ["reminder"], remember: ["reminder"], schedule: ["reminder", "agenda"], agenda: ["agenda"],
+  forecast: ["weather"], rain: ["weather"], temperature: ["weather"], hot: ["weather"], cold: ["weather"], snow: ["weather"],
+  headlines: ["news"], headline: ["news"],
+  mail: ["email"], inbox: ["email"], gmail: ["email"],
+  money: ["wallet", "earn", "balance"], balance: ["wallet"], solana: ["wallet"], crypto: ["wallet"], sol: ["wallet"],
+  earning: ["earn"], earnings: ["earn"], income: ["earn"],
+  bounty: ["bounty"], bounties: ["bounty"], github: ["bounty"],
+  calendar: ["calendar"], meeting: ["calendar", "teams"], appointment: ["calendar", "appointment"],
+  call: ["call"], phone: ["phone", "call"], text: ["message"],
+  outreach: ["outreach"], website: ["website"], leads: ["businesses"],
+};
+
+function stemMatch(word, part) {
+  if (word.length < 4 || part.length < 4) return word === part;
+  return part.startsWith(word) || word.startsWith(part);
+}
+
+function allowedFor(account) {
+  const isOwner = account.role === "owner";
+  return (name) => {
+    if (NEVER_ON_WHATSAPP.has(name) || WEB_ONLY.has(name)) return false;
+    return isOwner || NON_OWNER_TOOLS.has(name);
+  };
+}
+
+/**
+ * @param {object} account
+ * @param {string} message
+ * @param {object[]} allTools  hermes-engine TOOLS (OpenAI function schema)
+ * @param {number} [max=6]
+ * @returns {object[]} 0..max tools. Empty array = plain chat.
+ */
+function selectTools(account, message, allTools, max = 6) {
+  const ok = allowedFor(account);
+  const words = String(message || "").toLowerCase().match(/[a-z]{3,}/g) || [];
+  const wanted = new Set();
+  for (const w of words) {
+    if (STOP.has(w)) continue;
+    wanted.add(w);
+    for (const syn of (SYNONYMS[w] || [])) wanted.add(syn);
+  }
+  if (!wanted.size) return [];
+
+  const scored = [];
+  for (const t of allTools || []) {
+    const name = t?.function?.name;
+    if (!name || !ok(name)) continue;
+    const parts = name.split("_").filter(x => x.length >= 3 && x !== "get" && x !== "set");
+    let score = 0;
+    for (const w of wanted) for (const part of parts) if (stemMatch(w, part)) score += 3;
+    if (score) scored.push({ t, score });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, max).map(x => x.t);
+}
+
 // ── executor registered by server.js ─────────────────────────────
 let _executor = null;
 function setExecutor(fn) { _executor = fn; }
@@ -250,4 +317,4 @@ function startScheduler() {
   setTimeout(deliverDue, 20_000); // catch anything that came due while we were down
 }
 
-module.exports = { executeTool, setExecutor, startScheduler, TIMEZONE };
+module.exports = { executeTool, setExecutor, startScheduler, selectTools, TIMEZONE };
