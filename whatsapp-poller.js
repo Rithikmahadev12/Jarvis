@@ -512,7 +512,10 @@ async function pollLoop(account) {
         const msgId       = msg.id || msg.message_id || null;
         const replyTo     = typeof msg.from === "string" ? msg.from : null;
 
-        if (!text && !photoBase64) continue;
+        if (!text && !photoBase64) {
+          console.log(`[WA-POLLER] ${userKey}: skipped update with no text/photo (type: ${msg.type || "unknown"}).`);
+          continue;
+        }
 
         console.log(`[WA-POLLER] Message for ${userKey}: "${String(text).slice(0, 60)}"`);
 
@@ -528,19 +531,31 @@ async function pollLoop(account) {
           continue;
         }
 
-        const freshAccount = Manager.getAccount(userKey);
-        if (!freshAccount) continue;
+        // The bootstrap listener is keyed "__bootstrap_owner__", but the real account
+        // may have been restored from B2 after boot — so also match by API key.
+        const freshAccount = Manager.getAccount(userKey) || Manager.getAccountByApiKey(whatsappApiKey);
+        if (!freshAccount) {
+          console.warn(`[WA-POLLER] Dropped message for ${userKey}: no account matches this API key and setup did not handle it.`);
+          continue;
+        }
+        if (freshAccount.userKey !== userKey) {
+          console.log(`[WA-POLLER] ${userKey}: routing to account "${freshAccount.userKey}" by API key.`);
+        }
 
         const welcome = SetupFlow.getWelcomeIfNew(freshAccount);
         if (welcome) {
           await Sender.sendText(whatsappApiKey, welcome, replyTo)
             .catch(e => console.error(`[WA-POLLER] SEND FAILED (welcome) for ${userKey}: ${e.message}`));
-          Manager.touchActive(userKey);
+          Manager.touchActive(freshAccount.userKey);
         }
 
         try {
           const reply = await processMessage(whatsappApiKey, freshAccount, text || null, photoBase64, msgId, replyTo);
-          if (reply) await Sender.sendText(whatsappApiKey, reply, replyTo);
+          if (reply) {
+            await Sender.sendText(whatsappApiKey, reply, replyTo);
+          } else {
+            console.warn(`[WA-POLLER] ${userKey}: processMessage returned no reply for "${String(text).slice(0, 40)}".`);
+          }
         } catch (e) {
           console.error(`[WA-POLLER] Message error for ${userKey}:`, e.message);
           await Sender.sendText(whatsappApiKey, `Something broke on my end — give me a moment and try again.`, replyTo).catch(() => {});
