@@ -405,7 +405,9 @@ async function processMessage(apiKey, account, text, photoBase64 = null, incomin
     //   tools: [...]     → cloud AI               (tool use)
     // We pass systemPromptOverride so it uses our wit-grammar prompt
     // instead of hermes-engine's built-in getSystemPrompt().
-    const result = await Groq.chatWithTools({
+    const t0 = Date.now();
+    console.log(`[WA-POLLER] ${userKey}: no small-talk match — calling LLM (${selectedTools.length} tool(s)) for "${String(text).slice(0, 40)}"`);
+    const llmCall = Groq.chatWithTools({
       message:              text || "describe this image",
       userTitle:            T,
       memories:             [],
@@ -416,6 +418,12 @@ async function processMessage(apiKey, account, text, photoBase64 = null, incomin
       tz:                   Tools.TIMEZONE,
       systemPromptOverride: waSystemPrompt,
     });
+    // Never let a hung model call freeze the poll loop (it runs one message at a time).
+    const result = await Promise.race([
+      llmCall,
+      new Promise((_, rej) => setTimeout(() => rej(new Error("LLM timed out after 60s")), 60_000)),
+    ]);
+    console.log(`[WA-POLLER] ${userKey}: LLM done in ${Date.now() - t0}ms (reply ${String(result?.reply || "").length} chars)`);
     reply = result?.reply || "…";
   } catch (e) {
     console.error(`[WA-POLLER] LLM error for ${userKey}:`, e.message);
