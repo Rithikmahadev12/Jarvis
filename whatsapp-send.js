@@ -55,7 +55,11 @@ function apiRequest(apiKey, method, endpoint, body = null, queryParams = {}) {
       });
     });
     // Socket timeout on a long-poll isn't an error — treat as 204
-    req.on("timeout", () => { req.destroy(); resolve({ status: 204, body: null }); });
+    req.on("timeout", () => {
+      req.destroy();
+      if (method === "GET") resolve({ status: 204, body: null });
+      else reject(new Error(`WA ${method} ${endpoint} timed out`));
+    });
     req.on("error",   (e) => reject(e));
     if (payload) req.write(payload);
     req.end();
@@ -116,6 +120,9 @@ async function sendText(apiKey, text, to = null, replyToId = null) {
   if (replyToId)  payload.context = { message_id: replyToId };
 
   const res = await apiRequest(apiKey, "POST", "/messages", payload);
+  let preview = "";
+  try { preview = JSON.stringify(res.body).slice(0, 300); } catch { preview = String(res.body).slice(0, 300); }
+  console.log(`[WA-SEND] sendText -> ${payload.to || "(no recipient)"} status ${res.status}: ${preview}`);
   if (res.status >= 400) {
     throw new Error(`WA send failed (${res.status}): ${JSON.stringify(res.body)}`);
   }
